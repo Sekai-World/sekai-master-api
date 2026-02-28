@@ -3,10 +3,19 @@ COMPOSE_FILE=deploy/compose/test-compose.yaml
 APP_PORT ?= 18080
 KEYCLOAK_PORT ?= 18081
 
-.PHONY: run test tidy dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open
+.PHONY: run dev-watch test tidy dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open
 
 run:
 	go run ./cmd/api
+
+dev-watch:
+	@AIR_CMD="air"; \
+	if ! command -v air >/dev/null 2>&1; then \
+		echo "[dev-watch] air not found, installing..."; \
+		go install github.com/air-verse/air@latest; \
+		AIR_CMD="$$(go env GOPATH)/bin/air"; \
+	fi; \
+	APP_ENV=development $$AIR_CMD -c .air.toml
 
 test:
 	go test ./...
