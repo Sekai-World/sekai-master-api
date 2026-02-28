@@ -13,6 +13,9 @@ Go RESTful API template (Gin + Keycloak + environment-based database) with Dev C
 - Devcontainer for consistent development
 - Compose-based test environment commands
 - Built-in modern admin dashboard with dedicated login page
+- Master data sync from GitHub JSON repositories (multi-region)
+- Optional master data cache backend: in-memory or Redis
+- Sync status persisted in database (`master_data_sync_status`)
 
 ## Quick Start
 
@@ -43,9 +46,57 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 ## API Endpoints
 
 - `GET /api/v1/health`
+- `GET /api/v1/master-data/status`
 - `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
+- `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
 
 All non-admin `GET` API endpoints are public (no auth middleware).
+
+## Master Data Sync
+
+At startup, the API can sync parsed game database JSON files from one or more GitHub repositories into cache.
+
+- Region source repos are configured by env vars.
+- Each region can point to a different repository/ref/path.
+- Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
+- Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
+- You can inspect status via `GET /api/v1/master-data/status`.
+- You can trigger manual sync from dashboard or call `POST /api/v1/admin/master-data/sync`.
+
+### Required env setup pattern
+
+1. Set region list:
+   - `MASTER_DATA_REGIONS=jp,global`
+2. Configure each region source:
+   - `MASTER_DATA_GITHUB_OWNER_<REGION>`
+   - `MASTER_DATA_GITHUB_REPO_<REGION>`
+   - `MASTER_DATA_GITHUB_REF_<REGION>`
+   - `MASTER_DATA_GITHUB_PATH_<REGION>`
+
+`<REGION>` uses uppercase, non-alphanumeric chars replaced by `_`.
+
+Example for `jp`:
+
+- `MASTER_DATA_GITHUB_OWNER_JP=Sekai-World`
+- `MASTER_DATA_GITHUB_REPO_JP=sekai-master-data-jp`
+- `MASTER_DATA_GITHUB_REF_JP=main`
+- `MASTER_DATA_GITHUB_PATH_JP=data`
+
+### Cache backend
+
+- `MASTER_DATA_CACHE_BACKEND=memory` (default): store parsed JSON in process memory
+- `MASTER_DATA_CACHE_BACKEND=redis`: store parsed JSON per region in Redis key-value
+
+Redis settings:
+
+- `REDIS_ADDR`
+- `REDIS_PASSWORD`
+- `REDIS_DB`
+- `MASTER_DATA_REDIS_KEY_PREFIX`
+
+### Optional GitHub token
+
+Set `MASTER_DATA_GITHUB_TOKEN` if you need higher GitHub API rate limit.
 
 ## Admin Dashboard
 
