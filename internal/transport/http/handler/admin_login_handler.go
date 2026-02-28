@@ -2,7 +2,9 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,6 +31,11 @@ type keycloakTokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"`
+}
+
+type keycloakErrorResponse struct {
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
 }
 
 func NewAdminLoginHandler(cfg config.Config) *AdminLoginHandler {
@@ -75,6 +82,7 @@ func (handler *AdminLoginHandler) Login(c *gin.Context) {
 
 	resp, err := handler.httpClient.Do(request)
 	if err != nil {
+		logWithRequestID(c, "admin login keycloak request failed: endpoint=%s error=%v", handler.tokenEndpoint, err)
 		response.Error(c, http.StatusBadGateway, "KEYCLOAK_UNAVAILABLE", "failed to connect keycloak")
 		return
 	}
@@ -82,21 +90,36 @@ func (handler *AdminLoginHandler) Login(c *gin.Context) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		logWithRequestID(c, "admin login failed to read keycloak response: status=%d error=%v", resp.StatusCode, err)
 		response.Error(c, http.StatusBadGateway, "KEYCLOAK_RESPONSE_ERROR", "failed to read keycloak response")
 		return
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		response.Error(c, http.StatusUnauthorized, "LOGIN_FAILED", "invalid username or password")
+		var keycloakErr keycloakErrorResponse
+		if err := json.Unmarshal(body, &keycloakErr); err == nil && (keycloakErr.Error != "" || keycloakErr.ErrorDescription != "") {
+			logWithRequestID(c, "admin login rejected by keycloak: status=%d error=%s description=%s", resp.StatusCode, keycloakErr.Error, keycloakErr.ErrorDescription)
+		} else {
+			logWithRequestID(c, "admin login rejected by keycloak: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
+		}
+
+		if resp.StatusCode >= http.StatusInternalServerError {
+			response.Error(c, http.StatusBadGateway, "KEYCLOAK_UNAVAILABLE", "failed to connect keycloak")
+			return
+		}
+
+		response.Error(c, http.StatusUnauthorized, "LOGIN_FAILED", "login failed")
 		return
 	}
 
 	var keycloakResp keycloakTokenResponse
 	if err := json.Unmarshal(body, &keycloakResp); err != nil {
+		logWithRequestID(c, "admin login received invalid keycloak token response: status=%d error=%v body=%s", resp.StatusCode, err, sanitizeLogBody(string(body)))
 		response.Error(c, http.StatusBadGateway, "KEYCLOAK_RESPONSE_ERROR", "invalid keycloak token response")
 		return
 	}
 	if strings.TrimSpace(keycloakResp.AccessToken) == "" {
+		logWithRequestID(c, "admin login keycloak response missing access token: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
 		response.Error(c, http.StatusBadGateway, "KEYCLOAK_RESPONSE_ERROR", "keycloak token missing")
 		return
 	}
@@ -106,4 +129,22 @@ func (handler *AdminLoginHandler) Login(c *gin.Context) {
 		"token_type":   keycloakResp.TokenType,
 		"expires_in":   keycloakResp.ExpiresIn,
 	})
+}
+
+func sanitizeLogBody(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if len(trimmed) <= 512 {
+		return trimmed
+	}
+
+	return trimmed[:512] + "..."
+}
+
+func logWithRequestID(c *gin.Context, format string, args ...any) {
+	requestID := strings.TrimSpace(c.GetString("request_id"))
+	if requestID == "" {
+		requestID = "missing"
+	}
+
+	log.Printf("request_id=%s %s", requestID, fmt.Sprintf(format, args...))
 }

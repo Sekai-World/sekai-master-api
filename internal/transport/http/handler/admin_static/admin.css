@@ -121,3 +121,30 @@ pre {
   margin-top: 10px;
   color: var(--danger);
 }
+
+.profile-card {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-item {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 72%, black);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.profile-label {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.profile-value {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-word;
+}
