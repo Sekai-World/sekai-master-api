@@ -108,6 +108,22 @@ button.is-loading {
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
+.panel-wide {
+  grid-column: 1 / -1;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.panel-header h2 {
+  margin: 0;
+}
+
 pre {
   margin: 0;
   white-space: pre-wrap;
@@ -155,4 +171,57 @@ pre {
 
 .status-down {
   color: var(--danger);
+}
+
+.status-pending {
+  color: #facc15;
+}
+
+.sync-message {
+  min-height: 22px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.sync-message.is-error {
+  color: var(--danger);
+}
+
+.sync-message.is-success {
+  color: #34d399;
+}
+
+.master-data-status-list {
+  display: grid;
+  gap: 10px;
+}
+
+.master-data-status-item {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 72%, black);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.master-data-status-item .label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.master-data-status-item .value {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .master-data-status-item {
+    grid-template-columns: 1fr;
+  }
 }

@@ -3,16 +3,15 @@ tmp_dir = "tmp/air"
 
 [build]
 cmd = "go build -o ./tmp/air/main ./cmd/api"
-bin = "./tmp/air/main"
-full_bin = "APP_ENV=development ./tmp/air/main"
-include_ext = ["go", "env"]
+entrypoint = "./tmp/air/main"
+include_ext = ["go", "env", "html", "css", "js"]
 exclude_dir = ["tmp", "bin", ".git", ".devcontainer"]
 exclude_file = []
 exclude_regex = ["_test\\.go"]
 delay = 300
 stop_on_error = true
 send_interrupt = true
-kill_delay = 500
+kill_delay = "500ms"
 
 [log]
 time = true

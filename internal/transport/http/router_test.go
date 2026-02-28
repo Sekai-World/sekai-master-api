@@ -31,7 +31,7 @@ func setupRouter(t *testing.T) http.Handler {
 		AppEnv: "test",
 	}
 
-	return NewRouter(cfg, nil, mockVerifier{})
+	return NewRouter(cfg, nil, mockVerifier{}, nil)
 }
 
 func TestHealth(t *testing.T) {
@@ -56,6 +56,18 @@ func TestProfileUnauthorized(t *testing.T) {
 
 	if profileResp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 on profile without token, got %d", profileResp.Code)
+	}
+}
+
+func TestMasterDataSyncUnauthorized(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/master-data/sync", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on master-data sync without token, got %d", resp.Code)
 	}
 }
 
