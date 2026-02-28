@@ -1,0 +1,123 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --bg-soft: #1e293b;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --danger: #f87171;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at top right, #1d4ed8 0%, var(--bg) 38%);
+  min-height: 100vh;
+}
+
+.admin-bg {
+  padding: 24px;
+}
+
+.auth-shell {
+  min-height: calc(100vh - 48px);
+  display: grid;
+  place-items: center;
+}
+
+.auth-card {
+  width: min(720px, 100%);
+  background: color-mix(in srgb, var(--bg-soft) 90%, black);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.subtitle {
+  margin: 8px 0 20px;
+  color: var(--muted);
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+input,
+textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  background: #0b1120;
+  color: var(--text);
+  padding: 12px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #031321;
+  background: linear-gradient(135deg, #7dd3fc, var(--accent));
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:disabled,
+button.is-loading {
+  opacity: 0.75;
+  cursor: wait;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 0 auto 24px;
+  max-width: 1100px;
+}
+
+.topbar p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.panel {
+  background: color-mix(in srgb, var(--bg-soft) 90%, black);
+  border-radius: 14px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+  color: #cbd5e1;
+}
+
+.error-text {
+  min-height: 20px;
+  margin-top: 10px;
+  color: var(--danger);
+}
