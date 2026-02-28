@@ -1,0 +1,27 @@
+{
+  "name": "sekai-master-api-dev",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "containerEnv": {
+    "DOCKER_HOST": "unix:///var/run/docker-host.sock",
+    "CGO_ENABLED": "0"
+  },
+  "runArgs": [
+    "--group-add=${localEnv:PODMAN_SOCK_GID:0}"
+  ],
+  "mounts": [
+    "source=${localEnv:PODMAN_SOCK_PATH:/var/run/docker.sock},target=/var/run/docker-host.sock,type=bind"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "postCreateCommand": "go mod tidy"
+}

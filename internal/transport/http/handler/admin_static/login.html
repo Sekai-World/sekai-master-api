@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sekai Admin Login</title>
+    <link rel="stylesheet" href="/admin/assets/admin.css" />
+  </head>
+  <body class="admin-bg">
+    <main class="auth-shell">
+      <section class="auth-card">
+        <h1>Sekai Admin</h1>
+        <p class="subtitle">使用 Keycloak 用户名和密码登录管理后台</p>
+
+        <form id="login-form" class="auth-form">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" required />
+
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+          <button type="submit">登录 Dashboard</button>
+        </form>
+
+        <p id="login-error" class="error-text" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <script src="/admin/assets/admin.js" defer></script>
+  </body>
+</html>

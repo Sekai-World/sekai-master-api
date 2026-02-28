@@ -1,0 +1,38 @@
+# Environment files (keep tracked templates/profiles)
+.env
+.env*
+.env.local
+.env.*.local
+.envrc
+
+# Go build/test artifacts
+bin/
+dist/
+build/
+*.test
+*.out
+coverage.out
+coverage/
+*.coverprofile
+*.prof
+
+# Runtime/temp data
+tmp/
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Exceptions
+!.env.example
+!.env.test
+!.env.development
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sekai Admin Dashboard</title>
+    <link rel="stylesheet" href="/admin/assets/admin.css" />
+  </head>
+  <body class="admin-bg">
+    <header class="topbar">
+      <div>
+        <h1>Admin Dashboard</h1>
+        <p>仅用于管理端权限校验与状态查看</p>
+      </div>
+      <button id="logout">退出登录</button>
+    </header>
+
+    <main class="dashboard-grid">
+      <section class="panel">
+        <h2>服务状态</h2>
+        <pre id="health-view">加载中...</pre>
+      </section>
+
+      <section class="panel">
+        <h2>当前管理员 Claims</h2>
+        <pre id="profile-view">加载中...</pre>
+      </section>
+    </main>
+
+    <script src="/admin/assets/admin.js" defer></script>
+  </body>
+</html>
