@@ -19,7 +19,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier) 
 
 	healthHandler := handler.NewHealthHandler(db)
 	profileHandler := handler.NewProfileHandler()
-	adminUIHandler := handler.NewAdminUIHandler()
+	adminUIHandler := handler.NewAdminUIHandler(cfg)
 	adminLoginHandler := handler.NewAdminLoginHandler(cfg)
 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
