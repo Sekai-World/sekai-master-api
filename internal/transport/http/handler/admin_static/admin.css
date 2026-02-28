@@ -148,3 +148,11 @@ pre {
   font-weight: 600;
   word-break: break-word;
 }
+
+.status-up {
+  color: #34d399;
+}
+
+.status-down {
+  color: var(--danger);
+}
