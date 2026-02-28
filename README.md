@@ -36,7 +36,9 @@ This repo provides `.env.test` for local testing. Typical flow:
 For local development with PostgreSQL, use `.env.development` with `DATABASE_DRIVER=pgx`, then run:
 
 - `make dev-env-up`
-- `APP_ENV=development go run ./cmd/api`
+- `make dev-watch`
+
+`make dev-watch` uses `air` for hot restart on Go code changes.
 
 ## API Endpoints
 
