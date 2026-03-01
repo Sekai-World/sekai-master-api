@@ -27,6 +27,9 @@ const statusValueClass = (status) => {
   if (normalized === "pending") {
     return "status-pending";
   }
+  if (normalized === "running") {
+    return "status-pending";
+  }
   if (normalized === "down" || normalized === "error") {
     return "status-down";
   }
@@ -77,10 +80,16 @@ const formatProgressMessage = (payload) => {
   const regionPart = payload?.region ? `${payload.region} ` : "";
   const phasePart = payload?.phase ? `${String(payload.phase).toUpperCase()} ` : "";
   const filePart = Number(payload?.file_count) > 0 ? `files=${payload.file_count} ` : "";
+  const processedPart =
+    Number(payload?.processed_files) > 0 && Number(payload?.total_files) > 0
+      ? `progress=${payload.processed_files}/${payload.total_files} `
+      : "";
+  const failedPart = Number(payload?.failed_files) > 0 ? `failed=${payload.failed_files} ` : "";
+  const filePathPart = payload?.file_path ? `file=${payload.file_path} ` : "";
   const durationPart = Number(payload?.duration_ms) >= 0 ? `${formatDuration(payload.duration_ms)} ` : "";
   const messagePart = payload?.message ? String(payload.message) : "";
 
-  return `${stepPart}${regionPart}${phasePart}${filePart}${durationPart}${messagePart}`.trim();
+  return `${stepPart}${regionPart}${phasePart}${processedPart}${filePart}${failedPart}${filePathPart}${durationPart}${messagePart}`.trim();
 };
 
 const firstErrorMessage = (payload) =>
@@ -114,18 +123,48 @@ const renderMasterDataItems = (items) => {
     return rightTime - leftTime;
   });
 
-  return sortedItems
+  const latestByRegion = new Map();
+  for (const item of sortedItems) {
+    const regionKey = String(item?.region ?? "").trim().toLowerCase();
+    if (!regionKey || latestByRegion.has(regionKey)) {
+      continue;
+    }
+    latestByRegion.set(regionKey, item);
+  }
+
+  const regionItems = [...latestByRegion.values()];
+
+  return regionItems
     .map(
-      (item) => `
+      (item) => {
+        const totalFiles = Number(item.total_files);
+        const processedFiles = Number(item.processed_files);
+        const failedFiles = Number(item.failed_files);
+        const hasProgress = Number.isFinite(totalFiles) && totalFiles > 0;
+        const safeProcessed = hasProgress ? Math.max(0, Math.min(totalFiles, Number.isFinite(processedFiles) ? processedFiles : 0)) : 0;
+        const progressPercent = hasProgress ? Math.round((safeProcessed / totalFiles) * 100) : 0;
+        const progressText = hasProgress
+          ? `${safeProcessed}/${totalFiles}${failedFiles > 0 ? ` (失败 ${failedFiles})` : ""}`
+          : "-";
+
+        return `
       <div class="master-data-status-item">
         <div><span class="label">地区</span><span class="value">${escapeHTML(item.region || "-")}</span></div>
         <div><span class="label">状态</span><span class="value ${escapeHTML(statusValueClass(item.status))}">${escapeHTML(formatStatusDisplay(item.status))}</span></div>
+        <div>
+          <span class="label">进度</span>
+          <span class="value">${escapeHTML(progressText)}</span>
+          <div class="status-progress-track">
+            <div class="status-progress-fill" style="width: ${progressPercent}%;"></div>
+          </div>
+        </div>
         <div><span class="label">文件数</span><span class="value">${escapeHTML(String(item.file_count ?? "-"))}</span></div>
         <div><span class="label">耗时</span><span class="value">${escapeHTML(formatDuration(item.sync_duration_ms))}</span></div>
         <div><span class="label">上次同步</span><span class="value">${escapeHTML(formatTime(item.last_synced_at))}</span></div>
         <div><span class="label">错误</span><span class="value">${escapeHTML(item.error_message || "-")}</span></div>
       </div>
-    `,
+    `;
+      },
     )
     .join("");
 };
@@ -143,6 +182,7 @@ export const initDashboardPage = async () => {
   }
 
   const progressHistory = [];
+  const statusByRegion = new Map();
   const maxProgressHistory = 12;
   const renderProgressHistory = () => {
     if (progressHistory.length === 0) {
@@ -168,6 +208,86 @@ export const initDashboardPage = async () => {
       progressHistory.length = maxProgressHistory;
     }
     renderProgressHistory();
+  };
+
+  const setStatusItems = (items) => {
+    statusByRegion.clear();
+    for (const item of Array.isArray(items) ? items : []) {
+      const regionKey = String(item?.region ?? "").trim().toLowerCase();
+      if (!regionKey) {
+        continue;
+      }
+
+      const existing = statusByRegion.get(regionKey);
+      const existingTime = toTimestamp(existing?.updated_at || existing?.last_synced_at);
+      const incomingTime = toTimestamp(item?.updated_at || item?.last_synced_at);
+      if (!existing || incomingTime >= existingTime) {
+        statusByRegion.set(regionKey, item);
+      }
+    }
+  };
+
+  const upsertStatusItem = (item) => {
+    const regionKey = String(item?.region ?? "").trim().toLowerCase();
+    if (!regionKey) {
+      return;
+    }
+
+    const existing = statusByRegion.get(regionKey);
+    const existingTime = toTimestamp(existing?.updated_at || existing?.last_synced_at);
+    const incomingTime = toTimestamp(item?.updated_at || item?.last_synced_at);
+    if (!existing || incomingTime >= existingTime) {
+      statusByRegion.set(regionKey, item);
+    }
+  };
+
+  const upsertProgressItem = (payload) => {
+    const regionKey = String(payload?.region ?? "").trim().toLowerCase();
+    if (!regionKey) {
+      return;
+    }
+
+    const existing = statusByRegion.get(regionKey) ?? { region: payload.region };
+    const nowISO = new Date().toISOString();
+
+    const merged = {
+      ...existing,
+      region: payload.region ?? existing.region,
+      status:
+        String(payload?.status ?? "").toLowerCase() === "running"
+          ? "pending"
+          : payload?.status ?? existing.status,
+      processed_files:
+        Number.isFinite(Number(payload?.processed_files)) && Number(payload?.processed_files) >= 0
+          ? Number(payload.processed_files)
+          : existing.processed_files,
+      total_files:
+        Number.isFinite(Number(payload?.total_files)) && Number(payload?.total_files) >= 0
+          ? Number(payload.total_files)
+          : existing.total_files,
+      failed_files:
+        Number.isFinite(Number(payload?.failed_files)) && Number(payload?.failed_files) >= 0
+          ? Number(payload.failed_files)
+          : existing.failed_files,
+      updated_at: payload?.updated_at || existing.updated_at || nowISO,
+      last_synced_at:
+        String(payload?.status ?? "").toLowerCase() === "success" || String(payload?.status ?? "").toLowerCase() === "failed"
+          ? payload?.updated_at || existing.last_synced_at || nowISO
+          : existing.last_synced_at,
+    };
+
+    if (Number.isFinite(Number(payload?.file_count)) && Number(payload?.file_count) >= 0) {
+      merged.file_count = Number(payload.file_count);
+    }
+    if (Number.isFinite(Number(payload?.duration_ms)) && Number(payload?.duration_ms) >= 0) {
+      merged.sync_duration_ms = Number(payload.duration_ms);
+    }
+
+    statusByRegion.set(regionKey, merged);
+  };
+
+  const renderStatusFromMap = () => {
+    masterDataStatusView.innerHTML = renderMasterDataItems([...statusByRegion.values()]);
   };
 
   renderProgressHistory();
@@ -214,7 +334,8 @@ export const initDashboardPage = async () => {
       return;
     }
 
-    masterDataStatusView.innerHTML = renderMasterDataItems(statusResult.payload?.items ?? []);
+    setStatusItems(statusResult.payload?.items ?? []);
+    renderStatusFromMap();
   };
 
   let statusRefreshTimer = null;
@@ -250,8 +371,27 @@ export const initDashboardPage = async () => {
     syncMessage.textContent = progressText || "同步进行中...";
     pushProgressHistory(syncMessage.textContent, normalizedStatus === "failed");
 
+    if (payload?.region) {
+      upsertProgressItem(payload);
+      renderStatusFromMap();
+    }
+
     if (normalizedStatus === "success" || normalizedStatus === "failed") {
       scheduleStatusRefresh();
+    }
+  });
+
+  eventSource.addEventListener("master_data_status", (event) => {
+    let payload = null;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      payload = null;
+    }
+
+    if (payload?.status_item) {
+      upsertStatusItem(payload.status_item);
+      renderStatusFromMap();
     }
   });
 

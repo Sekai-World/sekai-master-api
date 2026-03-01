@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -47,6 +48,10 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 	defer cancel()
 
 	if err := handler.masterDataSync.SyncAll(ctx); err != nil {
+		if errors.Is(err, usecase.ErrSyncInProgress) {
+			response.Error(c, http.StatusConflict, "MASTER_DATA_SYNC_RUNNING", "master data sync is already running")
+			return
+		}
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_SYNC_FAILED", "master data sync completed with errors: "+err.Error())
 		return
 	}

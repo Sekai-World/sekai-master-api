@@ -59,6 +59,7 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 	}
 
 	nextIndex := make(map[string]map[string][]searchIndexItem)
+	touchedEntities := make(map[string]struct{})
 	for filePath, value := range payload {
 		entity := entityNameFromPath(filePath)
 		if entity == "" {
@@ -70,16 +71,23 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 			continue
 		}
 
+		touchedEntities[entity] = struct{}{}
+
 		key := cache.redisEntityKey(regionName, entity)
 		orderKey := cache.redisEntityOrderKey(regionName, entity)
-		if err := cache.client.Del(ctx, key).Err(); err != nil {
-			return fmt.Errorf("clear redis key for region %s entity %s: %w", regionName, entity, err)
+
+		existingRecords, err := cache.client.HGetAll(ctx, key).Result()
+		if err != nil {
+			return fmt.Errorf("hgetall redis key for region %s entity %s: %w", regionName, entity, err)
 		}
-		if err := cache.client.Del(ctx, orderKey).Err(); err != nil {
-			return fmt.Errorf("clear redis order key for region %s entity %s: %w", regionName, entity, err)
+
+		existingOrder, err := cache.client.LRange(ctx, orderKey, 0, -1).Result()
+		if err != nil {
+			return fmt.Errorf("lrange redis order key for region %s entity %s: %w", regionName, entity, err)
 		}
 
 		orderedIDs := make([]string, 0, len(records))
+		nextRecords := make(map[string]string, len(records))
 
 		for _, record := range records {
 			recordMap, ok := record.(map[string]any)
@@ -97,9 +105,7 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 				return fmt.Errorf("marshal record region %s entity %s id %s: %w", regionName, entity, id, err)
 			}
 
-			if err := cache.client.HSet(ctx, key, id, body).Err(); err != nil {
-				return fmt.Errorf("hset record region %s entity %s id %s: %w", regionName, entity, id, err)
-			}
+			nextRecords[id] = string(body)
 			orderedIDs = append(orderedIDs, id)
 
 			searchable := searchableFields(recordMap)
@@ -119,22 +125,84 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 			}
 		}
 
-		if len(orderedIDs) > 0 {
-			values := make([]any, 0, len(orderedIDs))
-			for _, id := range orderedIDs {
-				values = append(values, id)
+		toUpsert := make(map[string]any)
+		for id, body := range nextRecords {
+			existingBody, exists := existingRecords[id]
+			if !exists || existingBody != body {
+				toUpsert[id] = body
 			}
-			if err := cache.client.RPush(ctx, orderKey, values...).Err(); err != nil {
-				return fmt.Errorf("rpush order ids region %s entity %s: %w", regionName, entity, err)
+		}
+
+		toDelete := make([]string, 0)
+		for id := range existingRecords {
+			if _, exists := nextRecords[id]; !exists {
+				toDelete = append(toDelete, id)
 			}
+		}
+
+		pipe := cache.client.Pipeline()
+		if len(toUpsert) > 0 {
+			pipe.HSet(ctx, key, toUpsert)
+		}
+		if len(toDelete) > 0 {
+			pipe.HDel(ctx, key, toDelete...)
+		}
+		if !equalStringSlices(existingOrder, orderedIDs) {
+			pipe.Del(ctx, orderKey)
+			if len(orderedIDs) > 0 {
+				values := make([]any, 0, len(orderedIDs))
+				for _, id := range orderedIDs {
+					values = append(values, id)
+				}
+				pipe.RPush(ctx, orderKey, values...)
+			}
+		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			return fmt.Errorf("incremental update region %s entity %s: %w", regionName, entity, err)
 		}
 	}
 
 	cache.mu.Lock()
-	cache.index[regionName] = nextIndex
+	cache.index[regionName] = mergeRegionIndex(cache.index[regionName], nextIndex, touchedEntities)
 	cache.mu.Unlock()
 
 	return nil
+}
+
+func equalStringSlices(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func mergeRegionIndex(
+	existing map[string]map[string][]searchIndexItem,
+	next map[string]map[string][]searchIndexItem,
+	touched map[string]struct{},
+) map[string]map[string][]searchIndexItem {
+	merged := make(map[string]map[string][]searchIndexItem)
+	for entity, fields := range existing {
+		merged[entity] = fields
+	}
+
+	for entity := range touched {
+		fields, ok := next[entity]
+		if !ok || len(fields) == 0 {
+			delete(merged, entity)
+			continue
+		}
+		merged[entity] = fields
+	}
+
+	return merged
 }
 
 func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {

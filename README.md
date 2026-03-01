@@ -77,9 +77,13 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 
 - Region source repos are configured by env vars.
 - Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `4`).
+- Per-region file loading parallelism is controlled by `MASTER_DATA_REGION_FILE_CONCURRENCY` (default `8`).
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
+- Startup sync compares the region source commit first; if unchanged, it skips reload for that region.
+- For changed regions, cache writes are applied incrementally (upsert changed records and remove deleted records), not full key flush.
 - Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
+- Sync status also includes `source_commit` for change tracking and skip decisions.
 - You can inspect status via `GET /api/v1/master-data/status`.
 - You can trigger manual sync from dashboard or call `POST /api/v1/admin/master-data/sync`.
 

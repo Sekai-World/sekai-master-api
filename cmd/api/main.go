@@ -42,8 +42,12 @@ func main() {
 	}
 
 	masterDataSources := buildMasterDataSources(cfg)
-	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db)
-	masterDataLoader := repository.NewGitHubMasterDataRepository(time.Duration(cfg.MasterDataHTTPTimeout)*time.Second, cfg.MasterDataGitHubToken)
+	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db, cfg.DatabaseDriver())
+	masterDataLoader := repository.NewGitHubMasterDataRepository(
+		time.Duration(cfg.MasterDataHTTPTimeout)*time.Second,
+		cfg.MasterDataGitHubToken,
+		cfg.MasterDataFileConcurrency,
+	)
 	masterDataEventHub := usecase.NewMasterDataEventHub()
 	masterDataCache, err := storage.NewRedisMasterDataCache(cfg)
 	if err != nil {
