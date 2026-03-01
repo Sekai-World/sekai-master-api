@@ -86,12 +86,35 @@ const formatProgressMessage = (payload) => {
 const firstErrorMessage = (payload) =>
   payload?.error?.message || payload?.message || payload?.error || "请求失败";
 
+const toTimestamp = (value) => {
+  if (!value) {
+    return 0;
+  }
+
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) {
+    return 0;
+  }
+
+  return time;
+};
+
 const renderMasterDataItems = (items) => {
   if (!Array.isArray(items) || items.length === 0) {
     return '<div class="profile-item"><span class="profile-label">状态</span><span class="profile-value">暂无同步记录</span></div>';
   }
 
-  return items
+  const sortedItems = [...items].sort((left, right) => {
+    const leftTime = toTimestamp(left?.updated_at || left?.last_synced_at);
+    const rightTime = toTimestamp(right?.updated_at || right?.last_synced_at);
+    if (leftTime === rightTime) {
+      return String(left?.region ?? "").localeCompare(String(right?.region ?? ""));
+    }
+
+    return rightTime - leftTime;
+  });
+
+  return sortedItems
     .map(
       (item) => `
       <div class="master-data-status-item">
@@ -194,6 +217,18 @@ export const initDashboardPage = async () => {
     masterDataStatusView.innerHTML = renderMasterDataItems(statusResult.payload?.items ?? []);
   };
 
+  let statusRefreshTimer = null;
+  const scheduleStatusRefresh = () => {
+    if (statusRefreshTimer) {
+      clearTimeout(statusRefreshTimer);
+    }
+
+    statusRefreshTimer = setTimeout(async () => {
+      statusRefreshTimer = null;
+      await loadMasterDataStatus();
+    }, 200);
+  };
+
   await loadMasterDataStatus();
 
   const eventSource = new EventSource("/api/v1/master-data/events");
@@ -214,6 +249,10 @@ export const initDashboardPage = async () => {
     const progressText = formatProgressMessage(payload);
     syncMessage.textContent = progressText || "同步进行中...";
     pushProgressHistory(syncMessage.textContent, normalizedStatus === "failed");
+
+    if (normalizedStatus === "success" || normalizedStatus === "failed") {
+      scheduleStatusRefresh();
+    }
   });
 
   eventSource.addEventListener("master_data_updated", async (event) => {
@@ -232,6 +271,10 @@ export const initDashboardPage = async () => {
   });
 
   window.addEventListener("beforeunload", () => {
+    if (statusRefreshTimer) {
+      clearTimeout(statusRefreshTimer);
+      statusRefreshTimer = null;
+    }
     eventSource.close();
   });
 
