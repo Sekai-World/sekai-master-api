@@ -18,6 +18,7 @@ type fakeCardHandlerCache struct {
 	listItems     []map[string]any
 	listTotal     int
 	searchMatches []masterdata.SearchMatch
+	rarityMatches []masterdata.SearchMatch
 	lastSearch    struct {
 		region string
 		entity string
@@ -25,6 +26,29 @@ type fakeCardHandlerCache struct {
 		fields []string
 		limit  int
 	}
+}
+
+type fakeCardHandlerStatusStore struct {
+	statuses []masterdata.SyncStatus
+}
+
+func newReadyCardHandler(cache *fakeCardHandlerCache) *CardHandler {
+	statusStore := &fakeCardHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{
+			{Region: "jp", Status: "success"},
+		},
+	}
+
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	return NewCardHandler(syncUsecase)
+}
+
+func (store *fakeCardHandlerStatusStore) Save(_ context.Context, _ masterdata.SyncStatus) error {
+	return nil
+}
+
+func (store *fakeCardHandlerStatusStore) List(_ context.Context) ([]masterdata.SyncStatus, error) {
+	return store.statuses, nil
 }
 
 func (cache *fakeCardHandlerCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
@@ -57,6 +81,9 @@ func (cache *fakeCardHandlerCache) Search(_ context.Context, region, entity, que
 	cache.lastSearch.query = query
 	cache.lastSearch.limit = limit
 	cache.lastSearch.fields = append([]string{}, fields...)
+	if entity == "cardrarities" {
+		return cache.rarityMatches, nil
+	}
 	return cache.searchMatches, nil
 }
 
@@ -64,6 +91,16 @@ func TestBuildCardBaseMapsCardSupply(t *testing.T) {
 	cache := &fakeCardHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
+				"gamecharacters": {
+					"30": {
+						"id":                     30,
+						"firstName":              "Miku",
+						"live2dHeightAdjustment": 1,
+						"figure":                 "x",
+						"breastSize":             "y",
+						"modelName":              "z",
+					},
+				},
 				"skills": {
 					"20": {
 						"id":   20,
@@ -84,10 +121,15 @@ func TestBuildCardBaseMapsCardSupply(t *testing.T) {
 	handler := NewCardHandler(syncUsecase)
 
 	card := map[string]any{
-		"id":           1001,
-		"prefix":       "test-prefix",
-		"cardSupplyId": 10,
-		"skillId":      20,
+		"id":             1001,
+		"characterId":    30,
+		"cardRarityType": "rarity_4",
+		"prefix":         "test-prefix",
+		"cardSupplyId":   10,
+		"skillId":        20,
+	}
+	cache.rarityMatches = []masterdata.SearchMatch{
+		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
 	}
 
 	result := handler.buildCardBase(context.Background(), "jp", card)
@@ -127,6 +169,48 @@ func TestBuildCardBaseMapsCardSupply(t *testing.T) {
 	if skillMap["id"] != 20 {
 		t.Fatalf("expected skill.id=20, got %v", skillMap["id"])
 	}
+
+	if _, exists := result["characterId"]; exists {
+		t.Fatalf("expected characterId to be removed from response")
+	}
+
+	characterRaw, exists := result["character"]
+	if !exists {
+		t.Fatalf("expected character field in response")
+	}
+
+	characterMap, ok := characterRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected character to be object, got %T", characterRaw)
+	}
+
+	if characterMap["id"] != 30 {
+		t.Fatalf("expected character.id=30, got %v", characterMap["id"])
+	}
+
+	for _, removed := range []string{"live2dHeightAdjustment", "figure", "breastSize", "modelName"} {
+		if _, exists := characterMap[removed]; exists {
+			t.Fatalf("expected character.%s to be removed", removed)
+		}
+	}
+
+	if _, exists := result["cardRarityType"]; exists {
+		t.Fatalf("expected cardRarityType to be removed from response")
+	}
+
+	cardRarityRaw, exists := result["cardRarity"]
+	if !exists {
+		t.Fatalf("expected cardRarity field in response")
+	}
+
+	cardRarity, ok := cardRarityRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected cardRarity to be object, got %T", cardRarityRaw)
+	}
+
+	if cardRarity["cardRarityType"] != "rarity_4" {
+		t.Fatalf("expected cardRarity.cardRarityType=rarity_4, got %v", cardRarity["cardRarityType"])
+	}
 }
 
 func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
@@ -135,6 +219,16 @@ func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
 	cache := &fakeCardHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
+				"gamecharacters": {
+					"30": {
+						"id":                     30,
+						"firstName":              "Miku",
+						"live2dHeightAdjustment": 1,
+						"figure":                 "x",
+						"breastSize":             "y",
+						"modelName":              "z",
+					},
+				},
 				"skills": {
 					"20": {
 						"id":   20,
@@ -143,10 +237,12 @@ func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
 				},
 				"cards": {
 					"1001": {
-						"id":           1001,
-						"prefix":       "test-prefix",
-						"cardSupplyId": 10,
-						"skillId":      20,
+						"id":             1001,
+						"cardRarityType": "rarity_4",
+						"characterId":    30,
+						"prefix":         "test-prefix",
+						"cardSupplyId":   10,
+						"skillId":        20,
 					},
 				},
 				"cardsupplies": {
@@ -158,9 +254,11 @@ func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
 			},
 		},
 	}
+	cache.rarityMatches = []masterdata.SearchMatch{
+		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+	}
 
-	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
-	cardHandler := NewCardHandler(syncUsecase)
+	cardHandler := newReadyCardHandler(cache)
 
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/:id", cardHandler.ByID)
@@ -213,6 +311,48 @@ func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
 	if skill["id"] != float64(20) {
 		t.Fatalf("expected skill.id=20, got %v", skill["id"])
 	}
+
+	if _, exists := body["characterId"]; exists {
+		t.Fatalf("expected characterId to be removed from endpoint response")
+	}
+
+	characterRaw, exists := body["character"]
+	if !exists {
+		t.Fatalf("expected character field in endpoint response")
+	}
+
+	character, ok := characterRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected character object, got %T", characterRaw)
+	}
+
+	if character["id"] != float64(30) {
+		t.Fatalf("expected character.id=30, got %v", character["id"])
+	}
+
+	for _, removed := range []string{"live2dHeightAdjustment", "figure", "breastSize", "modelName"} {
+		if _, exists := character[removed]; exists {
+			t.Fatalf("expected character.%s to be removed", removed)
+		}
+	}
+
+	if _, exists := body["cardRarityType"]; exists {
+		t.Fatalf("expected cardRarityType to be removed from endpoint response")
+	}
+
+	cardRarityRaw, exists := body["cardRarity"]
+	if !exists {
+		t.Fatalf("expected cardRarity field in endpoint response")
+	}
+
+	cardRarity, ok := cardRarityRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected cardRarity object, got %T", cardRarityRaw)
+	}
+
+	if cardRarity["cardRarityType"] != "rarity_4" {
+		t.Fatalf("expected cardRarity.cardRarityType=rarity_4, got %v", cardRarity["cardRarityType"])
+	}
 }
 
 func TestCardListEndpointMapsCardSupply(t *testing.T) {
@@ -221,6 +361,16 @@ func TestCardListEndpointMapsCardSupply(t *testing.T) {
 	cache := &fakeCardHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
+				"gamecharacters": {
+					"30": {
+						"id":                     30,
+						"firstName":              "Miku",
+						"live2dHeightAdjustment": 1,
+						"figure":                 "x",
+						"breastSize":             "y",
+						"modelName":              "z",
+					},
+				},
 				"skills": {
 					"20": {
 						"id":   20,
@@ -237,17 +387,21 @@ func TestCardListEndpointMapsCardSupply(t *testing.T) {
 		},
 		listItems: []map[string]any{
 			{
-				"id":           1001,
-				"prefix":       "test-prefix",
-				"cardSupplyId": 10,
-				"skillId":      20,
+				"id":             1001,
+				"cardRarityType": "rarity_4",
+				"characterId":    30,
+				"prefix":         "test-prefix",
+				"cardSupplyId":   10,
+				"skillId":        20,
 			},
 		},
 		listTotal: 1,
 	}
+	cache.rarityMatches = []masterdata.SearchMatch{
+		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+	}
 
-	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
-	cardHandler := NewCardHandler(syncUsecase)
+	cardHandler := newReadyCardHandler(cache)
 
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/list", cardHandler.List)
@@ -274,6 +428,16 @@ func TestCardSearchEndpointMapsCardSupply(t *testing.T) {
 	cache := &fakeCardHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
+				"gamecharacters": {
+					"30": {
+						"id":                     30,
+						"firstName":              "Miku",
+						"live2dHeightAdjustment": 1,
+						"figure":                 "x",
+						"breastSize":             "y",
+						"modelName":              "z",
+					},
+				},
 				"skills": {
 					"20": {
 						"id":   20,
@@ -291,10 +455,12 @@ func TestCardSearchEndpointMapsCardSupply(t *testing.T) {
 		searchMatches: []masterdata.SearchMatch{
 			{
 				Item: map[string]any{
-					"id":           1001,
-					"prefix":       "test-prefix",
-					"cardSupplyId": 10,
-					"skillId":      20,
+					"id":             1001,
+					"cardRarityType": "rarity_4",
+					"characterId":    30,
+					"prefix":         "test-prefix",
+					"cardSupplyId":   10,
+					"skillId":        20,
 				},
 				MatchScore:   80,
 				MatchType:    "prefix",
@@ -302,9 +468,11 @@ func TestCardSearchEndpointMapsCardSupply(t *testing.T) {
 			},
 		},
 	}
+	cache.rarityMatches = []masterdata.SearchMatch{
+		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+	}
 
-	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
-	cardHandler := NewCardHandler(syncUsecase)
+	cardHandler := newReadyCardHandler(cache)
 
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
@@ -329,8 +497,7 @@ func TestCardSearchFieldNameMapsToPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{}
-	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
-	cardHandler := NewCardHandler(syncUsecase)
+	cardHandler := newReadyCardHandler(cache)
 
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
@@ -352,8 +519,7 @@ func TestCardSearchFieldSkillMapsToCardSkillName(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{}
-	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
-	cardHandler := NewCardHandler(syncUsecase)
+	cardHandler := newReadyCardHandler(cache)
 
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
@@ -375,8 +541,7 @@ func TestCardSearchFieldInvalidReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{}
-	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
-	cardHandler := NewCardHandler(syncUsecase)
+	cardHandler := newReadyCardHandler(cache)
 
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
@@ -387,6 +552,112 @@ func TestCardSearchFieldInvalidReturnsBadRequest(t *testing.T) {
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
+func TestCardEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{}
+	statusStore := &fakeCardHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{
+			{Region: "jp", Status: "running"},
+		},
+	}
+
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	cardHandler := NewCardHandler(syncUsecase)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id", cardHandler.ByID)
+	router.GET("/api/v1/cards/:region/:id/params", cardHandler.ParamsByID)
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
+
+	testCases := []string{
+		"/api/v1/cards/jp/1001",
+		"/api/v1/cards/jp/1001/params",
+		"/api/v1/cards/jp/list?page=1&page_size=20",
+		"/api/v1/cards/jp/search?q=test&page=1&limit=20",
+	}
+
+	for _, path := range testCases {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusServiceUnavailable {
+			t.Fatalf("path %s: expected status 503, got %d", path, resp.Code)
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("path %s: unmarshal response: %v", path, err)
+		}
+
+		errorRaw, ok := body["error"]
+		if !ok {
+			t.Fatalf("path %s: expected error object in response", path)
+		}
+
+		errorObj, ok := errorRaw.(map[string]any)
+		if !ok {
+			t.Fatalf("path %s: expected error object type, got %T", path, errorRaw)
+		}
+
+		if errorObj["code"] != "REGION_DATA_NOT_READY" {
+			t.Fatalf("path %s: expected error code REGION_DATA_NOT_READY, got %v", path, errorObj["code"])
+		}
+
+		if errorObj["message"] != "region data is updating or unavailable, please try again later" {
+			t.Fatalf("path %s: unexpected error message %v", path, errorObj["message"])
+		}
+	}
+}
+
+func TestCardEndpointsBlockedWhenRegionStatusMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{}
+	statusStore := &fakeCardHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{
+			{Region: "other", Status: "success"},
+		},
+	}
+
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	cardHandler := NewCardHandler(syncUsecase)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id", cardHandler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	errorRaw, ok := body["error"]
+	if !ok {
+		t.Fatalf("expected error object in response")
+	}
+	errorObj, ok := errorRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected error object type, got %T", errorRaw)
+	}
+
+	if errorObj["code"] != "REGION_DATA_NOT_READY" {
+		t.Fatalf("expected error code REGION_DATA_NOT_READY, got %v", errorObj["code"])
+	}
+	if errorObj["message"] != "region data is updating or unavailable, please try again later" {
+		t.Fatalf("unexpected error message %v", errorObj["message"])
 	}
 }
 
@@ -445,5 +716,47 @@ func assertFirstItemHasMappedCardSupply(t *testing.T, body map[string]any) {
 
 	if skill["id"] != float64(20) {
 		t.Fatalf("expected skill.id=20, got %v", skill["id"])
+	}
+
+	if _, exists := firstItem["characterId"]; exists {
+		t.Fatalf("expected characterId to be removed from item")
+	}
+
+	characterRaw, exists := firstItem["character"]
+	if !exists {
+		t.Fatalf("expected character field in item")
+	}
+
+	character, ok := characterRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected character object, got %T", characterRaw)
+	}
+
+	if character["id"] != float64(30) {
+		t.Fatalf("expected character.id=30, got %v", character["id"])
+	}
+
+	for _, removed := range []string{"live2dHeightAdjustment", "figure", "breastSize", "modelName"} {
+		if _, exists := character[removed]; exists {
+			t.Fatalf("expected character.%s to be removed", removed)
+		}
+	}
+
+	if _, exists := firstItem["cardRarityType"]; exists {
+		t.Fatalf("expected cardRarityType to be removed from item")
+	}
+
+	cardRarityRaw, exists := firstItem["cardRarity"]
+	if !exists {
+		t.Fatalf("expected cardRarity field in item")
+	}
+
+	cardRarity, ok := cardRarityRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected cardRarity object, got %T", cardRarityRaw)
+	}
+
+	if cardRarity["cardRarityType"] != "rarity_4" {
+		t.Fatalf("expected cardRarity.cardRarityType=rarity_4, got %v", cardRarity["cardRarityType"])
 	}
 }

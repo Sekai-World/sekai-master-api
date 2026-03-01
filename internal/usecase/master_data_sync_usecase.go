@@ -32,6 +32,10 @@ type MasterDataCacheIndexRebuilder interface {
 	RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error)
 }
 
+type MasterDataCacheIndexInspector interface {
+	HasRegionIndex(region string) bool
+}
+
 type MasterDataSyncStatusStore interface {
 	Save(ctx context.Context, status masterdata.SyncStatus) error
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
@@ -147,6 +151,26 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 			startedAt := time.Now().UTC()
 			now := time.Now().UTC()
 			resolvedCommit := ""
+
+			if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok && !inspector.HasRegionIndex(source.Region) {
+				pendingCommit := ""
+				if previous, exists := previousStatuses[source.Region]; exists {
+					pendingCommit = strings.TrimSpace(previous.SourceCommit)
+				}
+
+				if err := usecase.saveStatus(ctx, masterdata.SyncStatus{
+					Region:         source.Region,
+					Status:         "pending",
+					FileCount:      0,
+					SyncDurationMS: 0,
+					LastSyncedAt:   now,
+					SourceCommit:   pendingCommit,
+					Source:         source,
+					UpdatedAt:      now,
+				}); err != nil {
+					recordFailure(source.Region, fmt.Errorf("persist pending status for region %s: %w", source.Region, err))
+				}
+			}
 
 			if resolver, ok := usecase.loader.(MasterDataSourceVersionResolver); ok {
 				commit, resolveErr := resolver.ResolveRegionVersion(ctx, source)

@@ -551,12 +551,16 @@ const docTemplate = `{
                 "assetbundleName": {},
                 "attr": {},
                 "cardParameters": {},
-                "cardRarityType": {},
+                "cardRarity": {
+                    "$ref": "#/definitions/handler.CardRarityResponse"
+                },
                 "cardSkillName": {},
                 "cardSupply": {
                     "$ref": "#/definitions/handler.CardSupplyResponse"
                 },
-                "characterId": {},
+                "character": {
+                    "$ref": "#/definitions/handler.CharacterResponse"
+                },
                 "flavorText": {},
                 "gachaPhrase": {},
                 "id": {},
@@ -593,7 +597,15 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.CardRarityResponse": {
+            "type": "object",
+            "additionalProperties": {}
+        },
         "handler.CardSupplyResponse": {
+            "type": "object",
+            "additionalProperties": {}
+        },
+        "handler.CharacterResponse": {
             "type": "object",
             "additionalProperties": {}
         },

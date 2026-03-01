@@ -59,7 +59,7 @@ GitHub Actions CI runs `gofmt` check, `go vet ./...`, and `go test ./...` on eve
 - `GET /api/v1/master-data/status`
 - `GET /api/v1/master-data/events` (SSE stream for sync updates)
 - `GET /api/v1/cards/:region/list?page=1&page_size=20`
-- `GET /api/v1/cards/:region/search?q=<prefix>&page=1&limit=20`
+- `GET /api/v1/cards/:region/search?q=<keyword>&field=name|skill&page=1&limit=20`
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
@@ -82,6 +82,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
 - Startup sync compares the region source commit first; if unchanged, it skips reload for that region.
+- At sync start, if in-memory search index for a region is missing, region status is set to `pending` before sync proceeds.
 - For changed regions, cache writes are applied incrementally (upsert changed records and remove deleted records), not full key flush.
 - Successful sync payloads are temporarily backed up by region under `tmp/master-data-backup/<region>/latest/`, preserving all synced JSON files as directory snapshots.
 - If commit is unchanged and previous sync status is success: API first tries rebuilding in-memory index from Redis; if Redis data is missing but local backup exists, it restores cache from local backup; otherwise it falls back to full sync.
@@ -124,7 +125,10 @@ Example for `jp`:
 
 - card by-id query reads from Redis hash cache (`region + cards + id`)
 - card params query reuses the same cached card record and only returns params-related fields
-- card name query uses the `prefix` field for fuzzy matching and returns basic card info list
+- card search supports `field=name|skill`: `name` maps to `prefix`, `skill` maps to `cardSkillName`
+- card response maps `cardSupplyId` → `cardSupply`, `skillId` → `skill`, `characterId` → `character`, `cardRarityType` → `cardRarity`
+- `character` is loaded from `gameCharacters.json` and excludes `live2dHeightAdjustment`, `figure`, `breastSize`, `modelName`
+- card query endpoints return `503` with `REGION_DATA_NOT_READY` when region sync status is not `success`
 - card search response includes `pagination` (`page`, `page_size`, `total`, `total_pages`, `has_next`) same as list
 - card list pagination follows real `cards.json` array order (data index), not id continuity
 - card list pagination response includes `total_pages` and `has_next`

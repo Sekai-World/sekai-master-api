@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,8 @@ type fakeSyncCache struct {
 	storeCalls         int
 	rebuildCalls       int
 	rebuildFromRedisOK bool
+	hasRegionIndex     bool
+	hasRegionIndexSet  bool
 }
 
 func (cache *fakeSyncCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
@@ -76,6 +79,17 @@ func (cache *fakeSyncCache) RebuildRegionIndexFromRedis(_ context.Context, _ str
 	}
 
 	return false, nil
+}
+
+func (cache *fakeSyncCache) HasRegionIndex(_ string) bool {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if !cache.hasRegionIndexSet {
+		return true
+	}
+
+	return cache.hasRegionIndex
 }
 
 type fakeSyncStatusStore struct {
@@ -130,6 +144,19 @@ func (store *fakeSyncStatusStore) saveCount() int {
 	defer store.mu.Unlock()
 
 	return len(store.saved)
+}
+
+func (store *fakeSyncStatusStore) hasSavedStatus(region string, status string) bool {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	for _, item := range store.saved {
+		if item.Region == region && strings.EqualFold(item.Status, status) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
@@ -442,5 +469,40 @@ func TestSyncAllFallsBackToFullSyncWhenRedisAndLocalBackupMissing(t *testing.T) 
 	}
 	if cache.storeCalls != 1 {
 		t.Fatalf("expected cache to be built from github payload, got storeCalls=%d", cache.storeCalls)
+	}
+}
+
+func TestSyncAllSetsPendingWhenRegionIndexMissing(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "new-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "pending-check"}},
+			},
+		},
+	}
+	cache := &fakeSyncCache{
+		hasRegionIndexSet: true,
+		hasRegionIndex:    false,
+	}
+	statusStore := newFakeSyncStatusStore(nil)
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !statusStore.hasSavedStatus("jp", "pending") {
+		t.Fatalf("expected pending status to be saved when region index is missing")
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected latest jp status")
+	}
+	if latest.Status != "success" {
+		t.Fatalf("expected final status success, got %s", latest.Status)
 	}
 }
