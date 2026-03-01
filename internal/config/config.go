@@ -18,6 +18,7 @@ type Config struct {
 	MasterDataAutoSync        bool
 	MasterDataSyncTimeout     int
 	MasterDataSyncConcurrency int
+	MasterDataFileConcurrency int
 	MasterDataGitHubToken     string
 	MasterDataHTTPTimeout     int
 	MasterDataRegions         []string
@@ -55,6 +56,7 @@ func Load() Config {
 		MasterDataAutoSync:        getEnvBool("MASTER_DATA_AUTO_SYNC", true),
 		MasterDataSyncTimeout:     getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 120),
 		MasterDataSyncConcurrency: getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", 4),
+		MasterDataFileConcurrency: getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", 8),
 		MasterDataGitHubToken:     strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_TOKEN", "")),
 		MasterDataHTTPTimeout:     getEnvInt("MASTER_DATA_HTTP_TIMEOUT_SECONDS", 20),
 		MasterDataRegions:         getEnvList("MASTER_DATA_REGIONS"),

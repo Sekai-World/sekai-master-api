@@ -4,17 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"sekai-master-api/internal/domain/masterdata"
 )
 
 type MasterDataSyncStatusRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	driver string
 }
 
-func NewMasterDataSyncStatusRepository(db *sql.DB) *MasterDataSyncStatusRepository {
-	return &MasterDataSyncStatusRepository{db: db}
+func NewMasterDataSyncStatusRepository(db *sql.DB, driver string) *MasterDataSyncStatusRepository {
+	return &MasterDataSyncStatusRepository{
+		db:     db,
+		driver: strings.ToLower(strings.TrimSpace(driver)),
+	}
 }
 
 func (repository *MasterDataSyncStatusRepository) Save(ctx context.Context, status masterdata.SyncStatus) error {
@@ -22,42 +27,39 @@ func (repository *MasterDataSyncStatusRepository) Save(ctx context.Context, stat
 		return nil
 	}
 
-	tx, err := repository.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin sync status transaction: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
+	if repository.isPostgres() {
+		if err := upsertSyncStatusPostgres(ctx, repository.db, status); err != nil {
+			return err
 		}
-	}()
-
-	if _, err = tx.ExecContext(ctx, `DELETE FROM master_data_sync_status WHERE region = ?`, status.Region); err != nil {
-		if _, pgErr := tx.ExecContext(ctx, `DELETE FROM master_data_sync_status WHERE region = $1`, status.Region); pgErr != nil {
-			return fmt.Errorf("delete previous sync status: %w", err)
+	} else {
+		if err := upsertSyncStatusSQLite(ctx, repository.db, status); err != nil {
+			return err
 		}
-	}
-
-	if err = insertSyncStatus(ctx, tx, status); err != nil {
-		return err
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("commit sync status transaction: %w", err)
 	}
 
 	return nil
 }
 
-func insertSyncStatus(ctx context.Context, tx *sql.Tx, status masterdata.SyncStatus) error {
+func upsertSyncStatusSQLite(ctx context.Context, db *sql.DB, status masterdata.SyncStatus) error {
 	insertQuery := `
 INSERT INTO master_data_sync_status (
-	region, status, file_count, sync_duration_ms, last_synced_at, error_message,
+	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
 	source_owner, source_repo, source_ref, source_path, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(region) DO UPDATE SET
+	status=excluded.status,
+	file_count=excluded.file_count,
+	sync_duration_ms=excluded.sync_duration_ms,
+	last_synced_at=excluded.last_synced_at,
+	source_commit=excluded.source_commit,
+	error_message=excluded.error_message,
+	source_owner=excluded.source_owner,
+	source_repo=excluded.source_repo,
+	source_ref=excluded.source_ref,
+	source_path=excluded.source_path,
+	updated_at=excluded.updated_at`
 
-	_, err := tx.ExecContext(
+	if _, err := db.ExecContext(
 		ctx,
 		insertQuery,
 		status.Region,
@@ -65,24 +67,40 @@ INSERT INTO master_data_sync_status (
 		status.FileCount,
 		status.SyncDurationMS,
 		status.LastSyncedAt,
+		nullableText(status.SourceCommit),
 		nullableText(status.ErrorMessage),
 		status.Source.Owner,
 		status.Source.Repo,
 		status.Source.Ref,
 		nullableText(status.Source.Path),
 		status.UpdatedAt,
-	)
-	if err == nil {
-		return nil
+	); err != nil {
+		return fmt.Errorf("upsert sync status: %w", err)
 	}
 
+	return nil
+}
+
+func upsertSyncStatusPostgres(ctx context.Context, db *sql.DB, status masterdata.SyncStatus) error {
 	insertPostgres := `
 INSERT INTO master_data_sync_status (
-	region, status, file_count, sync_duration_ms, last_synced_at, error_message,
+	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
 	source_owner, source_repo, source_ref, source_path, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+ON CONFLICT (region) DO UPDATE SET
+	status=EXCLUDED.status,
+	file_count=EXCLUDED.file_count,
+	sync_duration_ms=EXCLUDED.sync_duration_ms,
+	last_synced_at=EXCLUDED.last_synced_at,
+	source_commit=EXCLUDED.source_commit,
+	error_message=EXCLUDED.error_message,
+	source_owner=EXCLUDED.source_owner,
+	source_repo=EXCLUDED.source_repo,
+	source_ref=EXCLUDED.source_ref,
+	source_path=EXCLUDED.source_path,
+	updated_at=EXCLUDED.updated_at`
 
-	if _, pgErr := tx.ExecContext(
+	if _, pgErr := db.ExecContext(
 		ctx,
 		insertPostgres,
 		status.Region,
@@ -90,6 +108,7 @@ INSERT INTO master_data_sync_status (
 		status.FileCount,
 		status.SyncDurationMS,
 		status.LastSyncedAt,
+		nullableText(status.SourceCommit),
 		nullableText(status.ErrorMessage),
 		status.Source.Owner,
 		status.Source.Repo,
@@ -97,7 +116,7 @@ INSERT INTO master_data_sync_status (
 		nullableText(status.Source.Path),
 		status.UpdatedAt,
 	); pgErr != nil {
-		return fmt.Errorf("insert sync status: %w", err)
+		return fmt.Errorf("upsert sync status: %w", pgErr)
 	}
 
 	return nil
@@ -115,6 +134,7 @@ SELECT
 	file_count,
 	sync_duration_ms,
 	last_synced_at,
+	COALESCE(source_commit, ''),
 	COALESCE(error_message, ''),
 	source_owner,
 	source_repo,
@@ -138,6 +158,7 @@ ORDER BY updated_at DESC, region ASC`)
 			&status.FileCount,
 			&status.SyncDurationMS,
 			&status.LastSyncedAt,
+			&status.SourceCommit,
 			&status.ErrorMessage,
 			&source.Owner,
 			&source.Repo,
@@ -165,6 +186,10 @@ func nullableText(value string) any {
 	}
 
 	return value
+}
+
+func (repository *MasterDataSyncStatusRepository) isPostgres() bool {
+	return repository.driver == "pgx" || repository.driver == "postgres" || repository.driver == "postgresql"
 }
 
 func (repository *MasterDataSyncStatusRepository) SeedPending(ctx context.Context, sources []masterdata.Source) error {
