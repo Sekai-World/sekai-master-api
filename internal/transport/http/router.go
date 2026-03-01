@@ -13,7 +13,7 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase) *gin.Engine {
+func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
@@ -24,7 +24,8 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	adminUIHandler := handler.NewAdminUIHandler(cfg)
 	adminLoginHandler := handler.NewAdminLoginHandler(cfg)
 	masterDataStatusHandler := handler.NewMasterDataStatusHandler(masterDataSync)
-	masterDataQueryHandler := handler.NewMasterDataQueryHandler(masterDataSync)
+	masterDataEventHandler := handler.NewMasterDataEventHandler(masterDataEvents)
+	cardHandler := handler.NewCardHandler(masterDataSync)
 	masterDataAdminHandler := handler.NewMasterDataAdminHandler(masterDataSync, time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
@@ -35,8 +36,11 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	{
 		v1.GET("/health", healthHandler.Check)
 		v1.GET("/master-data/status", masterDataStatusHandler.List)
-		v1.GET("/master-data/:region/:entity/search", masterDataQueryHandler.SearchByName)
-		v1.GET("/master-data/:region/:entity/:id", masterDataQueryHandler.ByID)
+		v1.GET("/master-data/events", masterDataEventHandler.Stream)
+		v1.GET("/cards/:region/list", cardHandler.List)
+		v1.GET("/cards/:region/search", cardHandler.SearchByPrefix)
+		v1.GET("/cards/:region/:id", cardHandler.ByID)
+		v1.GET("/cards/:region/:id/params", cardHandler.ParamsByID)
 		v1.POST("/admin/login", adminLoginHandler.Login)
 
 		admin := v1.Group("/admin")

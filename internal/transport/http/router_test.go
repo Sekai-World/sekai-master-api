@@ -31,7 +31,7 @@ func setupRouter(t *testing.T) http.Handler {
 		AppEnv: "test",
 	}
 
-	return NewRouter(cfg, nil, mockVerifier{}, nil)
+	return NewRouter(cfg, nil, mockVerifier{}, nil, nil)
 }
 
 func TestHealth(t *testing.T) {
@@ -71,27 +71,63 @@ func TestMasterDataSyncUnauthorized(t *testing.T) {
 	}
 }
 
-func TestMasterDataByIDUnavailable(t *testing.T) {
+func TestCardByIDUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/master-data/jp/cards/1001", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on master-data by id when service unavailable, got %d", resp.Code)
+		t.Fatalf("expected 503 on card by id when service unavailable, got %d", resp.Code)
 	}
 }
 
-func TestMasterDataSearchUnavailable(t *testing.T) {
+func TestCardParamsUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/master-data/jp/cards/search?q=初音", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/params", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on master-data search when service unavailable, got %d", resp.Code)
+		t.Fatalf("expected 503 on card params when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestCardSearchUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=クール", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on card search when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestCardListUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on card list when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestMasterDataEventsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/master-data/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on master-data events when service unavailable, got %d", resp.Code)
 	}
 }
 

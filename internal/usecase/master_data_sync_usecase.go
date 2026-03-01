@@ -17,6 +17,7 @@ type MasterDataSourceLoader interface {
 type MasterDataCache interface {
 	StoreRegion(ctx context.Context, region string, payload map[string]any) error
 	GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error)
+	ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error)
 	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
 
@@ -25,11 +26,16 @@ type MasterDataSyncStatusStore interface {
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
 }
 
+type MasterDataEventPublisher interface {
+	PublishMasterDataUpdated(ctx context.Context, event masterdata.SyncUpdatedEvent) error
+}
+
 type MasterDataSyncUsecase struct {
 	sources     []masterdata.Source
 	loader      MasterDataSourceLoader
 	cache       MasterDataCache
 	statusStore MasterDataSyncStatusStore
+	publisher   MasterDataEventPublisher
 }
 
 func NewMasterDataSyncUsecase(
@@ -37,24 +43,30 @@ func NewMasterDataSyncUsecase(
 	loader MasterDataSourceLoader,
 	cache MasterDataCache,
 	statusStore MasterDataSyncStatusStore,
+	publisher MasterDataEventPublisher,
 ) *MasterDataSyncUsecase {
 	return &MasterDataSyncUsecase{
 		sources:     sources,
 		loader:      loader,
 		cache:       cache,
 		statusStore: statusStore,
+		publisher:   publisher,
 	}
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 	var syncErrors []error
+	regions := make([]string, 0, len(usecase.sources))
+	failedRegions := make([]string, 0)
 	for _, source := range usecase.sources {
+		regions = append(regions, source.Region)
 		startedAt := time.Now().UTC()
 		now := time.Now().UTC()
 
 		payload, err := usecase.loader.LoadRegion(ctx, source)
 		if err != nil {
 			syncErrors = append(syncErrors, err)
+			failedRegions = append(failedRegions, source.Region)
 			usecase.saveStatus(ctx, masterdata.SyncStatus{
 				Region:         source.Region,
 				Status:         "failed",
@@ -70,6 +82,7 @@ func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 
 		if err := usecase.cache.StoreRegion(ctx, source.Region, payload); err != nil {
 			syncErrors = append(syncErrors, err)
+			failedRegions = append(failedRegions, source.Region)
 			usecase.saveStatus(ctx, masterdata.SyncStatus{
 				Region:         source.Region,
 				Status:         "failed",
@@ -94,6 +107,19 @@ func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 		})
 	}
 
+	status := "success"
+	if len(syncErrors) > 0 {
+		status = "failed"
+	}
+
+	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+		Event:         "master_data_updated",
+		Status:        status,
+		Regions:       regions,
+		FailedRegions: failedRegions,
+		UpdatedAt:     time.Now().UTC(),
+	})
+
 	if len(syncErrors) > 0 {
 		return errors.Join(syncErrors...)
 	}
@@ -117,6 +143,14 @@ func (usecase *MasterDataSyncUsecase) GetByID(ctx context.Context, region string
 	return usecase.cache.GetByID(ctx, region, entity, id)
 }
 
+func (usecase *MasterDataSyncUsecase) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
+	if usecase.cache == nil {
+		return []map[string]any{}, 0, nil
+	}
+
+	return usecase.cache.ListByPage(ctx, region, entity, page, pageSize)
+}
+
 func (usecase *MasterDataSyncUsecase) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
 	if usecase.cache == nil {
 		return []masterdata.SearchMatch{}, nil
@@ -133,6 +167,14 @@ func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status mas
 	if err := usecase.statusStore.Save(ctx, status); err != nil {
 		status.ErrorMessage = strings.TrimSpace(status.ErrorMessage + "; failed to persist status: " + err.Error())
 	}
+}
+
+func (usecase *MasterDataSyncUsecase) publishSyncEvent(ctx context.Context, event masterdata.SyncUpdatedEvent) {
+	if usecase.publisher == nil {
+		return
+	}
+
+	_ = usecase.publisher.PublishMasterDataUpdated(ctx, event)
 }
 
 func BuildMasterDataSources(cfgSources map[string]struct {

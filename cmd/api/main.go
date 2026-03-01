@@ -35,6 +35,7 @@ func main() {
 	masterDataSources := buildMasterDataSources(cfg)
 	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db)
 	masterDataLoader := repository.NewGitHubMasterDataRepository(time.Duration(cfg.MasterDataHTTPTimeout)*time.Second, cfg.MasterDataGitHubToken)
+	masterDataEventHub := usecase.NewMasterDataEventHub()
 	masterDataCache, err := storage.NewRedisMasterDataCache(cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize redis master data cache: %v", err)
@@ -52,6 +53,7 @@ func main() {
 		masterDataLoader,
 		masterDataCache,
 		masterDataStatusRepository,
+		masterDataEventHub,
 	)
 
 	if cfg.MasterDataAutoSync && len(masterDataSources) > 0 {
@@ -64,7 +66,7 @@ func main() {
 		}
 	}
 
-	router := transport.NewRouter(cfg, db, keycloakVerifier, masterDataSyncUsecase)
+	router := transport.NewRouter(cfg, db, keycloakVerifier, masterDataSyncUsecase, masterDataEventHub)
 
 	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server exited with error: %v", err)
