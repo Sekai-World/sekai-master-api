@@ -193,7 +193,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 
 			if err := usecase.saveStatus(ctx, masterdata.SyncStatus{
 				Region:         source.Region,
-				Status:         "pending",
+				Status:         "running",
 				FileCount:      0,
 				SyncDurationMS: 0,
 				LastSyncedAt:   now,
@@ -201,7 +201,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 				Source:         source,
 				UpdatedAt:      now,
 			}); err != nil {
-				usecase.logf("sync pending status persist failed: region=%s error=%v", source.Region, err)
+				usecase.logf("sync running status persist failed: region=%s error=%v", source.Region, err)
 			}
 
 			usecase.logf(
