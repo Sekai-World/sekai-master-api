@@ -8,6 +8,11 @@
 - Databases:
   - Default: development uses SQLite, test/production use PostgreSQL
   - Optional override: `DATABASE_DRIVER=sqlite|pgx`
+- Schema migration: Goose SQL migrations (`internal/storage/migrations`), run automatically on startup
+- Master data cache/query:
+  - Redis hash for by-id lookups
+  - In-memory text index for fuzzy search (current card field: `prefix`)
+  - Redis order list for index-based pagination
 - Local infra: Docker Compose semantics (on Podman API when using devcontainer)
 
 ## Repository Conventions
@@ -19,6 +24,8 @@
 5. Admin dashboard should provide its own login page and use Keycloak token validation.
 6. Keep environment-driven behavior in `internal/config`.
 7. Add new env vars to `.env.example` and document in `README.md`.
+8. Prefer resource-specific query endpoints (e.g., `cards`) over generic entity query APIs.
+9. For schema changes, add Goose migration files instead of runtime DDL in repository/usecase logic.
 
 ## Architecture Guardrails
 
@@ -26,6 +33,17 @@
 - `internal/transport/http`: routing, middleware, handlers
 - `internal/auth`: token verification / auth utilities
 - `internal/storage`: DB connection/bootstrap
+- `internal/storage/migrations`: Goose SQL migration files
+
+Current API shape should be preserved unless task explicitly requests change:
+
+- `GET /api/v1/cards/:region/list`
+- `GET /api/v1/cards/:region/search`
+- `GET /api/v1/cards/:region/:id`
+- `GET /api/v1/cards/:region/:id/params`
+- `GET /api/v1/master-data/status`
+- `GET /api/v1/master-data/events` (SSE)
+- `POST /api/v1/admin/master-data/sync`
 
 Do not couple handlers directly to concrete database implementations when avoidable.
 
@@ -43,6 +61,12 @@ After code changes, run:
 
 ```bash
 go test ./...
+```
+
+If migrations are changed, also validate migration command path for the target env:
+
+```bash
+make migrate-up
 ```
 
 If compose/dev environment is affected, also validate commands:
