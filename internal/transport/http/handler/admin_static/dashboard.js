@@ -150,6 +150,25 @@ export const initDashboardPage = async () => {
 
   await loadMasterDataStatus();
 
+  const eventSource = new EventSource("/api/v1/master-data/events");
+  eventSource.addEventListener("master_data_updated", async (event) => {
+    let payload = null;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      payload = null;
+    }
+
+    syncMessage.classList.remove("is-error");
+    syncMessage.classList.add("is-success");
+    syncMessage.textContent = payload?.status === "failed" ? "检测到同步更新（含失败项），已刷新状态" : "检测到同步更新，已刷新状态";
+    await loadMasterDataStatus();
+  });
+
+  window.addEventListener("beforeunload", () => {
+    eventSource.close();
+  });
+
   syncButton.addEventListener("click", async () => {
     syncButton.disabled = true;
     syncButton.classList.add("is-loading");

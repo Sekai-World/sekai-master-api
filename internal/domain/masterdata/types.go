@@ -27,3 +27,11 @@ type SearchMatch struct {
 	MatchType    string         `json:"match_type"`
 	MatchedField string         `json:"matched_field"`
 }
+
+type SyncUpdatedEvent struct {
+	Event         string    `json:"event"`
+	Status        string    `json:"status"`
+	Regions       []string  `json:"regions"`
+	FailedRegions []string  `json:"failed_regions"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}

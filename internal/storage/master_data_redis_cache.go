@@ -71,9 +71,15 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 		}
 
 		key := cache.redisEntityKey(regionName, entity)
+		orderKey := cache.redisEntityOrderKey(regionName, entity)
 		if err := cache.client.Del(ctx, key).Err(); err != nil {
 			return fmt.Errorf("clear redis key for region %s entity %s: %w", regionName, entity, err)
 		}
+		if err := cache.client.Del(ctx, orderKey).Err(); err != nil {
+			return fmt.Errorf("clear redis order key for region %s entity %s: %w", regionName, entity, err)
+		}
+
+		orderedIDs := make([]string, 0, len(records))
 
 		for _, record := range records {
 			recordMap, ok := record.(map[string]any)
@@ -94,6 +100,7 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 			if err := cache.client.HSet(ctx, key, id, body).Err(); err != nil {
 				return fmt.Errorf("hset record region %s entity %s id %s: %w", regionName, entity, id, err)
 			}
+			orderedIDs = append(orderedIDs, id)
 
 			searchable := searchableFields(recordMap)
 			if len(searchable) == 0 {
@@ -111,6 +118,16 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 				})
 			}
 		}
+
+		if len(orderedIDs) > 0 {
+			values := make([]any, 0, len(orderedIDs))
+			for _, id := range orderedIDs {
+				values = append(values, id)
+			}
+			if err := cache.client.RPush(ctx, orderKey, values...).Err(); err != nil {
+				return fmt.Errorf("rpush order ids region %s entity %s: %w", regionName, entity, err)
+			}
+		}
 	}
 
 	cache.mu.Lock()
@@ -118,6 +135,58 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 	cache.mu.Unlock()
 
 	return nil
+}
+
+func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return []map[string]any{}, 0, nil
+	}
+
+	orderKey := cache.redisEntityOrderKey(regionName, entityName)
+	total, err := cache.client.LLen(ctx, orderKey).Result()
+	if err != nil {
+		return nil, 0, fmt.Errorf("llen order ids region %s entity %s: %w", regionName, entityName, err)
+	}
+	if total <= 0 {
+		return []map[string]any{}, 0, nil
+	}
+
+	start := int64((page - 1) * pageSize)
+	if start >= total {
+		return []map[string]any{}, int(total), nil
+	}
+	end := start + int64(pageSize) - 1
+
+	ids, err := cache.client.LRange(ctx, orderKey, start, end).Result()
+	if err != nil {
+		return nil, 0, fmt.Errorf("lrange order ids region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	items := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		record, found, err := cache.GetByID(ctx, regionName, entityName, id)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !found {
+			continue
+		}
+		items = append(items, record)
+	}
+
+	return items, int(total), nil
 }
 
 func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error) {
@@ -263,6 +332,10 @@ func (cache *RedisMasterDataCache) redisKey(region string) string {
 
 func (cache *RedisMasterDataCache) redisEntityKey(region string, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":by-id"
+}
+
+func (cache *RedisMasterDataCache) redisEntityOrderKey(region string, entity string) string {
+	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":order"
 }
 
 func normalizeKey(value string) string {

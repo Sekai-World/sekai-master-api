@@ -48,8 +48,11 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 
 - `GET /api/v1/health`
 - `GET /api/v1/master-data/status`
-- `GET /api/v1/master-data/:region/:entity/:id`
-- `GET /api/v1/master-data/:region/:entity/search?q=<keyword>&limit=20&field=name,aliases`
+- `GET /api/v1/master-data/events` (SSE stream for sync updates)
+- `GET /api/v1/cards/:region/list?page=1&page_size=20`
+- `GET /api/v1/cards/:region/search?q=<prefix>&limit=20`
+- `GET /api/v1/cards/:region/:id`
+- `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
 
@@ -97,16 +100,12 @@ Example for `jp`:
 
 ### Query cache strategy
 
-- by-id query reads from Redis hash cache (`region + entity + id`)
-- fuzzy search uses in-memory normalized text index and returns records with relevance metadata
-- name matching is Unicode-safe and works with CJK and Latin characters
-
-Search response item includes:
-
-- `item`: original record
-- `match_score`: relevance score (higher is better)
-- `match_type`: `exact` / `prefix` / `contains`
-- `matched_field`: field name that produced best match
+- card by-id query reads from Redis hash cache (`region + cards + id`)
+- card params query reuses the same cached card record and only returns params-related fields
+- card name query uses the `prefix` field for fuzzy matching and returns basic card info list
+- card list pagination follows real `cards.json` array order (data index), not id continuity
+- card list pagination response includes `total_pages` and `has_next`
+- `GET /api/v1/master-data/events` can notify frontend after sync finishes (`master_data_updated`)
 
 Redis settings:
 
