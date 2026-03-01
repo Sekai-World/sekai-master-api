@@ -325,7 +325,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handler.CardItemResponse"
+                            "$ref": "#/definitions/handler.CardObjectResponse"
                         }
                     },
                     "400": {
@@ -384,7 +384,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handler.CardItemResponse"
+                            "$ref": "#/definitions/handler.CardObjectResponse"
                         }
                     },
                     "400": {
@@ -510,15 +510,6 @@
                 }
             }
         },
-        "handler.CardItemResponse": {
-            "type": "object",
-            "properties": {
-                "item": {
-                    "type": "object",
-                    "additionalProperties": {}
-                }
-            }
-        },
         "handler.CardItemsResponse": {
             "type": "object",
             "properties": {
@@ -545,6 +536,10 @@
                     "$ref": "#/definitions/handler.CardPagination"
                 }
             }
+        },
+        "handler.CardObjectResponse": {
+            "type": "object",
+            "additionalProperties": {}
         },
         "handler.CardPagination": {
             "type": "object",

@@ -16,9 +16,7 @@ type HealthResponse struct {
 	Database string `json:"database"`
 }
 
-type CardItemResponse struct {
-	Item map[string]any `json:"item"`
-}
+type CardObjectResponse map[string]any
 
 type CardItemsResponse struct {
 	Items []map[string]any `json:"items"`

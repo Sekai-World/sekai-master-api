@@ -16,12 +16,6 @@ definitions:
       token_type:
         type: string
     type: object
-  handler.CardItemResponse:
-    properties:
-      item:
-        additionalProperties: {}
-        type: object
-    type: object
   handler.CardItemsResponse:
     properties:
       items:
@@ -39,6 +33,9 @@ definitions:
         type: array
       pagination:
         $ref: '#/definitions/handler.CardPagination'
+    type: object
+  handler.CardObjectResponse:
+    additionalProperties: {}
     type: object
   handler.CardPagination:
     properties:
@@ -270,7 +267,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardItemResponse'
+            $ref: '#/definitions/handler.CardObjectResponse'
         "400":
           description: Bad Request
           schema:
@@ -309,7 +306,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardItemResponse'
+            $ref: '#/definitions/handler.CardObjectResponse'
         "400":
           description: Bad Request
           schema:

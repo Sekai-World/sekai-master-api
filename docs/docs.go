@@ -333,7 +333,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handler.CardItemResponse"
+                            "$ref": "#/definitions/handler.CardObjectResponse"
                         }
                     },
                     "400": {
@@ -392,7 +392,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handler.CardItemResponse"
+                            "$ref": "#/definitions/handler.CardObjectResponse"
                         }
                     },
                     "400": {
@@ -518,15 +518,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.CardItemResponse": {
-            "type": "object",
-            "properties": {
-                "item": {
-                    "type": "object",
-                    "additionalProperties": {}
-                }
-            }
-        },
         "handler.CardItemsResponse": {
             "type": "object",
             "properties": {
@@ -553,6 +544,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/handler.CardPagination"
                 }
             }
+        },
+        "handler.CardObjectResponse": {
+            "type": "object",
+            "additionalProperties": {}
         },
         "handler.CardPagination": {
             "type": "object",

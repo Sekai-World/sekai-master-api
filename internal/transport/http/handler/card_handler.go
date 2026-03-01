@@ -25,7 +25,7 @@ func NewCardHandler(masterDataSync *usecase.MasterDataSyncUsecase) *CardHandler 
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} CardItemResponse
+// @Success 200 {object} CardObjectResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 503 {object} ErrorResponse
@@ -54,9 +54,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, gin.H{
-		"item": buildCardBase(record),
-	})
+	response.JSON(c, http.StatusOK, buildCardBase(record))
 }
 
 // ParamsByID godoc
@@ -65,7 +63,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} CardItemResponse
+// @Success 200 {object} CardObjectResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
 // @Failure 503 {object} ErrorResponse
@@ -94,9 +92,7 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, gin.H{
-		"item": buildCardParams(record),
-	})
+	response.JSON(c, http.StatusOK, buildCardParams(record))
 }
 
 // SearchByPrefix godoc
