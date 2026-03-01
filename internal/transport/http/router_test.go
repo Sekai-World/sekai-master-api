@@ -97,6 +97,18 @@ func TestMasterDataSyncUnauthorized(t *testing.T) {
 	}
 }
 
+func TestMasterDataForceSyncUnauthorized(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/master-data/sync/force", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on master-data force sync without token, got %d", resp.Code)
+	}
+}
+
 func TestCardByIDUnavailable(t *testing.T) {
 	router := setupRouter(t)
 

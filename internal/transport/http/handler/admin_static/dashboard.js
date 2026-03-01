@@ -174,10 +174,11 @@ export const initDashboardPage = async () => {
   const profileView = document.getElementById("profile-view");
   const masterDataStatusView = document.getElementById("master-data-status-view");
   const syncButton = document.getElementById("sync-master-data-button");
+  const forceSyncCheckbox = document.getElementById("sync-force-checkbox");
   const syncMessage = document.getElementById("sync-message");
   const syncProgressView = document.getElementById("sync-progress-view");
 
-  if (!healthView || !profileView || !masterDataStatusView || !syncButton || !syncMessage || !syncProgressView) {
+  if (!healthView || !profileView || !masterDataStatusView || !syncButton || !forceSyncCheckbox || !syncMessage || !syncProgressView) {
     return;
   }
 
@@ -419,13 +420,16 @@ export const initDashboardPage = async () => {
   });
 
   syncButton.addEventListener("click", async () => {
+    const forceSync = Boolean(forceSyncCheckbox.checked);
+    const syncEndpoint = forceSync ? "/api/v1/admin/master-data/sync/force" : "/api/v1/admin/master-data/sync";
+
     syncButton.disabled = true;
     syncButton.classList.add("is-loading");
     syncMessage.classList.remove("is-error", "is-success");
-    syncMessage.textContent = "正在同步 Master Data...";
+    syncMessage.textContent = forceSync ? "正在强制同步 Master Data..." : "正在同步 Master Data...";
     pushProgressHistory(syncMessage.textContent, false);
 
-    const syncResult = await requestJSON("/api/v1/admin/master-data/sync", {
+    const syncResult = await requestJSON(syncEndpoint, {
       method: "POST",
       bearer,
     });
@@ -447,7 +451,7 @@ export const initDashboardPage = async () => {
     }
 
     syncMessage.classList.add("is-success");
-    syncMessage.textContent = "同步完成";
+    syncMessage.textContent = forceSync ? "强制同步完成" : "同步完成";
     pushProgressHistory(syncMessage.textContent, false);
     await loadMasterDataStatus();
     syncButton.disabled = false;

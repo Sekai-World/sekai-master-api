@@ -124,6 +124,30 @@ button.is-loading {
   margin: 0;
 }
 
+.sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-force-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  user-select: none;
+}
+
+.sync-force-toggle input {
+  width: auto;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
+}
+
 pre {
   margin: 0;
   white-space: pre-wrap;

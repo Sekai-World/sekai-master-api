@@ -115,6 +115,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/master-data/sync/force": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Trigger force master-data sync",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.MasterDataSyncResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/profile": {
             "get": {
                 "security": [
@@ -649,6 +691,9 @@ const docTemplate = `{
                 },
                 "source": {
                     "$ref": "#/definitions/masterdata.Source"
+                },
+                "source_commit": {
+                    "type": "string"
                 },
                 "status": {
                     "type": "string"

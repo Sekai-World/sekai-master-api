@@ -64,6 +64,7 @@ GitHub Actions CI runs `gofmt` check, `go vet ./...`, and `go test ./...` on eve
 - `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
+- `POST /api/v1/admin/master-data/sync/force` (Bearer token from Keycloak required)
 
 All non-admin `GET` API endpoints are public (no auth middleware).
 
@@ -86,6 +87,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Sync status also includes `source_commit` for change tracking and skip decisions.
 - You can inspect status via `GET /api/v1/master-data/status`.
 - You can trigger manual sync from dashboard or call `POST /api/v1/admin/master-data/sync`.
+- If you need to ignore commit comparison and force a full refresh, call `POST /api/v1/admin/master-data/sync/force`.
 
 ## Database Migrations
 

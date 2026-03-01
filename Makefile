@@ -37,7 +37,7 @@ lint:
 	go vet ./...
 
 swagger:
-	go run github.com/swaggo/swag/cmd/swag@v1.8.12 init -g cmd/api/main.go -o docs
+	go run github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handler,internal/domain/masterdata -o docs
 
 migrate-up:
 	@set -a; \
