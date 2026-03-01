@@ -14,6 +14,14 @@ func NewProfileHandler() *ProfileHandler {
 	return &ProfileHandler{}
 }
 
+// Me godoc
+// @Summary Get admin profile
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} ProfileResponse
+// @Failure 401 {object} ErrorResponse
+// @Router /admin/profile [get]
 func (handler *ProfileHandler) Me(c *gin.Context) {
 	rawClaims, _ := c.Get("claims")
 	claims, _ := rawClaims.(map[string]any)

@@ -22,7 +22,7 @@ type AdminLoginHandler struct {
 	httpClient    *http.Client
 }
 
-type adminLoginRequest struct {
+type AdminLoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
@@ -53,8 +53,20 @@ func NewAdminLoginHandler(cfg config.Config) *AdminLoginHandler {
 	}
 }
 
+// Login godoc
+// @Summary Login with Keycloak credentials
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param payload body AdminLoginRequest true "Login payload"
+// @Success 200 {object} AdminLoginResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 502 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /admin/login [post]
 func (handler *AdminLoginHandler) Login(c *gin.Context) {
-	var reqBody adminLoginRequest
+	var reqBody AdminLoginRequest
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid login payload")
 		return

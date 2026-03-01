@@ -19,6 +19,13 @@ func NewMasterDataEventHandler(hub *usecase.MasterDataEventHub) *MasterDataEvent
 	return &MasterDataEventHandler{hub: hub}
 }
 
+// Stream godoc
+// @Summary Subscribe master-data sync events
+// @Tags master-data
+// @Produce text/event-stream
+// @Success 200 {string} string "SSE stream"
+// @Failure 503 {object} ErrorResponse
+// @Router /master-data/events [get]
 func (handler *MasterDataEventHandler) Stream(c *gin.Context) {
 	if handler.hub == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_EVENTS_DISABLED", "master data events are not enabled")

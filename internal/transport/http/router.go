@@ -5,6 +5,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
+	_ "sekai-master-api/docs"
 
 	"sekai-master-api/internal/auth"
 	"sekai-master-api/internal/config"
@@ -31,6 +35,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
 	router.GET("/admin", adminUIHandler.DashboardPage)
 	router.GET("/admin/assets/*filepath", adminUIHandler.Asset)
+	router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	v1 := router.Group("/api/v1")
 	{

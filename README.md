@@ -46,6 +46,9 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 
 ## API Endpoints
 
+- `GET /docs`
+- `GET /docs/index.html`
+- `GET /docs/doc.json`
 - `GET /api/v1/health`
 - `GET /api/v1/master-data/status`
 - `GET /api/v1/master-data/events` (SSE stream for sync updates)
@@ -57,6 +60,8 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 - `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
 
 All non-admin `GET` API endpoints are public (no auth middleware).
+
+Swagger UI is exposed at `GET /docs/index.html`, and OpenAPI JSON is exposed at `GET /docs/doc.json`.
 
 ## Master Data Sync
 

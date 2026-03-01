@@ -19,6 +19,18 @@ func NewCardHandler(masterDataSync *usecase.MasterDataSyncUsecase) *CardHandler 
 	return &CardHandler{masterDataSync: masterDataSync}
 }
 
+// ByID godoc
+// @Summary Get card basic info by id
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} CardItemResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /cards/{region}/{id} [get]
 func (handler *CardHandler) ByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
@@ -47,6 +59,18 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 	})
 }
 
+// ParamsByID godoc
+// @Summary Get card params by id
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} CardItemResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /cards/{region}/{id}/params [get]
 func (handler *CardHandler) ParamsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
@@ -75,6 +99,18 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 	})
 }
 
+// SearchByPrefix godoc
+// @Summary Search cards by prefix
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param q query string true "Prefix query"
+// @Param limit query int false "Max results"
+// @Success 200 {object} CardItemsResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /cards/{region}/search [get]
 func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
@@ -114,6 +150,18 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 	})
 }
 
+// List godoc
+// @Summary List cards by page
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Success 200 {object} CardListResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /cards/{region}/list [get]
 func (handler *CardHandler) List(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
