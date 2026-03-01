@@ -9,9 +9,14 @@
 - 项目类型：Golang RESTful API（Gin）
 - 鉴权方式：Keycloak OIDC Bearer Token 验签
 - 鉴权边界：仅 admin 相关 API 需要鉴权，其他 GET 接口默认公开
+- 查询策略：
+  - `cards` by-id：Redis 哈希缓存
+  - `cards` name 模糊：内存索引（当前字段为 `prefix`）
+  - `cards` 列表分页：按真实数据顺序（数组 index）分页，不依赖 id 连续性
 - 数据库策略：
   - 默认：development 使用 SQLite，test / production 使用 PostgreSQL
   - 可选覆盖：通过 `DATABASE_DRIVER`（`sqlite` / `pgx`）覆盖默认行为
+- Migration 策略：使用 Goose SQL migration，启动自动迁移
 - 本地依赖编排：`deploy/compose/test-compose.yaml`（PostgreSQL 18、Redis 8、Keycloak）
 
 ## Agent Roles
@@ -27,6 +32,8 @@
   - 保护接口仅通过 Keycloak Bearer Token 验证
   - 非 admin GET API 不应挂载鉴权中间件
   - admin dashboard 提供独立登录页（不引入本地账号密码体系）
+  - `cards` 查询接口保持专用化（避免回退到通用 entity 查询接口）
+  - SSE 通知接口 `GET /api/v1/master-data/events` 可用于同步完成事件推送
 
 ### 2) Auth Agent
 
@@ -47,6 +54,8 @@
   - 默认规则：`APP_ENV=development` 使用 SQLite，`APP_ENV in {test, production}` 使用 PostgreSQL
   - 当 `DATABASE_DRIVER` 显式设置为 `sqlite` 或 `pgx` 时，以该值为准
   - 不破坏现有配置项名称
+  - Redis 中保存 by-id 与顺序索引（分页顺序来源）
+  - `cards` 基础信息与 params 分离接口的字段约束保持稳定
 
 ### 4) Environment Agent
 
@@ -63,6 +72,7 @@
 2. 优先小步修改，不做与任务无关的重构。
 3. 每次改动后至少执行：
    - `go test ./...`
+  - 若涉及数据库结构变更，补充 migration 文件，不在业务代码中直接做 DDL
 4. 若改动涉及 compose 或脚本，同时检查：
   - `make dev-env-up`
   - `make dev-env-down`
@@ -87,6 +97,8 @@
 
 - 运行 API：`make run`
 - 单元测试：`make test`
+- 迁移升级：`make migrate-up`
+- 迁移回滚：`make migrate-down`
 - 启动依赖：`make dev-env-up`（兼容旧命令 `make test-env-up`）
 - 停止依赖：`make dev-env-down`（兼容旧命令 `make test-env-down`）
 - Keycloak token：`make keycloak-token`
