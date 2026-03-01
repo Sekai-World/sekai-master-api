@@ -31,11 +31,13 @@ definitions:
       assetbundleName: {}
       attr: {}
       cardParameters: {}
-      cardRarityType: {}
+      cardRarity:
+        $ref: '#/definitions/handler.CardRarityResponse'
       cardSkillName: {}
       cardSupply:
         $ref: '#/definitions/handler.CardSupplyResponse'
-      characterId: {}
+      character:
+        $ref: '#/definitions/handler.CharacterResponse'
       flavorText: {}
       gachaPhrase: {}
       id: {}
@@ -63,7 +65,13 @@ definitions:
       total_pages:
         type: integer
     type: object
+  handler.CardRarityResponse:
+    additionalProperties: {}
+    type: object
   handler.CardSupplyResponse:
+    additionalProperties: {}
+    type: object
+  handler.CharacterResponse:
     additionalProperties: {}
     type: object
   handler.ErrorBody:

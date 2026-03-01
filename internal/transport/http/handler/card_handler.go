@@ -3,12 +3,14 @@ package handler
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
@@ -43,6 +45,9 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if region == "" || id == "" {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
 		return
 	}
 
@@ -83,6 +88,9 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
 
 	record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "cards", id)
 	if err != nil {
@@ -121,6 +129,9 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("q"))
 	if region == "" || query == "" {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and q are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
 		return
 	}
 
@@ -240,6 +251,9 @@ func (handler *CardHandler) List(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
 
 	page := 1
 	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
@@ -298,8 +312,6 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	keys := []string{
 		"id",
 		"seq",
-		"characterId",
-		"cardRarityType",
 		"attr",
 		"supportUnit",
 		"cardSkillName",
@@ -323,50 +335,136 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 		return result
 	}
 
-	cardSupplyID, ok := record["cardSupplyId"]
-	if !ok {
-		return result
+	if cardSupplyID, ok := record["cardSupplyId"]; ok {
+		lookupID := normalizeAnyID(cardSupplyID)
+		if lookupID == "" {
+			result["cardSupply"] = nil
+		} else {
+			cardSupply, found, err := handler.masterDataSync.GetByID(ctx, region, "cardsupplies", lookupID)
+			if err != nil || !found {
+				result["cardSupply"] = nil
+			} else {
+				result["cardSupply"] = cardSupply
+			}
+		}
 	}
 
-	lookupID := normalizeAnyID(cardSupplyID)
-	if lookupID == "" {
-		result["cardSupply"] = nil
-		return result
+	if skillID, ok := record["skillId"]; ok {
+		skillLookupID := normalizeAnyID(skillID)
+		if skillLookupID == "" {
+			result["skill"] = nil
+		} else {
+			skill, found, err := handler.masterDataSync.GetByID(ctx, region, "skills", skillLookupID)
+			if err != nil || !found {
+				result["skill"] = nil
+			} else {
+				result["skill"] = skill
+			}
+		}
 	}
 
-	cardSupply, found, err := handler.masterDataSync.GetByID(ctx, region, "cardsupplies", lookupID)
-	if err != nil {
-		result["cardSupply"] = nil
-		return result
+	if characterID, ok := record["characterId"]; ok {
+		characterLookupID := normalizeAnyID(characterID)
+		if characterLookupID == "" {
+			result["character"] = nil
+		} else {
+			character, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacters", characterLookupID)
+			if err != nil || !found {
+				result["character"] = nil
+			} else {
+				result["character"] = sanitizeGameCharacter(character)
+			}
+		}
 	}
-	if !found {
-		result["cardSupply"] = nil
+
+	if cardRarityType, ok := record["cardRarityType"]; ok {
+		cardID := normalizeAnyID(record["id"])
+		rarityTypeLookup := normalizeComparableText(cardRarityType)
+		log.Printf(
+			"component=card-handler card_rarity_lookup_start region=%s card_id=%s raw_type=%v normalized_type=%s",
+			region,
+			cardID,
+			cardRarityType,
+			rarityTypeLookup,
+		)
+		if rarityTypeLookup == "" {
+			log.Printf("component=card-handler card_rarity_lookup_empty_type region=%s card_id=%s", region, cardID)
+			result["cardRarity"] = nil
+		} else {
+			matches, err := handler.masterDataSync.Search(ctx, region, "cardrarities", rarityTypeLookup, []string{"cardRarityType"}, 20)
+			if err != nil {
+				log.Printf("component=card-handler card_rarity_lookup_search_error region=%s card_id=%s type=%s error=%v", region, cardID, rarityTypeLookup, err)
+				result["cardRarity"] = nil
+			} else {
+				log.Printf("component=card-handler card_rarity_lookup_search_done region=%s card_id=%s type=%s matches=%d", region, cardID, rarityTypeLookup, len(matches))
+				rarity := findExactCardRarityByType(matches, rarityTypeLookup)
+				if rarity == nil {
+					log.Printf("component=card-handler card_rarity_lookup_not_found region=%s card_id=%s type=%s", region, cardID, rarityTypeLookup)
+					result["cardRarity"] = nil
+				} else {
+					log.Printf("component=card-handler card_rarity_lookup_found region=%s card_id=%s type=%s rarity_id=%v", region, cardID, rarityTypeLookup, rarity["id"])
+					result["cardRarity"] = rarity
+				}
+			}
+		}
 	} else {
-		result["cardSupply"] = cardSupply
+		log.Printf("component=card-handler card_rarity_lookup_skipped reason=missing_card_rarity_type region=%s card_id=%s", region, normalizeAnyID(record["id"]))
 	}
 
-	skillID, ok := record["skillId"]
-	if !ok {
-		return result
+	return result
+}
+
+func (handler *CardHandler) ensureRegionReady(c *gin.Context, region string) bool {
+	if handler == nil || handler.masterDataSync == nil {
+		return true
 	}
 
-	skillLookupID := normalizeAnyID(skillID)
-	if skillLookupID == "" {
-		result["skill"] = nil
-		return result
-	}
-
-	skill, found, err := handler.masterDataSync.GetByID(ctx, region, "skills", skillLookupID)
+	statuses, err := handler.masterDataSync.Status(c.Request.Context())
 	if err != nil {
-		result["skill"] = nil
-		return result
-	}
-	if !found {
-		result["skill"] = nil
-		return result
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
+		return false
 	}
 
-	result["skill"] = skill
+	normalizedRegion := strings.TrimSpace(region)
+	regionReady := false
+	regionFound := false
+	for _, status := range statuses {
+		if !strings.EqualFold(strings.TrimSpace(status.Region), normalizedRegion) {
+			continue
+		}
+		regionFound = true
+		if strings.EqualFold(strings.TrimSpace(status.Status), "success") {
+			regionReady = true
+			break
+		}
+	}
+
+	if regionReady {
+		return true
+	}
+
+	if !regionFound || !regionReady {
+		response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
+		return false
+	}
+
+	return false
+}
+
+func sanitizeGameCharacter(character map[string]any) map[string]any {
+	if character == nil {
+		return map[string]any{}
+	}
+
+	result := make(map[string]any, len(character))
+	for key, value := range character {
+		switch key {
+		case "live2dHeightAdjustment", "figure", "breastSize", "modelName":
+			continue
+		default:
+			result[key] = value
+		}
+	}
 
 	return result
 }
@@ -377,6 +475,29 @@ func normalizeAnyID(value any) string {
 	}
 
 	return strings.TrimSpace(fmt.Sprintf("%v", value))
+}
+
+func normalizeComparableText(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", value)))
+}
+
+func findExactCardRarityByType(matches []masterdata.SearchMatch, rarityType string) map[string]any {
+	if rarityType == "" || len(matches) == 0 {
+		return nil
+	}
+
+	for _, match := range matches {
+		candidateType := normalizeComparableText(match.Item["cardRarityType"])
+		if candidateType == rarityType {
+			return match.Item
+		}
+	}
+
+	return nil
 }
 
 func buildCardParams(record map[string]any) map[string]any {

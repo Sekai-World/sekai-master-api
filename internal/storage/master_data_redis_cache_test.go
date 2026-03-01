@@ -206,3 +206,47 @@ func TestSearchUsesCardSkillNameField(t *testing.T) {
 		t.Fatalf("expected match id=1, got %v", matches[0].Item["id"])
 	}
 }
+
+func TestSearchCardRaritiesWithoutID(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+
+	payload := map[string]any{
+		"cardRarities.json": []any{
+			map[string]any{"cardRarityType": "rarity_1", "maxLevel": 20},
+			map[string]any{"cardRarityType": "rarity_2", "maxLevel": 30},
+		},
+	}
+
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	matches, err := cache.Search(ctx, "jp", "cardrarities", "rarity_1", []string{"cardRarityType"}, 10)
+	if err != nil {
+		t.Fatalf("search card rarities by cardRarityType: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 card rarity match, got %d", len(matches))
+	}
+	if matches[0].Item["cardRarityType"] != "rarity_1" {
+		t.Fatalf("expected cardRarityType rarity_1, got %v", matches[0].Item["cardRarityType"])
+	}
+}

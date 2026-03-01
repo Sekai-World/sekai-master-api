@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -95,14 +97,14 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 				continue
 			}
 
-			id := recordID(recordMap)
-			if id == "" {
-				continue
-			}
-
 			body, err := json.Marshal(recordMap)
 			if err != nil {
-				return fmt.Errorf("marshal record region %s entity %s id %s: %w", regionName, entity, id, err)
+				return fmt.Errorf("marshal record region %s entity %s: %w", regionName, entity, err)
+			}
+
+			id := recordStorageID(recordMap, body)
+			if id == "" {
+				continue
 			}
 
 			nextRecords[id] = string(body)
@@ -375,6 +377,31 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	return results, nil
 }
 
+func (cache *RedisMasterDataCache) HasRegionIndex(region string) bool {
+	regionName := normalizeKey(region)
+	if regionName == "" {
+		return false
+	}
+
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+
+	entityIndex := cache.index[regionName]
+	if len(entityIndex) == 0 {
+		return false
+	}
+
+	for _, fields := range entityIndex {
+		for _, items := range fields {
+			if len(items) > 0 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error) {
 	regionName := normalizeKey(region)
 	if regionName == "" {
@@ -404,7 +431,11 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 		}
 
 		hasRecords = true
-		for _, raw := range recordMap {
+		for id, raw := range recordMap {
+			if strings.TrimSpace(id) == "" {
+				continue
+			}
+
 			var record map[string]any
 			if err := json.Unmarshal([]byte(raw), &record); err != nil {
 				return false, fmt.Errorf("decode redis record region %s entity %s: %w", regionName, entity, err)
@@ -412,11 +443,6 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 
 			searchable := searchableFields(record)
 			if len(searchable) == 0 {
-				continue
-			}
-
-			id := recordID(record)
-			if id == "" {
 				continue
 			}
 
@@ -508,6 +534,20 @@ func recordID(record map[string]any) string {
 	}
 
 	return strings.TrimSpace(fmt.Sprintf("%v", idValue))
+}
+
+func recordStorageID(record map[string]any, body []byte) string {
+	id := recordID(record)
+	if id != "" {
+		return id
+	}
+
+	if len(body) == 0 {
+		return ""
+	}
+
+	sum := sha1.Sum(body)
+	return "auto:" + hex.EncodeToString(sum[:])
 }
 
 func normalizeSearchText(value string) string {

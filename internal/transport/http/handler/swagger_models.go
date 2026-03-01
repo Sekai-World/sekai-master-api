@@ -20,11 +20,13 @@ type CardSupplyResponse map[string]any
 
 type SkillResponse map[string]any
 
+type CharacterResponse map[string]any
+
+type CardRarityResponse map[string]any
+
 type CardObjectResponse struct {
 	ID                           any                `json:"id,omitempty"`
 	Seq                          any                `json:"seq,omitempty"`
-	CharacterID                  any                `json:"characterId,omitempty"`
-	CardRarityType               any                `json:"cardRarityType,omitempty"`
 	Attr                         any                `json:"attr,omitempty"`
 	SupportUnit                  any                `json:"supportUnit,omitempty"`
 	CardSkillName                any                `json:"cardSkillName,omitempty"`
@@ -37,6 +39,8 @@ type CardObjectResponse struct {
 	InitialSpecialTrainingStatus any                `json:"initialSpecialTrainingStatus,omitempty"`
 	CardSupply                   CardSupplyResponse `json:"cardSupply,omitempty"`
 	Skill                        SkillResponse      `json:"skill,omitempty"`
+	Character                    CharacterResponse  `json:"character,omitempty"`
+	CardRarity                   CardRarityResponse `json:"cardRarity,omitempty"`
 
 	SpecialTrainingPower1BonusFixed any `json:"specialTrainingPower1BonusFixed,omitempty"`
 	SpecialTrainingPower2BonusFixed any `json:"specialTrainingPower2BonusFixed,omitempty"`
