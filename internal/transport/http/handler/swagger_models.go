@@ -16,10 +16,36 @@ type HealthResponse struct {
 	Database string `json:"database"`
 }
 
-type CardObjectResponse map[string]any
+type CardSupplyResponse map[string]any
+
+type SkillResponse map[string]any
+
+type CardObjectResponse struct {
+	ID                           any                `json:"id,omitempty"`
+	Seq                          any                `json:"seq,omitempty"`
+	CharacterID                  any                `json:"characterId,omitempty"`
+	CardRarityType               any                `json:"cardRarityType,omitempty"`
+	Attr                         any                `json:"attr,omitempty"`
+	SupportUnit                  any                `json:"supportUnit,omitempty"`
+	CardSkillName                any                `json:"cardSkillName,omitempty"`
+	Prefix                       any                `json:"prefix,omitempty"`
+	AssetbundleName              any                `json:"assetbundleName,omitempty"`
+	GachaPhrase                  any                `json:"gachaPhrase,omitempty"`
+	FlavorText                   any                `json:"flavorText,omitempty"`
+	ReleaseAt                    any                `json:"releaseAt,omitempty"`
+	ArchivePublishedAt           any                `json:"archivePublishedAt,omitempty"`
+	InitialSpecialTrainingStatus any                `json:"initialSpecialTrainingStatus,omitempty"`
+	CardSupply                   CardSupplyResponse `json:"cardSupply,omitempty"`
+	Skill                        SkillResponse      `json:"skill,omitempty"`
+
+	SpecialTrainingPower1BonusFixed any `json:"specialTrainingPower1BonusFixed,omitempty"`
+	SpecialTrainingPower2BonusFixed any `json:"specialTrainingPower2BonusFixed,omitempty"`
+	SpecialTrainingPower3BonusFixed any `json:"specialTrainingPower3BonusFixed,omitempty"`
+	CardParameters                  any `json:"cardParameters,omitempty"`
+}
 
 type CardItemsResponse struct {
-	Items []map[string]any `json:"items"`
+	Items []CardObjectResponse `json:"items"`
 }
 
 type CardPagination struct {
@@ -31,8 +57,8 @@ type CardPagination struct {
 }
 
 type CardListResponse struct {
-	Items      []map[string]any `json:"items"`
-	Pagination CardPagination   `json:"pagination"`
+	Items      []CardObjectResponse `json:"items"`
+	Pagination CardPagination       `json:"pagination"`
 }
 
 type MasterDataStatusListResponse struct {

@@ -270,6 +270,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "type": "string",
+                        "description": "Search field (name|skill), default=name",
+                        "name": "field",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
@@ -530,8 +536,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "type": "object",
-                        "additionalProperties": {}
+                        "$ref": "#/definitions/handler.CardObjectResponse"
                     }
                 },
                 "pagination": {
@@ -541,7 +546,32 @@ const docTemplate = `{
         },
         "handler.CardObjectResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "archivePublishedAt": {},
+                "assetbundleName": {},
+                "attr": {},
+                "cardParameters": {},
+                "cardRarityType": {},
+                "cardSkillName": {},
+                "cardSupply": {
+                    "$ref": "#/definitions/handler.CardSupplyResponse"
+                },
+                "characterId": {},
+                "flavorText": {},
+                "gachaPhrase": {},
+                "id": {},
+                "initialSpecialTrainingStatus": {},
+                "prefix": {},
+                "releaseAt": {},
+                "seq": {},
+                "skill": {
+                    "$ref": "#/definitions/handler.SkillResponse"
+                },
+                "specialTrainingPower1BonusFixed": {},
+                "specialTrainingPower2BonusFixed": {},
+                "specialTrainingPower3BonusFixed": {},
+                "supportUnit": {}
+            }
         },
         "handler.CardPagination": {
             "type": "object",
@@ -562,6 +592,10 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "handler.CardSupplyResponse": {
+            "type": "object",
+            "additionalProperties": {}
         },
         "handler.ErrorBody": {
             "type": "object",
@@ -642,6 +676,10 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "handler.SkillResponse": {
+            "type": "object",
+            "additionalProperties": {}
         },
         "masterdata.Source": {
             "type": "object",

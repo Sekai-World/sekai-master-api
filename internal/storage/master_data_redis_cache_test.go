@@ -162,3 +162,47 @@ func TestSearchUsesCardPrefixField(t *testing.T) {
 		t.Fatalf("expected name match id=2, got %v", nameMatches[0].Item["id"])
 	}
 }
+
+func TestSearchUsesCardSkillNameField(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha", "cardSkillName": "score up"},
+			map[string]any{"id": 2, "prefix": "beta", "cardSkillName": "life recover"},
+		},
+	}
+
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	matches, err := cache.Search(ctx, "jp", "cards", "score", []string{"cardSkillName"}, 10)
+	if err != nil {
+		t.Fatalf("search cards by cardSkillName field: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 cardSkillName match, got %d", len(matches))
+	}
+	if matches[0].Item["id"] != float64(1) {
+		t.Fatalf("expected match id=1, got %v", matches[0].Item["id"])
+	}
+}
