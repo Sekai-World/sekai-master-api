@@ -52,6 +52,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		admin.Use(middleware.Auth(tokenVerifier))
 		admin.GET("/profile", profileHandler.Me)
 		admin.POST("/master-data/sync", masterDataAdminHandler.Sync)
+		admin.POST("/master-data/sync/force", masterDataAdminHandler.ForceSync)
 	}
 
 	return router

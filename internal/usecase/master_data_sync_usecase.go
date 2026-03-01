@@ -75,6 +75,14 @@ func NewMasterDataSyncUsecase(
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
+	return usecase.syncAll(ctx, false)
+}
+
+func (usecase *MasterDataSyncUsecase) SyncAllForce(ctx context.Context) error {
+	return usecase.syncAll(ctx, true)
+}
+
+func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) error {
 	if !usecase.syncRunning.CompareAndSwap(false, true) {
 		usecase.logf("sync skipped: reason=already_running")
 		return ErrSyncInProgress
@@ -90,7 +98,7 @@ func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 		effectiveConcurrency = len(usecase.sources)
 	}
 
-	usecase.logf("sync started: regions=%d concurrency=%d", len(usecase.sources), effectiveConcurrency)
+	usecase.logf("sync started: regions=%d concurrency=%d force=%t", len(usecase.sources), effectiveConcurrency, force)
 
 	regions := make([]string, 0, len(usecase.sources))
 	for _, source := range usecase.sources {
@@ -133,46 +141,52 @@ func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 				commit, resolveErr := resolver.ResolveRegionVersion(ctx, source)
 				if resolveErr != nil {
 					usecase.logf("sync compare failed: region=%s error=%v", source.Region, resolveErr)
+					message := "compare commit failed, fallback to full sync"
+					if force {
+						message = "resolve commit failed, continue with force sync"
+					}
 					usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 						Event:       "master_data_sync_progress",
 						Status:      "running",
 						Region:      source.Region,
 						Phase:       "compare",
-						Message:     "compare commit failed, fallback to full sync",
+						Message:     message,
 						CurrentStep: step,
 						TotalSteps:  totalSteps,
 						UpdatedAt:   now,
 					})
 				} else {
 					resolvedCommit = strings.TrimSpace(commit)
-					usecase.logf("sync compare: region=%s remote_commit=%s", source.Region, resolvedCommit)
-					if previous, exists := previousStatuses[source.Region]; exists && previous.SourceCommit != "" && previous.SourceCommit == resolvedCommit {
-						usecase.logf("sync skipped: region=%s reason=commit_unchanged commit=%s", source.Region, resolvedCommit)
-						usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-							Event:       "master_data_sync_progress",
-							Status:      "success",
-							Region:      source.Region,
-							Phase:       "compare",
-							Message:     "commit unchanged, skip sync",
-							CurrentStep: step,
-							TotalSteps:  totalSteps,
-							UpdatedAt:   now,
-						})
+					usecase.logf("sync compare: region=%s remote_commit=%s force=%t", source.Region, resolvedCommit, force)
+					if !force {
+						if previous, exists := previousStatuses[source.Region]; exists && previous.SourceCommit != "" && previous.SourceCommit == resolvedCommit {
+							usecase.logf("sync skipped: region=%s reason=commit_unchanged commit=%s", source.Region, resolvedCommit)
+							usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+								Event:       "master_data_sync_progress",
+								Status:      "success",
+								Region:      source.Region,
+								Phase:       "compare",
+								Message:     "commit unchanged, skip sync",
+								CurrentStep: step,
+								TotalSteps:  totalSteps,
+								UpdatedAt:   now,
+							})
 
-						if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
-							Region:         previous.Region,
-							Status:         previous.Status,
-							FileCount:      previous.FileCount,
-							SyncDurationMS: 0,
-							LastSyncedAt:   previous.LastSyncedAt,
-							SourceCommit:   resolvedCommit,
-							ErrorMessage:   "",
-							Source:         source,
-							UpdatedAt:      now,
-						}); statusErr != nil {
-							recordFailure(source.Region, fmt.Errorf("persist unchanged status for region %s: %w", source.Region, statusErr))
+							if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
+								Region:         previous.Region,
+								Status:         previous.Status,
+								FileCount:      previous.FileCount,
+								SyncDurationMS: 0,
+								LastSyncedAt:   previous.LastSyncedAt,
+								SourceCommit:   resolvedCommit,
+								ErrorMessage:   "",
+								Source:         source,
+								UpdatedAt:      now,
+							}); statusErr != nil {
+								recordFailure(source.Region, fmt.Errorf("persist unchanged status for region %s: %w", source.Region, statusErr))
+							}
+							return
 						}
-						return
 					}
 				}
 			}

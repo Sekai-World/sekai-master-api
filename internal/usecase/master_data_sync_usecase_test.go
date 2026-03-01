@@ -213,6 +213,54 @@ func TestSyncAllLoadsRegionWhenCommitChanged(t *testing.T) {
 	}
 }
 
+func TestSyncAllForceLoadsWhenCommitUnchanged(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    10,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "same-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "same-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "forced"}},
+			},
+		},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	if err := usecase.SyncAllForce(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected one load call for force sync, got %d", loader.loadCalls)
+	}
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected one cache store call for force sync, got %d", cache.storeCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected latest jp status")
+	}
+	if latest.Status != "success" {
+		t.Fatalf("expected status success, got %s", latest.Status)
+	}
+	if latest.SourceCommit != "same-commit" {
+		t.Fatalf("expected source_commit same-commit, got %s", latest.SourceCommit)
+	}
+}
+
 func TestSyncAllSkipDoesNotMutateRedisCache(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {

@@ -129,6 +129,8 @@ definitions:
         type: string
       source:
         $ref: '#/definitions/masterdata.Source'
+      source_commit:
+        type: string
       status:
         type: string
       sync_duration_ms:
@@ -203,6 +205,32 @@ paths:
       security:
       - BearerAuth: []
       summary: Trigger master-data sync
+      tags:
+      - admin
+  /admin/master-data/sync/force:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.MasterDataSyncResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Trigger force master-data sync
       tags:
       - admin
   /admin/profile:

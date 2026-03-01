@@ -29,7 +29,13 @@
       <section class="panel panel-wide">
         <div class="panel-header">
           <h2>Master Data 同步</h2>
-          <button id="sync-master-data-button">立即同步</button>
+          <div class="sync-actions">
+            <label class="sync-force-toggle" for="sync-force-checkbox">
+              <input id="sync-force-checkbox" type="checkbox" />
+              强制更新
+            </label>
+            <button id="sync-master-data-button">立即同步</button>
+          </div>
         </div>
         <div id="sync-message" class="sync-message"></div>
         <div class="sync-progress-panel">
