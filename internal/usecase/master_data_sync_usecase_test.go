@@ -6,7 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+
+	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/storage"
 )
 
 type fakeSyncLoader struct {
@@ -206,5 +210,84 @@ func TestSyncAllLoadsRegionWhenCommitChanged(t *testing.T) {
 	}
 	if latest.Status != "success" {
 		t.Fatalf("expected status success, got %s", latest.Status)
+	}
+}
+
+func TestSyncAllSkipDoesNotMutateRedisCache(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	redisCache, err := storage.NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = redisCache.Close()
+	}()
+
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	seedPayload := map[string]any{
+		"cards.json": []any{map[string]any{"id": 1, "prefix": "stable"}},
+	}
+	if err := redisCache.StoreRegion(context.Background(), "jp", seedPayload); err != nil {
+		t.Fatalf("seed redis cache: %v", err)
+	}
+
+	beforeRecord, found, err := redisCache.GetByID(context.Background(), "jp", "cards", "1")
+	if err != nil {
+		t.Fatalf("read seeded record: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected seeded record to exist")
+	}
+
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    1,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "same-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "same-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-apply"}},
+			},
+		},
+	}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, redisCache, statusStore, nil, 1)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 0 {
+		t.Fatalf("expected loader not to run when commit unchanged, got %d", loader.loadCalls)
+	}
+
+	afterRecord, found, err := redisCache.GetByID(context.Background(), "jp", "cards", "1")
+	if err != nil {
+		t.Fatalf("read record after sync: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected record to remain after skip")
+	}
+
+	if beforeRecord["prefix"] != afterRecord["prefix"] {
+		t.Fatalf("expected redis record unchanged, before=%v after=%v", beforeRecord["prefix"], afterRecord["prefix"])
 	}
 }
