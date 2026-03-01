@@ -4,7 +4,7 @@ APP_PORT ?= 18080
 KEYCLOAK_PORT ?= 18081
 APP_ENV ?= development
 
-.PHONY: run dev-watch test tidy migrate-up migrate-down dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open
+.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open
 
 run:
 	go run ./cmd/api
@@ -23,6 +23,21 @@ test:
 
 tidy:
 	go mod tidy
+
+format:
+	gofmt -w $$(find . -type f -name '*.go' -not -path './vendor/*')
+
+lint:
+	@UNFORMATTED="$$(gofmt -l $$(find . -type f -name '*.go' -not -path './vendor/*'))"; \
+	if [ -n "$$UNFORMATTED" ]; then \
+		echo "The following files are not gofmt-formatted:"; \
+		echo "$$UNFORMATTED"; \
+		exit 1; \
+	fi
+	go vet ./...
+
+swagger:
+	go run github.com/swaggo/swag/cmd/swag@v1.8.12 init -g cmd/api/main.go -o docs
 
 migrate-up:
 	@set -a; \

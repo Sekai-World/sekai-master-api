@@ -41,8 +41,14 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 
 - `make dev-env-up`
 - `make dev-watch`
+- `make format`
+- `make swagger`
 
 `make dev-watch` uses `air` for hot restart on Go code changes.
+`make format` applies `gofmt` to all Go files.
+`make swagger` regenerates Swagger docs from Go annotations.
+
+GitHub Actions CI runs `gofmt` check, `go vet ./...`, and `go test ./...` on every push and pull request.
 
 ## API Endpoints
 
