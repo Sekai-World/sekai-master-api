@@ -122,7 +122,7 @@ SELECT
 	COALESCE(source_path, ''),
 	updated_at
 FROM master_data_sync_status
-ORDER BY region ASC`)
+ORDER BY updated_at DESC, region ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list sync status: %w", err)
 	}
