@@ -254,10 +254,7 @@ export const initDashboardPage = async () => {
     const merged = {
       ...existing,
       region: payload.region ?? existing.region,
-      status:
-        String(payload?.status ?? "").toLowerCase() === "running"
-          ? "pending"
-          : payload?.status ?? existing.status,
+      status: payload?.status ?? existing.status,
       processed_files:
         Number.isFinite(Number(payload?.processed_files)) && Number(payload?.processed_files) >= 0
           ? Number(payload.processed_files)
