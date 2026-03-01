@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"sekai-master-api/internal/domain/masterdata"
@@ -37,6 +38,7 @@ type MasterDataSyncUsecase struct {
 	cache       MasterDataCache
 	statusStore MasterDataSyncStatusStore
 	publisher   MasterDataEventPublisher
+	concurrency int
 }
 
 const masterDataSyncLogComponent = "master-data-sync"
@@ -47,155 +49,194 @@ func NewMasterDataSyncUsecase(
 	cache MasterDataCache,
 	statusStore MasterDataSyncStatusStore,
 	publisher MasterDataEventPublisher,
+	concurrency int,
 ) *MasterDataSyncUsecase {
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+
 	return &MasterDataSyncUsecase{
 		sources:     sources,
 		loader:      loader,
 		cache:       cache,
 		statusStore: statusStore,
 		publisher:   publisher,
+		concurrency: concurrency,
 	}
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 	syncStartedAt := time.Now()
-	usecase.logf("sync started: regions=%d", len(usecase.sources))
+	effectiveConcurrency := usecase.concurrency
+	if effectiveConcurrency <= 0 {
+		effectiveConcurrency = 1
+	}
+	if effectiveConcurrency > len(usecase.sources) && len(usecase.sources) > 0 {
+		effectiveConcurrency = len(usecase.sources)
+	}
 
-	var syncErrors []error
+	usecase.logf("sync started: regions=%d concurrency=%d", len(usecase.sources), effectiveConcurrency)
+
 	regions := make([]string, 0, len(usecase.sources))
-	failedRegions := make([]string, 0)
-	for index, source := range usecase.sources {
-		step := index + 1
-		totalSteps := len(usecase.sources)
+	for _, source := range usecase.sources {
 		regions = append(regions, source.Region)
-		startedAt := time.Now().UTC()
-		now := time.Now().UTC()
+	}
 
-		usecase.logf(
-			"sync progress: step=%d/%d region=%s phase=load source=%s/%s ref=%s path=%s",
-			step,
-			totalSteps,
-			source.Region,
-			source.Owner,
-			source.Repo,
-			source.Ref,
-			source.Path,
-		)
-		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-			Event:       "master_data_sync_progress",
-			Status:      "running",
-			Region:      source.Region,
-			Phase:       "load",
-			Message:     "loading source files",
-			CurrentStep: step,
-			TotalSteps:  totalSteps,
-			UpdatedAt:   now,
-		})
+	var (
+		resultMu      sync.Mutex
+		syncErrors    []error
+		failedRegions []string
+		wg            sync.WaitGroup
+	)
 
-		payload, err := usecase.loader.LoadRegion(ctx, source)
-		if err != nil {
-			duration := time.Since(startedAt).Milliseconds()
-			usecase.logf("sync failed: region=%s phase=load duration_ms=%d error=%v", source.Region, duration, err)
+	recordFailure := func(region string, err error) {
+		resultMu.Lock()
+		syncErrors = append(syncErrors, err)
+		failedRegions = append(failedRegions, region)
+		resultMu.Unlock()
+	}
+
+	totalSteps := len(usecase.sources)
+	semaphore := make(chan struct{}, effectiveConcurrency)
+	for index, source := range usecase.sources {
+		semaphore <- struct{}{}
+		step := index + 1
+		source := source
+
+		wg.Go(func() {
+			defer func() {
+				<-semaphore
+			}()
+
+			startedAt := time.Now().UTC()
+			now := time.Now().UTC()
+
+			usecase.logf(
+				"sync progress: step=%d/%d region=%s phase=load source=%s/%s ref=%s path=%s",
+				step,
+				totalSteps,
+				source.Region,
+				source.Owner,
+				source.Repo,
+				source.Ref,
+				source.Path,
+			)
 			usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 				Event:       "master_data_sync_progress",
-				Status:      "failed",
+				Status:      "running",
 				Region:      source.Region,
 				Phase:       "load",
-				Message:     err.Error(),
+				Message:     "loading source files",
 				CurrentStep: step,
 				TotalSteps:  totalSteps,
-				DurationMS:  duration,
-				UpdatedAt:   time.Now().UTC(),
+				UpdatedAt:   now,
 			})
-			syncErrors = append(syncErrors, err)
-			failedRegions = append(failedRegions, source.Region)
-			usecase.saveStatus(ctx, masterdata.SyncStatus{
-				Region:         source.Region,
-				Status:         "failed",
-				FileCount:      0,
-				SyncDurationMS: duration,
-				LastSyncedAt:   now,
-				ErrorMessage:   err.Error(),
-				Source:         source,
-				UpdatedAt:      now,
-			})
-			continue
-		}
 
-		usecase.logf(
-			"sync progress: step=%d/%d region=%s phase=cache files=%d",
-			step,
-			totalSteps,
-			source.Region,
-			len(payload),
-		)
-		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-			Event:       "master_data_sync_progress",
-			Status:      "running",
-			Region:      source.Region,
-			Phase:       "cache",
-			Message:     "writing cache",
-			CurrentStep: step,
-			TotalSteps:  totalSteps,
-			FileCount:   len(payload),
-			UpdatedAt:   time.Now().UTC(),
-		})
+			payload, err := usecase.loader.LoadRegion(ctx, source)
+			if err != nil {
+				duration := time.Since(startedAt).Milliseconds()
+				usecase.logf("sync failed: region=%s phase=load duration_ms=%d error=%v", source.Region, duration, err)
+				usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+					Event:       "master_data_sync_progress",
+					Status:      "failed",
+					Region:      source.Region,
+					Phase:       "load",
+					Message:     err.Error(),
+					CurrentStep: step,
+					TotalSteps:  totalSteps,
+					DurationMS:  duration,
+					UpdatedAt:   time.Now().UTC(),
+				})
+				recordFailure(source.Region, err)
+				usecase.saveStatus(ctx, masterdata.SyncStatus{
+					Region:         source.Region,
+					Status:         "failed",
+					FileCount:      0,
+					SyncDurationMS: duration,
+					LastSyncedAt:   now,
+					ErrorMessage:   err.Error(),
+					Source:         source,
+					UpdatedAt:      now,
+				})
+				return
+			}
 
-		if err := usecase.cache.StoreRegion(ctx, source.Region, payload); err != nil {
-			duration := time.Since(startedAt).Milliseconds()
-			usecase.logf("sync failed: region=%s phase=cache files=%d duration_ms=%d error=%v", source.Region, len(payload), duration, err)
+			usecase.logf(
+				"sync progress: step=%d/%d region=%s phase=cache files=%d",
+				step,
+				totalSteps,
+				source.Region,
+				len(payload),
+			)
 			usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 				Event:       "master_data_sync_progress",
-				Status:      "failed",
+				Status:      "running",
 				Region:      source.Region,
 				Phase:       "cache",
-				Message:     err.Error(),
+				Message:     "writing cache",
+				CurrentStep: step,
+				TotalSteps:  totalSteps,
+				FileCount:   len(payload),
+				UpdatedAt:   time.Now().UTC(),
+			})
+
+			if err := usecase.cache.StoreRegion(ctx, source.Region, payload); err != nil {
+				duration := time.Since(startedAt).Milliseconds()
+				usecase.logf("sync failed: region=%s phase=cache files=%d duration_ms=%d error=%v", source.Region, len(payload), duration, err)
+				usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+					Event:       "master_data_sync_progress",
+					Status:      "failed",
+					Region:      source.Region,
+					Phase:       "cache",
+					Message:     err.Error(),
+					CurrentStep: step,
+					TotalSteps:  totalSteps,
+					FileCount:   len(payload),
+					DurationMS:  duration,
+					UpdatedAt:   time.Now().UTC(),
+				})
+				recordFailure(source.Region, err)
+				usecase.saveStatus(ctx, masterdata.SyncStatus{
+					Region:         source.Region,
+					Status:         "failed",
+					FileCount:      len(payload),
+					SyncDurationMS: duration,
+					LastSyncedAt:   now,
+					ErrorMessage:   err.Error(),
+					Source:         source,
+					UpdatedAt:      now,
+				})
+				return
+			}
+
+			duration := time.Since(startedAt).Milliseconds()
+			usecase.logf("sync success: region=%s files=%d duration_ms=%d", source.Region, len(payload), duration)
+			usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+				Event:       "master_data_sync_progress",
+				Status:      "success",
+				Region:      source.Region,
+				Phase:       "done",
+				Message:     "region sync completed",
 				CurrentStep: step,
 				TotalSteps:  totalSteps,
 				FileCount:   len(payload),
 				DurationMS:  duration,
 				UpdatedAt:   time.Now().UTC(),
 			})
-			syncErrors = append(syncErrors, err)
-			failedRegions = append(failedRegions, source.Region)
+
 			usecase.saveStatus(ctx, masterdata.SyncStatus{
 				Region:         source.Region,
-				Status:         "failed",
+				Status:         "success",
 				FileCount:      len(payload),
 				SyncDurationMS: duration,
 				LastSyncedAt:   now,
-				ErrorMessage:   err.Error(),
 				Source:         source,
 				UpdatedAt:      now,
 			})
-			continue
-		}
-
-		duration := time.Since(startedAt).Milliseconds()
-		usecase.logf("sync success: region=%s files=%d duration_ms=%d", source.Region, len(payload), duration)
-		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-			Event:       "master_data_sync_progress",
-			Status:      "success",
-			Region:      source.Region,
-			Phase:       "done",
-			Message:     "region sync completed",
-			CurrentStep: step,
-			TotalSteps:  totalSteps,
-			FileCount:   len(payload),
-			DurationMS:  duration,
-			UpdatedAt:   time.Now().UTC(),
-		})
-
-		usecase.saveStatus(ctx, masterdata.SyncStatus{
-			Region:         source.Region,
-			Status:         "success",
-			FileCount:      len(payload),
-			SyncDurationMS: duration,
-			LastSyncedAt:   now,
-			Source:         source,
-			UpdatedAt:      now,
 		})
 	}
+
+	wg.Wait()
 
 	status := "success"
 	if len(syncErrors) > 0 {

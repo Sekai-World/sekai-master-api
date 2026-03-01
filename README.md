@@ -73,7 +73,10 @@ Swagger UI is exposed at `GET /docs/index.html`, and OpenAPI JSON is exposed at 
 
 At startup, the API can sync parsed game database JSON files from one or more GitHub repositories into cache.
 
+Startup sync runs in background after the API listener is up, so HTTP endpoints are available immediately.
+
 - Region source repos are configured by env vars.
+- Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `4`).
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
 - Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
