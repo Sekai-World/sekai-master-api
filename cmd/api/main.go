@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"time"
 
 	"sekai-master-api/internal/auth"
@@ -62,21 +63,37 @@ func main() {
 		masterDataCache,
 		masterDataStatusRepository,
 		masterDataEventHub,
+		cfg.MasterDataSyncConcurrency,
 	)
-
-	if cfg.MasterDataAutoSync && len(masterDataSources) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
-		defer cancel()
-		if err := masterDataSyncUsecase.SyncAll(ctx); err != nil {
-			log.Printf("master data startup sync completed with errors: %v", err)
-		} else {
-			log.Printf("master data startup sync completed successfully for %d region(s)", len(masterDataSources))
-		}
-	}
-
 	router := transport.NewRouter(cfg, db, keycloakVerifier, masterDataSyncUsecase, masterDataEventHub)
 
-	if err := router.Run(":" + cfg.Port); err != nil {
+	listener, err := net.Listen("tcp", ":"+cfg.Port)
+	if err != nil {
+		log.Fatalf("failed to listen on port %s: %v", cfg.Port, err)
+	}
+	log.Printf("api server listening on %s", listener.Addr().String())
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- router.RunListener(listener)
+	}()
+
+	if cfg.MasterDataAutoSync && len(masterDataSources) > 0 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
+			defer cancel()
+
+			log.Printf("master data startup sync running in background for %d region(s)", len(masterDataSources))
+			if err := masterDataSyncUsecase.SyncAll(ctx); err != nil {
+				log.Printf("master data startup sync completed with errors: %v", err)
+				return
+			}
+
+			log.Printf("master data startup sync completed successfully for %d region(s)", len(masterDataSources))
+		}()
+	}
+
+	if err := <-serverErrCh; err != nil {
 		log.Fatalf("server exited with error: %v", err)
 	}
 }
