@@ -16,14 +16,6 @@ definitions:
       token_type:
         type: string
     type: object
-  handler.CardItemsResponse:
-    properties:
-      items:
-        items:
-          additionalProperties: {}
-          type: object
-        type: array
-    type: object
   handler.CardListResponse:
     properties:
       items:
@@ -377,6 +369,10 @@ paths:
         name: q
         required: true
         type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
       - description: Max results
         in: query
         name: limit
@@ -387,7 +383,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardItemsResponse'
+            $ref: '#/definitions/handler.CardListResponse'
         "400":
           description: Bad Request
           schema:

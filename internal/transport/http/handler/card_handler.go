@@ -101,8 +101,9 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param q query string true "Prefix query"
+// @Param page query int false "Page number"
 // @Param limit query int false "Max results"
-// @Success 200 {object} CardItemsResponse
+// @Success 200 {object} CardListResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 503 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
@@ -120,6 +121,16 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 		return
 	}
 
+	page := 1
+	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
+		parsedPage, err := strconv.Atoi(rawPage)
+		if err != nil || parsedPage <= 0 {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page must be a positive integer")
+			return
+		}
+		page = parsedPage
+	}
+
 	limit := 20
 	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
 		parsedLimit, err := strconv.Atoi(rawLimit)
@@ -130,19 +141,60 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 		limit = parsedLimit
 	}
 
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "cards", query, []string{"prefix"}, limit)
+	fetchLimit := 1000000
+
+	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "cards", query, []string{"prefix"}, fetchLimit)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to search cards")
 		return
 	}
 
-	items := make([]map[string]any, 0, len(matches))
-	for _, match := range matches {
+	total := len(matches)
+	start := (page - 1) * limit
+	if start >= total {
+		totalPages := 0
+		if limit > 0 {
+			totalPages = (total + limit - 1) / limit
+		}
+		response.JSON(c, http.StatusOK, gin.H{
+			"items": []map[string]any{},
+			"pagination": gin.H{
+				"page":        page,
+				"page_size":   limit,
+				"total":       total,
+				"total_pages": totalPages,
+				"has_next":    false,
+			},
+		})
+		return
+	}
+
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	pagedMatches := matches[start:end]
+
+	items := make([]map[string]any, 0, len(pagedMatches))
+	for _, match := range pagedMatches {
 		items = append(items, buildCardBase(match.Item))
 	}
 
+	totalPages := 0
+	if limit > 0 {
+		totalPages = (total + limit - 1) / limit
+	}
+	hasNext := page < totalPages
+
 	response.JSON(c, http.StatusOK, gin.H{
 		"items": items,
+		"pagination": gin.H{
+			"page":        page,
+			"page_size":   limit,
+			"total":       total,
+			"total_pages": totalPages,
+			"has_next":    hasNext,
+		},
 	})
 }
 

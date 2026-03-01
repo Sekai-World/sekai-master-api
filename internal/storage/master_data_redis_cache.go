@@ -285,9 +285,6 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 100 {
-		limit = 100
-	}
 
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
@@ -378,6 +375,79 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	return results, nil
 }
 
+func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error) {
+	regionName := normalizeKey(region)
+	if regionName == "" {
+		return false, nil
+	}
+
+	regionPrefix := cache.redisKey(regionName)
+	pattern := regionPrefix + ":*:by-id"
+	iterator := cache.client.Scan(ctx, 0, pattern, 0).Iterator()
+
+	nextIndex := make(map[string]map[string][]searchIndexItem)
+	hasRecords := false
+
+	for iterator.Next(ctx) {
+		key := iterator.Val()
+		entity := entityNameFromByIDKey(regionPrefix, key)
+		if entity == "" {
+			continue
+		}
+
+		recordMap, err := cache.client.HGetAll(ctx, key).Result()
+		if err != nil {
+			return false, fmt.Errorf("hgetall region %s entity %s: %w", regionName, entity, err)
+		}
+		if len(recordMap) == 0 {
+			continue
+		}
+
+		hasRecords = true
+		for _, raw := range recordMap {
+			var record map[string]any
+			if err := json.Unmarshal([]byte(raw), &record); err != nil {
+				return false, fmt.Errorf("decode redis record region %s entity %s: %w", regionName, entity, err)
+			}
+
+			searchable := searchableFields(record)
+			if len(searchable) == 0 {
+				continue
+			}
+
+			id := recordID(record)
+			if id == "" {
+				continue
+			}
+
+			if _, ok := nextIndex[entity]; !ok {
+				nextIndex[entity] = make(map[string][]searchIndexItem)
+			}
+
+			for field, normalizedText := range searchable {
+				nextIndex[entity][field] = append(nextIndex[entity][field], searchIndexItem{
+					ID:             id,
+					NormalizedText: normalizedText,
+				})
+			}
+		}
+	}
+
+	if err := iterator.Err(); err != nil {
+		return false, fmt.Errorf("scan redis keys region %s: %w", regionName, err)
+	}
+
+	if !hasRecords {
+		return false, nil
+	}
+
+	cache.mu.Lock()
+	cache.index[regionName] = nextIndex
+	cache.mu.Unlock()
+
+	return true, nil
+}
+
 func (cache *RedisMasterDataCache) Close() error {
 	if cache.client == nil {
 		return nil
@@ -404,6 +474,18 @@ func (cache *RedisMasterDataCache) redisEntityKey(region string, entity string) 
 
 func (cache *RedisMasterDataCache) redisEntityOrderKey(region string, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":order"
+}
+
+func entityNameFromByIDKey(regionPrefix string, key string) string {
+	prefix := regionPrefix + ":"
+	suffix := ":by-id"
+
+	if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) {
+		return ""
+	}
+
+	entity := strings.TrimSuffix(strings.TrimPrefix(key, prefix), suffix)
+	return normalizeKey(entity)
 }
 
 func normalizeKey(value string) string {
