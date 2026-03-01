@@ -28,6 +28,10 @@ type MasterDataCache interface {
 	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
 
+type MasterDataCacheIndexRebuilder interface {
+	RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error)
+}
+
 type MasterDataSyncStatusStore interface {
 	Save(ctx context.Context, status masterdata.SyncStatus) error
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
@@ -37,12 +41,18 @@ type MasterDataEventPublisher interface {
 	PublishMasterDataUpdated(ctx context.Context, event masterdata.SyncUpdatedEvent) error
 }
 
+type MasterDataPayloadBackupStore interface {
+	SaveRegionPayload(ctx context.Context, source masterdata.Source, commit string, payload map[string]any) error
+	LoadRegionPayload(ctx context.Context, source masterdata.Source, commit string) (map[string]any, bool, error)
+}
+
 type MasterDataSyncUsecase struct {
 	sources     []masterdata.Source
 	loader      MasterDataSourceLoader
 	cache       MasterDataCache
 	statusStore MasterDataSyncStatusStore
 	publisher   MasterDataEventPublisher
+	backupStore MasterDataPayloadBackupStore
 	concurrency int
 	statusMu    sync.Mutex
 	syncRunning atomic.Bool
@@ -70,6 +80,7 @@ func NewMasterDataSyncUsecase(
 		cache:       cache,
 		statusStore: statusStore,
 		publisher:   publisher,
+		backupStore: NewFileMasterDataPayloadBackupStore("tmp/master-data-backup"),
 		concurrency: concurrency,
 	}
 }
@@ -159,33 +170,126 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 					resolvedCommit = strings.TrimSpace(commit)
 					usecase.logf("sync compare: region=%s remote_commit=%s force=%t", source.Region, resolvedCommit, force)
 					if !force {
-						if previous, exists := previousStatuses[source.Region]; exists && previous.SourceCommit != "" && previous.SourceCommit == resolvedCommit {
-							usecase.logf("sync skipped: region=%s reason=commit_unchanged commit=%s", source.Region, resolvedCommit)
-							usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-								Event:       "master_data_sync_progress",
-								Status:      "success",
-								Region:      source.Region,
-								Phase:       "compare",
-								Message:     "commit unchanged, skip sync",
-								CurrentStep: step,
-								TotalSteps:  totalSteps,
-								UpdatedAt:   now,
-							})
-
-							if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
-								Region:         previous.Region,
-								Status:         previous.Status,
-								FileCount:      previous.FileCount,
-								SyncDurationMS: 0,
-								LastSyncedAt:   previous.LastSyncedAt,
-								SourceCommit:   resolvedCommit,
-								ErrorMessage:   "",
-								Source:         source,
-								UpdatedAt:      now,
-							}); statusErr != nil {
-								recordFailure(source.Region, fmt.Errorf("persist unchanged status for region %s: %w", source.Region, statusErr))
+						if previous, exists := previousStatuses[source.Region]; exists && strings.EqualFold(strings.TrimSpace(previous.Status), "success") && previous.SourceCommit != "" && previous.SourceCommit == resolvedCommit {
+							rebuildFromRedis := false
+							if rebuilder, ok := usecase.cache.(MasterDataCacheIndexRebuilder); ok {
+								rebuilt, rebuildErr := rebuilder.RebuildRegionIndexFromRedis(ctx, source.Region)
+								if rebuildErr != nil {
+									usecase.logf("sync compare: region=%s commit=%s redis_index_rebuild=failed error=%v", source.Region, resolvedCommit, rebuildErr)
+									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+										Event:       "master_data_sync_progress",
+										Status:      "running",
+										Region:      source.Region,
+										Phase:       "compare",
+										Message:     "commit unchanged but redis index rebuild failed, fallback to full sync",
+										CurrentStep: step,
+										TotalSteps:  totalSteps,
+										UpdatedAt:   now,
+									})
+								} else if rebuilt {
+									rebuildFromRedis = true
+									usecase.logf("sync skipped: region=%s reason=commit_unchanged commit=%s index=rebuilt_from_redis", source.Region, resolvedCommit)
+									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+										Event:       "master_data_sync_progress",
+										Status:      "success",
+										Region:      source.Region,
+										Phase:       "compare",
+										Message:     "commit unchanged, rebuilt index from redis and skipped sync",
+										CurrentStep: step,
+										TotalSteps:  totalSteps,
+										UpdatedAt:   now,
+									})
+								} else {
+									usecase.logf("sync compare: region=%s commit=%s redis_cache=empty fallback=full_sync", source.Region, resolvedCommit)
+									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+										Event:       "master_data_sync_progress",
+										Status:      "running",
+										Region:      source.Region,
+										Phase:       "compare",
+										Message:     "commit unchanged but redis cache missing, fallback to full sync",
+										CurrentStep: step,
+										TotalSteps:  totalSteps,
+										UpdatedAt:   now,
+									})
+								}
 							}
-							return
+
+							if rebuildFromRedis {
+								if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
+									Region:         previous.Region,
+									Status:         previous.Status,
+									FileCount:      previous.FileCount,
+									SyncDurationMS: 0,
+									LastSyncedAt:   previous.LastSyncedAt,
+									SourceCommit:   resolvedCommit,
+									ErrorMessage:   "",
+									Source:         source,
+									UpdatedAt:      now,
+								}); statusErr != nil {
+									recordFailure(source.Region, fmt.Errorf("persist unchanged status for region %s: %w", source.Region, statusErr))
+								}
+								return
+							}
+
+							if usecase.backupStore != nil {
+								backupPayload, backupFound, backupErr := usecase.backupStore.LoadRegionPayload(ctx, source, resolvedCommit)
+								if backupErr != nil {
+									usecase.logf("sync compare: region=%s commit=%s local_backup=load_failed error=%v", source.Region, resolvedCommit, backupErr)
+									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+										Event:       "master_data_sync_progress",
+										Status:      "running",
+										Region:      source.Region,
+										Phase:       "compare",
+										Message:     "commit unchanged but local backup read failed, fallback to full sync",
+										CurrentStep: step,
+										TotalSteps:  totalSteps,
+										UpdatedAt:   now,
+									})
+								} else if backupFound {
+									if cacheErr := usecase.cache.StoreRegion(ctx, source.Region, backupPayload); cacheErr != nil {
+										usecase.logf("sync compare: region=%s commit=%s local_backup=restore_failed error=%v", source.Region, resolvedCommit, cacheErr)
+										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+											Event:       "master_data_sync_progress",
+											Status:      "running",
+											Region:      source.Region,
+											Phase:       "compare",
+											Message:     "commit unchanged but local backup restore failed, fallback to full sync",
+											CurrentStep: step,
+											TotalSteps:  totalSteps,
+											UpdatedAt:   now,
+										})
+									} else {
+										usecase.logf("sync skipped: region=%s reason=commit_unchanged commit=%s index=restored_from_local_backup", source.Region, resolvedCommit)
+										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+											Event:       "master_data_sync_progress",
+											Status:      "success",
+											Region:      source.Region,
+											Phase:       "compare",
+											Message:     "commit unchanged, restored cache from local backup and skipped sync",
+											CurrentStep: step,
+											TotalSteps:  totalSteps,
+											UpdatedAt:   now,
+										})
+
+										if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
+											Region:         previous.Region,
+											Status:         previous.Status,
+											FileCount:      previous.FileCount,
+											SyncDurationMS: 0,
+											LastSyncedAt:   previous.LastSyncedAt,
+											SourceCommit:   resolvedCommit,
+											ErrorMessage:   "",
+											Source:         source,
+											UpdatedAt:      now,
+										}); statusErr != nil {
+											recordFailure(source.Region, fmt.Errorf("persist unchanged status for region %s: %w", source.Region, statusErr))
+										}
+										return
+									}
+								} else {
+									usecase.logf("sync compare: region=%s commit=%s local_backup=missing fallback=full_sync", source.Region, resolvedCommit)
+								}
+							}
 						}
 					}
 				}
@@ -329,6 +433,12 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 					recordFailure(source.Region, fmt.Errorf("persist failed status for region %s: %w", source.Region, statusErr))
 				}
 				return
+			}
+
+			if usecase.backupStore != nil {
+				if backupErr := usecase.backupStore.SaveRegionPayload(ctx, source, resolvedCommit, payload); backupErr != nil {
+					usecase.logf("sync backup save failed: region=%s commit=%s error=%v", source.Region, resolvedCommit, backupErr)
+				}
 			}
 
 			duration := time.Since(startedAt).Milliseconds()

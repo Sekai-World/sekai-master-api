@@ -107,3 +107,58 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 		t.Fatalf("expected untouched skills entity to stay searchable, got %d matches", len(skillMatches))
 	}
 }
+
+func TestSearchUsesCardPrefixField(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha", "name": "totally unrelated"},
+			map[string]any{"id": 2, "prefix": "zzz", "name": "alpha in name only"},
+		},
+	}
+
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	prefixMatches, err := cache.Search(ctx, "jp", "cards", "alpha", []string{"prefix"}, 10)
+	if err != nil {
+		t.Fatalf("search cards by prefix field: %v", err)
+	}
+	if len(prefixMatches) != 1 {
+		t.Fatalf("expected 1 prefix match, got %d", len(prefixMatches))
+	}
+	if prefixMatches[0].Item["id"] != float64(1) {
+		t.Fatalf("expected prefix match id=1, got %v", prefixMatches[0].Item["id"])
+	}
+
+	nameMatches, err := cache.Search(ctx, "jp", "cards", "alpha", []string{"name"}, 10)
+	if err != nil {
+		t.Fatalf("search cards by name field: %v", err)
+	}
+	if len(nameMatches) != 1 {
+		t.Fatalf("expected 1 name match, got %d", len(nameMatches))
+	}
+	if nameMatches[0].Item["id"] != float64(2) {
+		t.Fatalf("expected name match id=2, got %v", nameMatches[0].Item["id"])
+	}
+}

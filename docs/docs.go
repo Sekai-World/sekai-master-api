@@ -271,6 +271,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
                         "description": "Max results",
                         "name": "limit",
                         "in": "query"
@@ -280,7 +286,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handler.CardItemsResponse"
+                            "$ref": "#/definitions/handler.CardListResponse"
                         }
                     },
                     "400": {
@@ -515,18 +521,6 @@ const docTemplate = `{
                 },
                 "token_type": {
                     "type": "string"
-                }
-            }
-        },
-        "handler.CardItemsResponse": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
                 }
             }
         },
