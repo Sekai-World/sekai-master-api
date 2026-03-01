@@ -23,6 +23,10 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
+		log.Fatalf("failed to run database migrations: %v", err)
+	}
+
 	keycloakVerifier, err := auth.NewKeycloakVerifier(context.Background(), cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize keycloak verifier: %v", err)
@@ -31,7 +35,12 @@ func main() {
 	masterDataSources := buildMasterDataSources(cfg)
 	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db)
 	masterDataLoader := repository.NewGitHubMasterDataRepository(time.Duration(cfg.MasterDataHTTPTimeout)*time.Second, cfg.MasterDataGitHubToken)
-	masterDataCache, masterDataCacheCloser := buildMasterDataCache(cfg)
+	masterDataCache, err := storage.NewRedisMasterDataCache(cfg)
+	if err != nil {
+		log.Fatalf("failed to initialize redis master data cache: %v", err)
+	}
+
+	masterDataCacheCloser := masterDataCache.Close
 	defer func() {
 		if masterDataCacheCloser != nil {
 			_ = masterDataCacheCloser()
@@ -75,16 +84,4 @@ func buildMasterDataSources(cfg config.Config) []masterdata.Source {
 	}
 
 	return sources
-}
-
-func buildMasterDataCache(cfg config.Config) (usecase.MasterDataCache, func() error) {
-	if cfg.MasterDataCacheBackend == "redis" {
-		redisCache, err := storage.NewRedisMasterDataCache(cfg)
-		if err == nil {
-			return redisCache, redisCache.Close
-		}
-		log.Printf("master data redis cache unavailable, fallback to memory cache: %v", err)
-	}
-
-	return repository.NewMemoryMasterDataCache(), nil
 }

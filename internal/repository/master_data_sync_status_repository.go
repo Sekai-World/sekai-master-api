@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"sekai-master-api/internal/domain/masterdata"
@@ -16,39 +15,6 @@ type MasterDataSyncStatusRepository struct {
 
 func NewMasterDataSyncStatusRepository(db *sql.DB) *MasterDataSyncStatusRepository {
 	return &MasterDataSyncStatusRepository{db: db}
-}
-
-func (repository *MasterDataSyncStatusRepository) EnsureSchema(ctx context.Context) error {
-	if repository.db == nil {
-		return nil
-	}
-
-	query := `
-CREATE TABLE IF NOT EXISTS master_data_sync_status (
-	region TEXT PRIMARY KEY,
-	status TEXT NOT NULL,
-	file_count INTEGER NOT NULL,
-	sync_duration_ms INTEGER NOT NULL DEFAULT 0,
-	last_synced_at TIMESTAMP NOT NULL,
-	error_message TEXT,
-	source_owner TEXT NOT NULL,
-	source_repo TEXT NOT NULL,
-	source_ref TEXT NOT NULL,
-	source_path TEXT,
-	updated_at TIMESTAMP NOT NULL
-);`
-
-	if _, err := repository.db.ExecContext(ctx, query); err != nil {
-		return fmt.Errorf("ensure master_data_sync_status schema: %w", err)
-	}
-
-	if _, err := repository.db.ExecContext(ctx, `ALTER TABLE master_data_sync_status ADD COLUMN sync_duration_ms INTEGER NOT NULL DEFAULT 0`); err != nil {
-		if !isColumnAlreadyExistsError(err) {
-			return fmt.Errorf("ensure sync_duration_ms column: %w", err)
-		}
-	}
-
-	return nil
 }
 
 func (repository *MasterDataSyncStatusRepository) Save(ctx context.Context, status masterdata.SyncStatus) error {
@@ -219,9 +185,4 @@ func (repository *MasterDataSyncStatusRepository) SeedPending(ctx context.Contex
 	}
 
 	return nil
-}
-
-func isColumnAlreadyExistsError(err error) bool {
-	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	return strings.Contains(message, "duplicate column") || strings.Contains(message, "already exists")
 }

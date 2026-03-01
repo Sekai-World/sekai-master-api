@@ -17,7 +17,6 @@ type Config struct {
 	SQLitePath               string
 	MasterDataAutoSync       bool
 	MasterDataSyncTimeout    int
-	MasterDataCacheBackend   string
 	MasterDataGitHubToken    string
 	MasterDataHTTPTimeout    int
 	MasterDataRegions        []string
@@ -54,7 +53,6 @@ func Load() Config {
 		SQLitePath:               getEnv("SQLITE_PATH", "./tmp/dev.db"),
 		MasterDataAutoSync:       getEnvBool("MASTER_DATA_AUTO_SYNC", true),
 		MasterDataSyncTimeout:    getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 120),
-		MasterDataCacheBackend:   strings.ToLower(getEnv("MASTER_DATA_CACHE_BACKEND", "memory")),
 		MasterDataGitHubToken:    strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_TOKEN", "")),
 		MasterDataHTTPTimeout:    getEnvInt("MASTER_DATA_HTTP_TIMEOUT_SECONDS", 20),
 		MasterDataRegions:        getEnvList("MASTER_DATA_REGIONS"),

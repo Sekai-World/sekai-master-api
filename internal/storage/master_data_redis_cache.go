@@ -3,18 +3,32 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 
 	"github.com/redis/go-redis/v9"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/domain/masterdata"
 )
 
 type RedisMasterDataCache struct {
 	client    *redis.Client
 	keyPrefix string
+
+	mu    sync.RWMutex
+	index map[string]map[string]map[string][]searchIndexItem
+}
+
+type searchIndexItem struct {
+	ID             string
+	NormalizedText string
 }
 
 func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
@@ -34,21 +48,197 @@ func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 	return &RedisMasterDataCache{
 		client:    client,
 		keyPrefix: cfg.MasterDataRedisKeyPrefix,
+		index:     make(map[string]map[string]map[string][]searchIndexItem),
 	}, nil
 }
 
 func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region string, payload map[string]any) error {
-	key := cache.redisKey(region)
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal redis payload for region %s: %w", region, err)
+	regionName := normalizeKey(region)
+	if regionName == "" {
+		return errors.New("region is required")
 	}
 
-	if err := cache.client.Set(ctx, key, body, 0).Err(); err != nil {
-		return fmt.Errorf("set redis key for region %s: %w", region, err)
+	nextIndex := make(map[string]map[string][]searchIndexItem)
+	for filePath, value := range payload {
+		entity := entityNameFromPath(filePath)
+		if entity == "" {
+			continue
+		}
+
+		records, ok := value.([]any)
+		if !ok {
+			continue
+		}
+
+		key := cache.redisEntityKey(regionName, entity)
+		if err := cache.client.Del(ctx, key).Err(); err != nil {
+			return fmt.Errorf("clear redis key for region %s entity %s: %w", regionName, entity, err)
+		}
+
+		for _, record := range records {
+			recordMap, ok := record.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			id := recordID(recordMap)
+			if id == "" {
+				continue
+			}
+
+			body, err := json.Marshal(recordMap)
+			if err != nil {
+				return fmt.Errorf("marshal record region %s entity %s id %s: %w", regionName, entity, id, err)
+			}
+
+			if err := cache.client.HSet(ctx, key, id, body).Err(); err != nil {
+				return fmt.Errorf("hset record region %s entity %s id %s: %w", regionName, entity, id, err)
+			}
+
+			searchable := searchableFields(recordMap)
+			if len(searchable) == 0 {
+				continue
+			}
+
+			if _, ok := nextIndex[entity]; !ok {
+				nextIndex[entity] = make(map[string][]searchIndexItem)
+			}
+
+			for field, normalizedText := range searchable {
+				nextIndex[entity][field] = append(nextIndex[entity][field], searchIndexItem{
+					ID:             id,
+					NormalizedText: normalizedText,
+				})
+			}
+		}
 	}
+
+	cache.mu.Lock()
+	cache.index[regionName] = nextIndex
+	cache.mu.Unlock()
 
 	return nil
+}
+
+func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	recordIDValue := strings.TrimSpace(id)
+	if regionName == "" || entityName == "" || recordIDValue == "" {
+		return nil, false, nil
+	}
+
+	body, err := cache.client.HGet(ctx, cache.redisEntityKey(regionName, entityName), recordIDValue).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("hget region %s entity %s id %s: %w", regionName, entityName, recordIDValue, err)
+	}
+
+	var record map[string]any
+	if err := json.Unmarshal(body, &record); err != nil {
+		return nil, false, fmt.Errorf("unmarshal record region %s entity %s id %s: %w", regionName, entityName, recordIDValue, err)
+	}
+
+	return record, true, nil
+}
+
+func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	normalizedQuery := normalizeSearchText(query)
+	if regionName == "" || entityName == "" || normalizedQuery == "" {
+		return []masterdata.SearchMatch{}, nil
+	}
+
+	cache.mu.RLock()
+	entityIndex := cache.index[regionName][entityName]
+	cache.mu.RUnlock()
+
+	if len(entityIndex) == 0 {
+		return []masterdata.SearchMatch{}, nil
+	}
+
+	selectedFields := normalizeFields(fields)
+	if len(selectedFields) == 0 {
+		selectedFields = []string{"name"}
+	}
+
+	type scoredCandidate struct {
+		ID           string
+		Score        int
+		MatchType    string
+		MatchedField string
+	}
+
+	candidateMap := make(map[string]scoredCandidate)
+	for _, field := range selectedFields {
+		items := entityIndex[field]
+		if len(items) == 0 {
+			continue
+		}
+
+		for _, item := range items {
+			score, matchType, matched := matchScore(item.NormalizedText, normalizedQuery)
+			if !matched {
+				continue
+			}
+
+			existing, exists := candidateMap[item.ID]
+			if !exists || score > existing.Score {
+				candidateMap[item.ID] = scoredCandidate{
+					ID:           item.ID,
+					Score:        score,
+					MatchType:    matchType,
+					MatchedField: field,
+				}
+			}
+		}
+	}
+
+	candidates := make([]scoredCandidate, 0, len(candidateMap))
+	for _, candidate := range candidateMap {
+		candidates = append(candidates, candidate)
+	}
+
+	sort.Slice(candidates, func(i int, j int) bool {
+		if candidates[i].Score == candidates[j].Score {
+			return candidates[i].ID < candidates[j].ID
+		}
+		return candidates[i].Score > candidates[j].Score
+	})
+
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	results := make([]masterdata.SearchMatch, 0, len(candidates))
+	for _, candidate := range candidates {
+		record, exists, err := cache.GetByID(ctx, regionName, entityName, candidate.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			continue
+		}
+
+		results = append(results, masterdata.SearchMatch{
+			Item:         record,
+			MatchScore:   candidate.Score,
+			MatchType:    candidate.MatchType,
+			MatchedField: candidate.MatchedField,
+		})
+	}
+
+	return results, nil
 }
 
 func (cache *RedisMasterDataCache) Close() error {
@@ -69,4 +259,131 @@ func (cache *RedisMasterDataCache) redisKey(region string) string {
 	}
 
 	return cleanPrefix + strings.ToLower(strings.TrimSpace(region))
+}
+
+func (cache *RedisMasterDataCache) redisEntityKey(region string, entity string) string {
+	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":by-id"
+}
+
+func normalizeKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func entityNameFromPath(filePath string) string {
+	base := filepath.Base(strings.TrimSpace(filePath))
+	if base == "" {
+		return ""
+	}
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	return normalizeKey(name)
+}
+
+func recordID(record map[string]any) string {
+	idValue, ok := record["id"]
+	if !ok || idValue == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(fmt.Sprintf("%v", idValue))
+}
+
+func normalizeSearchText(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	builder := strings.Builder{}
+	builder.Grow(len(trimmed))
+	for _, r := range strings.ToLower(trimmed) {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+
+	return builder.String()
+}
+
+func searchableFields(record map[string]any) map[string]string {
+	result := make(map[string]string)
+	for key, value := range record {
+		field := normalizeKey(key)
+		if field == "" {
+			continue
+		}
+
+		switch typed := value.(type) {
+		case string:
+			normalized := normalizeSearchText(typed)
+			if normalized != "" {
+				result[field] = normalized
+			}
+		case []any:
+			parts := make([]string, 0, len(typed))
+			for _, item := range typed {
+				stringValue, ok := item.(string)
+				if !ok {
+					continue
+				}
+				normalized := normalizeSearchText(stringValue)
+				if normalized == "" {
+					continue
+				}
+				parts = append(parts, normalized)
+			}
+			if len(parts) > 0 {
+				result[field] = strings.Join(parts, " ")
+			}
+		}
+	}
+
+	return result
+}
+
+func normalizeFields(fields []string) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(fields))
+	seen := make(map[string]struct{})
+	for _, field := range fields {
+		normalized := normalizeKey(field)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+
+	return result
+}
+
+func matchScore(candidate string, query string) (int, string, bool) {
+	if candidate == "" || query == "" {
+		return 0, "", false
+	}
+
+	if candidate == query {
+		return 100, "exact", true
+	}
+
+	if strings.HasPrefix(candidate, query) {
+		return 80, "prefix", true
+	}
+
+	index := strings.Index(candidate, query)
+	if index < 0 {
+		return 0, "", false
+	}
+
+	score := 60 - index
+	if score < 30 {
+		score = 30
+	}
+	return score, "contains", true
 }

@@ -16,10 +16,11 @@ type MasterDataSourceLoader interface {
 
 type MasterDataCache interface {
 	StoreRegion(ctx context.Context, region string, payload map[string]any) error
+	GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error)
+	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
 
 type MasterDataSyncStatusStore interface {
-	EnsureSchema(ctx context.Context) error
 	Save(ctx context.Context, status masterdata.SyncStatus) error
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
 }
@@ -46,12 +47,6 @@ func NewMasterDataSyncUsecase(
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
-	if usecase.statusStore != nil {
-		if err := usecase.statusStore.EnsureSchema(ctx); err != nil {
-			return err
-		}
-	}
-
 	var syncErrors []error
 	for _, source := range usecase.sources {
 		startedAt := time.Now().UTC()
@@ -112,6 +107,22 @@ func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.
 	}
 
 	return usecase.statusStore.List(ctx)
+}
+
+func (usecase *MasterDataSyncUsecase) GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	if usecase.cache == nil {
+		return nil, false, nil
+	}
+
+	return usecase.cache.GetByID(ctx, region, entity, id)
+}
+
+func (usecase *MasterDataSyncUsecase) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
+	if usecase.cache == nil {
+		return []masterdata.SearchMatch{}, nil
+	}
+
+	return usecase.cache.Search(ctx, region, entity, query, fields, limit)
 }
 
 func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status masterdata.SyncStatus) {
