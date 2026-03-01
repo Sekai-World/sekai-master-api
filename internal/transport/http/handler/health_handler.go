@@ -17,6 +17,12 @@ func NewHealthHandler(db *sql.DB) *HealthHandler {
 	return &HealthHandler{db: db}
 }
 
+// Check godoc
+// @Summary Get health status
+// @Tags system
+// @Produce json
+// @Success 200 {object} HealthResponse
+// @Router /health [get]
 func (handler *HealthHandler) Check(c *gin.Context) {
 	databaseStatus := "up"
 	if handler.db != nil {

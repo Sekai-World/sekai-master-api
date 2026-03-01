@@ -17,6 +17,13 @@ func NewMasterDataStatusHandler(masterDataSync *usecase.MasterDataSyncUsecase) *
 	return &MasterDataStatusHandler{masterDataSync: masterDataSync}
 }
 
+// List godoc
+// @Summary Get master-data sync status
+// @Tags master-data
+// @Produce json
+// @Success 200 {object} MasterDataStatusListResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /master-data/status [get]
 func (handler *MasterDataStatusHandler) List(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.JSON(c, http.StatusOK, gin.H{"items": []any{}})

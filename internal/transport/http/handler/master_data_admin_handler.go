@@ -27,6 +27,16 @@ func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, ti
 	}
 }
 
+// Sync godoc
+// @Summary Trigger master-data sync
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} MasterDataSyncResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Router /admin/master-data/sync [post]
 func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_SYNC_DISABLED", "master data sync is not configured")

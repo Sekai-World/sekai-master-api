@@ -14,6 +14,14 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
+// @title sekai-master-api
+// @version 1.0
+// @description API for master data sync and card querying.
+// @BasePath /api/v1
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+
 func main() {
 	cfg := config.Load()
 
