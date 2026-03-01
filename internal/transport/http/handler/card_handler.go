@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -54,7 +56,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, buildCardBase(record))
+	response.JSON(c, http.StatusOK, handler.buildCardBase(c.Request.Context(), region, record))
 }
 
 // ParamsByID godoc
@@ -101,6 +103,7 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param q query string true "Prefix query"
+// @Param field query string false "Search field (name|skill), default=name"
 // @Param page query int false "Page number"
 // @Param limit query int false "Max results"
 // @Success 200 {object} CardListResponse
@@ -118,6 +121,22 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("q"))
 	if region == "" || query == "" {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and q are required")
+		return
+	}
+
+	field := strings.ToLower(strings.TrimSpace(c.Query("field")))
+	if field == "" {
+		field = "name"
+	}
+
+	searchFields := []string{"prefix"}
+	switch field {
+	case "name":
+		searchFields = []string{"prefix"}
+	case "skill":
+		searchFields = []string{"cardSkillName"}
+	default:
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "field must be one of: name, skill")
 		return
 	}
 
@@ -143,7 +162,7 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 
 	fetchLimit := 1000000
 
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "cards", query, []string{"prefix"}, fetchLimit)
+	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "cards", query, searchFields, fetchLimit)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to search cards")
 		return
@@ -177,7 +196,7 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 
 	items := make([]map[string]any, 0, len(pagedMatches))
 	for _, match := range pagedMatches {
-		items = append(items, buildCardBase(match.Item))
+		items = append(items, handler.buildCardBase(c.Request.Context(), region, match.Item))
 	}
 
 	totalPages := 0
@@ -250,7 +269,7 @@ func (handler *CardHandler) List(c *gin.Context) {
 
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, buildCardBase(record))
+		items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
 	}
 
 	totalPages := 0
@@ -271,7 +290,7 @@ func (handler *CardHandler) List(c *gin.Context) {
 	})
 }
 
-func buildCardBase(record map[string]any) map[string]any {
+func (handler *CardHandler) buildCardBase(ctx context.Context, region string, record map[string]any) map[string]any {
 	if record == nil {
 		return map[string]any{}
 	}
@@ -283,7 +302,6 @@ func buildCardBase(record map[string]any) map[string]any {
 		"cardRarityType",
 		"attr",
 		"supportUnit",
-		"skillId",
 		"cardSkillName",
 		"prefix",
 		"assetbundleName",
@@ -291,7 +309,6 @@ func buildCardBase(record map[string]any) map[string]any {
 		"flavorText",
 		"releaseAt",
 		"archivePublishedAt",
-		"cardSupplyId",
 		"initialSpecialTrainingStatus",
 	}
 
@@ -302,7 +319,64 @@ func buildCardBase(record map[string]any) map[string]any {
 		}
 	}
 
+	if handler == nil || handler.masterDataSync == nil {
+		return result
+	}
+
+	cardSupplyID, ok := record["cardSupplyId"]
+	if !ok {
+		return result
+	}
+
+	lookupID := normalizeAnyID(cardSupplyID)
+	if lookupID == "" {
+		result["cardSupply"] = nil
+		return result
+	}
+
+	cardSupply, found, err := handler.masterDataSync.GetByID(ctx, region, "cardsupplies", lookupID)
+	if err != nil {
+		result["cardSupply"] = nil
+		return result
+	}
+	if !found {
+		result["cardSupply"] = nil
+	} else {
+		result["cardSupply"] = cardSupply
+	}
+
+	skillID, ok := record["skillId"]
+	if !ok {
+		return result
+	}
+
+	skillLookupID := normalizeAnyID(skillID)
+	if skillLookupID == "" {
+		result["skill"] = nil
+		return result
+	}
+
+	skill, found, err := handler.masterDataSync.GetByID(ctx, region, "skills", skillLookupID)
+	if err != nil {
+		result["skill"] = nil
+		return result
+	}
+	if !found {
+		result["skill"] = nil
+		return result
+	}
+
+	result["skill"] = skill
+
 	return result
+}
+
+func normalizeAnyID(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 
 func buildCardParams(record map[string]any) map[string]any {
