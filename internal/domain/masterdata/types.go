@@ -31,6 +31,13 @@ type SearchMatch struct {
 type SyncUpdatedEvent struct {
 	Event         string    `json:"event"`
 	Status        string    `json:"status"`
+	Region        string    `json:"region,omitempty"`
+	Phase         string    `json:"phase,omitempty"`
+	Message       string    `json:"message,omitempty"`
+	CurrentStep   int       `json:"current_step,omitempty"`
+	TotalSteps    int       `json:"total_steps,omitempty"`
+	FileCount     int       `json:"file_count,omitempty"`
+	DurationMS    int64     `json:"duration_ms,omitempty"`
 	Regions       []string  `json:"regions"`
 	FailedRegions []string  `json:"failed_regions"`
 	UpdatedAt     time.Time `json:"updated_at"`
