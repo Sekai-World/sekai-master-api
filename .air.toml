@@ -4,7 +4,7 @@ tmp_dir = "tmp/air"
 [build]
 cmd = "go build -o ./tmp/air/main ./cmd/api"
 entrypoint = "./tmp/air/main"
-include_ext = ["go", "env", "html", "css", "js"]
+include_ext = ["go", "env"]
 exclude_dir = ["tmp", "bin", ".git", ".devcontainer"]
 exclude_file = []
 exclude_regex = ["_test\\.go"]
