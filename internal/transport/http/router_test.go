@@ -71,6 +71,30 @@ func TestMasterDataSyncUnauthorized(t *testing.T) {
 	}
 }
 
+func TestMasterDataByIDUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/master-data/jp/cards/1001", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on master-data by id when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestMasterDataSearchUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/master-data/jp/cards/search?q=初音", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on master-data search when service unavailable, got %d", resp.Code)
+	}
+}
+
 func TestProfileAuthorized(t *testing.T) {
 	router := setupRouter(t)
 

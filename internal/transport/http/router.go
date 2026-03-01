@@ -24,6 +24,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	adminUIHandler := handler.NewAdminUIHandler(cfg)
 	adminLoginHandler := handler.NewAdminLoginHandler(cfg)
 	masterDataStatusHandler := handler.NewMasterDataStatusHandler(masterDataSync)
+	masterDataQueryHandler := handler.NewMasterDataQueryHandler(masterDataSync)
 	masterDataAdminHandler := handler.NewMasterDataAdminHandler(masterDataSync, time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
@@ -34,6 +35,8 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	{
 		v1.GET("/health", healthHandler.Check)
 		v1.GET("/master-data/status", masterDataStatusHandler.List)
+		v1.GET("/master-data/:region/:entity/search", masterDataQueryHandler.SearchByName)
+		v1.GET("/master-data/:region/:entity/:id", masterDataQueryHandler.ByID)
 		v1.POST("/admin/login", adminLoginHandler.Login)
 
 		admin := v1.Group("/admin")

@@ -14,8 +14,9 @@ Go RESTful API template (Gin + Keycloak + environment-based database) with Dev C
 - Compose-based test environment commands
 - Built-in modern admin dashboard with dedicated login page
 - Master data sync from GitHub JSON repositories (multi-region)
-- Optional master data cache backend: in-memory or Redis
+- Master data query cache: Redis for by-id lookup, in-memory index for fuzzy name search (CJK supported)
 - Sync status persisted in database (`master_data_sync_status`)
+- Database schema migrations powered by Goose (`internal/storage/migrations`)
 
 ## Quick Start
 
@@ -47,6 +48,8 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 
 - `GET /api/v1/health`
 - `GET /api/v1/master-data/status`
+- `GET /api/v1/master-data/:region/:entity/:id`
+- `GET /api/v1/master-data/:region/:entity/search?q=<keyword>&limit=20&field=name,aliases`
 - `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
 
@@ -62,6 +65,16 @@ At startup, the API can sync parsed game database JSON files from one or more Gi
 - Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
 - You can inspect status via `GET /api/v1/master-data/status`.
 - You can trigger manual sync from dashboard or call `POST /api/v1/admin/master-data/sync`.
+
+## Database Migrations
+
+- Migrations are executed automatically on API startup via Goose.
+- Migration files are located in `internal/storage/migrations`.
+- Local helper commands:
+   - `make migrate-up`
+   - `make migrate-down`
+- `make migrate-*` auto-resolves DB connection using `APP_ENV` + dotenv files (`.env.<APP_ENV>` then `.env`), with `DATABASE_DRIVER` override support.
+- Example: `APP_ENV=test make migrate-up`
 
 ### Required env setup pattern
 
@@ -82,10 +95,18 @@ Example for `jp`:
 - `MASTER_DATA_GITHUB_REF_JP=main`
 - `MASTER_DATA_GITHUB_PATH_JP=data`
 
-### Cache backend
+### Query cache strategy
 
-- `MASTER_DATA_CACHE_BACKEND=memory` (default): store parsed JSON in process memory
-- `MASTER_DATA_CACHE_BACKEND=redis`: store parsed JSON per region in Redis key-value
+- by-id query reads from Redis hash cache (`region + entity + id`)
+- fuzzy search uses in-memory normalized text index and returns records with relevance metadata
+- name matching is Unicode-safe and works with CJK and Latin characters
+
+Search response item includes:
+
+- `item`: original record
+- `match_score`: relevance score (higher is better)
+- `match_type`: `exact` / `prefix` / `contains`
+- `matched_field`: field name that produced best match
 
 Redis settings:
 

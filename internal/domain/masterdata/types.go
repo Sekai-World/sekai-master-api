@@ -20,3 +20,10 @@ type SyncStatus struct {
 	Source         Source    `json:"source"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
+
+type SearchMatch struct {
+	Item         map[string]any `json:"item"`
+	MatchScore   int            `json:"match_score"`
+	MatchType    string         `json:"match_type"`
+	MatchedField string         `json:"matched_field"`
+}
