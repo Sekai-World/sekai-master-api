@@ -1,0 +1,33 @@
+name: Swagger Check
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  swagger:
+    name: Check Swagger Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Regenerate Swagger docs
+        run: make swagger
+
+      - name: Verify generated docs are committed
+        run: |
+          git diff --quiet -- docs || {
+            echo "Swagger docs are out of date. Run 'make swagger' and commit updated files.";
+            git --no-pager diff -- docs;
+            exit 1;
+          }
