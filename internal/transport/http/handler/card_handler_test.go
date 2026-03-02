@@ -615,6 +615,68 @@ func TestCardEpisodesByIDEndpointReturnsItems(t *testing.T) {
 	}
 }
 
+func TestCardEpisodesByIDEndpointFiltersNonExactCardIDMatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {
+						"id": 1001,
+					},
+				},
+			},
+		},
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"id": 1, "cardId": 1001, "episodeNo": 1}},
+			{Item: map[string]any{"id": 2, "cardId": 10010, "episodeNo": 1}},
+			{Item: map[string]any{"id": 3, "cardId": "1001-extra", "episodeNo": 2}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/episodes", cardHandler.EpisodesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/episodes", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 exact-match item, got %d", len(items))
+	}
+
+	itemMap, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected item object, got %T", items[0])
+	}
+
+	if itemMap["cardId"] != float64(1001) {
+		t.Fatalf("expected exact cardId 1001, got %v", itemMap["cardId"])
+	}
+}
+
 func TestCardEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

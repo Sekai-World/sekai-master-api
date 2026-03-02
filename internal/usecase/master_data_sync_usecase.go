@@ -286,6 +286,7 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 							}
 
 							if rebuildFromRedis {
+								skippedAt := time.Now().UTC()
 								if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
 									Region:         previous.Region,
 									Status:         previous.Status,
@@ -295,7 +296,7 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 									SourceCommit:   resolvedCommit,
 									ErrorMessage:   "",
 									Source:         source,
-									UpdatedAt:      now,
+									UpdatedAt:      skippedAt,
 								}); statusErr != nil {
 									recordFailure(source.Region, fmt.Errorf("persist unchanged status for region %s: %w", source.Region, statusErr))
 								}
@@ -342,6 +343,7 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 											UpdatedAt:   now,
 										})
 
+										skippedAt := time.Now().UTC()
 										if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
 											Region:         previous.Region,
 											Status:         previous.Status,
@@ -351,7 +353,7 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 											SourceCommit:   resolvedCommit,
 											ErrorMessage:   "",
 											Source:         source,
-											UpdatedAt:      now,
+											UpdatedAt:      skippedAt,
 										}); statusErr != nil {
 											recordFailure(source.Region, fmt.Errorf("persist unchanged status for region %s: %w", source.Region, statusErr))
 										}

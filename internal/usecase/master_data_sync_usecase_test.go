@@ -174,6 +174,20 @@ func (store *fakeSyncStatusStore) hasSavedStatus(region string, status string) b
 	return false
 }
 
+func (store *fakeSyncStatusStore) savedByRegion(region string) []masterdata.SyncStatus {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	items := make([]masterdata.SyncStatus, 0)
+	for _, item := range store.saved {
+		if item.Region == region {
+			items = append(items, item)
+		}
+	}
+
+	return items
+}
+
 func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
@@ -566,6 +580,51 @@ func TestSyncAllUsesLatestSuccessWhenLatestStatusIsPending(t *testing.T) {
 	}
 	if cache.rebuildCalls != 1 {
 		t.Fatalf("expected redis index rebuild on skip, got rebuildCalls=%d", cache.rebuildCalls)
+	}
+}
+
+func TestSyncAllSkipWritesSuccessAfterPendingWhenRegionIndexMissing(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    7,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "same-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "same-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-load"}}},
+		},
+	}
+	cache := &fakeSyncCache{rebuildFromRedisOK: true, hasRegionIndexSet: true, hasRegionIndex: false}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	saved := statusStore.savedByRegion("jp")
+	if len(saved) < 2 {
+		t.Fatalf("expected at least pending and success statuses, got %d", len(saved))
+	}
+
+	if !strings.EqualFold(saved[0].Status, "pending") {
+		t.Fatalf("expected first status pending, got %s", saved[0].Status)
+	}
+
+	if !strings.EqualFold(saved[len(saved)-1].Status, "success") {
+		t.Fatalf("expected final status success, got %s", saved[len(saved)-1].Status)
+	}
+
+	if saved[len(saved)-1].UpdatedAt.Equal(saved[0].UpdatedAt) {
+		t.Fatalf("expected success updated_at to differ from pending updated_at to avoid latest-status tie")
 	}
 }
 

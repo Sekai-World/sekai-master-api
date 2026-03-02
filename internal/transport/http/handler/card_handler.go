@@ -150,7 +150,11 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 	}
 
 	items := make([]map[string]any, 0, len(matches))
+	targetCardID := normalizeAnyID(id)
 	for _, match := range matches {
+		if normalizeAnyID(match.Item["cardId"]) != targetCardID {
+			continue
+		}
 		items = append(items, match.Item)
 	}
 
