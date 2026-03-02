@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,13 +12,12 @@ import (
 func AccessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
-		c.Next()
 
-		statusCode := c.Writer.Status()
-		latency := time.Since(start)
 		requestPath := c.Request.URL.Path
-		if rawQuery := strings.TrimSpace(c.Request.URL.RawQuery); rawQuery != "" {
-			requestPath = requestPath + "?" + rawQuery
+		requestQuery := strings.TrimSpace(c.Request.URL.RawQuery)
+		requestPathWithQuery := requestPath
+		if requestQuery != "" {
+			requestPathWithQuery = requestPathWithQuery + "?" + requestQuery
 		}
 
 		requestID := strings.TrimSpace(c.GetString("request_id"))
@@ -25,29 +25,49 @@ func AccessLog() gin.HandlerFunc {
 			requestID = "missing"
 		}
 
+		zap.S().Debugw(
+			"http request",
+			"component", "gin-access",
+			"request_id", requestID,
+			"request_method", c.Request.Method,
+			"request_path", requestPath,
+			"request_query", requestQuery,
+			"request_path_with_query", requestPathWithQuery,
+			"request_route", c.FullPath(),
+			"request_proto", c.Request.Proto,
+			"client_ip", c.ClientIP(),
+			"user_agent", c.Request.UserAgent(),
+		)
+
+		c.Next()
+
+		statusCode := c.Writer.Status()
+		latency := time.Since(start)
+
+		responseContentType := strings.TrimSpace(c.Writer.Header().Get("Content-Type"))
+		if responseContentType == "" {
+			responseContentType = "unknown"
+		}
+
+		responseStatusText := strings.TrimSpace(http.StatusText(statusCode))
+		if responseStatusText == "" {
+			responseStatusText = "unknown"
+		}
+
 		fields := []any{
 			"component", "gin-access",
 			"request_id", requestID,
-			"method", c.Request.Method,
-			"path", requestPath,
-			"status", statusCode,
 			"latency_ms", latency.Milliseconds(),
-			"client_ip", c.ClientIP(),
-			"user_agent", c.Request.UserAgent(),
-			"bytes_written", c.Writer.Size(),
+			"response_status", statusCode,
+			"response_status_text", responseStatusText,
+			"response_content_type", responseContentType,
+			"response_bytes", c.Writer.Size(),
 		}
 
 		if len(c.Errors) > 0 {
 			fields = append(fields, "errors", c.Errors.String())
 		}
 
-		switch {
-		case statusCode >= 500:
-			zap.S().Errorw("http request", fields...)
-		case statusCode >= 400:
-			zap.S().Warnw("http request", fields...)
-		default:
-			zap.S().Infow("http request", fields...)
-		}
+		zap.S().Debugw("http response", fields...)
 	}
 }
