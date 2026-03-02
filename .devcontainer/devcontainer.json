@@ -3,10 +3,16 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
+  },
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
   "containerEnv": {
     "DOCKER_HOST": "unix:///var/run/docker-host.sock",
+    "CONTAINER_HOST": "unix:///var/run/docker-host.sock",
     "CGO_ENABLED": "0"
   },
   "runArgs": [
@@ -19,7 +25,13 @@
     "vscode": {
       "extensions": [
         "golang.go",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "GitHub.vscode-github-actions",
+        "mtxr.sqltools",
+        "DavidAnson.vscode-markdownlint",
+        "piotrpalarz.vscode-gitignore-generator",
+        "IronGeek.vscode-env",
+        "mtxr.sqltools-driver-pg"
       ]
     }
   },
