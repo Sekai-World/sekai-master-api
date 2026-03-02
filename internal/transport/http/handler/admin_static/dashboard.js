@@ -175,10 +175,11 @@ export const initDashboardPage = async () => {
   const masterDataStatusView = document.getElementById("master-data-status-view");
   const syncButton = document.getElementById("sync-master-data-button");
   const forceSyncCheckbox = document.getElementById("sync-force-checkbox");
+  const syncRegionSelect = document.getElementById("sync-region-select");
   const syncMessage = document.getElementById("sync-message");
   const syncProgressView = document.getElementById("sync-progress-view");
 
-  if (!healthView || !profileView || !masterDataStatusView || !syncButton || !forceSyncCheckbox || !syncMessage || !syncProgressView) {
+  if (!healthView || !profileView || !masterDataStatusView || !syncButton || !forceSyncCheckbox || !syncRegionSelect || !syncMessage || !syncProgressView) {
     return;
   }
 
@@ -288,6 +289,23 @@ export const initDashboardPage = async () => {
     masterDataStatusView.innerHTML = renderMasterDataItems([...statusByRegion.values()]);
   };
 
+  const refreshSyncRegionOptions = () => {
+    const selectedRegion = String(syncRegionSelect.value || "").trim().toLowerCase();
+    const regions = [...statusByRegion.keys()].sort((left, right) => left.localeCompare(right));
+
+    syncRegionSelect.innerHTML = '<option value="">全部地区</option>';
+    for (const region of regions) {
+      const option = document.createElement("option");
+      option.value = region;
+      option.textContent = region;
+      syncRegionSelect.appendChild(option);
+    }
+
+    if (selectedRegion && regions.includes(selectedRegion)) {
+      syncRegionSelect.value = selectedRegion;
+    }
+  };
+
   renderProgressHistory();
 
   const bearer = token();
@@ -333,6 +351,7 @@ export const initDashboardPage = async () => {
     }
 
     setStatusItems(statusResult.payload?.items ?? []);
+    refreshSyncRegionOptions();
     renderStatusFromMap();
   };
 
@@ -389,6 +408,7 @@ export const initDashboardPage = async () => {
 
     if (payload?.status_item) {
       upsertStatusItem(payload.status_item);
+      refreshSyncRegionOptions();
       renderStatusFromMap();
     }
   });
@@ -418,17 +438,21 @@ export const initDashboardPage = async () => {
 
   syncButton.addEventListener("click", async () => {
     const forceSync = Boolean(forceSyncCheckbox.checked);
+    const selectedRegion = String(syncRegionSelect.value || "").trim().toLowerCase();
     const syncEndpoint = forceSync ? "/api/v1/admin/master-data/sync/force" : "/api/v1/admin/master-data/sync";
+    const syncPayload = selectedRegion ? { region: selectedRegion } : undefined;
 
     syncButton.disabled = true;
     syncButton.classList.add("is-loading");
     syncMessage.classList.remove("is-error", "is-success");
-    syncMessage.textContent = forceSync ? "正在强制同步 Master Data..." : "正在同步 Master Data...";
+    const scopeText = selectedRegion ? `（${selectedRegion}）` : "（全部地区）";
+    syncMessage.textContent = forceSync ? `正在强制同步 Master Data${scopeText}...` : `正在同步 Master Data${scopeText}...`;
     pushProgressHistory(syncMessage.textContent, false);
 
     const syncResult = await requestJSON(syncEndpoint, {
       method: "POST",
       bearer,
+      json: syncPayload,
     });
 
     if (syncResult.status === 401) {
@@ -448,7 +472,7 @@ export const initDashboardPage = async () => {
     }
 
     syncMessage.classList.add("is-success");
-    syncMessage.textContent = forceSync ? "强制同步完成" : "同步完成";
+    syncMessage.textContent = forceSync ? `强制同步完成${scopeText}` : `同步完成${scopeText}`;
     pushProgressHistory(syncMessage.textContent, false);
     await loadMasterDataStatus();
     syncButton.disabled = false;

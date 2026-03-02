@@ -41,6 +41,10 @@ type MasterDataSyncStatusStore interface {
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
 }
 
+type MasterDataSyncLatestSuccessStore interface {
+	ListLatestSuccess(ctx context.Context) ([]masterdata.SyncStatus, error)
+}
+
 type MasterDataEventPublisher interface {
 	PublishMasterDataUpdated(ctx context.Context, event masterdata.SyncUpdatedEvent) error
 }
@@ -65,6 +69,7 @@ type MasterDataSyncUsecase struct {
 const masterDataSyncLogComponent = "master-data-sync"
 
 var ErrSyncInProgress = errors.New("master data sync is already running")
+var ErrRegionNotFound = errors.New("master data region not found")
 
 func NewMasterDataSyncUsecase(
 	sources []masterdata.Source,
@@ -90,14 +95,56 @@ func NewMasterDataSyncUsecase(
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
-	return usecase.syncAll(ctx, false)
+	return usecase.sync(ctx, false, usecase.sources)
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAllForce(ctx context.Context) error {
-	return usecase.syncAll(ctx, true)
+	return usecase.sync(ctx, true, usecase.sources)
 }
 
-func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) error {
+func (usecase *MasterDataSyncUsecase) SyncRegion(ctx context.Context, region string) error {
+	targetRegion := strings.ToLower(strings.TrimSpace(region))
+	if targetRegion == "" {
+		return ErrRegionNotFound
+	}
+
+	targetSources := make([]masterdata.Source, 0, 1)
+	for _, source := range usecase.sources {
+		if strings.EqualFold(strings.TrimSpace(source.Region), targetRegion) {
+			targetSources = append(targetSources, source)
+			break
+		}
+	}
+
+	if len(targetSources) == 0 {
+		return ErrRegionNotFound
+	}
+
+	return usecase.sync(ctx, false, targetSources)
+}
+
+func (usecase *MasterDataSyncUsecase) SyncRegionForce(ctx context.Context, region string) error {
+	targetRegion := strings.ToLower(strings.TrimSpace(region))
+	if targetRegion == "" {
+		return ErrRegionNotFound
+	}
+
+	targetSources := make([]masterdata.Source, 0, 1)
+	for _, source := range usecase.sources {
+		if strings.EqualFold(strings.TrimSpace(source.Region), targetRegion) {
+			targetSources = append(targetSources, source)
+			break
+		}
+	}
+
+	if len(targetSources) == 0 {
+		return ErrRegionNotFound
+	}
+
+	return usecase.sync(ctx, true, targetSources)
+}
+
+func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sources []masterdata.Source) error {
 	if !usecase.syncRunning.CompareAndSwap(false, true) {
 		usecase.logf("sync skipped reason=already_running")
 		return ErrSyncInProgress
@@ -109,14 +156,14 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 	if effectiveConcurrency <= 0 {
 		effectiveConcurrency = 1
 	}
-	if effectiveConcurrency > len(usecase.sources) && len(usecase.sources) > 0 {
-		effectiveConcurrency = len(usecase.sources)
+	if effectiveConcurrency > len(sources) && len(sources) > 0 {
+		effectiveConcurrency = len(sources)
 	}
 
-	usecase.logf("sync started regions=%d concurrency=%d force=%t", len(usecase.sources), effectiveConcurrency, force)
+	usecase.logf("sync started regions=%d concurrency=%d force=%t", len(sources), effectiveConcurrency, force)
 
-	regions := make([]string, 0, len(usecase.sources))
-	for _, source := range usecase.sources {
+	regions := make([]string, 0, len(sources))
+	for _, source := range sources {
 		regions = append(regions, source.Region)
 	}
 
@@ -136,9 +183,9 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 		resultMu.Unlock()
 	}
 
-	totalSteps := len(usecase.sources)
+	totalSteps := len(sources)
 	semaphore := make(chan struct{}, effectiveConcurrency)
-	for index, source := range usecase.sources {
+	for index, source := range sources {
 		semaphore <- struct{}{}
 		step := index + 1
 		source := source
@@ -543,6 +590,21 @@ func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[str
 			continue
 		}
 		statusMap[status.Region] = status
+	}
+
+	if successStore, ok := usecase.statusStore.(MasterDataSyncLatestSuccessStore); ok {
+		successStatuses, successErr := successStore.ListLatestSuccess(ctx)
+		if successErr != nil {
+			usecase.logf("load latest successful statuses failed error=%v", successErr)
+			return statusMap
+		}
+
+		for _, status := range successStatuses {
+			if strings.TrimSpace(status.Region) == "" {
+				continue
+			}
+			statusMap[status.Region] = status
+		}
 	}
 
 	return statusMap

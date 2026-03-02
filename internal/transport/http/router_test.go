@@ -25,10 +25,15 @@ func (mockVerifier) Verify(_ context.Context, rawToken string) (map[string]any, 
 
 func setupRouter(t *testing.T) http.Handler {
 	t.Helper()
+	return setupRouterWithEnv(t, "test")
+}
+
+func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
+	t.Helper()
 
 	cfg := config.Config{
 		Port:   "8080",
-		AppEnv: "test",
+		AppEnv: appEnv,
 	}
 
 	return NewRouter(cfg, nil, mockVerifier{}, nil, nil)
@@ -70,6 +75,19 @@ func TestDocsJSON(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+}
+
+func TestDocsDisabledInProduction(t *testing.T) {
+	router := setupRouterWithEnv(t, "production")
+
+	req := httptest.NewRequest(http.MethodGet, "/docs/index.html", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 in production, got %d", resp.Code)
 	}
 }
 
@@ -130,6 +148,18 @@ func TestCardParamsUnavailable(t *testing.T) {
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 on card params when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestCardEpisodesUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/episodes", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on card episodes when service unavailable, got %d", resp.Code)
 	}
 }
 

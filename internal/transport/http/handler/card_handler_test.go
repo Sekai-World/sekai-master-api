@@ -555,6 +555,66 @@ func TestCardSearchFieldInvalidReturnsBadRequest(t *testing.T) {
 	}
 }
 
+func TestCardEpisodesByIDEndpointReturnsItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {
+						"id": 1001,
+					},
+				},
+			},
+		},
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"id": 1, "cardId": 1001, "episodeNo": 1}},
+			{Item: map[string]any{"id": 2, "cardId": 1001, "episodeNo": 2}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/episodes", cardHandler.EpisodesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/episodes", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	if cache.lastSearch.entity != "cardepisodes" {
+		t.Fatalf("expected search entity cardepisodes, got %s", cache.lastSearch.entity)
+	}
+	if cache.lastSearch.query != "1001" {
+		t.Fatalf("expected search query 1001, got %s", cache.lastSearch.query)
+	}
+	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "cardId" {
+		t.Fatalf("expected search fields [cardId], got %v", cache.lastSearch.fields)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+}
+
 func TestCardEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -571,12 +631,14 @@ func TestCardEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/:id", cardHandler.ByID)
 	router.GET("/api/v1/cards/:region/:id/params", cardHandler.ParamsByID)
+	router.GET("/api/v1/cards/:region/:id/episodes", cardHandler.EpisodesByID)
 	router.GET("/api/v1/cards/:region/list", cardHandler.List)
 	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
 
 	testCases := []string{
 		"/api/v1/cards/jp/1001",
 		"/api/v1/cards/jp/1001/params",
+		"/api/v1/cards/jp/1001/episodes",
 		"/api/v1/cards/jp/list?page=1&page_size=20",
 		"/api/v1/cards/jp/search?q=test&page=1&limit=20",
 	}
