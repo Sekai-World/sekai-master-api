@@ -19,9 +19,9 @@ import (
 
 func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
 	router.Use(middleware.RequestID())
+	router.Use(middleware.AccessLog())
+	router.Use(middleware.RecoveryLog())
 
 	healthHandler := handler.NewHealthHandler(db)
 	profileHandler := handler.NewProfileHandler()

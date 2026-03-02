@@ -33,6 +33,7 @@ func main() {
 		panic(err)
 	}
 	defer cleanupLogger()
+	logging.ConfigureGinWriters()
 
 	logger := zap.S()
 
