@@ -92,7 +92,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Per-region file loading parallelism is controlled by `MASTER_DATA_REGION_FILE_CONCURRENCY` (default `8`).
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
-- Sync status storage model uses append-only history rows in `master_data_sync_status`; latest status query uses database view `master_data_sync_status_latest` (one row per region).
+- Sync status storage model uses append-only history rows in `master_data_sync_status`; `created_at` is generated automatically by database default timestamp on insert. Latest status query uses database view `master_data_sync_status_latest` (one row per region) and exposes `last_updated_at` from that creation timestamp.
 - Startup sync compares the region source commit against the most recent successful sync record per region (from history); if unchanged, it skips reload for that region.
 - At sync start, if in-memory search index for a region is missing, region status is set to `pending` before sync proceeds.
 - For changed regions, cache writes are applied incrementally (upsert changed records and remove deleted records), not full key flush.

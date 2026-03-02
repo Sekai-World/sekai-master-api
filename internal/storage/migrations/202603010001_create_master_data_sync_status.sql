@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS master_data_sync_status (
   file_count INTEGER NOT NULL,
   sync_duration_ms INTEGER NOT NULL DEFAULT 0,
   last_synced_at TIMESTAMP NOT NULL,
+  source_commit TEXT,
   error_message TEXT,
   source_owner TEXT NOT NULL,
   source_repo TEXT NOT NULL,
