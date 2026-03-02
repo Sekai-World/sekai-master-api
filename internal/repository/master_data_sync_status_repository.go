@@ -44,8 +44,8 @@ func insertSyncStatusSQLite(ctx context.Context, db *sql.DB, status masterdata.S
 	insertQuery := `
 INSERT INTO master_data_sync_status (
 	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
-	source_owner, source_repo, source_ref, source_path, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	source_owner, source_repo, source_ref, source_path
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	if _, err := db.ExecContext(
 		ctx,
@@ -61,7 +61,6 @@ INSERT INTO master_data_sync_status (
 		status.Source.Repo,
 		status.Source.Ref,
 		nullableText(status.Source.Path),
-		status.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("insert sync status: %w", err)
 	}
@@ -73,8 +72,8 @@ func insertSyncStatusPostgres(ctx context.Context, db *sql.DB, status masterdata
 	insertPostgres := `
 INSERT INTO master_data_sync_status (
 	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
-	source_owner, source_repo, source_ref, source_path, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+	source_owner, source_repo, source_ref, source_path
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
 	if _, pgErr := db.ExecContext(
 		ctx,
@@ -90,7 +89,6 @@ INSERT INTO master_data_sync_status (
 		status.Source.Repo,
 		status.Source.Ref,
 		nullableText(status.Source.Path),
-		status.UpdatedAt,
 	); pgErr != nil {
 		return fmt.Errorf("insert sync status: %w", pgErr)
 	}
@@ -116,9 +114,9 @@ SELECT
 	source_repo,
 	source_ref,
 	COALESCE(source_path, ''),
-	updated_at
+	last_updated_at
 FROM master_data_sync_status_latest
-ORDER BY updated_at DESC, region ASC`)
+ORDER BY last_updated_at DESC, region ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list sync status: %w", err)
 	}
@@ -174,7 +172,7 @@ SELECT
 	source_repo,
 	source_ref,
 	COALESCE(source_path, ''),
-	updated_at
+	created_at AS last_updated_at
 FROM (
 	SELECT
 		region,
@@ -188,13 +186,13 @@ FROM (
 		source_repo,
 		source_ref,
 		source_path,
-		updated_at,
-		ROW_NUMBER() OVER (PARTITION BY region ORDER BY updated_at DESC, last_synced_at DESC) AS row_num
+		created_at,
+		ROW_NUMBER() OVER (PARTITION BY region ORDER BY created_at DESC, last_synced_at DESC) AS row_num
 	FROM master_data_sync_status
 	WHERE status = 'success'
 ) latest_success
 WHERE row_num = 1
-ORDER BY updated_at DESC, region ASC`)
+ORDER BY last_updated_at DESC, region ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list latest success sync status: %w", err)
 	}
