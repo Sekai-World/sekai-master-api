@@ -128,6 +128,11 @@ definitions:
   handler.SkillResponse:
     additionalProperties: {}
     type: object
+  handler.masterDataSyncRequest:
+    properties:
+      region:
+        type: string
+    type: object
   masterdata.Source:
     properties:
       owner:
@@ -207,6 +212,12 @@ paths:
       - admin
   /admin/master-data/sync:
     post:
+      parameters:
+      - description: Optional region-scoped sync payload
+        in: body
+        name: payload
+        schema:
+          $ref: '#/definitions/handler.masterDataSyncRequest'
       produces:
       - application/json
       responses:
@@ -233,6 +244,12 @@ paths:
       - admin
   /admin/master-data/sync/force:
     post:
+      parameters:
+      - description: Optional region-scoped force sync payload
+        in: body
+        name: payload
+        schema:
+          $ref: '#/definitions/handler.masterDataSyncRequest'
       produces:
       - application/json
       responses:
@@ -312,6 +329,45 @@ paths:
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
       summary: Get card basic info by id
+      tags:
+      - cards
+  /cards/{region}/{id}/episodes:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.CardListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get card episodes by card id
       tags:
       - cards
   /cards/{region}/{id}/params:
