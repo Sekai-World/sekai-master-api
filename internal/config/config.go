@@ -12,6 +12,8 @@ import (
 type Config struct {
 	Port                      string
 	AppEnv                    string
+	LogLevel                  string
+	LokiPushURL               string
 	DatabaseDriverName        string
 	DatabaseURL               string
 	SQLitePath                string
@@ -46,10 +48,14 @@ type MasterDataSource struct {
 
 func Load() Config {
 	loadEnvFiles()
+	appEnv := getEnv("APP_ENV", "development")
+	logLevel := resolveLogLevel(strings.TrimSpace(getEnv("LOG_LEVEL", "")), appEnv)
 
 	return Config{
 		Port:                      getEnv("APP_PORT", "8080"),
-		AppEnv:                    getEnv("APP_ENV", "development"),
+		AppEnv:                    appEnv,
+		LogLevel:                  logLevel,
+		LokiPushURL:               strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
 		DatabaseDriverName:        getEnv("DATABASE_DRIVER", ""),
 		DatabaseURL:               getEnv("DATABASE_URL", "postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable"),
 		SQLitePath:                getEnv("SQLITE_PATH", "./tmp/dev.db"),
@@ -201,4 +207,22 @@ func regionEnvSuffix(region string) string {
 	upper := strings.ToUpper(strings.TrimSpace(region))
 	normalized := re.ReplaceAllString(upper, "_")
 	return strings.Trim(normalized, "_")
+}
+
+func resolveLogLevel(explicitLogLevel string, appEnv string) string {
+	trimmedLevel := strings.ToLower(strings.TrimSpace(explicitLogLevel))
+	if trimmedLevel != "" {
+		return trimmedLevel
+	}
+
+	if isProductionEnv(appEnv) {
+		return "info"
+	}
+
+	return "debug"
+}
+
+func isProductionEnv(appEnv string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(appEnv))
+	return normalized == "production" || normalized == "prod"
 }

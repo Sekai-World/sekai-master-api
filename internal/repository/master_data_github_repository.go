@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/logging"
 )
 
 type GitHubMasterDataRepository struct {
@@ -83,7 +83,7 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 
 	files := make(map[string]any, len(filePaths))
 	if len(filePaths) == 0 {
-		log.Printf("component=master-data-loader region=%s phase=load no_json_files_found=true", source.Region)
+		logging.DebugKV("master-data-loader", fmt.Sprintf("region=%s phase=load no_json_files_found=true", source.Region))
 		repository.reportProgress(ctx, masterdata.SyncUpdatedEvent{
 			Event:      "master_data_sync_progress",
 			Status:     "running",
@@ -104,12 +104,7 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 		effectiveConcurrency = len(filePaths)
 	}
 
-	log.Printf(
-		"component=master-data-loader region=%s phase=load files=%d concurrency=%d",
-		source.Region,
-		len(filePaths),
-		effectiveConcurrency,
-	)
+	logging.DebugKV("master-data-loader", fmt.Sprintf("region=%s phase=load files=%d concurrency=%d", source.Region, len(filePaths), effectiveConcurrency))
 	repository.reportProgress(ctx, masterdata.SyncUpdatedEvent{
 		Event:      "master_data_sync_progress",
 		Status:     "running",
@@ -145,7 +140,7 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 				resultsMu.Lock()
 				fetchErrors = append(fetchErrors, wrappedError)
 				resultsMu.Unlock()
-				log.Printf("component=master-data-loader region=%s phase=load status=failed file=%s error=%v", source.Region, filePath, err)
+				logging.ErrorKV("master-data-loader", fmt.Sprintf("region=%s phase=load status=failed file=%s error=%v", source.Region, filePath, err))
 				repository.reportProgress(ctx, masterdata.SyncUpdatedEvent{
 					Event:      "master_data_sync_progress",
 					Status:     "running",
@@ -167,14 +162,7 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 			totalFiles := int64(len(filePaths))
 			failedCount := currentProcessed - successCount.Load()
 			if currentProcessed == totalFiles || currentProcessed%20 == 0 {
-				log.Printf(
-					"component=master-data-loader region=%s phase=load progress=%d/%d success=%d failed=%d",
-					source.Region,
-					currentProcessed,
-					totalFiles,
-					successCount.Load(),
-					failedCount,
-				)
+				logging.DebugKV("master-data-loader", fmt.Sprintf("region=%s phase=load progress=%d/%d success=%d failed=%d", source.Region, currentProcessed, totalFiles, successCount.Load(), failedCount))
 				repository.reportProgress(ctx, masterdata.SyncUpdatedEvent{
 					Event:          "master_data_sync_progress",
 					Status:         "running",
@@ -209,11 +197,7 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 		return nil, fmt.Errorf("fetch files for region %s: %w", source.Region, errors.Join(fetchErrors...))
 	}
 
-	log.Printf(
-		"component=master-data-loader region=%s phase=load status=success files=%d",
-		source.Region,
-		len(files),
-	)
+	logging.InfoKV("master-data-loader", fmt.Sprintf("region=%s phase=load status=success files=%d", source.Region, len(files)))
 	repository.reportProgress(ctx, masterdata.SyncUpdatedEvent{
 		Event:          "master_data_sync_progress",
 		Status:         "running",

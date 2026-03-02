@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/logging"
 )
 
 type MasterDataSourceLoader interface {
@@ -649,7 +649,21 @@ func (usecase *MasterDataSyncUsecase) publishSyncEvent(ctx context.Context, even
 }
 
 func (usecase *MasterDataSyncUsecase) logf(format string, args ...any) {
-	log.Printf("component=%s %s", masterDataSyncLogComponent, fmt.Sprintf(format, args...))
+	message := fmt.Sprintf(format, args...)
+	lowerMessage := strings.ToLower(message)
+
+	switch {
+	case strings.Contains(lowerMessage, "status=failed") ||
+		strings.Contains(lowerMessage, " failed:") ||
+		strings.Contains(lowerMessage, "failed:") ||
+		strings.Contains(lowerMessage, " error=") ||
+		strings.Contains(lowerMessage, "with errors"):
+		logging.ErrorKV(masterDataSyncLogComponent, message)
+	case strings.Contains(lowerMessage, "completed") || strings.Contains(lowerMessage, "success") || strings.Contains(lowerMessage, "skipped"):
+		logging.InfoKV(masterDataSyncLogComponent, message)
+	default:
+		logging.DebugKV(masterDataSyncLogComponent, message)
+	}
 }
 
 func BuildMasterDataSources(cfgSources map[string]struct {

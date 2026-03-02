@@ -3,12 +3,12 @@ package handler
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/transport/http/response"
@@ -380,35 +380,36 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	if cardRarityType, ok := record["cardRarityType"]; ok {
 		cardID := normalizeAnyID(record["id"])
 		rarityTypeLookup := normalizeComparableText(cardRarityType)
-		log.Printf(
-			"component=card-handler card_rarity_lookup_start region=%s card_id=%s raw_type=%v normalized_type=%s",
-			region,
-			cardID,
-			cardRarityType,
-			rarityTypeLookup,
+		zap.S().Infow(
+			"card rarity lookup start",
+			"component", "card-handler",
+			"region", region,
+			"card_id", cardID,
+			"raw_type", cardRarityType,
+			"normalized_type", rarityTypeLookup,
 		)
 		if rarityTypeLookup == "" {
-			log.Printf("component=card-handler card_rarity_lookup_empty_type region=%s card_id=%s", region, cardID)
+			zap.S().Warnw("card rarity lookup empty type", "component", "card-handler", "region", region, "card_id", cardID)
 			result["cardRarity"] = nil
 		} else {
 			matches, err := handler.masterDataSync.Search(ctx, region, "cardrarities", rarityTypeLookup, []string{"cardRarityType"}, 20)
 			if err != nil {
-				log.Printf("component=card-handler card_rarity_lookup_search_error region=%s card_id=%s type=%s error=%v", region, cardID, rarityTypeLookup, err)
+				zap.S().Errorw("card rarity lookup search error", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "error", err)
 				result["cardRarity"] = nil
 			} else {
-				log.Printf("component=card-handler card_rarity_lookup_search_done region=%s card_id=%s type=%s matches=%d", region, cardID, rarityTypeLookup, len(matches))
+				zap.S().Infow("card rarity lookup search done", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "matches", len(matches))
 				rarity := findExactCardRarityByType(matches, rarityTypeLookup)
 				if rarity == nil {
-					log.Printf("component=card-handler card_rarity_lookup_not_found region=%s card_id=%s type=%s", region, cardID, rarityTypeLookup)
+					zap.S().Warnw("card rarity lookup not found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup)
 					result["cardRarity"] = nil
 				} else {
-					log.Printf("component=card-handler card_rarity_lookup_found region=%s card_id=%s type=%s rarity_id=%v", region, cardID, rarityTypeLookup, rarity["id"])
+					zap.S().Infow("card rarity lookup found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "rarity_id", rarity["id"])
 					result["cardRarity"] = rarity
 				}
 			}
 		}
 	} else {
-		log.Printf("component=card-handler card_rarity_lookup_skipped reason=missing_card_rarity_type region=%s card_id=%s", region, normalizeAnyID(record["id"]))
+		zap.S().Infow("card rarity lookup skipped", "component", "card-handler", "reason", "missing_card_rarity_type", "region", region, "card_id", normalizeAnyID(record["id"]))
 	}
 
 	return result

@@ -2,24 +2,31 @@ APP_NAME=sekai-master-api
 COMPOSE_FILE=deploy/compose/test-compose.yaml
 APP_PORT ?= 18080
 KEYCLOAK_PORT ?= 18081
+DOZZLE_PORT ?= 9999
+GRAFANA_PORT ?= 3000
+LOKI_PORT ?= 3100
+LOKI_HOST ?= host.containers.internal
+LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
+COMPOSE_HOST ?= host.containers.internal
 APP_ENV ?= development
 
-.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open
+.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui dev-container-logs-ui
 
 run:
-	go run ./cmd/api
+	go run -buildvcs=false ./cmd/api
 
 dev-watch:
 	@AIR_CMD="air"; \
 	if ! command -v air >/dev/null 2>&1; then \
 		echo "[dev-watch] air not found, installing..."; \
-		go install github.com/air-verse/air@latest; \
+		go install -buildvcs=false github.com/air-verse/air@latest; \
 		AIR_CMD="$$(go env GOPATH)/bin/air"; \
 	fi; \
-	APP_ENV=development $$AIR_CMD -c .air.toml
+	echo "[dev-watch] streaming logs to Loki at $(LOKI_PUSH_URL)"; \
+	APP_ENV=development LOKI_PUSH_URL="$(LOKI_PUSH_URL)" $$AIR_CMD -c .air.toml
 
 test:
-	go test ./...
+	go test -buildvcs=false ./...
 
 tidy:
 	go mod tidy
@@ -37,7 +44,7 @@ lint:
 	go vet ./...
 
 swagger:
-	go run github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handler,internal/domain/masterdata -o docs
+	go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handler,internal/domain/masterdata -o docs
 
 migrate-up:
 	@set -a; \
@@ -57,10 +64,10 @@ migrate-up:
 		DSN="$${SQLITE_PATH:-./tmp/dev.db}"; \
 	else \
 		DIALECT="postgres"; \
-		DSN="$${DATABASE_URL:-postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable}"; \
+		DSN="$${DATABASE_URL:-postgres://sekai:sekai@$(COMPOSE_HOST):5432/sekai?sslmode=disable}"; \
 	fi; \
 	echo "[migrate-up] APP_ENV=$(APP_ENV) DRIVER=$$DRIVER DIALECT=$$DIALECT"; \
-	go run github.com/pressly/goose/v3/cmd/goose@latest -dir internal/storage/migrations $$DIALECT "$$DSN" up
+	go run -buildvcs=false github.com/pressly/goose/v3/cmd/goose@latest -dir internal/storage/migrations $$DIALECT "$$DSN" up
 
 migrate-down:
 	@set -a; \
@@ -80,10 +87,10 @@ migrate-down:
 		DSN="$${SQLITE_PATH:-./tmp/dev.db}"; \
 	else \
 		DIALECT="postgres"; \
-		DSN="$${DATABASE_URL:-postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable}"; \
+		DSN="$${DATABASE_URL:-postgres://sekai:sekai@$(COMPOSE_HOST):5432/sekai?sslmode=disable}"; \
 	fi; \
 	echo "[migrate-down] APP_ENV=$(APP_ENV) DRIVER=$$DRIVER DIALECT=$$DIALECT"; \
-	go run github.com/pressly/goose/v3/cmd/goose@latest -dir internal/storage/migrations $$DIALECT "$$DSN" down
+	go run -buildvcs=false github.com/pressly/goose/v3/cmd/goose@latest -dir internal/storage/migrations $$DIALECT "$$DSN" down
 
 dev-env-up:
 	docker compose -f $(COMPOSE_FILE) up -d --build
@@ -118,3 +125,9 @@ smoke:
 
 admin-open:
 	"$$BROWSER" http://localhost:$(APP_PORT)/admin/login
+
+dev-logs-ui:
+	"$$BROWSER" http://localhost:$(GRAFANA_PORT)
+
+dev-container-logs-ui:
+	"$$BROWSER" http://localhost:$(DOZZLE_PORT)

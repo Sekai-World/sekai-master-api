@@ -1,10 +1,10 @@
 package response
 
 import (
-	"log"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func JSON(c *gin.Context, status int, payload any) {
@@ -17,14 +17,14 @@ func Error(c *gin.Context, status int, code string, message string) {
 		requestID = "missing"
 	}
 
-	log.Printf(
-		"request_id=%s method=%s path=%s status=%d error_code=%s error_message=%s",
-		requestID,
-		c.Request.Method,
-		c.Request.URL.Path,
-		status,
-		code,
-		message,
+	zap.S().Warnw(
+		"request failed",
+		"request_id", requestID,
+		"method", c.Request.Method,
+		"path", c.Request.URL.Path,
+		"status", status,
+		"error_code", code,
+		"error_message", message,
 	)
 
 	c.JSON(status, gin.H{

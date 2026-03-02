@@ -12,6 +12,7 @@ Go RESTful API template (Gin + Keycloak + environment-based database) with Dev C
    - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
 - Devcontainer for consistent development
 - Compose-based test environment commands
+- Third-party logging with Zap (configurable log level)
 - Built-in modern admin dashboard with dedicated login page
 - Master data sync from GitHub JSON repositories (multi-region)
 - Master data query cache: Redis for by-id lookup, in-memory index for fuzzy name search (CJK supported)
@@ -45,10 +46,14 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 - `make swagger`
 
 `make dev-watch` uses `air` for hot restart on Go code changes.
+`make dev-watch` passes `LOKI_PUSH_URL` to the API process; the Go logger pushes app logs to Loki in-process (no external log-push script required).
 `make format` applies `gofmt` to all Go files.
 `make swagger` regenerates Swagger docs from Go annotations.
 
 GitHub Actions CI runs `gofmt` check, `go vet ./...`, and `go test ./...` on every push and pull request.
+
+Logging level can be configured by env var `LOG_LEVEL` (for example: `debug`, `info`, `warn`, `error`).
+If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` for production.
 
 ## API Endpoints
 
@@ -251,6 +256,18 @@ Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `
 - `make dev-env-up`
 - `make dev-env-logs`
 - `make dev-env-down`
+
+`make dev-env-up` also starts Dozzle for container logs Web UI:
+
+- URL: `http://localhost:${DOZZLE_PORT}` (default `http://localhost:9999`)
+- Quick open: `make dev-container-logs-ui`
+- Socket mount source can be overridden by `DOZZLE_DOCKER_SOCKET` (default `/var/run/docker.sock`)
+
+`make dev-env-up` also starts Grafana + Loki for Go app log search (`dev-watch` output):
+
+- Grafana URL: `http://localhost:${GRAFANA_PORT}` (default `http://localhost:3000`)
+- Quick open: `make dev-logs-ui`
+- API logs are pushed to Loki in-process via `LOKI_PUSH_URL` (default `http://host.containers.internal:${LOKI_PORT}/loki/api/v1/push`)
 
 Legacy aliases remain available:
 
