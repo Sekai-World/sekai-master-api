@@ -90,12 +90,15 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Region source repos are configured by env vars.
 - Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `4`).
 - Per-region file loading parallelism is controlled by `MASTER_DATA_REGION_FILE_CONCURRENCY` (default `8`).
+- GitHub HTTP requests support retry via `MASTER_DATA_HTTP_RETRY_COUNT` (default `3`) and `MASTER_DATA_HTTP_RETRY_BACKOFF_MS` (default `300`).
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
 - Sync status storage model uses append-only history rows in `master_data_sync_status`; `created_at` is generated automatically by database default timestamp on insert. Latest status query uses database view `master_data_sync_status_latest` (one row per region) and exposes `last_updated_at` from that creation timestamp.
 - Startup sync compares the region source commit against the most recent successful sync record per region (from history); if unchanged, it skips reload for that region.
 - At sync start, if in-memory search index for a region is missing, region status is set to `pending` before sync proceeds.
 - For changed regions, cache writes are applied incrementally (upsert changed records and remove deleted records), not full key flush.
+- Region file loading uses retry + resumable rounds: already fetched files are kept, and only failed files are retried on subsequent attempts.
+- Resume state is also persisted locally under `tmp/master-data-sync-resume/`, so restart/retry can continue from the last successful file instead of reloading all files.
 - Successful sync payloads are temporarily backed up by region under `tmp/master-data-backup/<region>/latest/`, preserving all synced JSON files as directory snapshots.
 - If commit is unchanged and previous sync status is success: API first tries rebuilding in-memory index from Redis; if Redis data is missing but local backup exists, it restores cache from local backup; otherwise it falls back to full sync.
 - Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.

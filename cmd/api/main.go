@@ -58,6 +58,8 @@ func main() {
 		time.Duration(cfg.MasterDataHTTPTimeout)*time.Second,
 		cfg.MasterDataGitHubToken,
 		cfg.MasterDataFileConcurrency,
+		cfg.MasterDataHTTPRetryCount,
+		time.Duration(cfg.MasterDataHTTPRetryBackoffMS)*time.Millisecond,
 	)
 	masterDataEventHub := usecase.NewMasterDataEventHub()
 	masterDataCache, err := storage.NewRedisMasterDataCache(cfg)
