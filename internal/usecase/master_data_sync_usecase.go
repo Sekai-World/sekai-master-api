@@ -99,7 +99,7 @@ func (usecase *MasterDataSyncUsecase) SyncAllForce(ctx context.Context) error {
 
 func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) error {
 	if !usecase.syncRunning.CompareAndSwap(false, true) {
-		usecase.logf("sync skipped: reason=already_running")
+		usecase.logf("sync skipped reason=already_running")
 		return ErrSyncInProgress
 	}
 	defer usecase.syncRunning.Store(false)
@@ -113,7 +113,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 		effectiveConcurrency = len(usecase.sources)
 	}
 
-	usecase.logf("sync started: regions=%d concurrency=%d force=%t", len(usecase.sources), effectiveConcurrency, force)
+	usecase.logf("sync started regions=%d concurrency=%d force=%t", len(usecase.sources), effectiveConcurrency, force)
 
 	regions := make([]string, 0, len(usecase.sources))
 	for _, source := range usecase.sources {
@@ -175,7 +175,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 			if resolver, ok := usecase.loader.(MasterDataSourceVersionResolver); ok {
 				commit, resolveErr := resolver.ResolveRegionVersion(ctx, source)
 				if resolveErr != nil {
-					usecase.logf("sync compare failed: region=%s error=%v", source.Region, resolveErr)
+					usecase.logf("sync compare failed region=%s error=%v", source.Region, resolveErr)
 					message := "compare commit failed, fallback to full sync"
 					if force {
 						message = "resolve commit failed, continue with force sync"
@@ -192,14 +192,14 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 					})
 				} else {
 					resolvedCommit = strings.TrimSpace(commit)
-					usecase.logf("sync compare: region=%s remote_commit=%s force=%t", source.Region, resolvedCommit, force)
+					usecase.logf("sync compare region=%s remote_commit=%s force=%t", source.Region, resolvedCommit, force)
 					if !force {
 						if previous, exists := previousStatuses[source.Region]; exists && strings.EqualFold(strings.TrimSpace(previous.Status), "success") && previous.SourceCommit != "" && previous.SourceCommit == resolvedCommit {
 							rebuildFromRedis := false
 							if rebuilder, ok := usecase.cache.(MasterDataCacheIndexRebuilder); ok {
 								rebuilt, rebuildErr := rebuilder.RebuildRegionIndexFromRedis(ctx, source.Region)
 								if rebuildErr != nil {
-									usecase.logf("sync compare: region=%s commit=%s redis_index_rebuild=failed error=%v", source.Region, resolvedCommit, rebuildErr)
+									usecase.logf("sync compare region=%s commit=%s redis_index_rebuild=failed error=%v", source.Region, resolvedCommit, rebuildErr)
 									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 										Event:       "master_data_sync_progress",
 										Status:      "running",
@@ -212,7 +212,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 									})
 								} else if rebuilt {
 									rebuildFromRedis = true
-									usecase.logf("sync skipped: region=%s reason=commit_unchanged commit=%s index=rebuilt_from_redis", source.Region, resolvedCommit)
+									usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s index=rebuilt_from_redis", source.Region, resolvedCommit)
 									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 										Event:       "master_data_sync_progress",
 										Status:      "success",
@@ -224,7 +224,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 										UpdatedAt:   now,
 									})
 								} else {
-									usecase.logf("sync compare: region=%s commit=%s redis_cache=empty fallback=full_sync", source.Region, resolvedCommit)
+									usecase.logf("sync compare region=%s commit=%s redis_cache=empty fallback=full_sync", source.Region, resolvedCommit)
 									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 										Event:       "master_data_sync_progress",
 										Status:      "running",
@@ -258,7 +258,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 							if usecase.backupStore != nil {
 								backupPayload, backupFound, backupErr := usecase.backupStore.LoadRegionPayload(ctx, source, resolvedCommit)
 								if backupErr != nil {
-									usecase.logf("sync compare: region=%s commit=%s local_backup=load_failed error=%v", source.Region, resolvedCommit, backupErr)
+									usecase.logf("sync compare region=%s commit=%s local_backup=load_failed error=%v", source.Region, resolvedCommit, backupErr)
 									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 										Event:       "master_data_sync_progress",
 										Status:      "running",
@@ -271,7 +271,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 									})
 								} else if backupFound {
 									if cacheErr := usecase.cache.StoreRegion(ctx, source.Region, backupPayload); cacheErr != nil {
-										usecase.logf("sync compare: region=%s commit=%s local_backup=restore_failed error=%v", source.Region, resolvedCommit, cacheErr)
+										usecase.logf("sync compare region=%s commit=%s local_backup=restore_failed error=%v", source.Region, resolvedCommit, cacheErr)
 										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 											Event:       "master_data_sync_progress",
 											Status:      "running",
@@ -283,7 +283,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 											UpdatedAt:   now,
 										})
 									} else {
-										usecase.logf("sync skipped: region=%s reason=commit_unchanged commit=%s index=restored_from_local_backup", source.Region, resolvedCommit)
+										usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s index=restored_from_local_backup", source.Region, resolvedCommit)
 										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 											Event:       "master_data_sync_progress",
 											Status:      "success",
@@ -311,7 +311,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 										return
 									}
 								} else {
-									usecase.logf("sync compare: region=%s commit=%s local_backup=missing fallback=full_sync", source.Region, resolvedCommit)
+									usecase.logf("sync compare region=%s commit=%s local_backup=missing fallback=full_sync", source.Region, resolvedCommit)
 								}
 							}
 						}
@@ -329,11 +329,11 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 				Source:         source,
 				UpdatedAt:      now,
 			}); err != nil {
-				usecase.logf("sync running status persist failed: region=%s error=%v", source.Region, err)
+				usecase.logf("sync running status persist failed region=%s error=%v", source.Region, err)
 			}
 
 			usecase.logf(
-				"sync progress: step=%d/%d region=%s phase=load source=%s/%s ref=%s path=%s",
+				"sync progress step=%d/%d region=%s phase=load source=%s/%s ref=%s path=%s",
 				step,
 				totalSteps,
 				source.Region,
@@ -379,7 +379,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 			payload, err := usecase.loader.LoadRegion(progressCtx, source)
 			if err != nil {
 				duration := time.Since(startedAt).Milliseconds()
-				usecase.logf("sync failed: region=%s phase=load duration_ms=%d error=%v", source.Region, duration, err)
+				usecase.logf("sync failed region=%s phase=load duration_ms=%d error=%v", source.Region, duration, err)
 				usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 					Event:       "master_data_sync_progress",
 					Status:      "failed",
@@ -409,7 +409,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 			}
 
 			usecase.logf(
-				"sync progress: step=%d/%d region=%s phase=cache files=%d",
+				"sync progress step=%d/%d region=%s phase=cache files=%d",
 				step,
 				totalSteps,
 				source.Region,
@@ -429,7 +429,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 
 			if err := usecase.cache.StoreRegion(ctx, source.Region, payload); err != nil {
 				duration := time.Since(startedAt).Milliseconds()
-				usecase.logf("sync failed: region=%s phase=cache files=%d duration_ms=%d error=%v", source.Region, len(payload), duration, err)
+				usecase.logf("sync failed region=%s phase=cache files=%d duration_ms=%d error=%v", source.Region, len(payload), duration, err)
 				usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 					Event:       "master_data_sync_progress",
 					Status:      "failed",
@@ -461,12 +461,12 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 
 			if usecase.backupStore != nil {
 				if backupErr := usecase.backupStore.SaveRegionPayload(ctx, source, resolvedCommit, payload); backupErr != nil {
-					usecase.logf("sync backup save failed: region=%s commit=%s error=%v", source.Region, resolvedCommit, backupErr)
+					usecase.logf("sync backup save failed region=%s commit=%s error=%v", source.Region, resolvedCommit, backupErr)
 				}
 			}
 
 			duration := time.Since(startedAt).Milliseconds()
-			usecase.logf("sync success: region=%s files=%d duration_ms=%d", source.Region, len(payload), duration)
+			usecase.logf("sync success region=%s files=%d duration_ms=%d", source.Region, len(payload), duration)
 			usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 				Event:       "master_data_sync_progress",
 				Status:      "success",
@@ -512,7 +512,7 @@ func (usecase *MasterDataSyncUsecase) syncAll(ctx context.Context, force bool) e
 	})
 
 	usecase.logf(
-		"sync completed: status=%s regions=%d failed_regions=%d duration_ms=%d",
+		"sync completed status=%s regions=%d failed_regions=%d duration_ms=%d",
 		status,
 		len(regions),
 		len(failedRegions),
@@ -534,7 +534,7 @@ func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[str
 
 	statuses, err := usecase.statusStore.List(ctx)
 	if err != nil {
-		usecase.logf("load previous statuses failed: error=%v", err)
+		usecase.logf("load previous statuses failed error=%v", err)
 		return statusMap
 	}
 
@@ -582,7 +582,7 @@ func (usecase *MasterDataSyncUsecase) Search(ctx context.Context, region string,
 
 func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status masterdata.SyncStatus) error {
 	if usecase.statusStore == nil {
-		usecase.logf("sync status skipped: region=%s reason=status_store_disabled", status.Region)
+		usecase.logf("sync status skipped region=%s reason=status_store_disabled", status.Region)
 		return nil
 	}
 
@@ -595,20 +595,20 @@ func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status mas
 		defer cancel()
 		retryErr := usecase.statusStore.Save(retryCtx, status)
 		if retryErr == nil {
-			usecase.logf("sync status save recovered by retry: region=%s status=%s", status.Region, status.Status)
+			usecase.logf("sync status save recovered by retry region=%s status=%s", status.Region, status.Status)
 			err = nil
 		} else {
 			err = fmt.Errorf("%w; retry failed: %v", err, retryErr)
 		}
 	}
 	if err != nil {
-		usecase.logf("sync status save failed: region=%s status=%s error=%v", status.Region, status.Status, err)
+		usecase.logf("sync status save failed region=%s status=%s error=%v", status.Region, status.Status, err)
 		status.ErrorMessage = strings.TrimSpace(status.ErrorMessage + "; failed to persist status: " + err.Error())
 		return err
 	}
 
 	usecase.logf(
-		"sync status saved: region=%s status=%s files=%d duration_ms=%d",
+		"sync status saved region=%s status=%s files=%d duration_ms=%d",
 		status.Region,
 		status.Status,
 		status.FileCount,
@@ -628,18 +628,18 @@ func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status mas
 
 func (usecase *MasterDataSyncUsecase) publishSyncEvent(ctx context.Context, event masterdata.SyncUpdatedEvent) {
 	if usecase.publisher == nil {
-		usecase.logf("sync event skipped: reason=publisher_disabled")
+		usecase.logf("sync event skipped reason=publisher_disabled")
 		return
 	}
 
 	if err := usecase.publisher.PublishMasterDataUpdated(ctx, event); err != nil {
-		usecase.logf("sync event publish failed: event=%s status=%s error=%v", event.Event, event.Status, err)
+		usecase.logf("sync event publish failed event=%s status=%s error=%v", event.Event, event.Status, err)
 		return
 	}
 
 	if event.Event == "master_data_updated" {
 		usecase.logf(
-			"sync event published: event=%s status=%s regions=%d failed_regions=%d",
+			"sync event published event=%s status=%s regions=%d failed_regions=%d",
 			event.Event,
 			event.Status,
 			len(event.Regions),

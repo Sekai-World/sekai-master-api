@@ -380,7 +380,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	if cardRarityType, ok := record["cardRarityType"]; ok {
 		cardID := normalizeAnyID(record["id"])
 		rarityTypeLookup := normalizeComparableText(cardRarityType)
-		zap.S().Infow(
+		zap.S().Debugw(
 			"card rarity lookup start",
 			"component", "card-handler",
 			"region", region,
@@ -394,22 +394,22 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 		} else {
 			matches, err := handler.masterDataSync.Search(ctx, region, "cardrarities", rarityTypeLookup, []string{"cardRarityType"}, 20)
 			if err != nil {
-				zap.S().Errorw("card rarity lookup search error", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "error", err)
+				zap.S().Debugw("card rarity lookup search error", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "error", err)
 				result["cardRarity"] = nil
 			} else {
-				zap.S().Infow("card rarity lookup search done", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "matches", len(matches))
+				zap.S().Debugw("card rarity lookup search done", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "matches", len(matches))
 				rarity := findExactCardRarityByType(matches, rarityTypeLookup)
 				if rarity == nil {
 					zap.S().Warnw("card rarity lookup not found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup)
 					result["cardRarity"] = nil
 				} else {
-					zap.S().Infow("card rarity lookup found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "rarity_id", rarity["id"])
+					zap.S().Debugw("card rarity lookup found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "rarity_id", rarity["id"])
 					result["cardRarity"] = rarity
 				}
 			}
 		}
 	} else {
-		zap.S().Infow("card rarity lookup skipped", "component", "card-handler", "reason", "missing_card_rarity_type", "region", region, "card_id", normalizeAnyID(record["id"]))
+		zap.S().Warnw("card rarity lookup skipped", "component", "card-handler", "reason", "missing_card_rarity_type", "region", region, "card_id", normalizeAnyID(record["id"]))
 	}
 
 	return result

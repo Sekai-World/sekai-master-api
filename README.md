@@ -47,6 +47,7 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 
 `make dev-watch` uses `air` for hot restart on Go code changes.
 `make dev-watch` passes `LOKI_PUSH_URL` to the API process; the Go logger pushes app logs to Loki in-process (no external log-push script required).
+Gin access/error logs are also routed through the same Zap pipeline, so they are pushed to Loki as well.
 `make format` applies `gofmt` to all Go files.
 `make swagger` regenerates Swagger docs from Go annotations.
 
