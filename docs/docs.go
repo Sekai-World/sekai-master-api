@@ -87,6 +87,16 @@ const docTemplate = `{
                     "admin"
                 ],
                 "summary": "Trigger master-data sync",
+                "parameters": [
+                    {
+                        "description": "Optional region-scoped sync payload",
+                        "name": "payload",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handler.masterDataSyncRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -129,6 +139,16 @@ const docTemplate = `{
                     "admin"
                 ],
                 "summary": "Trigger force master-data sync",
+                "parameters": [
+                    {
+                        "description": "Optional region-scoped force sync payload",
+                        "name": "payload",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handler.masterDataSyncRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -346,6 +366,65 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/handler.CardObjectResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/cards/{region}/{id}/episodes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cards"
+                ],
+                "summary": "Get card episodes by card id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Card ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.CardListResponse"
                         }
                     },
                     "400": {
@@ -692,6 +771,14 @@ const docTemplate = `{
         "handler.SkillResponse": {
             "type": "object",
             "additionalProperties": {}
+        },
+        "handler.masterDataSyncRequest": {
+            "type": "object",
+            "properties": {
+                "region": {
+                    "type": "string"
+                }
+            }
         },
         "masterdata.Source": {
             "type": "object",
