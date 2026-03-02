@@ -231,8 +231,29 @@ func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string
 	if err != nil {
 		return nil, 0, fmt.Errorf("llen order ids region %s entity %s: %w", regionName, entityName, err)
 	}
+
+	byIDCount, err := cache.client.HLen(ctx, cache.redisEntityKey(regionName, entityName)).Result()
+	if err != nil {
+		return nil, 0, fmt.Errorf("hlen by-id region %s entity %s: %w", regionName, entityName, err)
+	}
+	if byIDCount > total {
+		rebuiltIDs, rebuildErr := cache.rebuildEntityOrderFromByID(ctx, regionName, entityName)
+		if rebuildErr != nil {
+			return nil, 0, rebuildErr
+		}
+		total = int64(len(rebuiltIDs))
+	}
+
 	if total <= 0 {
-		return []map[string]any{}, 0, nil
+		rebuiltIDs, rebuildErr := cache.rebuildEntityOrderFromByID(ctx, regionName, entityName)
+		if rebuildErr != nil {
+			return nil, 0, rebuildErr
+		}
+		if len(rebuiltIDs) == 0 {
+			return []map[string]any{}, 0, nil
+		}
+
+		total = int64(len(rebuiltIDs))
 	}
 
 	start := int64((page - 1) * pageSize)
@@ -259,6 +280,52 @@ func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string
 	}
 
 	return items, int(total), nil
+}
+
+func (cache *RedisMasterDataCache) rebuildEntityOrderFromByID(ctx context.Context, region string, entity string) ([]string, error) {
+	recordMap, err := cache.client.HGetAll(ctx, cache.redisEntityKey(region, entity)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("hgetall by-id region %s entity %s: %w", region, entity, err)
+	}
+	if len(recordMap) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(recordMap))
+	for id := range recordMap {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		ids = append(ids, trimmed)
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	sort.Slice(ids, func(i int, j int) bool {
+		leftInt, leftErr := strconv.ParseInt(ids[i], 10, 64)
+		rightInt, rightErr := strconv.ParseInt(ids[j], 10, 64)
+		if leftErr == nil && rightErr == nil {
+			return leftInt < rightInt
+		}
+
+		return ids[i] < ids[j]
+	})
+
+	orderKey := cache.redisEntityOrderKey(region, entity)
+	pipe := cache.client.Pipeline()
+	pipe.Del(ctx, orderKey)
+	values := make([]any, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, id)
+	}
+	pipe.RPush(ctx, orderKey, values...)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("rebuild order region %s entity %s: %w", region, entity, err)
+	}
+
+	return ids, nil
 }
 
 func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error) {

@@ -31,6 +31,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	masterDataStatusHandler := handler.NewMasterDataStatusHandler(masterDataSync)
 	masterDataEventHandler := handler.NewMasterDataEventHandler(masterDataEvents)
 	cardHandler := handler.NewCardHandler(masterDataSync)
+	eventHandler := handler.NewEventHandler(masterDataSync)
 	masterDataAdminHandler := handler.NewMasterDataAdminHandler(masterDataSync, time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
@@ -50,6 +51,9 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		v1.GET("/cards/:region/:id", cardHandler.ByID)
 		v1.GET("/cards/:region/:id/params", cardHandler.ParamsByID)
 		v1.GET("/cards/:region/:id/episodes", cardHandler.EpisodesByID)
+		v1.GET("/events/:region/current", eventHandler.Current)
+		v1.GET("/events/:region/:id", eventHandler.ByID)
+		v1.GET("/events/:region/:id/rewards", eventHandler.RewardsByID)
 		v1.POST("/admin/login", adminLoginHandler.Login)
 
 		admin := v1.Group("/admin")

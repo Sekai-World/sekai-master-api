@@ -68,6 +68,9 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/cards/:region/search?q=<keyword>&field=name|skill&page=1&limit=20`
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
+- `GET /api/v1/events/:region/current`
+- `GET /api/v1/events/:region/:id`
+- `GET /api/v1/events/:region/:id/rewards`
 - `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync/force` (Bearer token from Keycloak required)
@@ -147,6 +150,9 @@ Example for `jp`:
 - card search response includes `pagination` (`page`, `page_size`, `total`, `total_pages`, `has_next`) same as list
 - card list pagination follows real `cards.json` array order (data index), not id continuity
 - card list pagination response includes `total_pages` and `has_next`
+- event by-id endpoint omits `eventRankingRewardRanges` from the main payload
+- current event endpoint (`GET /api/v1/events/:region/current`) reads from Redis cache first, validates event time window, and refreshes cache from `events.json` when cached event is expired/missing
+- event rewards endpoint returns `eventRankingRewardRanges` via `GET /api/v1/events/:region/:id/rewards`
 - `GET /api/v1/master-data/events` can notify frontend after sync finishes (`master_data_updated`)
 
 Redis settings:
