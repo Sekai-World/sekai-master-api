@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -577,20 +579,11 @@ func searchableFields(record map[string]any) map[string]string {
 		}
 
 		switch typed := value.(type) {
-		case string:
-			normalized := normalizeSearchText(typed)
-			if normalized != "" {
-				result[field] = normalized
-			}
 		case []any:
 			parts := make([]string, 0, len(typed))
 			for _, item := range typed {
-				stringValue, ok := item.(string)
+				normalized, ok := normalizeSearchValue(item)
 				if !ok {
-					continue
-				}
-				normalized := normalizeSearchText(stringValue)
-				if normalized == "" {
 					continue
 				}
 				parts = append(parts, normalized)
@@ -598,10 +591,67 @@ func searchableFields(record map[string]any) map[string]string {
 			if len(parts) > 0 {
 				result[field] = strings.Join(parts, " ")
 			}
+		default:
+			normalized, ok := normalizeSearchValue(value)
+			if ok {
+				result[field] = normalized
+			}
 		}
 	}
 
 	return result
+}
+
+func normalizeSearchValue(value any) (string, bool) {
+	switch typed := value.(type) {
+	case string:
+		normalized := normalizeSearchText(typed)
+		if normalized == "" {
+			return "", false
+		}
+		return normalized, true
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) {
+			return "", false
+		}
+		if typed == math.Trunc(typed) {
+			return strconv.FormatInt(int64(typed), 10), true
+		}
+		return normalizeSearchText(strconv.FormatFloat(typed, 'f', -1, 64)), true
+	case float32:
+		floatValue := float64(typed)
+		if math.IsNaN(floatValue) || math.IsInf(floatValue, 0) {
+			return "", false
+		}
+		if floatValue == math.Trunc(floatValue) {
+			return strconv.FormatInt(int64(floatValue), 10), true
+		}
+		return normalizeSearchText(strconv.FormatFloat(floatValue, 'f', -1, 32)), true
+	case int:
+		return strconv.Itoa(typed), true
+	case int8:
+		return strconv.FormatInt(int64(typed), 10), true
+	case int16:
+		return strconv.FormatInt(int64(typed), 10), true
+	case int32:
+		return strconv.FormatInt(int64(typed), 10), true
+	case int64:
+		return strconv.FormatInt(typed, 10), true
+	case uint:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint8:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint16:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint64:
+		return strconv.FormatUint(typed, 10), true
+	case bool:
+		return strconv.FormatBool(typed), true
+	default:
+		return "", false
+	}
 }
 
 func normalizeFields(fields []string) []string {

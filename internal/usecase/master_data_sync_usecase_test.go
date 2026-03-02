@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -93,15 +94,17 @@ func (cache *fakeSyncCache) HasRegionIndex(_ string) bool {
 }
 
 type fakeSyncStatusStore struct {
-	mu     sync.Mutex
-	byZone map[string]masterdata.SyncStatus
-	saved  []masterdata.SyncStatus
+	mu            sync.Mutex
+	byZone        map[string]masterdata.SyncStatus
+	saved         []masterdata.SyncStatus
+	successByZone map[string]masterdata.SyncStatus
 }
 
 func newFakeSyncStatusStore(seed []masterdata.SyncStatus) *fakeSyncStatusStore {
 	store := &fakeSyncStatusStore{
-		byZone: make(map[string]masterdata.SyncStatus),
-		saved:  make([]masterdata.SyncStatus, 0),
+		byZone:        make(map[string]masterdata.SyncStatus),
+		saved:         make([]masterdata.SyncStatus, 0),
+		successByZone: make(map[string]masterdata.SyncStatus),
 	}
 	for _, item := range seed {
 		store.byZone[item.Region] = item
@@ -125,6 +128,18 @@ func (store *fakeSyncStatusStore) List(_ context.Context) ([]masterdata.SyncStat
 
 	items := make([]masterdata.SyncStatus, 0, len(store.byZone))
 	for _, item := range store.byZone {
+		items = append(items, item)
+	}
+
+	return items, nil
+}
+
+func (store *fakeSyncStatusStore) ListLatestSuccess(_ context.Context) ([]masterdata.SyncStatus, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	items := make([]masterdata.SyncStatus, 0, len(store.successByZone))
+	for _, item := range store.successByZone {
 		items = append(items, item)
 	}
 
@@ -504,5 +519,93 @@ func TestSyncAllSetsPendingWhenRegionIndexMissing(t *testing.T) {
 	}
 	if latest.Status != "success" {
 		t.Fatalf("expected final status success, got %s", latest.Status)
+	}
+}
+
+func TestSyncAllUsesLatestSuccessWhenLatestStatusIsPending(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	pendingStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "pending",
+		FileCount:    0,
+		LastSyncedAt: time.Now().UTC().Add(-time.Minute),
+		SourceCommit: "",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Minute),
+	}
+
+	latestSuccess := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    12,
+		LastSyncedAt: time.Now().UTC().Add(-2 * time.Hour),
+		SourceCommit: "same-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-2 * time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "same-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-load"}}},
+		},
+	}
+	cache := &fakeSyncCache{rebuildFromRedisOK: true}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{pendingStatus})
+	statusStore.successByZone["jp"] = latestSuccess
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 0 {
+		t.Fatalf("expected load to be skipped using latest success status, got loadCalls=%d", loader.loadCalls)
+	}
+	if cache.rebuildCalls != 1 {
+		t.Fatalf("expected redis index rebuild on skip, got rebuildCalls=%d", cache.rebuildCalls)
+	}
+}
+
+func TestSyncRegionOnlyRunsTargetRegion(t *testing.T) {
+	sourceJP := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo-jp", Ref: "main", Path: "data"}
+	sourceEN := masterdata.Source{Region: "en", Owner: "owner", Repo: "repo-en", Ref: "main", Path: "data"}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "commit-jp", "en": "commit-en"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1}}},
+			"en": {"cards.json": []any{map[string]any{"id": 2}}},
+		},
+	}
+	statusStore := newFakeSyncStatusStore(nil)
+	cache := &fakeSyncCache{}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{sourceJP, sourceEN}, loader, cache, statusStore, nil, 2)
+
+	if err := usecase.SyncRegion(context.Background(), "jp"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected only one region load call, got %d", loader.loadCalls)
+	}
+
+	if _, exists := statusStore.latest("jp"); !exists {
+		t.Fatalf("expected jp status saved")
+	}
+	if _, exists := statusStore.latest("en"); exists {
+		t.Fatalf("did not expect en status to be updated")
+	}
+}
+
+func TestSyncRegionReturnsNotFoundForUnknownRegion(t *testing.T) {
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{{Region: "jp"}}, &fakeSyncLoader{}, &fakeSyncCache{}, newFakeSyncStatusStore(nil), nil, 1)
+
+	err := usecase.SyncRegion(context.Background(), "unknown")
+	if !errors.Is(err, ErrRegionNotFound) {
+		t.Fatalf("expected ErrRegionNotFound, got %v", err)
 	}
 }

@@ -12,7 +12,10 @@
         <h1>Admin Dashboard</h1>
         <p>仅用于管理端权限校验与状态查看</p>
       </div>
-      <button id="logout">退出登录</button>
+      <div class="topbar-actions">
+        <a id="swagger-debug-link" class="topbar-link" href="/docs/index.html" target="_blank" rel="noopener noreferrer" hidden>Swagger 调试</a>
+        <button id="logout">退出登录</button>
+      </div>
     </header>
 
     <main class="dashboard-grid">
@@ -30,6 +33,12 @@
         <div class="panel-header">
           <h2>Master Data 同步</h2>
           <div class="sync-actions">
+            <label class="sync-force-toggle" for="sync-region-select">
+              地区
+              <select id="sync-region-select">
+                <option value="">全部地区</option>
+              </select>
+            </label>
             <label class="sync-force-toggle" for="sync-force-checkbox">
               <input id="sync-force-checkbox" type="checkbox" />
               强制更新

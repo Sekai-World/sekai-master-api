@@ -72,9 +72,14 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync/force` (Bearer token from Keycloak required)
 
+`POST /api/v1/admin/master-data/sync` and `POST /api/v1/admin/master-data/sync/force` support optional JSON payload:
+
+- `{ "region": "jp" }` for region-scoped sync
+- empty payload for full-region sync
+
 All non-admin `GET` API endpoints are public (no auth middleware).
 
-Swagger UI is exposed at `GET /docs/index.html`, and OpenAPI JSON is exposed at `GET /docs/doc.json`.
+Swagger UI is exposed at `GET /docs/index.html`, and OpenAPI JSON is exposed at `GET /docs/doc.json` only when `APP_ENV` is `development` or `test`.
 
 ## Master Data Sync
 
@@ -87,7 +92,8 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Per-region file loading parallelism is controlled by `MASTER_DATA_REGION_FILE_CONCURRENCY` (default `8`).
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
-- Startup sync compares the region source commit first; if unchanged, it skips reload for that region.
+- Sync status storage model uses append-only history rows in `master_data_sync_status`; latest status query uses database view `master_data_sync_status_latest` (one row per region).
+- Startup sync compares the region source commit against the most recent successful sync record per region (from history); if unchanged, it skips reload for that region.
 - At sync start, if in-memory search index for a region is missing, region status is set to `pending` before sync proceeds.
 - For changed regions, cache writes are applied incrementally (upsert changed records and remove deleted records), not full key flush.
 - Successful sync payloads are temporarily backed up by region under `tmp/master-data-backup/<region>/latest/`, preserving all synced JSON files as directory snapshots.
@@ -162,6 +168,8 @@ Login flow:
 1. Open `/admin/login` and enter Keycloak username/password.
 2. Dashboard calls `POST /api/v1/admin/login` to exchange credentials for access token.
 3. On success, redirects to `/admin` and calls `GET /api/v1/admin/profile`.
+
+Master Data sync panel supports selecting target region (or all regions) and can run both normal sync and force sync per selected scope.
 
 ## Keycloak Integration
 

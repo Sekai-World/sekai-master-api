@@ -105,6 +105,60 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 	response.JSON(c, http.StatusOK, buildCardParams(record))
 }
 
+// EpisodesByID godoc
+// @Summary Get card episodes by card id
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} CardListResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /cards/{region}/{id}/episodes [get]
+func (handler *CardHandler) EpisodesByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	_, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "cards", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "CARD_NOT_FOUND", "card not found")
+		return
+	}
+
+	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "cardepisodes", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card episodes")
+		return
+	}
+
+	items := make([]map[string]any, 0, len(matches))
+	for _, match := range matches {
+		items = append(items, match.Item)
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"items": items,
+	})
+}
+
 // SearchByPrefix godoc
 // @Summary Search cards by prefix
 // @Tags cards

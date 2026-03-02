@@ -2,6 +2,7 @@ package http
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,7 +36,9 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
 	router.GET("/admin", adminUIHandler.DashboardPage)
 	router.GET("/admin/assets/*filepath", adminUIHandler.Asset)
-	router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	if isSwaggerEnabledEnv(cfg.AppEnv) {
+		router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	v1 := router.Group("/api/v1")
 	{
@@ -46,6 +49,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		v1.GET("/cards/:region/search", cardHandler.SearchByPrefix)
 		v1.GET("/cards/:region/:id", cardHandler.ByID)
 		v1.GET("/cards/:region/:id/params", cardHandler.ParamsByID)
+		v1.GET("/cards/:region/:id/episodes", cardHandler.EpisodesByID)
 		v1.POST("/admin/login", adminLoginHandler.Login)
 
 		admin := v1.Group("/admin")
@@ -56,4 +60,9 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	}
 
 	return router
+}
+
+func isSwaggerEnabledEnv(appEnv string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(appEnv))
+	return normalized == "development" || normalized == "dev" || normalized == "test"
 }

@@ -50,6 +50,7 @@ body {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border-radius: 12px;
@@ -91,6 +92,25 @@ button.is-loading {
 .topbar p {
   margin: 6px 0 0;
   color: var(--muted);
+}
+
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #031321;
+  background: linear-gradient(135deg, #7dd3fc, var(--accent));
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: none;
 }
 
 .dashboard-grid {

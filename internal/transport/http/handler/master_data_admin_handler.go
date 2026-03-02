@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,10 @@ import (
 type MasterDataAdminHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 	timeout        time.Duration
+}
+
+type masterDataSyncRequest struct {
+	Region string `json:"region"`
 }
 
 func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, timeout time.Duration) *MasterDataAdminHandler {
@@ -33,6 +38,7 @@ func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, ti
 // @Tags admin
 // @Produce json
 // @Security BearerAuth
+// @Param payload body masterDataSyncRequest false "Optional region-scoped sync payload"
 // @Success 200 {object} MasterDataSyncResponse
 // @Failure 401 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
@@ -44,10 +50,30 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 		return
 	}
 
+	request := masterDataSyncRequest{}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&request); err != nil {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid sync request payload")
+			return
+		}
+	}
+
+	region := strings.TrimSpace(request.Region)
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), handler.timeout)
 	defer cancel()
 
-	if err := handler.masterDataSync.SyncAll(ctx); err != nil {
+	var err error
+	if region == "" {
+		err = handler.masterDataSync.SyncAll(ctx)
+	} else {
+		err = handler.masterDataSync.SyncRegion(ctx, region)
+	}
+	if err != nil {
+		if errors.Is(err, usecase.ErrRegionNotFound) {
+			response.Error(c, http.StatusNotFound, "MASTER_DATA_REGION_NOT_FOUND", "target region is not configured")
+			return
+		}
 		if errors.Is(err, usecase.ErrSyncInProgress) {
 			response.Error(c, http.StatusConflict, "MASTER_DATA_SYNC_RUNNING", "master data sync is already running")
 			return
@@ -73,6 +99,7 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 // @Tags admin
 // @Produce json
 // @Security BearerAuth
+// @Param payload body masterDataSyncRequest false "Optional region-scoped force sync payload"
 // @Success 200 {object} MasterDataSyncResponse
 // @Failure 401 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
@@ -84,10 +111,30 @@ func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 		return
 	}
 
+	request := masterDataSyncRequest{}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&request); err != nil {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid sync request payload")
+			return
+		}
+	}
+
+	region := strings.TrimSpace(request.Region)
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), handler.timeout)
 	defer cancel()
 
-	if err := handler.masterDataSync.SyncAllForce(ctx); err != nil {
+	var err error
+	if region == "" {
+		err = handler.masterDataSync.SyncAllForce(ctx)
+	} else {
+		err = handler.masterDataSync.SyncRegionForce(ctx, region)
+	}
+	if err != nil {
+		if errors.Is(err, usecase.ErrRegionNotFound) {
+			response.Error(c, http.StatusNotFound, "MASTER_DATA_REGION_NOT_FOUND", "target region is not configured")
+			return
+		}
 		if errors.Is(err, usecase.ErrSyncInProgress) {
 			response.Error(c, http.StatusConflict, "MASTER_DATA_SYNC_RUNNING", "master data sync is already running")
 			return
