@@ -294,3 +294,102 @@ func TestSearchCardEpisodesByNumericCardID(t *testing.T) {
 		t.Fatalf("expected cardId 1001, got %v", matches[0].Item["cardId"])
 	}
 }
+
+func TestListByPageRebuildsOrderWhenMissing(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+
+	byIDKey := cache.redisEntityKey("jp", "events")
+	if err := cache.client.HSet(ctx, byIDKey,
+		"10", `{"id":10,"name":"event-10"}`,
+		"2", `{"id":2,"name":"event-2"}`,
+	).Err(); err != nil {
+		t.Fatalf("seed by-id hash: %v", err)
+	}
+
+	items, total, err := cache.ListByPage(ctx, "jp", "events", 1, 10)
+	if err != nil {
+		t.Fatalf("list by page with missing order: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected total=2, got %d", total)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	if items[0]["id"] != float64(2) {
+		t.Fatalf("expected first id=2 after rebuild, got %v", items[0]["id"])
+	}
+	if items[1]["id"] != float64(10) {
+		t.Fatalf("expected second id=10 after rebuild, got %v", items[1]["id"])
+	}
+}
+
+func TestListByPageRebuildsOrderWhenTruncated(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+
+	byIDKey := cache.redisEntityKey("jp", "events")
+	if err := cache.client.HSet(ctx, byIDKey,
+		"1", `{"id":1,"name":"event-1"}`,
+		"2", `{"id":2,"name":"event-2"}`,
+		"3", `{"id":3,"name":"event-3"}`,
+	).Err(); err != nil {
+		t.Fatalf("seed by-id hash: %v", err)
+	}
+
+	orderKey := cache.redisEntityOrderKey("jp", "events")
+	if err := cache.client.RPush(ctx, orderKey, "1").Err(); err != nil {
+		t.Fatalf("seed truncated order: %v", err)
+	}
+
+	items, total, err := cache.ListByPage(ctx, "jp", "events", 1, 10)
+	if err != nil {
+		t.Fatalf("list by page with truncated order: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected total=3 after rebuild, got %d", total)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items after rebuild, got %d", len(items))
+	}
+
+	if items[0]["id"] != float64(1) || items[1]["id"] != float64(2) || items[2]["id"] != float64(3) {
+		t.Fatalf("expected rebuilt order [1,2,3], got [%v,%v,%v]", items[0]["id"], items[1]["id"], items[2]["id"])
+	}
+}

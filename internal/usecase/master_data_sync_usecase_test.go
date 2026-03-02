@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ type fakeSyncLoader struct {
 	mu             sync.Mutex
 	resolvedByZone map[string]string
 	payloadByZone  map[string]map[string]any
+	loadErrByZone  map[string]error
 	loadCalls      int
 }
 
@@ -27,6 +29,9 @@ func (loader *fakeSyncLoader) LoadRegion(_ context.Context, source masterdata.So
 	defer loader.mu.Unlock()
 
 	loader.loadCalls++
+	if err, exists := loader.loadErrByZone[source.Region]; exists && err != nil {
+		return nil, err
+	}
 	if payload, exists := loader.payloadByZone[source.Region]; exists {
 		return payload, nil
 	}
@@ -48,6 +53,106 @@ type fakeSyncCache struct {
 	rebuildFromRedisOK bool
 	hasRegionIndex     bool
 	hasRegionIndexSet  bool
+}
+
+type fakeCurrentEventCache struct {
+	mu sync.Mutex
+
+	events        []map[string]any
+	currentEvents []map[string]any
+	storeCalls    int
+}
+
+func (cache *fakeCurrentEventCache) StoreRegion(_ context.Context, _ string, payload map[string]any) error {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	cache.storeCalls++
+	currentPayload, ok := payload["currentEvents.json"]
+	if !ok {
+		cache.currentEvents = []map[string]any{}
+		return nil
+	}
+
+	items, ok := currentPayload.([]any)
+	if !ok {
+		cache.currentEvents = []map[string]any{}
+		return nil
+	}
+
+	next := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		record, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		next = append(next, record)
+	}
+
+	cache.currentEvents = next
+	return nil
+}
+
+func (cache *fakeCurrentEventCache) GetByID(_ context.Context, _, _, _ string) (map[string]any, bool, error) {
+	return nil, false, nil
+}
+
+func (cache *fakeCurrentEventCache) ListByPage(_ context.Context, _, entity string, page int, pageSize int) ([]map[string]any, int, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	var source []map[string]any
+	switch strings.ToLower(strings.TrimSpace(entity)) {
+	case "events":
+		source = cache.events
+	case "currentevents":
+		source = cache.currentEvents
+	default:
+		return []map[string]any{}, 0, nil
+	}
+
+	total := len(source)
+	if total == 0 {
+		return []map[string]any{}, 0, nil
+	}
+
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []map[string]any{}, total, nil
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	items := make([]map[string]any, 0, end-start)
+	for _, record := range source[start:end] {
+		copied := make(map[string]any, len(record))
+		for key, value := range record {
+			copied[key] = value
+		}
+		items = append(items, copied)
+	}
+
+	return items, total, nil
+}
+
+func (cache *fakeCurrentEventCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
+	return nil, nil
+}
+
+func (cache *fakeCurrentEventCache) StoreCallCount() int {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	return cache.storeCalls
 }
 
 func (cache *fakeSyncCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
@@ -666,5 +771,360 @@ func TestSyncRegionReturnsNotFoundForUnknownRegion(t *testing.T) {
 	err := usecase.SyncRegion(context.Background(), "unknown")
 	if !errors.Is(err, ErrRegionNotFound) {
 		t.Fatalf("expected ErrRegionNotFound, got %v", err)
+	}
+}
+
+func TestSyncAllFallsBackToPreviousStateOnRateLimit(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    8,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "prev-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "next-commit"},
+		loadErrByZone:  map[string]error{"jp": errors.New("api rate limit exceeded")},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error on rate limit fallback, got %v", err)
+	}
+
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected one load attempt, got %d", loader.loadCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected fallback status for jp")
+	}
+	if !strings.EqualFold(latest.Status, "success") {
+		t.Fatalf("expected fallback status success, got %s", latest.Status)
+	}
+	if latest.SourceCommit != "prev-commit" {
+		t.Fatalf("expected fallback commit prev-commit, got %s", latest.SourceCommit)
+	}
+}
+
+func TestSyncAllFallsBackAndRestoresBackupOnRateLimit(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    3,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "prev-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "next-commit"},
+		loadErrByZone:  map[string]error{"jp": errors.New("too many requests")},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "prev-commit", map[string]any{
+		"cards.json": []any{map[string]any{"id": 1, "prefix": "from-backup"}},
+	}); err != nil {
+		t.Fatalf("save backup payload: %v", err)
+	}
+	usecase.backupStore = backupStore
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error on rate limit fallback with backup, got %v", err)
+	}
+
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected one cache restore call from backup, got %d", cache.storeCalls)
+	}
+}
+
+func TestSyncAllRateLimitWithoutPreviousStatusFails(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "next-commit"},
+		loadErrByZone:  map[string]error{"jp": errors.New("api rate limit exceeded")},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore(nil)
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	err := usecase.SyncAll(context.Background())
+	if err == nil {
+		t.Fatalf("expected error when rate limit occurs without previous status")
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected failed status for jp")
+	}
+	if !strings.EqualFold(latest.Status, "failed") {
+		t.Fatalf("expected failed status, got %s", latest.Status)
+	}
+}
+
+func TestCurrentEventConcurrentRequestsOnlyStoreCacheOnce(t *testing.T) {
+	now := time.UnixMilli(1_700_000_000_000).UTC()
+	nowMillis := now.UnixMilli()
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{
+				"id":       1,
+				"name":     "current-event",
+				"startAt":  nowMillis - 60_000,
+				"closedAt": nowMillis + 60_000,
+			},
+		},
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	const workers = 32
+	start := make(chan struct{})
+	errCh := make(chan error, workers)
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+
+			record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if !found {
+				errCh <- errors.New("expected current event found")
+				return
+			}
+			if fmt.Sprintf("%v", record["id"]) != "1" {
+				errCh <- fmt.Errorf("expected id=1, got %v", record["id"])
+				return
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent current event query failed: %v", err)
+		}
+	}
+
+	if cache.StoreCallCount() != 1 {
+		t.Fatalf("expected current event cache to be stored once, got %d", cache.StoreCallCount())
+	}
+}
+
+func TestCurrentEventSupportsSecondBasedTimestamps(t *testing.T) {
+	now := time.Unix(1_772_438_533, 0).UTC()
+	nowSeconds := now.Unix()
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{
+				"id":       777,
+				"name":     "second-based-event",
+				"startAt":  nowSeconds - 120,
+				"closedAt": nowSeconds + 120,
+			},
+		},
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil {
+		t.Fatalf("current event query error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected current event to be found for second-based timestamps")
+	}
+	if fmt.Sprintf("%v", record["id"]) != "777" {
+		t.Fatalf("expected id=777, got %v", record["id"])
+	}
+}
+
+func TestCurrentEventIgnoresZeroClosedAtUsesAggregateAt(t *testing.T) {
+	now := time.UnixMilli(1_772_438_533_000).UTC()
+	nowMillis := now.UnixMilli()
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{
+				"id":          888,
+				"name":        "zero-closed-at-event",
+				"startAt":     nowMillis - 60_000,
+				"closedAt":    0,
+				"aggregateAt": nowMillis + 60_000,
+			},
+		},
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil {
+		t.Fatalf("current event query error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected current event to be found when closedAt is zero")
+	}
+	if fmt.Sprintf("%v", record["id"]) != "888" {
+		t.Fatalf("expected id=888, got %v", record["id"])
+	}
+}
+
+func TestCurrentEventSupportsRFC3339Timestamps(t *testing.T) {
+	now := time.Date(2026, 3, 2, 8, 0, 0, 0, time.UTC)
+	start := now.Add(-2 * time.Minute).Format(time.RFC3339)
+	end := now.Add(2 * time.Minute).Format(time.RFC3339)
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{
+				"id":       889,
+				"name":     "rfc3339-event",
+				"startAt":  start,
+				"closedAt": end,
+			},
+		},
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil {
+		t.Fatalf("current event query error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected current event to be found for RFC3339 timestamps")
+	}
+	if fmt.Sprintf("%v", record["id"]) != "889" {
+		t.Fatalf("expected id=889, got %v", record["id"])
+	}
+}
+
+func TestCurrentEventSupportsMicrosecondEpoch(t *testing.T) {
+	now := time.UnixMilli(1_772_438_533_000).UTC()
+	nowMicros := now.UnixMicro()
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{
+				"id":       890,
+				"name":     "microsecond-event",
+				"startAt":  nowMicros - 120_000_000,
+				"closedAt": nowMicros + 120_000_000,
+			},
+		},
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil {
+		t.Fatalf("current event query error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected current event to be found for microsecond epoch")
+	}
+	if fmt.Sprintf("%v", record["id"]) != "890" {
+		t.Fatalf("expected id=890, got %v", record["id"])
+	}
+}
+
+func TestCurrentEventSupportsDecimalNumericStringTimestamp(t *testing.T) {
+	now := time.UnixMilli(1_772_438_533_000).UTC()
+	nowMillis := now.UnixMilli()
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{
+				"id":       891,
+				"name":     "decimal-string-event",
+				"startAt":  fmt.Sprintf("%d.0", nowMillis-120_000),
+				"closedAt": fmt.Sprintf("%d.0", nowMillis+120_000),
+			},
+		},
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil {
+		t.Fatalf("current event query error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected current event to be found for decimal numeric string timestamps")
+	}
+	if fmt.Sprintf("%v", record["id"]) != "891" {
+		t.Fatalf("expected id=891, got %v", record["id"])
+	}
+}
+
+func TestCurrentEventScansBeyondFirstHundredRecords(t *testing.T) {
+	now := time.UnixMilli(1_772_438_533_000).UTC()
+	nowMillis := now.UnixMilli()
+
+	events := make([]map[string]any, 0, 120)
+	for i := 1; i <= 119; i++ {
+		events = append(events, map[string]any{
+			"id":       i,
+			"name":     fmt.Sprintf("past-event-%d", i),
+			"startAt":  nowMillis - 1_000_000,
+			"closedAt": nowMillis - 500_000,
+		})
+	}
+	events = append(events, map[string]any{
+		"id":       120,
+		"name":     "current-event-on-second-page",
+		"startAt":  nowMillis - 60_000,
+		"closedAt": nowMillis + 60_000,
+	})
+
+	cache := &fakeCurrentEventCache{
+		events:        events,
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil {
+		t.Fatalf("current event query error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected current event found beyond first 100 records")
+	}
+	if fmt.Sprintf("%v", record["id"]) != "120" {
+		t.Fatalf("expected id=120, got %v", record["id"])
 	}
 }

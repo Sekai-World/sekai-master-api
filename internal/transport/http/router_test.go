@@ -187,6 +187,42 @@ func TestCardListUnavailable(t *testing.T) {
 	}
 }
 
+func TestEventByIDUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event by id when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestCurrentEventUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/current", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on current event when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestEventRewardsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/rewards", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event rewards when service unavailable, got %d", resp.Code)
+	}
+}
+
 func TestMasterDataEventsUnavailable(t *testing.T) {
 	router := setupRouter(t)
 

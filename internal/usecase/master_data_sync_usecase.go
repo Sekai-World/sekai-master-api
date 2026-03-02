@@ -2,8 +2,10 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,6 +66,8 @@ type MasterDataSyncUsecase struct {
 	concurrency int
 	statusMu    sync.Mutex
 	syncRunning atomic.Bool
+
+	currentEventLocks sync.Map
 }
 
 const masterDataSyncLogComponent = "master-data-sync"
@@ -428,6 +432,26 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 			payload, err := usecase.loader.LoadRegion(progressCtx, source)
 			if err != nil {
 				duration := time.Since(startedAt).Milliseconds()
+				if isRateLimitError(err) {
+					fallbackErr := usecase.fallbackToPreviousAvailableState(ctx, source, previousStatuses[source.Region], now)
+					if fallbackErr == nil {
+						usecase.logf("sync rate limit fallback applied region=%s duration_ms=%d", source.Region, duration)
+						usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+							Event:       "master_data_sync_progress",
+							Status:      "success",
+							Region:      source.Region,
+							Phase:       "fallback",
+							Message:     "rate limit reached, fallback to previous available state",
+							CurrentStep: step,
+							TotalSteps:  totalSteps,
+							DurationMS:  duration,
+							UpdatedAt:   time.Now().UTC(),
+						})
+						return
+					}
+					usecase.logf("sync rate limit fallback failed region=%s error=%v", source.Region, fallbackErr)
+				}
+
 				usecase.logf("sync failed region=%s phase=load duration_ms=%d error=%v", source.Region, duration, err)
 				usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 					Event:       "master_data_sync_progress",
@@ -642,6 +666,362 @@ func (usecase *MasterDataSyncUsecase) Search(ctx context.Context, region string,
 	}
 
 	return usecase.cache.Search(ctx, region, entity, query, fields, limit)
+}
+
+func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region string, now time.Time) (map[string]any, bool, error) {
+	if usecase.cache == nil {
+		return nil, false, nil
+	}
+
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	if normalizedRegion == "" {
+		return nil, false, nil
+	}
+
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	nowMillis := now.UnixMilli()
+
+	cached, found, err := usecase.readCurrentEventCache(ctx, normalizedRegion)
+	if err != nil {
+		return nil, false, err
+	}
+	if found && isEventInTimeRange(cached, nowMillis) {
+		return cached, true, nil
+	}
+
+	regionLock := usecase.currentEventLock(normalizedRegion)
+	regionLock.Lock()
+	defer regionLock.Unlock()
+
+	cached, found, err = usecase.readCurrentEventCache(ctx, normalizedRegion)
+	if err != nil {
+		return nil, false, err
+	}
+	if found && isEventInTimeRange(cached, nowMillis) {
+		return cached, true, nil
+	}
+
+	current, found, err := usecase.findCurrentEvent(ctx, normalizedRegion, nowMillis)
+	if err != nil {
+		return nil, false, err
+	}
+
+	payload := map[string]any{"currentEvents.json": []any{}}
+	if found {
+		payload["currentEvents.json"] = []any{current}
+	}
+
+	if err := usecase.cache.StoreRegion(ctx, normalizedRegion, payload); err != nil {
+		return nil, false, fmt.Errorf("store current event cache region %s: %w", normalizedRegion, err)
+	}
+
+	if !found {
+		return nil, false, nil
+	}
+
+	return current, true, nil
+}
+
+func (usecase *MasterDataSyncUsecase) fallbackToPreviousAvailableState(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, fallbackAt time.Time) error {
+	if !strings.EqualFold(strings.TrimSpace(previous.Status), "success") {
+		return errors.New("previous available status not found")
+	}
+
+	restored := false
+	commit := strings.TrimSpace(previous.SourceCommit)
+	if usecase.backupStore != nil && commit != "" {
+		backupPayload, backupFound, backupErr := usecase.backupStore.LoadRegionPayload(ctx, source, commit)
+		if backupErr != nil {
+			return fmt.Errorf("load backup payload: %w", backupErr)
+		}
+		if backupFound {
+			if err := usecase.cache.StoreRegion(ctx, source.Region, backupPayload); err != nil {
+				return fmt.Errorf("restore backup payload: %w", err)
+			}
+			restored = true
+		}
+	}
+
+	if fallbackAt.IsZero() {
+		fallbackAt = time.Now().UTC()
+	}
+
+	status := masterdata.SyncStatus{
+		Region:         source.Region,
+		Status:         "success",
+		FileCount:      previous.FileCount,
+		SyncDurationMS: 0,
+		LastSyncedAt:   previous.LastSyncedAt,
+		SourceCommit:   commit,
+		ErrorMessage:   "",
+		Source:         source,
+		UpdatedAt:      fallbackAt,
+	}
+
+	if err := usecase.saveStatus(ctx, status); err != nil {
+		return fmt.Errorf("save fallback status: %w", err)
+	}
+
+	if restored {
+		usecase.logf("fallback restored from backup region=%s commit=%s", source.Region, commit)
+	} else {
+		usecase.logf("fallback kept previous cached state region=%s commit=%s", source.Region, commit)
+	}
+
+	return nil
+}
+
+func (usecase *MasterDataSyncUsecase) currentEventLock(region string) *sync.Mutex {
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	if normalizedRegion == "" {
+		normalizedRegion = "default"
+	}
+
+	if existing, ok := usecase.currentEventLocks.Load(normalizedRegion); ok {
+		if lock, ok := existing.(*sync.Mutex); ok {
+			return lock
+		}
+	}
+
+	newLock := &sync.Mutex{}
+	actual, _ := usecase.currentEventLocks.LoadOrStore(normalizedRegion, newLock)
+	lock, ok := actual.(*sync.Mutex)
+	if ok {
+		return lock
+	}
+
+	return newLock
+}
+
+func (usecase *MasterDataSyncUsecase) readCurrentEventCache(ctx context.Context, region string) (map[string]any, bool, error) {
+	records, _, err := usecase.cache.ListByPage(ctx, region, "currentevents", 1, 1)
+	if err != nil {
+		return nil, false, fmt.Errorf("read current event cache region %s: %w", region, err)
+	}
+	if len(records) == 0 {
+		return nil, false, nil
+	}
+
+	return records[0], true, nil
+}
+
+func (usecase *MasterDataSyncUsecase) findCurrentEvent(ctx context.Context, region string, nowMillis int64) (map[string]any, bool, error) {
+	page := 1
+	pageSize := 100
+	selectedStartAt := int64(0)
+	var selected map[string]any
+
+	for {
+		records, _, err := usecase.cache.ListByPage(ctx, region, "events", page, pageSize)
+		if err != nil {
+			return nil, false, fmt.Errorf("list events region %s page %d: %w", region, page, err)
+		}
+		if len(records) == 0 {
+			break
+		}
+
+		for _, record := range records {
+			startAt, endAt, ok := resolveEventTimeRange(record)
+			if !ok {
+				continue
+			}
+
+			if nowMillis < startAt || nowMillis > endAt {
+				continue
+			}
+
+			if selected == nil || startAt > selectedStartAt {
+				selected = record
+				selectedStartAt = startAt
+			}
+		}
+
+		page++
+	}
+
+	if selected == nil {
+		return nil, false, nil
+	}
+
+	return selected, true, nil
+}
+
+func isEventInTimeRange(record map[string]any, nowMillis int64) bool {
+	startAt, endAt, ok := resolveEventTimeRange(record)
+	if !ok {
+		return false
+	}
+
+	return nowMillis >= startAt && nowMillis <= endAt
+}
+
+func resolveEventTimeRange(record map[string]any) (int64, int64, bool) {
+	if record == nil {
+		return 0, 0, false
+	}
+
+	starts := collectPositiveTimestamps(record, "startAt", "eventOnlyComponentDisplayStartAt", "distributionStartAt")
+	if len(starts) == 0 {
+		return 0, 0, false
+	}
+	ends := collectPositiveTimestamps(record, "closedAt", "aggregateAt", "distributionEndAt", "eventOnlyComponentDisplayEndAt")
+	if len(ends) == 0 {
+		return 0, 0, false
+	}
+
+	startAt := starts[0]
+	for _, value := range starts[1:] {
+		if value < startAt {
+			startAt = value
+		}
+	}
+
+	endAt := ends[0]
+	for _, value := range ends[1:] {
+		if value > endAt {
+			endAt = value
+		}
+	}
+
+	if endAt < startAt {
+		return 0, 0, false
+	}
+
+	return startAt, endAt, true
+}
+
+func collectPositiveTimestamps(record map[string]any, keys ...string) []int64 {
+	values := make([]int64, 0, len(keys))
+	for _, key := range keys {
+		value, exists := record[key]
+		if !exists {
+			continue
+		}
+
+		timestamp, ok := parseTimestamp(value)
+		if !ok || timestamp <= 0 {
+			continue
+		}
+
+		values = append(values, timestamp)
+	}
+
+	return values
+}
+
+func parseTimestamp(value any) (int64, bool) {
+	toMillis := func(timestamp int64) int64 {
+		return normalizeEpochTimestamp(timestamp)
+	}
+
+	switch typed := value.(type) {
+	case int64:
+		return toMillis(typed), true
+	case int:
+		return toMillis(int64(typed)), true
+	case int32:
+		return toMillis(int64(typed)), true
+	case float64:
+		return toMillis(int64(typed)), true
+	case float32:
+		return toMillis(int64(typed)), true
+	case uint64:
+		return toMillis(int64(typed)), true
+	case uint:
+		return toMillis(int64(typed)), true
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return toMillis(parsed), true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return 0, false
+		}
+		parsed, err := strconv.ParseInt(trimmed, 10, 64)
+		if err != nil {
+			parsedFloat, parseFloatErr := strconv.ParseFloat(trimmed, 64)
+			if parseFloatErr == nil {
+				return toMillis(int64(parsedFloat)), true
+			}
+
+			parsedTime, parseTimeErr := time.Parse(time.RFC3339Nano, trimmed)
+			if parseTimeErr != nil {
+				parsedTime, parseTimeErr = time.Parse(time.RFC3339, trimmed)
+				if parseTimeErr != nil {
+					for _, layout := range []string{
+						"2006-01-02 15:04:05",
+						"2006-01-02 15:04:05Z07:00",
+						"2006-01-02 15:04:05 -0700",
+					} {
+						parsedTime, parseTimeErr = time.Parse(layout, trimmed)
+						if parseTimeErr == nil {
+							return parsedTime.UnixMilli(), true
+						}
+					}
+
+					return 0, false
+				}
+			}
+
+			return parsedTime.UnixMilli(), true
+		}
+		return toMillis(parsed), true
+	default:
+		return 0, false
+	}
+}
+
+func normalizeEpochTimestamp(timestamp int64) int64 {
+	abs := timestamp
+	if abs < 0 {
+		abs = -abs
+	}
+
+	switch {
+	case abs == 0:
+		return 0
+	case abs < 100_000_000_000:
+		return timestamp * 1000
+	case abs >= 100_000_000_000_000_000:
+		return timestamp / 1_000_000
+	case abs >= 100_000_000_000_000:
+		return timestamp / 1000
+	default:
+		return timestamp
+	}
+}
+
+func isRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	if message == "" {
+		return false
+	}
+
+	keywords := []string{
+		"rate limit",
+		"rate-limit",
+		"api rate limit exceeded",
+		"too many requests",
+		"status code 429",
+		"http 429",
+	}
+
+	for _, keyword := range keywords {
+		if strings.Contains(message, keyword) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status masterdata.SyncStatus) error {
