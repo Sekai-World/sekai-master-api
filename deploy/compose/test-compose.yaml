@@ -43,5 +43,36 @@ services:
     ports:
       - "${KEYCLOAK_PORT:-8081}:8081"
 
+  dozzle:
+    image: amir20/dozzle:v10.0.6
+    restart: unless-stopped
+    ports:
+      - "${DOZZLE_PORT:-9999}:8080"
+    volumes:
+      - "${DOZZLE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro"
+
+  loki:
+    image: grafana/loki:3.6.7
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+
+  grafana:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/grafana/Dockerfile
+    image: sekai/grafana-dev:12.4.0
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - loki
+
 volumes:
   pg-data:

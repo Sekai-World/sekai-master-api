@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
-	"log"
 	"net"
 	"time"
+
+	"go.uber.org/zap"
 
 	"sekai-master-api/internal/auth"
 	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/logging"
 	"sekai-master-api/internal/repository"
 	"sekai-master-api/internal/storage"
 	transport "sekai-master-api/internal/transport/http"
@@ -26,19 +28,27 @@ import (
 func main() {
 	cfg := config.Load()
 
+	cleanupLogger, err := logging.Setup(cfg.LogLevel, cfg.IsDevelopment(), cfg.LokiPushURL)
+	if err != nil {
+		panic(err)
+	}
+	defer cleanupLogger()
+
+	logger := zap.S()
+
 	db, err := storage.OpenDB(cfg)
 	if err != nil {
-		log.Fatalf("failed to initialize database: %v", err)
+		logger.Fatalf("failed to initialize database: %v", err)
 	}
 	defer db.Close()
 
 	if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
-		log.Fatalf("failed to run database migrations: %v", err)
+		logger.Fatalf("failed to run database migrations: %v", err)
 	}
 
 	keycloakVerifier, err := auth.NewKeycloakVerifier(context.Background(), cfg)
 	if err != nil {
-		log.Fatalf("failed to initialize keycloak verifier: %v", err)
+		logger.Fatalf("failed to initialize keycloak verifier: %v", err)
 	}
 
 	masterDataSources := buildMasterDataSources(cfg)
@@ -51,7 +61,7 @@ func main() {
 	masterDataEventHub := usecase.NewMasterDataEventHub()
 	masterDataCache, err := storage.NewRedisMasterDataCache(cfg)
 	if err != nil {
-		log.Fatalf("failed to initialize redis master data cache: %v", err)
+		logger.Fatalf("failed to initialize redis master data cache: %v", err)
 	}
 
 	masterDataCacheCloser := masterDataCache.Close
@@ -73,9 +83,9 @@ func main() {
 
 	listener, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
-		log.Fatalf("failed to listen on port %s: %v", cfg.Port, err)
+		logger.Fatalf("failed to listen on port %s: %v", cfg.Port, err)
 	}
-	log.Printf("api server listening on %s", listener.Addr().String())
+	logger.Infow("api server listening", "addr", listener.Addr().String())
 
 	serverErrCh := make(chan error, 1)
 	go func() {
@@ -87,18 +97,18 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
 			defer cancel()
 
-			log.Printf("master data startup sync running in background for %d region(s)", len(masterDataSources))
+			logger.Infow("master data startup sync running in background", "regions", len(masterDataSources))
 			if err := masterDataSyncUsecase.SyncAll(ctx); err != nil {
-				log.Printf("master data startup sync completed with errors: %v", err)
+				logger.Errorw("master data startup sync completed with errors", "error", err)
 				return
 			}
 
-			log.Printf("master data startup sync completed successfully for %d region(s)", len(masterDataSources))
+			logger.Infow("master data startup sync completed successfully", "regions", len(masterDataSources))
 		}()
 	}
 
 	if err := <-serverErrCh; err != nil {
-		log.Fatalf("server exited with error: %v", err)
+		logger.Fatalf("server exited with error: %v", err)
 	}
 }
 
