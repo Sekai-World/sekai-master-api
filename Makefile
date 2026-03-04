@@ -2,7 +2,6 @@ APP_NAME=sekai-master-api
 COMPOSE_FILE=deploy/compose/test-compose.yaml
 APP_PORT ?= 18080
 KEYCLOAK_PORT ?= 18081
-DOZZLE_PORT ?= 9999
 GRAFANA_PORT ?= 3000
 LOKI_PORT ?= 3100
 LOKI_HOST ?= host.containers.internal
@@ -10,7 +9,7 @@ LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
 COMPOSE_HOST ?= host.containers.internal
 APP_ENV ?= development
 
-.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui dev-container-logs-ui
+.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
 
 run:
 	go run -buildvcs=false ./cmd/api
@@ -128,6 +127,3 @@ admin-open:
 
 dev-logs-ui:
 	"$$BROWSER" http://localhost:$(GRAFANA_PORT)
-
-dev-container-logs-ui:
-	"$$BROWSER" http://localhost:$(DOZZLE_PORT)
