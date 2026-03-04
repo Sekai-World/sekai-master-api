@@ -35,5 +35,5 @@
       ]
     }
   },
-  "postCreateCommand": "go mod tidy"
+  "postCreateCommand": "bash -lc 'set -euo pipefail; command -v codex >/dev/null 2>&1 || npm install -g @openai/codex; mkdir -p ~/.codex; ln -sf /workspaces/sekai-master-api/.devcontainer/config.toml ~/.codex/config.toml; go mod tidy'"
 }
