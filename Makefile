@@ -1,5 +1,6 @@
 APP_NAME=sekai-master-api
 COMPOSE_FILE=deploy/compose/test-compose.yaml
+COMPOSE_FILE_ABS := $(abspath $(COMPOSE_FILE))
 APP_PORT ?= 18080
 KEYCLOAK_PORT ?= 18081
 GRAFANA_PORT ?= 3000
@@ -7,9 +8,11 @@ LOKI_PORT ?= 3100
 LOKI_HOST ?= host.containers.internal
 LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
 COMPOSE_HOST ?= host.containers.internal
+PODMAN ?= podman
+COMPOSE_CMD ?= $(shell if command -v podman-compose >/dev/null 2>&1; then echo podman-compose; else echo "$(PODMAN) compose"; fi)
 APP_ENV ?= development
 
-.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-logs test-env-up test-env-down test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
+.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs test-env-up test-env-down test-env-down-purge test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
 
 run:
 	go run -buildvcs=false ./cmd/api
@@ -92,29 +95,34 @@ migrate-down:
 	go run -buildvcs=false github.com/pressly/goose/v3/cmd/goose@latest -dir internal/storage/migrations $$DIALECT "$$DSN" down
 
 dev-env-up:
-	docker compose -f $(COMPOSE_FILE) up -d --build
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build
 
 dev-env-down:
-	docker compose -f $(COMPOSE_FILE) down -v
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down
+
+dev-env-down-purge:
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down -v
 
 dev-env-logs:
-	docker compose -f $(COMPOSE_FILE) logs -f
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f
 
 test-env-up: dev-env-up
 
 test-env-down: dev-env-down
 
+test-env-down-purge: dev-env-down-purge
+
 test-env-logs: dev-env-logs
 
 keycloak-up:
-	docker compose -f $(COMPOSE_FILE) up -d keycloak
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d keycloak
 
 keycloak-down:
-	docker compose -f $(COMPOSE_FILE) stop keycloak
-	docker compose -f $(COMPOSE_FILE) rm -f keycloak
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) stop keycloak
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) rm -f keycloak
 
 keycloak-logs:
-	docker compose -f $(COMPOSE_FILE) logs -f keycloak
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f keycloak
 
 keycloak-token:
 	KEYCLOAK_PORT=$(KEYCLOAK_PORT) sh ./scripts/get-keycloak-token.sh
