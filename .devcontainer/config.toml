@@ -1,0 +1,12 @@
+model="gpt-5.3-codex"
+model_provider="mirror"
+model_reasoning_effort="xhigh"
+
+[model_providers.mirror]
+name="mirror"
+base_url="https://chat.soruxgpt.com/codex"
+wire_api="responses"
+requires_openai_auth=true
+
+[projects."/workspaces/sekai-master-api"]
+trust_level = "trusted"
