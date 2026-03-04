@@ -230,9 +230,9 @@ Health endpoint returns both application and database status.
 
 ## Devcontainer + Podman (Windows + WSL2)
 
-This project uses Unix socket mounting to let the devcontainer call host Podman API through `docker` CLI semantics.
-The devcontainer installs Docker CLI + Compose plugin and Podman CLI, and does not run Docker daemon inside container.
-To avoid host-path mismatch when daemon is outside devcontainer, Keycloak realm import file is baked into a local test image during `docker compose up` (no bind mount for realm file).
+This project uses Unix socket mounting to let the devcontainer call host Podman API.
+The devcontainer installs Podman CLI and does not run Docker daemon inside container.
+To avoid host-path mismatch when daemon is outside devcontainer, Keycloak realm import file is baked into a local test image during `podman compose up` (no bind mount for realm file).
 
 ### 1) In WSL2, start Podman API service
 
@@ -252,15 +252,15 @@ Set `PODMAN_SOCK_GID` to the socket group id so devcontainer user can access mou
 
 - `export PODMAN_SOCK_GID=$(stat -c '%g' "$PODMAN_SOCK_PATH")`
 
-If your socket is owned by `root:root` (for example `/var/run/docker.sock`), this value is usually `0`.
+If your socket is owned by `root:root`, this value is usually `0`.
 
 ### 3) Rebuild Dev Container
 
 After container starts, validate from terminal in container:
 
-- `echo $DOCKER_HOST`
-- `docker info`
-- `docker compose version`
+- `echo $CONTAINER_HOST`
+- `podman info`
+- `podman compose version`
 
 Codex CLI is also available in devcontainer:
 
@@ -268,7 +268,7 @@ Codex CLI is also available in devcontainer:
 - Config file is editable at `.devcontainer/config.toml`
 - The devcontainer links it to `~/.codex/config.toml`
 
-If you see `permission denied while trying to connect to the docker API`, verify both variables are exported in WSL2 shell before rebuilding devcontainer:
+If you see `permission denied while trying to connect to the podman socket`, verify both variables are exported in WSL2 shell before rebuilding devcontainer:
 
 - `echo $PODMAN_SOCK_PATH`
 - `echo $PODMAN_SOCK_GID`
@@ -277,9 +277,16 @@ If you see `permission denied while trying to connect to the docker API`, verify
 
 Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `keycloak:26.1.4`):
 
+- Makefile prefers `podman-compose` and falls back to `podman compose`
+
 - `make dev-env-up`
 - `make dev-env-logs`
 - `make dev-env-down`
+
+`make dev-env-down` now preserves named volumes by default.
+If you need a full cleanup including volumes, use:
+
+- `make dev-env-down-purge`
 
 `make dev-env-up` also starts Grafana + Loki for Go app log search (`dev-watch` output):
 
@@ -292,6 +299,7 @@ Legacy aliases remain available:
 - `make test-env-up`
 - `make test-env-logs`
 - `make test-env-down`
+- `make test-env-down-purge`
 
 End-to-end local smoke check:
 

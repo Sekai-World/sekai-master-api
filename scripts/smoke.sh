@@ -28,6 +28,11 @@ KEYCLOAK_BASE_URL="${KEYCLOAK_BASE_URL:-${KEYCLOAK_ISSUER_URL%/realms/*}}"
 
 API_PID=""
 
+COMPOSE_CMD="podman compose"
+if command -v podman-compose >/dev/null 2>&1; then
+  COMPOSE_CMD="podman-compose"
+fi
+
 cleanup() {
   if [ -n "${API_PID}" ]; then
     kill "${API_PID}" >/dev/null 2>&1 || true
@@ -47,8 +52,8 @@ until curl -fsS "${KEYCLOAK_ISSUER_URL}/.well-known/openid-configuration" >/dev/
   attempt=$((attempt + 1))
   if [ "${attempt}" -ge 60 ]; then
     echo "[smoke] keycloak not ready in time"
-    docker compose -f deploy/compose/test-compose.yaml ps keycloak || true
-    docker compose -f deploy/compose/test-compose.yaml logs --tail=80 keycloak || true
+    ${COMPOSE_CMD} -f deploy/compose/test-compose.yaml ps keycloak || true
+    ${COMPOSE_CMD} -f deploy/compose/test-compose.yaml logs --tail=80 keycloak || true
     exit 1
   fi
   sleep 2
