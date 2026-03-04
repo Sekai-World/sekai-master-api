@@ -43,14 +43,6 @@ services:
     ports:
       - "${KEYCLOAK_PORT:-8081}:8081"
 
-  dozzle:
-    image: amir20/dozzle:v10.0.6
-    restart: unless-stopped
-    ports:
-      - "${DOZZLE_PORT:-9999}:8080"
-    volumes:
-      - "${DOZZLE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro"
-
   loki:
     image: grafana/loki:3.6.7
     restart: unless-stopped

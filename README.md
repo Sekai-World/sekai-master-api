@@ -262,6 +262,12 @@ After container starts, validate from terminal in container:
 - `docker info`
 - `docker compose version`
 
+Codex CLI is also available in devcontainer:
+
+- `codex --help`
+- Config file is editable at `.devcontainer/config.toml`
+- The devcontainer links it to `~/.codex/config.toml`
+
 If you see `permission denied while trying to connect to the docker API`, verify both variables are exported in WSL2 shell before rebuilding devcontainer:
 
 - `echo $PODMAN_SOCK_PATH`
@@ -274,12 +280,6 @@ Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `
 - `make dev-env-up`
 - `make dev-env-logs`
 - `make dev-env-down`
-
-`make dev-env-up` also starts Dozzle for container logs Web UI:
-
-- URL: `http://localhost:${DOZZLE_PORT}` (default `http://localhost:9999`)
-- Quick open: `make dev-container-logs-ui`
-- Socket mount source can be overridden by `DOZZLE_DOCKER_SOCKET` (default `/var/run/docker.sock`)
 
 `make dev-env-up` also starts Grafana + Loki for Go app log search (`dev-watch` output):
 
