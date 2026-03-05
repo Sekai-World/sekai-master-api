@@ -68,6 +68,9 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/cards/:region/search?q=<keyword>&field=name|skill&page=1&limit=20`
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
+- `GET /api/v1/musics/:region/list?page=1&page_size=20`
+- `GET /api/v1/musics/:region/search?q=<keyword>&field=title|lyricist|composer|arranger&page=1&limit=20`
+- `GET /api/v1/musics/:region/:id`
 - `GET /api/v1/events/:region/current`
 - `GET /api/v1/events/:region/:id`
 - `GET /api/v1/events/:region/:id/rewards`
@@ -144,6 +147,8 @@ Example for `jp`:
 - card by-id query reads from Redis hash cache (`region + cards + id`)
 - card params query reuses the same cached card record and only returns params-related fields
 - card search supports `field=name|skill`: `name` maps to `prefix`, `skill` maps to `cardSkillName`
+- music search supports `field=title|lyricist|composer|arranger` (default `title`)
+- music response maps `creatorArtistId` → `creatorArtist` (lookup from `musicArtists.json` by `id`)
 - card response maps `cardSupplyId` → `cardSupply`, `skillId` → `skill`, `characterId` → `character`, `cardRarityType` → `cardRarity`
 - `character` is loaded from `gameCharacters.json` and excludes `live2dHeightAdjustment`, `figure`, `breastSize`, `modelName`
 - card query endpoints return `503` with `REGION_DATA_NOT_READY` when region sync status is not `success`
