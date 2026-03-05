@@ -95,12 +95,19 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 						"name": "Artist A",
 					},
 				},
+				"livestages": {
+					"66": {
+						"id":   66,
+						"name": "Stage 66",
+					},
+				},
 				"musics": {
 					"1001": {
 						"id":              1001,
 						"title":           "Test Song",
 						"lyricist":        "Alice",
 						"creatorArtistId": 77,
+						"liveStageId":     66,
 					},
 				},
 			},
@@ -140,6 +147,24 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 	if creatorArtist["id"] != float64(77) {
 		t.Fatalf("expected creatorArtist.id=77, got %v", creatorArtist["id"])
 	}
+	if _, exists := body["creatorArtistId"]; exists {
+		t.Fatalf("expected creatorArtistId removed from response")
+	}
+
+	liveStageRaw, ok := body["liveStage"]
+	if !ok {
+		t.Fatalf("expected liveStage in response")
+	}
+	liveStage, ok := liveStageRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected liveStage object, got %T", liveStageRaw)
+	}
+	if liveStage["id"] != float64(66) {
+		t.Fatalf("expected liveStage.id=66, got %v", liveStage["id"])
+	}
+	if _, exists := body["liveStageId"]; exists {
+		t.Fatalf("expected liveStageId removed from response")
+	}
 }
 
 func TestMusicListEndpointReturnsItems(t *testing.T) {
@@ -154,6 +179,12 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 						"name": "Artist A",
 					},
 				},
+				"livestages": {
+					"66": {
+						"id":   66,
+						"name": "Stage 66",
+					},
+				},
 			},
 		},
 		listItems: []map[string]any{
@@ -162,6 +193,7 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 				"title":           "Test Song",
 				"lyricist":        "Alice",
 				"creatorArtistId": 77,
+				"liveStageId":     66,
 			},
 		},
 		listTotal: 1,
@@ -202,6 +234,7 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 		t.Fatalf("expected first item object, got %T", items[0])
 	}
 	assertMusicHasMappedCreatorArtist(t, firstItem, 77)
+	assertMusicHasMappedLiveStage(t, firstItem, 66)
 }
 
 func TestMusicSearchFieldTitleIsDefault(t *testing.T) {
@@ -292,6 +325,12 @@ func TestMusicSearchEndpointMapsCreatorArtist(t *testing.T) {
 						"name": "Artist A",
 					},
 				},
+				"livestages": {
+					"66": {
+						"id":   66,
+						"name": "Stage 66",
+					},
+				},
 			},
 		},
 		searchMatches: []masterdata.SearchMatch{
@@ -300,6 +339,7 @@ func TestMusicSearchEndpointMapsCreatorArtist(t *testing.T) {
 					"id":              1001,
 					"title":           "Test Song",
 					"creatorArtistId": 77,
+					"liveStageId":     66,
 				},
 			},
 		},
@@ -338,6 +378,7 @@ func TestMusicSearchEndpointMapsCreatorArtist(t *testing.T) {
 		t.Fatalf("expected first item object, got %T", items[0])
 	}
 	assertMusicHasMappedCreatorArtist(t, firstItem, 77)
+	assertMusicHasMappedLiveStage(t, firstItem, 66)
 }
 
 func TestMusicEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
@@ -409,5 +450,29 @@ func assertMusicHasMappedCreatorArtist(t *testing.T, item map[string]any, expect
 
 	if creatorArtist["id"] != float64(expectedArtistID) {
 		t.Fatalf("expected creatorArtist.id=%d, got %v", expectedArtistID, creatorArtist["id"])
+	}
+	if _, exists := item["creatorArtistId"]; exists {
+		t.Fatalf("expected creatorArtistId removed from item")
+	}
+}
+
+func assertMusicHasMappedLiveStage(t *testing.T, item map[string]any, expectedLiveStageID int) {
+	t.Helper()
+
+	liveStageRaw, ok := item["liveStage"]
+	if !ok {
+		t.Fatalf("expected liveStage in item")
+	}
+
+	liveStage, ok := liveStageRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected liveStage object, got %T", liveStageRaw)
+	}
+
+	if liveStage["id"] != float64(expectedLiveStageID) {
+		t.Fatalf("expected liveStage.id=%d, got %v", expectedLiveStageID, liveStage["id"])
+	}
+	if _, exists := item["liveStageId"]; exists {
+		t.Fatalf("expected liveStageId removed from item")
 	}
 }

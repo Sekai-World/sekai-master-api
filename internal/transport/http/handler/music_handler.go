@@ -309,7 +309,7 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 		return map[string]any{}
 	}
 
-	result := make(map[string]any, len(record)+1)
+	result := make(map[string]any, len(record)+2)
 	for key, value := range record {
 		result[key] = value
 	}
@@ -318,23 +318,37 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 		return result
 	}
 
-	rawCreatorArtistID, hasCreatorArtistID := record["creatorArtistId"]
-	if !hasCreatorArtistID {
-		return result
+	if rawCreatorArtistID, hasCreatorArtistID := record["creatorArtistId"]; hasCreatorArtistID {
+		delete(result, "creatorArtistId")
+
+		creatorArtistLookupID := normalizeAnyID(rawCreatorArtistID)
+		if creatorArtistLookupID == "" {
+			result["creatorArtist"] = nil
+		} else {
+			creatorArtist, found, err := handler.masterDataSync.GetByID(ctx, region, "musicartists", creatorArtistLookupID)
+			if err != nil || !found {
+				result["creatorArtist"] = nil
+			} else {
+				result["creatorArtist"] = creatorArtist
+			}
+		}
 	}
 
-	creatorArtistLookupID := normalizeAnyID(rawCreatorArtistID)
-	if creatorArtistLookupID == "" {
-		result["creatorArtist"] = nil
-		return result
-	}
+	if rawLiveStageID, hasLiveStageID := record["liveStageId"]; hasLiveStageID {
+		delete(result, "liveStageId")
 
-	creatorArtist, found, err := handler.masterDataSync.GetByID(ctx, region, "musicartists", creatorArtistLookupID)
-	if err != nil || !found {
-		result["creatorArtist"] = nil
-		return result
+		liveStageLookupID := normalizeAnyID(rawLiveStageID)
+		if liveStageLookupID == "" {
+			result["liveStage"] = nil
+		} else {
+			liveStage, found, err := handler.masterDataSync.GetByID(ctx, region, "livestages", liveStageLookupID)
+			if err != nil || !found {
+				result["liveStage"] = nil
+			} else {
+				result["liveStage"] = liveStage
+			}
+		}
 	}
-	result["creatorArtist"] = creatorArtist
 
 	return result
 }
