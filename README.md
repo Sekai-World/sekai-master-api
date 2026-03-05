@@ -277,7 +277,7 @@ If you see `permission denied while trying to connect to the podman socket`, ver
 
 Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `keycloak:26.1.4`):
 
-- Makefile prefers `podman-compose` and falls back to `podman compose`
+- Makefile prefers `podman compose` and falls back to `podman-compose`
 
 - `make dev-env-up`
 - `make dev-env-logs`

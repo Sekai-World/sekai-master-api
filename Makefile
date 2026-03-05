@@ -9,7 +9,7 @@ LOKI_HOST ?= host.containers.internal
 LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
 COMPOSE_HOST ?= host.containers.internal
 PODMAN ?= podman
-COMPOSE_CMD ?= $(shell if command -v podman-compose >/dev/null 2>&1; then echo podman-compose; else echo "$(PODMAN) compose"; fi)
+COMPOSE_CMD ?= $(shell if $(PODMAN) compose version >/dev/null 2>&1; then echo "$(PODMAN) compose"; elif command -v podman-compose >/dev/null 2>&1; then echo podman-compose; else echo "$(PODMAN) compose"; fi)
 APP_ENV ?= development
 
 .PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs test-env-up test-env-down test-env-down-purge test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
