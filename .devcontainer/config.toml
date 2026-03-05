@@ -1,12 +1,16 @@
-model="gpt-5.3-codex"
-model_provider="mirror"
-model_reasoning_effort="xhigh"
+model_provider = "sub2api"
+model = "gpt-5.3-codex"
+model_reasoning_effort = "high"
+network_access = "enabled"
+disable_response_storage = true
+windows_wsl_setup_acknowledged = true
+model_verbosity = "high"
 
-[model_providers.mirror]
-name="mirror"
-base_url="https://chat.soruxgpt.com/codex"
-wire_api="responses"
-requires_openai_auth=true
+[model_providers.sub2api]
+name = "sub2api"
+base_url = "https://gmncode.cn"
+wire_api = "responses"
+requires_openai_auth = true
 
 [projects."/workspaces/sekai-master-api"]
 trust_level = "trusted"
