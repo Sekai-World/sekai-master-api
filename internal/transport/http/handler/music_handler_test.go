@@ -18,6 +18,7 @@ type fakeMusicHandlerCache struct {
 	listItems     []map[string]any
 	listTotal     int
 	searchMatches []masterdata.SearchMatch
+	searchCalls   []fakeMusicSearchCall
 	lastSearch    struct {
 		region string
 		entity string
@@ -25,6 +26,14 @@ type fakeMusicHandlerCache struct {
 		fields []string
 		limit  int
 	}
+}
+
+type fakeMusicSearchCall struct {
+	region string
+	entity string
+	query  string
+	fields []string
+	limit  int
 }
 
 type fakeMusicHandlerStatusStore struct {
@@ -80,6 +89,13 @@ func (cache *fakeMusicHandlerCache) Search(_ context.Context, region, entity, qu
 	cache.lastSearch.query = query
 	cache.lastSearch.limit = limit
 	cache.lastSearch.fields = append([]string{}, fields...)
+	cache.searchCalls = append(cache.searchCalls, fakeMusicSearchCall{
+		region: region,
+		entity: entity,
+		query:  query,
+		fields: append([]string{}, fields...),
+		limit:  limit,
+	})
 	return cache.searchMatches, nil
 }
 
@@ -237,7 +253,7 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 	assertMusicHasMappedLiveStage(t, firstItem, 66)
 }
 
-func TestMusicSearchFieldTitleIsDefault(t *testing.T) {
+func TestMusicSearchByTitleParam(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{}
@@ -246,7 +262,7 @@ func TestMusicSearchFieldTitleIsDefault(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/musics/:region/search", musicHandler.Search)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?q=test&page=1&limit=20", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?title=test&page=1&limit=20", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -254,22 +270,25 @@ func TestMusicSearchFieldTitleIsDefault(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 
-	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "title" {
-		t.Fatalf("expected search fields [title], got %v", cache.lastSearch.fields)
+	if len(cache.searchCalls) != 1 {
+		t.Fatalf("expected 1 search call, got %d", len(cache.searchCalls))
+	}
+	if len(cache.searchCalls[0].fields) != 1 || cache.searchCalls[0].fields[0] != "title" || cache.searchCalls[0].query != "test" {
+		t.Fatalf("expected search title=test, got fields=%v query=%s", cache.searchCalls[0].fields, cache.searchCalls[0].query)
 	}
 }
 
-func TestMusicSearchFieldMapping(t *testing.T) {
+func TestMusicSearchFieldKeywordMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
 		name          string
-		field         string
+		param         string
 		expectedField string
 	}{
-		{name: "lyricist", field: "lyricist", expectedField: "lyricist"},
-		{name: "composer", field: "composer", expectedField: "composer"},
-		{name: "arranger", field: "arranger", expectedField: "arranger"},
+		{name: "lyricist", param: "lyricist", expectedField: "lyricist"},
+		{name: "composer", param: "composer", expectedField: "composer"},
+		{name: "arranger", param: "arranger", expectedField: "arranger"},
 	}
 
 	for _, tt := range tests {
@@ -280,7 +299,7 @@ func TestMusicSearchFieldMapping(t *testing.T) {
 			router := gin.New()
 			router.GET("/api/v1/musics/:region/search", musicHandler.Search)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?q=test&field="+tt.field+"&page=1&limit=20", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?"+tt.param+"=test&page=1&limit=20", nil)
 			resp := httptest.NewRecorder()
 			router.ServeHTTP(resp, req)
 
@@ -288,14 +307,17 @@ func TestMusicSearchFieldMapping(t *testing.T) {
 				t.Fatalf("expected status 200, got %d", resp.Code)
 			}
 
-			if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != tt.expectedField {
-				t.Fatalf("expected search fields [%s], got %v", tt.expectedField, cache.lastSearch.fields)
+			if len(cache.searchCalls) != 1 {
+				t.Fatalf("expected 1 search call, got %d", len(cache.searchCalls))
+			}
+			if len(cache.searchCalls[0].fields) != 1 || cache.searchCalls[0].fields[0] != tt.expectedField || cache.searchCalls[0].query != "test" {
+				t.Fatalf("expected search %s=test, got fields=%v query=%s", tt.expectedField, cache.searchCalls[0].fields, cache.searchCalls[0].query)
 			}
 		})
 	}
 }
 
-func TestMusicSearchFieldInvalidReturnsBadRequest(t *testing.T) {
+func TestMusicSearchFieldMultiParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{}
@@ -304,7 +326,35 @@ func TestMusicSearchFieldInvalidReturnsBadRequest(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/musics/:region/search", musicHandler.Search)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?q=test&field=unknown&page=1&limit=20", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?title=song&lyricist=alice&page=1&limit=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	if len(cache.searchCalls) != 2 {
+		t.Fatalf("expected 2 search calls, got %d", len(cache.searchCalls))
+	}
+	if len(cache.searchCalls[0].fields) != 1 || cache.searchCalls[0].fields[0] != "title" || cache.searchCalls[0].query != "song" {
+		t.Fatalf("expected first search title=song, got fields=%v query=%s", cache.searchCalls[0].fields, cache.searchCalls[0].query)
+	}
+	if len(cache.searchCalls[1].fields) != 1 || cache.searchCalls[1].fields[0] != "lyricist" || cache.searchCalls[1].query != "alice" {
+		t.Fatalf("expected second search lyricist=alice, got fields=%v query=%s", cache.searchCalls[1].fields, cache.searchCalls[1].query)
+	}
+}
+
+func TestMusicSearchWithoutFieldKeywordsReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{}
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/search", musicHandler.Search)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?page=1&limit=20", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -349,7 +399,7 @@ func TestMusicSearchEndpointMapsCreatorArtist(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/musics/:region/search", musicHandler.Search)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?q=test&field=title&page=1&limit=20", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?title=test&page=1&limit=20", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -402,7 +452,7 @@ func TestMusicEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
 	testCases := []string{
 		"/api/v1/musics/jp/1001",
 		"/api/v1/musics/jp/list?page=1&page_size=20",
-		"/api/v1/musics/jp/search?q=test&page=1&limit=20",
+		"/api/v1/musics/jp/search?title=test&page=1&limit=20",
 	}
 
 	for _, path := range testCases {

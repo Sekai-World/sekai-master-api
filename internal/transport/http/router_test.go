@@ -202,7 +202,7 @@ func TestMusicByIDUnavailable(t *testing.T) {
 func TestMusicSearchUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?q=hello", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?title=hello", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
