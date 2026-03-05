@@ -187,6 +187,42 @@ func TestCardListUnavailable(t *testing.T) {
 	}
 }
 
+func TestMusicByIDUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/1001", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on music by id when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestMusicSearchUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?q=hello", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on music search when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestMusicListUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on music list when service unavailable, got %d", resp.Code)
+	}
+}
+
 func TestEventByIDUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
