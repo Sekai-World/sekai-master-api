@@ -833,15 +833,26 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Search query",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
+                        "description": "Keyword for title field",
+                        "name": "title",
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Search field (title|lyricist|composer|arranger), default=title",
-                        "name": "field",
+                        "description": "Keyword for lyricist field",
+                        "name": "lyricist",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Keyword for composer field",
+                        "name": "composer",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Keyword for arranger field",
+                        "name": "arranger",
                         "in": "query"
                     },
                     {

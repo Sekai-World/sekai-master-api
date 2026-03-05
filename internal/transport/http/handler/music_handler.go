@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -66,8 +67,10 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 // @Tags musics
 // @Produce json
 // @Param region path string true "Region"
-// @Param q query string true "Search query"
-// @Param field query string false "Search field (title|lyricist|composer|arranger), default=title"
+// @Param title query string false "Keyword for title field"
+// @Param lyricist query string false "Keyword for lyricist field"
+// @Param composer query string false "Keyword for composer field"
+// @Param arranger query string false "Keyword for arranger field"
 // @Param page query int false "Page number"
 // @Param limit query int false "Max results"
 // @Success 200 {object} map[string]interface{}
@@ -82,32 +85,18 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 	}
 
 	region := strings.TrimSpace(c.Param("region"))
-	query := strings.TrimSpace(c.Query("q"))
-	if region == "" || query == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and q are required")
+	if region == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
 	if !handler.ensureRegionReady(c, region) {
 		return
 	}
 
-	field := strings.ToLower(strings.TrimSpace(c.Query("field")))
-	if field == "" {
-		field = "title"
-	}
-
-	searchField := "title"
-	switch field {
-	case "title":
-		searchField = "title"
-	case "lyricist":
-		searchField = "lyricist"
-	case "composer":
-		searchField = "composer"
-	case "arranger":
-		searchField = "arranger"
-	default:
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "field must be one of: title, lyricist, composer, arranger")
+	fieldKeywords := extractMusicFieldKeywords(c)
+	searchFields := musicSearchFieldsFromKeywords(fieldKeywords)
+	if len(searchFields) == 0 {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "at least one of title, lyricist, composer, arranger is required")
 		return
 	}
 
@@ -132,7 +121,7 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 	}
 
 	fetchLimit := 1000000
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "musics", query, []string{searchField}, fetchLimit)
+	matches, err := handler.searchMusicsWithFieldKeywords(c.Request.Context(), region, searchFields, fieldKeywords, fetchLimit)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to search musics")
 		return
@@ -351,4 +340,103 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 	}
 
 	return result
+}
+
+type musicSearchResult struct {
+	Item  map[string]any
+	Score int
+}
+
+func extractMusicFieldKeywords(c *gin.Context) map[string]string {
+	fieldKeywords := make(map[string]string, 4)
+	for _, field := range []string{"title", "lyricist", "composer", "arranger"} {
+		value := strings.TrimSpace(c.Query(field))
+		if value == "" {
+			continue
+		}
+		fieldKeywords[field] = value
+	}
+
+	return fieldKeywords
+}
+
+func musicSearchFieldsFromKeywords(fieldKeywords map[string]string) []string {
+	fields := make([]string, 0, len(fieldKeywords))
+	for _, field := range []string{"title", "lyricist", "composer", "arranger"} {
+		if _, exists := fieldKeywords[field]; !exists {
+			continue
+		}
+		fields = append(fields, field)
+	}
+
+	return fields
+}
+
+func (handler *MusicHandler) searchMusicsWithFieldKeywords(
+	ctx context.Context,
+	region string,
+	fields []string,
+	fieldKeywords map[string]string,
+	fetchLimit int,
+) ([]musicSearchResult, error) {
+	type aggregate struct {
+		item  map[string]any
+		score int
+	}
+
+	candidates := make(map[string]aggregate)
+	for index, field := range fields {
+		query := fieldKeywords[field]
+
+		matches, err := handler.masterDataSync.Search(ctx, region, "musics", query, []string{field}, fetchLimit)
+		if err != nil {
+			return nil, err
+		}
+
+		currentFieldResults := make(map[string]aggregate, len(matches))
+		for _, match := range matches {
+			id := normalizeAnyID(match.Item["id"])
+			if id == "" {
+				continue
+			}
+			currentFieldResults[id] = aggregate{
+				item:  match.Item,
+				score: match.MatchScore,
+			}
+		}
+
+		if index == 0 {
+			for id, value := range currentFieldResults {
+				candidates[id] = value
+			}
+			continue
+		}
+
+		for id, candidate := range candidates {
+			current, exists := currentFieldResults[id]
+			if !exists {
+				delete(candidates, id)
+				continue
+			}
+			candidate.score += current.score
+			candidates[id] = candidate
+		}
+	}
+
+	results := make([]musicSearchResult, 0, len(candidates))
+	for _, candidate := range candidates {
+		results = append(results, musicSearchResult{
+			Item:  candidate.item,
+			Score: candidate.score,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score == results[j].Score {
+			return normalizeAnyID(results[i].Item["id"]) < normalizeAnyID(results[j].Item["id"])
+		}
+		return results[i].Score > results[j].Score
+	})
+
+	return results, nil
 }

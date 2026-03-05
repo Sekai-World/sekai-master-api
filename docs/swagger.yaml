@@ -740,14 +740,21 @@ paths:
         name: region
         required: true
         type: string
-      - description: Search query
+      - description: Keyword for title field
         in: query
-        name: q
-        required: true
+        name: title
         type: string
-      - description: Search field (title|lyricist|composer|arranger), default=title
+      - description: Keyword for lyricist field
         in: query
-        name: field
+        name: lyricist
+        type: string
+      - description: Keyword for composer field
+        in: query
+        name: composer
+        type: string
+      - description: Keyword for arranger field
+        in: query
+        name: arranger
         type: string
       - description: Page number
         in: query

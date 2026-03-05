@@ -69,7 +69,8 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/musics/:region/list?page=1&page_size=20`
-- `GET /api/v1/musics/:region/search?q=<keyword>&field=title|lyricist|composer|arranger&page=1&limit=20`
+- `GET /api/v1/musics/:region/search?title=<kw>&lyricist=<kw>&composer=<kw>&arranger=<kw>&page=1&limit=20`
+  - provide at least one of `title/lyricist/composer/arranger`; when multiple are provided they are matched together
 - `GET /api/v1/musics/:region/:id`
 - `GET /api/v1/events/:region/current`
 - `GET /api/v1/events/:region/:id`
@@ -147,7 +148,8 @@ Example for `jp`:
 - card by-id query reads from Redis hash cache (`region + cards + id`)
 - card params query reuses the same cached card record and only returns params-related fields
 - card search supports `field=name|skill`: `name` maps to `prefix`, `skill` maps to `cardSkillName`
-- music search supports `field=title|lyricist|composer|arranger` (default `title`)
+- music search uses field keyword params: `title`, `lyricist`, `composer`, `arranger` (at least one required)
+- music multi-field search matches records that satisfy all provided field keywords
 - music response maps `creatorArtistId` → `creatorArtist` (lookup from `musicArtists.json` by `id`) and removes `creatorArtistId` from response
 - music response maps `liveStageId` → `liveStage` (lookup from `liveStages.json` by `id`) and removes `liveStageId` from response
 - card response maps `cardSupplyId` → `cardSupply`, `skillId` → `skill`, `characterId` → `character`, `cardRarityType` → `cardRarity`
