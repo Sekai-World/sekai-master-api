@@ -148,7 +148,8 @@ Example for `jp`:
 - card params query reuses the same cached card record and only returns params-related fields
 - card search supports `field=name|skill`: `name` maps to `prefix`, `skill` maps to `cardSkillName`
 - music search supports `field=title|lyricist|composer|arranger` (default `title`)
-- music response maps `creatorArtistId` → `creatorArtist` (lookup from `musicArtists.json` by `id`)
+- music response maps `creatorArtistId` → `creatorArtist` (lookup from `musicArtists.json` by `id`) and removes `creatorArtistId` from response
+- music response maps `liveStageId` → `liveStage` (lookup from `liveStages.json` by `id`) and removes `liveStageId` from response
 - card response maps `cardSupplyId` → `cardSupply`, `skillId` → `skill`, `characterId` → `character`, `cardRarityType` → `cardRarity`
 - `character` is loaded from `gameCharacters.json` and excludes `live2dHeightAdjustment`, `figure`, `breastSize`, `modelName`
 - card query endpoints return `503` with `REGION_DATA_NOT_READY` when region sync status is not `success`
