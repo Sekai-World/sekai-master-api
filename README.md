@@ -9,7 +9,7 @@ Go RESTful API template (Gin + Keycloak + environment-based database) with Dev C
 - Environment-specific database strategy:
   - development: sqlite
   - test/production: postgresql
-   - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
+  - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
 - Devcontainer for consistent development
 - Compose-based test environment commands
 - Third-party logging with Zap (configurable log level)
@@ -226,7 +226,7 @@ Keycloak now runs in the same test stack compose file as PostgreSQL and Redis.
 
 The command returns token JSON from Keycloak token endpoint. Use the `access_token` as Bearer token for `GET /api/v1/admin/profile`.
 
-If your API runs inside devcontainer while Keycloak runs on host Podman, set `KEYCLOAK_ISSUER_URL` to a host-reachable address in container network (for example `http://host.containers.internal:8081/realms/sekai` when available).
+If your API runs inside devcontainer while Keycloak runs on host Docker engine, set `KEYCLOAK_ISSUER_URL` to a host-reachable address in container network (for example `http://host.docker.internal:8081/realms/sekai` when available).
 
 ## Database by Environment
 
@@ -236,39 +236,33 @@ If your API runs inside devcontainer while Keycloak runs on host Podman, set `KE
 
 Health endpoint returns both application and database status.
 
-## Devcontainer + Podman (Windows + WSL2)
+## Devcontainer + OrbStack / Docker Desktop
 
-This project uses Unix socket mounting to let the devcontainer call host Podman API.
-The devcontainer installs Podman CLI and does not run Docker daemon inside container.
-To avoid host-path mismatch when daemon is outside devcontainer, Keycloak realm import file is baked into a local test image during `podman compose up` (no bind mount for realm file).
+This project uses Unix socket mounting so devcontainer can call host Docker API.
+The devcontainer installs Docker CLI and does not run daemon inside the devcontainer.
+To avoid host-path mismatch when daemon is outside devcontainer, Keycloak realm import file is baked into a local test image during compose up (no bind mount for realm file).
 
-### 1) In WSL2, start Podman API service
+### 1) Set socket variables before rebuilding Dev Container
 
-Use your own startup method to keep Podman service available. For example:
+Set host environment variables before opening/rebuilding container:
 
-- `podman system service --time=0 unix:///run/user/1000/podman/podman.sock`
+- `DOCKER_SOCK_PATH`: host Docker socket path to mount into devcontainer
+- `DOCKER_SOCK_GID`: socket group id for devcontainer user access
 
-### 2) Set host environment variables for VS Code
+Typical values on macOS OrbStack and Windows Docker Desktop:
 
-Set `PODMAN_SOCK_PATH` to your real socket path before opening/rebuilding container.
+- `DOCKER_SOCK_PATH=/var/run/docker.sock`
+- `DOCKER_SOCK_GID=0`
 
-Typical value in WSL rootless mode:
+If socket owner group is `root`, this value is usually `0`.
 
-- `/run/user/1000/podman/podman.sock`
-
-Set `PODMAN_SOCK_GID` to the socket group id so devcontainer user can access mounted socket:
-
-- `export PODMAN_SOCK_GID=$(stat -c '%g' "$PODMAN_SOCK_PATH")`
-
-If your socket is owned by `root:root`, this value is usually `0`.
-
-### 3) Rebuild Dev Container
+### 2) Rebuild Dev Container and verify
 
 After container starts, validate from terminal in container:
 
-- `echo $CONTAINER_HOST`
-- `podman info`
-- `podman compose version`
+- `echo $DOCKER_HOST`
+- `docker version`
+- `docker compose version`
 
 Codex CLI is also available in devcontainer:
 
@@ -276,16 +270,16 @@ Codex CLI is also available in devcontainer:
 - Config file is editable at `.devcontainer/config.toml`
 - The devcontainer links it to `~/.codex/config.toml`
 
-If you see `permission denied while trying to connect to the podman socket`, verify both variables are exported in WSL2 shell before rebuilding devcontainer:
+If you see `permission denied while trying to connect to docker socket`, verify both variables are exported before rebuilding devcontainer:
 
-- `echo $PODMAN_SOCK_PATH`
-- `echo $PODMAN_SOCK_GID`
+- `echo $DOCKER_SOCK_PATH`
+- `echo $DOCKER_SOCK_GID`
 
 ## Test environment
 
 Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `keycloak:26.1.4`):
 
-- Makefile prefers `podman compose` and falls back to `podman-compose`
+- Makefile uses `docker compose` (fallback: `docker-compose`)
 
 - `make dev-env-up`
 - `make dev-env-logs`
@@ -300,7 +294,7 @@ If you need a full cleanup including volumes, use:
 
 - Grafana URL: `http://localhost:${GRAFANA_PORT}` (default `http://localhost:3000`)
 - Quick open: `make dev-logs-ui`
-- API logs are pushed to Loki in-process via `LOKI_PUSH_URL` (default `http://host.containers.internal:${LOKI_PORT}/loki/api/v1/push`)
+- API logs are pushed to Loki in-process via `LOKI_PUSH_URL` (default `http://host.docker.internal:${LOKI_PORT}/loki/api/v1/push`)
 
 Legacy aliases remain available:
 
@@ -313,5 +307,5 @@ End-to-end local smoke check:
 
 - `make smoke`
 
-`scripts/smoke.sh` defaults dependency host to `localhost`, but when running inside a container it will prefer `host.containers.internal` (fallback `host.docker.internal`) if resolvable. You can override explicitly with `COMPOSE_HOST`.
+`scripts/smoke.sh` defaults dependency host to `localhost`, but when running inside a container it will prefer `host.docker.internal` if resolvable (fallback `host.containers.internal`). You can override explicitly with `COMPOSE_HOST`.
 If host `8081` is occupied, set `KEYCLOAK_PORT` (for example `18081`) before running `make dev-env-up` or `make smoke`.
