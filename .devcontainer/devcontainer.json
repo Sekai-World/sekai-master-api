@@ -11,14 +11,14 @@
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
   "containerEnv": {
-    "CONTAINER_HOST": "unix:///var/run/podman-host.sock",
+    "DOCKER_HOST": "unix:///var/run/docker.sock",
     "CGO_ENABLED": "0"
   },
   "runArgs": [
-    "--group-add=${localEnv:PODMAN_SOCK_GID:0}"
+    "--group-add=${localEnv:DOCKER_SOCK_GID:0}"
   ],
   "mounts": [
-    "source=${localEnv:PODMAN_SOCK_PATH:/run/user/1000/podman/podman.sock},target=/var/run/podman-host.sock,type=bind"
+    "source=${localEnv:DOCKER_SOCK_PATH:/var/run/docker.sock},target=/var/run/docker.sock,type=bind"
   ],
   "customizations": {
     "vscode": {

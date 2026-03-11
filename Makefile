@@ -5,11 +5,11 @@ APP_PORT ?= 18080
 KEYCLOAK_PORT ?= 18081
 GRAFANA_PORT ?= 3000
 LOKI_PORT ?= 3100
-LOKI_HOST ?= host.containers.internal
+LOKI_HOST ?= host.docker.internal
 LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
-COMPOSE_HOST ?= host.containers.internal
-PODMAN ?= podman
-COMPOSE_CMD ?= $(shell if $(PODMAN) compose version >/dev/null 2>&1; then echo "$(PODMAN) compose"; elif command -v podman-compose >/dev/null 2>&1; then echo podman-compose; else echo "$(PODMAN) compose"; fi)
+COMPOSE_HOST ?= host.docker.internal
+DOCKER ?= docker
+COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "$(DOCKER) compose"; elif command -v docker-compose >/dev/null 2>&1; then echo docker-compose; else echo "$(DOCKER) compose"; fi)
 APP_ENV ?= development
 
 .PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs test-env-up test-env-down test-env-down-purge test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui

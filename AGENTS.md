@@ -63,7 +63,7 @@
 
 - 变更范围：`.devcontainer`、`deploy/compose`、`scripts`、`Makefile`
 - 必须保持：
-  - 支持通过宿主机容器引擎（Podman API + docker compose 语义）运行测试依赖
+  - 支持通过宿主机容器引擎（Docker API + docker compose 语义）运行测试依赖
   - 命令幂等（重复执行可恢复）
 
 ## Execution Protocol

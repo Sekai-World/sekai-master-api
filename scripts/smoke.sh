@@ -6,15 +6,15 @@ COMPOSE_HOST="${COMPOSE_HOST:-localhost}"
 in_container="0"
 if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ]; then
   in_container="1"
-elif grep -Eq '(docker|podman|containerd|kubepods|libpod)' /proc/1/cgroup 2>/dev/null; then
+elif grep -Eq '(docker|containerd|kubepods)' /proc/1/cgroup 2>/dev/null; then
   in_container="1"
 fi
 
 if [ "${COMPOSE_HOST}" = "localhost" ] && [ "${in_container}" = "1" ]; then
-  if getent hosts host.containers.internal >/dev/null 2>&1; then
-    COMPOSE_HOST="host.containers.internal"
-  elif getent hosts host.docker.internal >/dev/null 2>&1; then
+  if getent hosts host.docker.internal >/dev/null 2>&1; then
     COMPOSE_HOST="host.docker.internal"
+  elif getent hosts host.containers.internal >/dev/null 2>&1; then
+    COMPOSE_HOST="host.containers.internal"
   fi
 fi
 
@@ -28,9 +28,9 @@ KEYCLOAK_BASE_URL="${KEYCLOAK_BASE_URL:-${KEYCLOAK_ISSUER_URL%/realms/*}}"
 
 API_PID=""
 
-COMPOSE_CMD="podman compose"
-if command -v podman-compose >/dev/null 2>&1; then
-  COMPOSE_CMD="podman-compose"
+COMPOSE_CMD="docker compose"
+if command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD="docker-compose"
 fi
 
 cleanup() {

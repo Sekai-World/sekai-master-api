@@ -13,7 +13,7 @@
   - Redis hash for by-id lookups
   - In-memory text index for fuzzy search (current card field: `prefix`)
   - Redis order list for index-based pagination
-- Local infra: Docker Compose semantics (on Podman API when using devcontainer)
+- Local infra: Docker Compose semantics (Docker API when using devcontainer)
 
 ## Repository Conventions
 
@@ -76,9 +76,9 @@ make dev-env-up
 make dev-env-down
 ```
 
-## Environment Notes (Windows + WSL2 + Podman)
+## Environment Notes (macOS OrbStack + Windows Docker Desktop)
 
-- Devcontainer uses Docker CLI/Compose semantics against host Podman API.
+- Devcontainer uses Docker CLI/Compose semantics against host Docker API.
 - Keep `DOCKER_HOST`/socket usage configurable (do not hardcode host-specific paths in app code).
 - Prefer reproducible commands in `Makefile` over ad-hoc shell snippets.
 
