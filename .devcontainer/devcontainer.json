@@ -12,13 +12,15 @@
   "updateRemoteUserUID": true,
   "containerEnv": {
     "DOCKER_HOST": "unix:///var/run/docker.sock",
-    "CGO_ENABLED": "0"
+    "CGO_ENABLED": "0",
+    "SSH_AUTH_SOCK": "/tmp/ssh-agent.sock"
   },
   "runArgs": [
     "--group-add=${localEnv:DOCKER_SOCK_GID:0}"
   ],
   "mounts": [
-    "source=${localEnv:DOCKER_SOCK_PATH:/var/run/docker.sock},target=/var/run/docker.sock,type=bind"
+    "source=${localEnv:DOCKER_SOCK_PATH:/var/run/docker.sock},target=/var/run/docker.sock,type=bind",
+    "source=${localEnv:SSH_AUTH_SOCK:/run/host-services/ssh-auth.sock},target=/tmp/ssh-agent.sock,type=bind"
   ],
   "customizations": {
     "vscode": {
@@ -33,5 +35,5 @@
       ]
     }
   },
-  "postCreateCommand": "bash -lc 'set -euo pipefail; command -v codex >/dev/null 2>&1 || npm install -g @openai/codex; mkdir -p ~/.codex; ln -sf /workspaces/sekai-master-api/.devcontainer/config.toml ~/.codex/config.toml; go mod tidy'"
+  "postCreateCommand": "bash -lc 'set -euo pipefail; command -v codex >/dev/null 2>&1 || npm install -g @openai/codex; mkdir -p ~/.codex ~/.ssh; chmod 700 ~/.ssh; ln -sf /workspaces/sekai-master-api/.devcontainer/config.toml ~/.codex/config.toml; go mod tidy'"
 }

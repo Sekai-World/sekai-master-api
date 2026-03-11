@@ -248,11 +248,19 @@ Set host environment variables before opening/rebuilding container:
 
 - `DOCKER_SOCK_PATH`: host Docker socket path to mount into devcontainer
 - `DOCKER_SOCK_GID`: socket group id for devcontainer user access
+- `SSH_AUTH_SOCK`: host SSH agent socket path to mount into devcontainer
 
 Typical values on macOS OrbStack and Windows Docker Desktop:
 
 - `DOCKER_SOCK_PATH=/var/run/docker.sock`
 - `DOCKER_SOCK_GID=0`
+
+For SSH agent forwarding, the devcontainer uses `${SSH_AUTH_SOCK}` from host if present.
+If it is not exported, the mount falls back to `/run/host-services/ssh-auth.sock`, which works on Docker Desktop / OrbStack host-service sockets.
+On Linux or any custom SSH agent setup, export the current host socket path before rebuilding:
+
+- `echo $SSH_AUTH_SOCK`
+- `ssh-add -l`
 
 If socket owner group is `root`, this value is usually `0`.
 
@@ -261,8 +269,10 @@ If socket owner group is `root`, this value is usually `0`.
 After container starts, validate from terminal in container:
 
 - `echo $DOCKER_HOST`
+- `echo $SSH_AUTH_SOCK`
 - `docker version`
 - `docker compose version`
+- `ssh-add -l`
 
 Codex CLI is also available in devcontainer:
 
@@ -274,6 +284,10 @@ If you see `permission denied while trying to connect to docker socket`, verify 
 
 - `echo $DOCKER_SOCK_PATH`
 - `echo $DOCKER_SOCK_GID`
+
+If `ssh-add -l` inside devcontainer says it cannot connect to agent, confirm the host SSH agent is running and `SSH_AUTH_SOCK` is exported before rebuild.
+The devcontainer does not mount host private key files directly; it forwards the agent socket only.
+If you need SSH host verification inside container, populate `~/.ssh/known_hosts` in the container as usual.
 
 ## Test environment
 
