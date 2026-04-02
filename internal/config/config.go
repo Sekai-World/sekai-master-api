@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strconv"
@@ -86,20 +87,43 @@ func Load() Config {
 }
 
 func loadEnvFiles() {
-	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
-	if appEnv == "" {
-		envMap, err := godotenv.Read(".env")
-		if err == nil {
-			appEnv = strings.TrimSpace(envMap["APP_ENV"])
+	appEnv := detectAppEnv()
+	for _, path := range dotenvLoadOrder(appEnv) {
+		_ = godotenv.Load(path)
+	}
+}
+
+func detectAppEnv() string {
+	if appEnv := strings.TrimSpace(os.Getenv("APP_ENV")); appEnv != "" {
+		return appEnv
+	}
+
+	for _, path := range []string{".env.local", ".env"} {
+		envMap, err := godotenv.Read(path)
+		if err != nil {
+			continue
+		}
+
+		if appEnv := strings.TrimSpace(envMap["APP_ENV"]); appEnv != "" {
+			return appEnv
 		}
 	}
 
-	if appEnv == "" {
-		appEnv = "development"
+	return "development"
+}
+
+func dotenvLoadOrder(appEnv string) []string {
+	normalizedEnv := strings.TrimSpace(appEnv)
+	if normalizedEnv == "" {
+		normalizedEnv = "development"
 	}
 
-	_ = godotenv.Load(".env." + appEnv)
-	_ = godotenv.Load(".env")
+	return []string{
+		fmt.Sprintf(".env.%s.local", normalizedEnv),
+		".env.local",
+		fmt.Sprintf(".env.%s", normalizedEnv),
+		".env",
+	}
 }
 
 func (cfg Config) IsDevelopment() bool {

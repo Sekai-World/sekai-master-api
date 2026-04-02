@@ -22,8 +22,8 @@ Go RESTful API template (Gin + Keycloak + environment-based database) with Dev C
 ## Quick Start
 
 1. Copy `.env.example` to `.env` and adjust values.
-   - The app auto-loads `.env.<APP_ENV>` then `.env` (for example: `.env.test`, `.env.development`).
-   - Environment variable precedence: shell env > `.env.<APP_ENV>` > `.env` > built-in defaults.
+   - The app auto-loads `.env.<APP_ENV>.local`, `.env.local`, `.env.<APP_ENV>`, then `.env` (for example: `.env.development.local`, `.env.development`).
+   - Environment variable precedence: shell env > `.env.<APP_ENV>.local` > `.env.local` > `.env.<APP_ENV>` > `.env` > built-in defaults.
 2. Install dependencies:
    - `go mod tidy`
 3. Start API:
@@ -42,14 +42,14 @@ If the host SSH agent socket changed and `devcontainer up` fails with a stale bi
 
 ### Local Test Env File
 
-This repo provides `.env.test` for local testing. Typical flow:
+This repo provides `.env.test` for local testing. You can keep machine-specific overrides in `.env.local` or `.env.test.local`. Typical flow:
 
 1. Start dependencies on non-conflicting Keycloak port:
    - `KEYCLOAK_PORT=18081 make dev-env-up`
 2. Run API in test mode:
    - `APP_ENV=test go run ./cmd/api`
 
-For local development with PostgreSQL, use `.env.development` with `DATABASE_DRIVER=pgx`, then run:
+For local development with PostgreSQL, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local`, then run:
 
 - `make dev-env-up`
 - `make dev-watch`
@@ -133,7 +133,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Local helper commands:
    - `make migrate-up`
    - `make migrate-down`
-- `make migrate-*` auto-resolves DB connection using `APP_ENV` + dotenv files (`.env.<APP_ENV>` then `.env`), with `DATABASE_DRIVER` override support.
+- `make migrate-*` auto-resolves DB connection using `APP_ENV` + dotenv files (`.env`, `.env.<APP_ENV>`, `.env.local`, `.env.<APP_ENV>.local`), with later files overriding earlier ones.
 - Example: `APP_ENV=test make migrate-up`
 
 ### Required env setup pattern
@@ -340,5 +340,5 @@ End-to-end local smoke check:
 
 - `make smoke`
 
-`scripts/smoke.sh` defaults dependency host to `localhost`, but when running inside a container it will prefer `host.docker.internal` if resolvable (fallback `host.containers.internal`). You can override explicitly with `COMPOSE_HOST`.
+`scripts/smoke.sh` defaults dependency host to `localhost`, but when running inside a container it will prefer `host.docker.internal` if resolvable. On some non-OrbStack runtimes, it can also fall back to `host.containers.internal` when that alias exists. You can override explicitly with `COMPOSE_HOST`.
 If host `8081` is occupied, set `KEYCLOAK_PORT` (for example `18081`) before running `make dev-env-up` or `make smoke`.
