@@ -52,8 +52,10 @@ swagger:
 
 migrate-up:
 	@set -a; \
-	if [ -f "./.env.$(APP_ENV)" ]; then . "./.env.$(APP_ENV)"; fi; \
 	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.$(APP_ENV)" ]; then . "./.env.$(APP_ENV)"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.$(APP_ENV).local" ]; then . "./.env.$(APP_ENV).local"; fi; \
 	set +a; \
 	DRIVER="$${DATABASE_DRIVER}"; \
 	if [ -z "$$DRIVER" ]; then \
@@ -75,8 +77,10 @@ migrate-up:
 
 migrate-down:
 	@set -a; \
-	if [ -f "./.env.$(APP_ENV)" ]; then . "./.env.$(APP_ENV)"; fi; \
 	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.$(APP_ENV)" ]; then . "./.env.$(APP_ENV)"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.$(APP_ENV).local" ]; then . "./.env.$(APP_ENV).local"; fi; \
 	set +a; \
 	DRIVER="$${DATABASE_DRIVER}"; \
 	if [ -z "$$DRIVER" ]; then \
