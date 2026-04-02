@@ -9,6 +9,10 @@ LOKI_PORT ?= 3100
 LOKI_HOST ?= host.docker.internal
 LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
 COMPOSE_HOST ?= host.docker.internal
+DEV_WATCH_MASTER_DATA_AUTO_SYNC ?= false
+DEV_WATCH_GOFLAGS ?= -p=1
+DEV_WATCH_GOMEMLIMIT ?= 1500MiB
+DEV_WATCH_GOGC ?= 50
 DOCKER ?= docker
 COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "$(DOCKER) compose"; elif command -v docker-compose >/dev/null 2>&1; then echo docker-compose; else echo "$(DOCKER) compose"; fi)
 DEVCONTAINER ?= devcontainer
@@ -27,7 +31,15 @@ dev-watch:
 		AIR_CMD="$$(go env GOPATH)/bin/air"; \
 	fi; \
 	echo "[dev-watch] streaming logs to Loki at $(LOKI_PUSH_URL)"; \
-	APP_ENV=development LOKI_PUSH_URL="$(LOKI_PUSH_URL)" $$AIR_CMD -c .air.toml
+	echo "[dev-watch] MASTER_DATA_AUTO_SYNC=$(DEV_WATCH_MASTER_DATA_AUTO_SYNC)"; \
+	echo "[dev-watch] GOFLAGS=$(DEV_WATCH_GOFLAGS) GOMEMLIMIT=$(DEV_WATCH_GOMEMLIMIT) GOGC=$(DEV_WATCH_GOGC)"; \
+	APP_ENV=development \
+	MASTER_DATA_AUTO_SYNC="$(DEV_WATCH_MASTER_DATA_AUTO_SYNC)" \
+	GOFLAGS="$(DEV_WATCH_GOFLAGS)" \
+	GOMEMLIMIT="$(DEV_WATCH_GOMEMLIMIT)" \
+	GOGC="$(DEV_WATCH_GOGC)" \
+	LOKI_PUSH_URL="$(LOKI_PUSH_URL)" \
+	$$AIR_CMD -c .air.toml
 
 test:
 	go test -buildvcs=false ./...
