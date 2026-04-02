@@ -57,6 +57,18 @@ For local development with PostgreSQL, use `.env.development` with `DATABASE_DRI
 - `make swagger`
 
 `make dev-watch` uses `air` for hot restart on Go code changes.
+For devcontainer workflows with limited memory, `make dev-watch` now defaults to a lower-memory profile:
+
+- `MASTER_DATA_AUTO_SYNC=false`
+- `GOFLAGS=-p=1`
+- `GOMEMLIMIT=1500MiB`
+- `GOGC=50`
+
+This avoids repeated startup sync and reduces Go build peak memory inside 8G containers. If you need the old behavior or want to tune it, override the Make variables explicitly, for example:
+
+- `make dev-watch DEV_WATCH_MASTER_DATA_AUTO_SYNC=true`
+- `make dev-watch DEV_WATCH_GOFLAGS='-p=2' DEV_WATCH_GOMEMLIMIT=2GiB DEV_WATCH_GOGC=100`
+
 `make dev-watch` passes `LOKI_PUSH_URL` to the API process; the Go logger pushes app logs to Loki in-process (no external log-push script required).
 Gin access/error logs are also routed through the same Zap pipeline, so they are pushed to Loki as well.
 `make format` applies `gofmt` to all Go files.
