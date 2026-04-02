@@ -22,8 +22,8 @@ Go RESTful API template (Gin + Keycloak + environment-based database) with Dev C
 ## Quick Start
 
 1. Copy `.env.example` to `.env` and adjust values.
-   - The app auto-loads `.env.<APP_ENV>.local`, `.env.local`, `.env.<APP_ENV>`, then `.env` (for example: `.env.development.local`, `.env.development`).
-   - Environment variable precedence: shell env > `.env.<APP_ENV>.local` > `.env.local` > `.env.<APP_ENV>` > `.env` > built-in defaults.
+   - The app auto-loads dotenv files in precedence order (highest precedence first): `.env.<APP_ENV>.local`, `.env.local`, `.env.<APP_ENV>`, then `.env` (for example: `.env.development.local`, `.env.development`).
+   - Later files do not override variables already set by earlier files. Effective precedence is: shell env > `.env.<APP_ENV>.local` > `.env.local` > `.env.<APP_ENV>` > `.env` > built-in defaults.
 2. Install dependencies:
    - `go mod tidy`
 3. Start API:
