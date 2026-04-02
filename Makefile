@@ -1,6 +1,7 @@
 APP_NAME=sekai-master-api
 COMPOSE_FILE=deploy/compose/test-compose.yaml
 COMPOSE_FILE_ABS := $(abspath $(COMPOSE_FILE))
+WORKSPACE_DIR := $(abspath .)
 APP_PORT ?= 18080
 KEYCLOAK_PORT ?= 18081
 GRAFANA_PORT ?= 3000
@@ -10,9 +11,10 @@ LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
 COMPOSE_HOST ?= host.docker.internal
 DOCKER ?= docker
 COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "$(DOCKER) compose"; elif command -v docker-compose >/dev/null 2>&1; then echo docker-compose; else echo "$(DOCKER) compose"; fi)
+DEVCONTAINER ?= devcontainer
 APP_ENV ?= development
 
-.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs test-env-up test-env-down test-env-down-purge test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
+.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs test-env-up test-env-down test-env-down-purge test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui devcontainer-up devcontainer-rebuild devcontainer-test
 
 run:
 	go run -buildvcs=false ./cmd/api
@@ -135,3 +137,12 @@ admin-open:
 
 dev-logs-ui:
 	"$$BROWSER" http://localhost:$(GRAFANA_PORT)
+
+devcontainer-up:
+	$(DEVCONTAINER) up --workspace-folder $(WORKSPACE_DIR)
+
+devcontainer-rebuild:
+	$(DEVCONTAINER) up --remove-existing-container --workspace-folder $(WORKSPACE_DIR)
+
+devcontainer-test:
+	$(DEVCONTAINER) exec --workspace-folder $(WORKSPACE_DIR) go test -buildvcs=false ./...
