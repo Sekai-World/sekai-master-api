@@ -29,6 +29,17 @@ Go RESTful API template (Gin + Keycloak + environment-based database) with Dev C
 3. Start API:
    - `make run`
 
+### Devcontainer Workflow
+
+If you develop through the repository devcontainer, prefer the Makefile helpers so the workspace path stays consistent:
+
+- `make devcontainer-up`
+- `make devcontainer-test`
+
+If the host SSH agent socket changed and `devcontainer up` fails with a stale bind-mount error, rebuild the container instead of reusing the old one:
+
+- `make devcontainer-rebuild`
+
 ### Local Test Env File
 
 This repo provides `.env.test` for local testing. Typical flow:
@@ -68,6 +79,7 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/cards/:region/search?q=<keyword>&field=name|skill&page=1&limit=20`
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
+- `GET /api/v1/cards/:region/:id/episodes`
 - `GET /api/v1/musics/:region/list?page=1&page_size=20`
 - `GET /api/v1/musics/:region/search?title=<kw>&lyricist=<kw>&composer=<kw>&arranger=<kw>&page=1&limit=20`
   - provide at least one of `title/lyricist/composer/arranger`; when multiple are provided they are matched together
@@ -280,6 +292,12 @@ Codex CLI is also available in devcontainer:
 - Config file is editable at `.devcontainer/config.toml`
 - The devcontainer links it to `~/.codex/config.toml`
 
+For repeatable local setup from the host terminal, you can also use:
+
+- `make devcontainer-up`
+- `make devcontainer-rebuild`
+- `make devcontainer-test`
+
 If you see `permission denied while trying to connect to docker socket`, verify both variables are exported before rebuilding devcontainer:
 
 - `echo $DOCKER_SOCK_PATH`
@@ -288,10 +306,11 @@ If you see `permission denied while trying to connect to docker socket`, verify 
 If `ssh-add -l` inside devcontainer says it cannot connect to agent, confirm the host SSH agent is running and `SSH_AUTH_SOCK` is exported before rebuild.
 The devcontainer does not mount host private key files directly; it forwards the agent socket only.
 If you need SSH host verification inside container, populate `~/.ssh/known_hosts` in the container as usual.
+If `devcontainer up` fails with `invalid mount config for type "bind"` and the missing path points to an old launchd socket under `/private/tmp/com.apple.launchd.*`, the previous container likely captured a stale `SSH_AUTH_SOCK`; run `make devcontainer-rebuild` after confirming the current `SSH_AUTH_SOCK` exists.
 
 ## Test environment
 
-Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `keycloak:26.1.4`):
+Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `keycloak:26.5.4`):
 
 - Makefile uses `docker compose` (fallback: `docker-compose`)
 
