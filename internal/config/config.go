@@ -113,7 +113,7 @@ func detectAppEnv() string {
 }
 
 func dotenvLoadOrder(appEnv string) []string {
-	normalizedEnv := strings.TrimSpace(appEnv)
+	normalizedEnv := strings.ToLower(strings.TrimSpace(appEnv))
 	if normalizedEnv == "" {
 		normalizedEnv = "development"
 	}
