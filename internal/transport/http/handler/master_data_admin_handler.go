@@ -33,6 +33,29 @@ func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, ti
 	}
 }
 
+// Status godoc
+// @Summary Get admin master-data sync status
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} MasterDataAdminStatusResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /admin/master-data/status [get]
+func (handler *MasterDataAdminHandler) Status(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.JSON(c, http.StatusOK, gin.H{
+			"status":       "ok",
+			"items":        []any{},
+			"regions":      []string{},
+			"sync_running": false,
+		})
+		return
+	}
+
+	handler.writeStatusResponse(c, c.Request.Context())
+}
+
 // Sync godoc
 // @Summary Trigger master-data sync
 // @Tags admin
@@ -82,16 +105,7 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 		return
 	}
 
-	statuses, err := handler.masterDataSync.Status(ctx)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "master data sync succeeded but failed to load status")
-		return
-	}
-
-	response.JSON(c, http.StatusOK, gin.H{
-		"status": "ok",
-		"items":  statuses,
-	})
+	handler.writeStatusResponse(c, ctx)
 }
 
 // ForceSync godoc
@@ -143,14 +157,20 @@ func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 		return
 	}
 
+	handler.writeStatusResponse(c, ctx)
+}
+
+func (handler *MasterDataAdminHandler) writeStatusResponse(c *gin.Context, ctx context.Context) {
 	statuses, err := handler.masterDataSync.Status(ctx)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "master data sync succeeded but failed to load status")
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to load master data sync status")
 		return
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
-		"status": "ok",
-		"items":  statuses,
+		"status":       "ok",
+		"items":        statuses,
+		"regions":      handler.masterDataSync.ConfiguredRegions(),
+		"sync_running": handler.masterDataSync.IsSyncRunning(),
 	})
 }

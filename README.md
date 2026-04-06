@@ -100,6 +100,7 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/events/:region/:id`
 - `GET /api/v1/events/:region/:id/rewards`
 - `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
+- `GET /api/v1/admin/master-data/status` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
 - `POST /api/v1/admin/master-data/sync/force` (Bearer token from Keycloak required)
 
@@ -120,7 +121,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 
 - Region source repos are configured by env vars.
 - Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `4`).
-- Per-region file loading parallelism is controlled by `MASTER_DATA_REGION_FILE_CONCURRENCY` (default `8`).
+- `MASTER_DATA_REGION_FILE_CONCURRENCY` is retained for backward-compatible configuration, but archive-based sync no longer performs per-file GitHub fetches.
 - GitHub HTTP requests support retry via `MASTER_DATA_HTTP_RETRY_COUNT` (default `3`) and `MASTER_DATA_HTTP_RETRY_BACKOFF_MS` (default `300`).
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
@@ -128,13 +129,14 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Startup sync compares the region source commit against the most recent successful sync record per region (from history); if unchanged, it skips reload for that region.
 - At sync start, if in-memory search index for a region is missing, region status is set to `pending` before sync proceeds.
 - For changed regions, cache writes are applied incrementally (upsert changed records and remove deleted records), not full key flush.
-- Region file loading uses retry + resumable rounds: already fetched files are kept, and only failed files are retried on subsequent attempts.
-- Resume state is also persisted locally under `tmp/master-data-sync-resume/`, so restart/retry can continue from the last successful file instead of reloading all files.
+- For changed regions, the loader downloads a single GitHub tarball archive for the resolved commit and extracts only JSON files under the configured path, which reduces request count and avoids per-file raw fetch rate limits.
+- Temporary archive workspace is created under `tmp/master-data-sync-resume/` during sync and removed after the region load completes.
 - Successful sync payloads are temporarily backed up by region under `tmp/master-data-backup/<region>/latest/`, preserving all synced JSON files as directory snapshots.
 - If commit is unchanged and previous sync status is success: API first tries rebuilding in-memory index from Redis; if Redis data is missing but local backup exists, it restores cache from local backup; otherwise it falls back to full sync.
 - Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
 - Sync status also includes `source_commit` for change tracking and skip decisions.
 - You can inspect status via `GET /api/v1/master-data/status`.
+- Admin dashboard reads a region-scoped status view from `GET /api/v1/admin/master-data/status`, including configured regions and current sync-running state.
 - You can trigger manual sync from dashboard or call `POST /api/v1/admin/master-data/sync`.
 - If you need to ignore commit comparison and force a full refresh, call `POST /api/v1/admin/master-data/sync/force`.
 
