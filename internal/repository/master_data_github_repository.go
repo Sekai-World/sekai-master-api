@@ -39,6 +39,8 @@ type gitCommitResponse struct {
 	SHA string `json:"sha"`
 }
 
+const maxArchiveJSONFileSize = 64 << 20
+
 func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConcurrency int, retryCount int, retryBackoff time.Duration) *GitHubMasterDataRepository {
 	if timeout <= 0 {
 		timeout = 20 * time.Second
@@ -177,24 +179,28 @@ func (repository *GitHubMasterDataRepository) resumeDir(source masterdata.Source
 }
 
 func (repository *GitHubMasterDataRepository) downloadArchiveToFile(ctx context.Context, archiveURL string, targetPath string) error {
-	body, err := repository.getBytes(ctx, archiveURL)
-	if err != nil {
-		return err
-	}
-
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return fmt.Errorf("create archive directory: %w", err)
 	}
 
-	tempPath := targetPath + ".tmp"
-	if err := os.WriteFile(tempPath, body, 0o644); err != nil {
-		return fmt.Errorf("write archive file: %w", err)
-	}
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		return fmt.Errorf("move archive file into place: %w", err)
+	var lastErr error
+	for attempt := 1; attempt <= repository.retryCount; attempt++ {
+		if err := repository.streamArchiveToFile(ctx, archiveURL, targetPath); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		if !isRetriableRequestError(lastErr) || attempt >= repository.retryCount {
+			break
+		}
+
+		if sleepErr := repository.waitRetryBackoff(ctx, attempt); sleepErr != nil {
+			return sleepErr
+		}
 	}
 
-	return nil
+	return lastErr
 }
 
 func (repository *GitHubMasterDataRepository) extractArchivePayload(archivePath string, source masterdata.Source) (map[string]any, error) {
@@ -230,13 +236,16 @@ func (repository *GitHubMasterDataRepository) extractArchivePayload(archivePath 
 			continue
 		}
 
-		body, err := io.ReadAll(tarReader)
-		if err != nil {
-			return nil, fmt.Errorf("read archive file %s: %w", relativePath, err)
+		if header.Size < 0 {
+			return nil, fmt.Errorf("invalid archive file size for %s", relativePath)
+		}
+		var parsed any
+		if header.Size > maxArchiveJSONFileSize {
+			return nil, fmt.Errorf("archive file %s exceeds size limit", relativePath)
 		}
 
-		var parsed any
-		if err := json.Unmarshal(body, &parsed); err != nil {
+		decoder := json.NewDecoder(io.LimitReader(tarReader, header.Size))
+		if err := decoder.Decode(&parsed); err != nil {
 			return nil, fmt.Errorf("decode archive file %s: %w", relativePath, err)
 		}
 
@@ -261,6 +270,9 @@ func archiveRelativeJSONPath(entryName string, basePath string) (string, bool) {
 	if relativePath == "" {
 		return "", false
 	}
+	if hasPathTraversalSegment(relativePath) {
+		return "", false
+	}
 
 	cleanPath := strings.TrimPrefix(path.Clean("/"+relativePath), "/")
 	if cleanPath == "" || cleanPath == "." || strings.HasPrefix(cleanPath, "../") {
@@ -278,31 +290,19 @@ func archiveRelativeJSONPath(entryName string, basePath string) (string, bool) {
 	return cleanPath, true
 }
 
-func (repository *GitHubMasterDataRepository) getBytes(ctx context.Context, targetURL string) ([]byte, error) {
-	var lastErr error
-	for attempt := 1; attempt <= repository.retryCount; attempt++ {
-		body, err := repository.doBytesRequest(ctx, targetURL)
-		if err == nil {
-			return body, nil
-		}
-
-		lastErr = err
-		if !isRetriableRequestError(err) || attempt >= repository.retryCount {
-			break
-		}
-
-		if sleepErr := repository.waitRetryBackoff(ctx, attempt); sleepErr != nil {
-			return nil, sleepErr
+func hasPathTraversalSegment(relativePath string) bool {
+	for _, segment := range strings.Split(strings.ReplaceAll(relativePath, "\\", "/"), "/") {
+		if segment == ".." {
+			return true
 		}
 	}
-
-	return nil, lastErr
+	return false
 }
 
-func (repository *GitHubMasterDataRepository) doBytesRequest(ctx context.Context, targetURL string) ([]byte, error) {
+func (repository *GitHubMasterDataRepository) streamArchiveToFile(ctx context.Context, targetURL string, targetPath string) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return fmt.Errorf("build request: %w", err)
 	}
 
 	request.Header.Set("User-Agent", "sekai-master-api/1.0")
@@ -312,20 +312,47 @@ func (repository *GitHubMasterDataRepository) doBytesRequest(ctx context.Context
 
 	resp, err := repository.httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("perform request: %w", err)
+		return fmt.Errorf("perform request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-
 	if resp.StatusCode >= http.StatusBadRequest {
-		return nil, &httpStatusError{statusCode: resp.StatusCode, body: strings.TrimSpace(string(body))}
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("read error response body: %w", readErr)
+		}
+		return &httpStatusError{statusCode: resp.StatusCode, body: strings.TrimSpace(string(body))}
 	}
 
-	return body, nil
+	tempFile, err := os.CreateTemp(filepath.Dir(targetPath), filepath.Base(targetPath)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp archive file: %w", err)
+	}
+
+	tempPath := tempFile.Name()
+	cleanupTemp := true
+	defer func() {
+		_ = tempFile.Close()
+		if cleanupTemp {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if _, err := io.Copy(tempFile, resp.Body); err != nil {
+		return fmt.Errorf("write archive file: %w", err)
+	}
+	if err := tempFile.Sync(); err != nil {
+		return fmt.Errorf("sync archive file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close archive file: %w", err)
+	}
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		return fmt.Errorf("move archive file into place: %w", err)
+	}
+
+	cleanupTemp = false
+	return nil
 }
 
 func (repository *GitHubMasterDataRepository) getJSON(ctx context.Context, targetURL string, out any) error {
