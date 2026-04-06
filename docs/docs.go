@@ -73,6 +73,42 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/master-data/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get admin master-data sync status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.MasterDataAdminStatusResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/master-data/sync": {
             "post": {
                 "security": [
@@ -1093,6 +1129,29 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.MasterDataAdminStatusResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/masterdata.SyncStatus"
+                    }
+                },
+                "regions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "sync_running": {
+                    "type": "boolean"
+                }
+            }
+        },
         "handler.MasterDataStatusListResponse": {
             "type": "object",
             "properties": {
@@ -1113,8 +1172,17 @@ const docTemplate = `{
                         "$ref": "#/definitions/masterdata.SyncStatus"
                     }
                 },
+                "regions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "status": {
                     "type": "string"
+                },
+                "sync_running": {
+                    "type": "boolean"
                 }
             }
         },

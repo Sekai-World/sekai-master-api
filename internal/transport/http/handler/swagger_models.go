@@ -70,8 +70,17 @@ type MasterDataStatusListResponse struct {
 }
 
 type MasterDataSyncResponse struct {
-	Status string                  `json:"status"`
-	Items  []masterdata.SyncStatus `json:"items"`
+	Status      string                  `json:"status"`
+	Items       []masterdata.SyncStatus `json:"items"`
+	Regions     []string                `json:"regions"`
+	SyncRunning bool                    `json:"sync_running"`
+}
+
+type MasterDataAdminStatusResponse struct {
+	Status      string                  `json:"status"`
+	Items       []masterdata.SyncStatus `json:"items"`
+	Regions     []string                `json:"regions"`
+	SyncRunning bool                    `json:"sync_running"`
 }
 
 type AdminLoginResponse struct {

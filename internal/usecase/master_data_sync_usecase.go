@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -429,7 +430,12 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 				usecase.publishSyncEvent(ctx, event)
 			})
 
-			payload, err := usecase.loader.LoadRegion(progressCtx, source)
+			loadSource := source
+			if resolvedCommit != "" {
+				loadSource.Ref = resolvedCommit
+			}
+
+			payload, err := usecase.loader.LoadRegion(progressCtx, loadSource)
 			if err != nil {
 				duration := time.Since(startedAt).Milliseconds()
 				if isRateLimitError(err) {
@@ -642,6 +648,24 @@ func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.
 	}
 
 	return usecase.statusStore.List(ctx)
+}
+
+func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
+	regions := make([]string, 0, len(usecase.sources))
+	for _, source := range usecase.sources {
+		region := strings.ToLower(strings.TrimSpace(source.Region))
+		if region == "" {
+			continue
+		}
+		regions = append(regions, region)
+	}
+
+	sort.Strings(regions)
+	return regions
+}
+
+func (usecase *MasterDataSyncUsecase) IsSyncRunning() bool {
+	return usecase.syncRunning.Load()
 }
 
 func (usecase *MasterDataSyncUsecase) GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error) {

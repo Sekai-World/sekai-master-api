@@ -93,6 +93,21 @@ definitions:
       status:
         type: string
     type: object
+  handler.MasterDataAdminStatusResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/masterdata.SyncStatus'
+        type: array
+      regions:
+        items:
+          type: string
+        type: array
+      status:
+        type: string
+      sync_running:
+        type: boolean
+    type: object
   handler.MasterDataStatusListResponse:
     properties:
       items:
@@ -106,8 +121,14 @@ definitions:
         items:
           $ref: '#/definitions/masterdata.SyncStatus'
         type: array
+      regions:
+        items:
+          type: string
+        type: array
       status:
         type: string
+      sync_running:
+        type: boolean
     type: object
   handler.ProfileResponse:
     properties:
@@ -208,6 +229,28 @@ paths:
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
       summary: Login with Keycloak credentials
+      tags:
+      - admin
+  /admin/master-data/status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.MasterDataAdminStatusResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get admin master-data sync status
       tags:
       - admin
   /admin/master-data/sync:
