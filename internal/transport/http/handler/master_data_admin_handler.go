@@ -161,7 +161,7 @@ func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 }
 
 func (handler *MasterDataAdminHandler) writeStatusResponse(c *gin.Context, ctx context.Context) {
-	statuses, err := handler.masterDataSync.Status(ctx)
+	statuses, err := handler.masterDataSync.DashboardStatus(ctx)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to load master data sync status")
 		return

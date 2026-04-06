@@ -230,6 +230,82 @@ ORDER BY last_updated_at DESC, region ASC`)
 	return statuses, nil
 }
 
+func (repository *MasterDataSyncStatusRepository) ListLatestStable(ctx context.Context) ([]masterdata.SyncStatus, error) {
+	if repository.db == nil {
+		return []masterdata.SyncStatus{}, nil
+	}
+
+	rows, err := repository.db.QueryContext(ctx, `
+SELECT
+	region,
+	status,
+	file_count,
+	sync_duration_ms,
+	last_synced_at,
+	COALESCE(source_commit, ''),
+	COALESCE(error_message, ''),
+	source_owner,
+	source_repo,
+	source_ref,
+	COALESCE(source_path, ''),
+	created_at AS last_updated_at
+FROM (
+	SELECT
+		region,
+		status,
+		file_count,
+		sync_duration_ms,
+		last_synced_at,
+		source_commit,
+		error_message,
+		source_owner,
+		source_repo,
+		source_ref,
+		source_path,
+		created_at,
+		ROW_NUMBER() OVER (PARTITION BY region ORDER BY created_at DESC, last_synced_at DESC) AS row_num
+	FROM master_data_sync_status
+	WHERE status <> 'running'
+) latest_stable
+WHERE row_num = 1
+ORDER BY last_updated_at DESC, region ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list latest stable sync status: %w", err)
+	}
+	defer rows.Close()
+
+	statuses := make([]masterdata.SyncStatus, 0)
+	for rows.Next() {
+		var status masterdata.SyncStatus
+		var source masterdata.Source
+		if err := rows.Scan(
+			&status.Region,
+			&status.Status,
+			&status.FileCount,
+			&status.SyncDurationMS,
+			&status.LastSyncedAt,
+			&status.SourceCommit,
+			&status.ErrorMessage,
+			&source.Owner,
+			&source.Repo,
+			&source.Ref,
+			&source.Path,
+			&status.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan latest stable sync status row: %w", err)
+		}
+		source.Region = status.Region
+		status.Source = source
+		statuses = append(statuses, status)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate latest stable sync status rows: %w", err)
+	}
+
+	return statuses, nil
+}
+
 func nullableText(value string) any {
 	if value == "" {
 		return nil

@@ -203,6 +203,7 @@ type fakeSyncStatusStore struct {
 	byZone        map[string]masterdata.SyncStatus
 	saved         []masterdata.SyncStatus
 	successByZone map[string]masterdata.SyncStatus
+	stableByZone  map[string]masterdata.SyncStatus
 }
 
 func newFakeSyncStatusStore(seed []masterdata.SyncStatus) *fakeSyncStatusStore {
@@ -210,9 +211,13 @@ func newFakeSyncStatusStore(seed []masterdata.SyncStatus) *fakeSyncStatusStore {
 		byZone:        make(map[string]masterdata.SyncStatus),
 		saved:         make([]masterdata.SyncStatus, 0),
 		successByZone: make(map[string]masterdata.SyncStatus),
+		stableByZone:  make(map[string]masterdata.SyncStatus),
 	}
 	for _, item := range seed {
 		store.byZone[item.Region] = item
+		if !strings.EqualFold(item.Status, "running") {
+			store.stableByZone[item.Region] = item
+		}
 	}
 
 	return store
@@ -224,6 +229,9 @@ func (store *fakeSyncStatusStore) Save(_ context.Context, status masterdata.Sync
 
 	store.byZone[status.Region] = status
 	store.saved = append(store.saved, status)
+	if !strings.EqualFold(status.Status, "running") {
+		store.stableByZone[status.Region] = status
+	}
 	return nil
 }
 
@@ -245,6 +253,18 @@ func (store *fakeSyncStatusStore) ListLatestSuccess(_ context.Context) ([]master
 
 	items := make([]masterdata.SyncStatus, 0, len(store.successByZone))
 	for _, item := range store.successByZone {
+		items = append(items, item)
+	}
+
+	return items, nil
+}
+
+func (store *fakeSyncStatusStore) ListLatestStable(_ context.Context) ([]masterdata.SyncStatus, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	items := make([]masterdata.SyncStatus, 0, len(store.stableByZone))
+	for _, item := range store.stableByZone {
 		items = append(items, item)
 	}
 
@@ -341,6 +361,67 @@ func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 	}
 	if latest.Status != "success" {
 		t.Fatalf("expected status to remain success, got %s", latest.Status)
+	}
+}
+
+func TestDashboardStatusFallsBackFromStaleRunningWhenSyncCompleted(t *testing.T) {
+	now := time.Now().UTC()
+	statusStore := newFakeSyncStatusStore(nil)
+	statusStore.byZone["jp"] = masterdata.SyncStatus{
+		Region:    "jp",
+		Status:    "running",
+		UpdatedAt: now,
+	}
+	statusStore.stableByZone["jp"] = masterdata.SyncStatus{
+		Region:         "jp",
+		Status:         "success",
+		FileCount:      12,
+		SourceCommit:   "commit-1",
+		LastSyncedAt:   now.Add(-time.Minute),
+		SyncDurationMS: 1234,
+		UpdatedAt:      now.Add(-time.Minute),
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, nil, statusStore, nil, 1)
+
+	statuses, err := usecase.DashboardStatus(context.Background())
+	if err != nil {
+		t.Fatalf("expected dashboard status success, got %v", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("expected one status item, got %d", len(statuses))
+	}
+	if statuses[0].Status != "success" {
+		t.Fatalf("expected stale running status to fall back to success, got %s", statuses[0].Status)
+	}
+}
+
+func TestDashboardStatusKeepsRunningWhileSyncActive(t *testing.T) {
+	now := time.Now().UTC()
+	statusStore := newFakeSyncStatusStore(nil)
+	statusStore.byZone["jp"] = masterdata.SyncStatus{
+		Region:    "jp",
+		Status:    "running",
+		UpdatedAt: now,
+	}
+	statusStore.stableByZone["jp"] = masterdata.SyncStatus{
+		Region:    "jp",
+		Status:    "success",
+		UpdatedAt: now.Add(-time.Minute),
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, nil, statusStore, nil, 1)
+	usecase.syncRunning.Store(true)
+
+	statuses, err := usecase.DashboardStatus(context.Background())
+	if err != nil {
+		t.Fatalf("expected dashboard status success, got %v", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("expected one status item, got %d", len(statuses))
+	}
+	if statuses[0].Status != "running" {
+		t.Fatalf("expected running status while sync is active, got %s", statuses[0].Status)
 	}
 }
 
