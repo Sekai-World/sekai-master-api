@@ -108,23 +108,13 @@ const toTimestamp = (value) => {
   return time;
 };
 
-const renderMasterDataItems = (items) => {
+const renderMasterDataItems = (items, orderedRegions = []) => {
   if (!Array.isArray(items) || items.length === 0) {
     return '<div class="profile-item"><span class="profile-label">状态</span><span class="profile-value">暂无同步记录</span></div>';
   }
 
-  const sortedItems = [...items].sort((left, right) => {
-    const leftTime = toTimestamp(left?.updated_at || left?.last_synced_at);
-    const rightTime = toTimestamp(right?.updated_at || right?.last_synced_at);
-    if (leftTime === rightTime) {
-      return String(left?.region ?? "").localeCompare(String(right?.region ?? ""));
-    }
-
-    return rightTime - leftTime;
-  });
-
   const latestByRegion = new Map();
-  for (const item of sortedItems) {
+  for (const item of items) {
     const regionKey = String(item?.region ?? "").trim().toLowerCase();
     if (!regionKey || latestByRegion.has(regionKey)) {
       continue;
@@ -132,7 +122,24 @@ const renderMasterDataItems = (items) => {
     latestByRegion.set(regionKey, item);
   }
 
-  const regionItems = [...latestByRegion.values()];
+  const regionItems = [];
+  for (const region of orderedRegions) {
+    const regionKey = String(region ?? "").trim().toLowerCase();
+    if (!regionKey) {
+      continue;
+    }
+    const item = latestByRegion.get(regionKey);
+    if (!item) {
+      continue;
+    }
+    regionItems.push(item);
+    latestByRegion.delete(regionKey);
+  }
+
+  const remainingItems = [...latestByRegion.values()].sort((left, right) =>
+    String(left?.region ?? "").localeCompare(String(right?.region ?? "")),
+  );
+  regionItems.push(...remainingItems);
 
   return regionItems
     .map(
@@ -185,6 +192,7 @@ export const initDashboardPage = async () => {
 
   const progressHistory = [];
   const statusByRegion = new Map();
+  const regionOrder = [];
   const maxProgressHistory = 12;
   const renderProgressHistory = () => {
     if (progressHistory.length === 0) {
@@ -286,7 +294,7 @@ export const initDashboardPage = async () => {
   };
 
   const renderStatusFromMap = () => {
-    masterDataStatusView.innerHTML = renderMasterDataItems([...statusByRegion.values()]);
+    masterDataStatusView.innerHTML = renderMasterDataItems([...statusByRegion.values()], regionOrder);
   };
 
   const refreshSyncRegionOptions = (regions = null) => {
@@ -296,6 +304,9 @@ export const initDashboardPage = async () => {
           left.localeCompare(right),
         )
       : [...statusByRegion.keys()].sort((left, right) => left.localeCompare(right));
+
+    regionOrder.length = 0;
+    regionOrder.push(...resolvedRegions);
 
     syncRegionSelect.innerHTML = '<option value="">全部地区</option>';
     for (const region of resolvedRegions) {
