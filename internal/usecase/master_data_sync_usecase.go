@@ -48,6 +48,10 @@ type MasterDataSyncLatestSuccessStore interface {
 	ListLatestSuccess(ctx context.Context) ([]masterdata.SyncStatus, error)
 }
 
+type MasterDataSyncLatestStableStore interface {
+	ListLatestStable(ctx context.Context) ([]masterdata.SyncStatus, error)
+}
+
 type MasterDataEventPublisher interface {
 	PublishMasterDataUpdated(ctx context.Context, event masterdata.SyncUpdatedEvent) error
 }
@@ -648,6 +652,52 @@ func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.
 	}
 
 	return usecase.statusStore.List(ctx)
+}
+
+func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]masterdata.SyncStatus, error) {
+	statuses, err := usecase.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if usecase.IsSyncRunning() || usecase.statusStore == nil {
+		return statuses, nil
+	}
+
+	stableStore, ok := usecase.statusStore.(MasterDataSyncLatestStableStore)
+	if !ok {
+		return statuses, nil
+	}
+
+	stableStatuses, err := stableStore.ListLatestStable(ctx)
+	if err != nil {
+		usecase.logf("dashboard status fallback skipped error=%v", err)
+		return statuses, nil
+	}
+	if len(stableStatuses) == 0 {
+		return statuses, nil
+	}
+
+	stableByRegion := make(map[string]masterdata.SyncStatus, len(stableStatuses))
+	for _, status := range stableStatuses {
+		stableByRegion[strings.ToLower(strings.TrimSpace(status.Region))] = status
+	}
+
+	merged := make([]masterdata.SyncStatus, 0, len(statuses))
+	for _, status := range statuses {
+		if !strings.EqualFold(strings.TrimSpace(status.Status), "running") {
+			merged = append(merged, status)
+			continue
+		}
+
+		if stableStatus, ok := stableByRegion[strings.ToLower(strings.TrimSpace(status.Region))]; ok {
+			merged = append(merged, stableStatus)
+			continue
+		}
+
+		merged = append(merged, status)
+	}
+
+	return merged, nil
 }
 
 func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
