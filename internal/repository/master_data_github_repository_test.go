@@ -173,6 +173,13 @@ func TestResolveRegionVersionRetriesTransientFailure(t *testing.T) {
 	}
 }
 
+func TestArchiveRelativeJSONPathRejectsTraversal(t *testing.T) {
+	relativePath, ok := archiveRelativeJSONPath("repo-commit/../evil.json", "")
+	if ok {
+		t.Fatalf("expected traversal path to be rejected, got %s", relativePath)
+	}
+}
+
 func writeTarball(t *testing.T, writer http.ResponseWriter, files map[string]string) {
 	t.Helper()
 
