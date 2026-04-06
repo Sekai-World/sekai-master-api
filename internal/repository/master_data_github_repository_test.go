@@ -1,12 +1,13 @@
 package repository
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -15,41 +16,31 @@ import (
 	"sekai-master-api/internal/domain/masterdata"
 )
 
-func TestLoadRegionRetriesFailedFilesAndResumes(t *testing.T) {
+func TestLoadRegionDownloadsArchiveAndFiltersBasePath(t *testing.T) {
 	var mu sync.Mutex
-	requestCountByPath := make(map[string]int)
+	requestCount := 0
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if strings.HasPrefix(request.URL.Path, "/repos/owner/repo/git/trees/main") {
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"tree":[{"path":"data/file-a.json","type":"blob"},{"path":"data/file-b.json","type":"blob"}]}`))
+		if !strings.HasPrefix(request.URL.Path, "/repos/owner/repo/tarball/main") {
+			writer.WriteHeader(http.StatusNotFound)
 			return
 		}
 
-		if strings.HasPrefix(request.URL.Path, "/owner/repo/main/data/") {
-			mu.Lock()
-			requestCountByPath[request.URL.Path]++
-			count := requestCountByPath[request.URL.Path]
-			mu.Unlock()
+		mu.Lock()
+		requestCount++
+		mu.Unlock()
 
-			if request.URL.Path == "/owner/repo/main/data/file-b.json" && count == 1 {
-				writer.WriteHeader(http.StatusBadGateway)
-				_, _ = writer.Write([]byte("temporary upstream error"))
-				return
-			}
-
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"ok":true}`))
-			return
-		}
-
-		writer.WriteHeader(http.StatusNotFound)
+		writeTarball(t, writer, map[string]string{
+			"repo-commit/data/file-a.json":  `{"id":1}`,
+			"repo-commit/data/file-b.json":  `{"id":2}`,
+			"repo-commit/data/readme.txt":   `skip`,
+			"repo-commit/other/file-c.json": `{"id":3}`,
+		})
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 2, 3, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 2, 2, 10*time.Millisecond)
 	repository.apiBaseURL = server.URL
-	repository.rawBaseURL = server.URL
 
 	payload, err := repository.LoadRegion(context.Background(), masterdata.Source{
 		Region: "jp",
@@ -63,16 +54,73 @@ func TestLoadRegionRetriesFailedFilesAndResumes(t *testing.T) {
 	}
 
 	if len(payload) != 2 {
-		t.Fatalf("expected 2 files loaded, got %d", len(payload))
+		t.Fatalf("expected 2 json files loaded, got %d", len(payload))
+	}
+	if _, ok := payload["data/file-a.json"]; !ok {
+		t.Fatalf("expected data/file-a.json in payload")
+	}
+	if _, ok := payload["data/file-b.json"]; !ok {
+		t.Fatalf("expected data/file-b.json in payload")
+	}
+	if _, ok := payload["other/file-c.json"]; ok {
+		t.Fatalf("did not expect other/file-c.json in filtered payload")
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if requestCountByPath["/owner/repo/main/data/file-a.json"] != 1 {
-		t.Fatalf("expected file-a fetched once, got %d", requestCountByPath["/owner/repo/main/data/file-a.json"])
+	if requestCount != 1 {
+		t.Fatalf("expected one archive request, got %d", requestCount)
 	}
-	if requestCountByPath["/owner/repo/main/data/file-b.json"] != 2 {
-		t.Fatalf("expected file-b retried once, got %d", requestCountByPath["/owner/repo/main/data/file-b.json"])
+}
+
+func TestLoadRegionRetriesArchiveDownload(t *testing.T) {
+	var mu sync.Mutex
+	requestCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !strings.HasPrefix(request.URL.Path, "/repos/owner/repo/tarball/main") {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		mu.Lock()
+		requestCount++
+		current := requestCount
+		mu.Unlock()
+
+		if current == 1 {
+			writer.WriteHeader(http.StatusBadGateway)
+			_, _ = writer.Write([]byte("temporary upstream error"))
+			return
+		}
+
+		writeTarball(t, writer, map[string]string{
+			"repo-commit/data/file-a.json": `{"ok":true}`,
+		})
+	}))
+	defer server.Close()
+
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 3, 10*time.Millisecond)
+	repository.apiBaseURL = server.URL
+
+	payload, err := repository.LoadRegion(context.Background(), masterdata.Source{
+		Region: "jp",
+		Owner:  "owner",
+		Repo:   "repo",
+		Ref:    "main",
+		Path:   "data",
+	})
+	if err != nil {
+		t.Fatalf("expected load success after retry, got %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1 file loaded, got %d", len(payload))
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if requestCount != 2 {
+		t.Fatalf("expected two archive requests due to one retry, got %d", requestCount)
 	}
 }
 
@@ -125,102 +173,34 @@ func TestResolveRegionVersionRetriesTransientFailure(t *testing.T) {
 	}
 }
 
-func TestLoadRegionResumesAcrossRunsUsingLocalCache(t *testing.T) {
-	var mu sync.Mutex
-	requestCountByPath := make(map[string]int)
+func writeTarball(t *testing.T, writer http.ResponseWriter, files map[string]string) {
+	t.Helper()
 
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if strings.HasPrefix(request.URL.Path, "/repos/owner/repo/git/trees/main") {
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"tree":[{"path":"data/file-a.json","type":"blob"},{"path":"data/file-b.json","type":"blob"}]}`))
-			return
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+
+	for name, content := range files {
+		header := &tar.Header{
+			Name: name,
+			Mode: 0o644,
+			Size: int64(len(content)),
 		}
-
-		if strings.HasPrefix(request.URL.Path, "/owner/repo/main/data/") {
-			mu.Lock()
-			requestCountByPath[request.URL.Path]++
-			count := requestCountByPath[request.URL.Path]
-			mu.Unlock()
-
-			if request.URL.Path == "/owner/repo/main/data/file-b.json" && count == 1 {
-				writer.WriteHeader(http.StatusBadGateway)
-				_, _ = writer.Write([]byte("temporary upstream error"))
-				return
-			}
-
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"ok":true}`))
-			return
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatalf("write tar header: %v", err)
 		}
-
-		writer.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	resumeBaseDir := filepath.Join(t.TempDir(), "resume")
-
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 2, 1, 10*time.Millisecond)
-	repository.apiBaseURL = server.URL
-	repository.rawBaseURL = server.URL
-	repository.resumeBaseDir = resumeBaseDir
-
-	_, firstErr := repository.LoadRegion(context.Background(), masterdata.Source{
-		Region: "jp",
-		Owner:  "owner",
-		Repo:   "repo",
-		Ref:    "main",
-		Path:   "data",
-	})
-	if firstErr == nil {
-		t.Fatalf("expected first load to fail")
-	}
-
-	repositorySecondRun := NewGitHubMasterDataRepository(2*time.Second, "", 2, 1, 10*time.Millisecond)
-	repositorySecondRun.apiBaseURL = server.URL
-	repositorySecondRun.rawBaseURL = server.URL
-	repositorySecondRun.resumeBaseDir = resumeBaseDir
-
-	payload, secondErr := repositorySecondRun.LoadRegion(context.Background(), masterdata.Source{
-		Region: "jp",
-		Owner:  "owner",
-		Repo:   "repo",
-		Ref:    "main",
-		Path:   "data",
-	})
-	if secondErr != nil {
-		t.Fatalf("expected second load success, got %v", secondErr)
-	}
-
-	if len(payload) != 2 {
-		t.Fatalf("expected 2 files loaded on second run, got %d", len(payload))
-	}
-
-	mu.Lock()
-	if requestCountByPath["/owner/repo/main/data/file-a.json"] != 1 {
-		mu.Unlock()
-		t.Fatalf("expected file-a fetched once across two runs, got %d", requestCountByPath["/owner/repo/main/data/file-a.json"])
-	}
-	if requestCountByPath["/owner/repo/main/data/file-b.json"] != 2 {
-		mu.Unlock()
-		t.Fatalf("expected file-b fetched twice across two runs, got %d", requestCountByPath["/owner/repo/main/data/file-b.json"])
-	}
-	mu.Unlock()
-
-	cacheFiles := 0
-	err := filepath.WalkDir(resumeBaseDir, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+		if _, err := tarWriter.Write([]byte(content)); err != nil {
+			t.Fatalf("write tar content: %v", err)
 		}
-		if entry.IsDir() {
-			return nil
-		}
-		cacheFiles++
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk resume dir: %v", err)
 	}
-	if cacheFiles != 0 {
-		t.Fatalf("expected no cached files after successful load, got %d", cacheFiles)
+
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
 	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("close gzip writer: %v", err)
+	}
+
+	writer.Header().Set("Content-Type", "application/gzip")
+	_, _ = writer.Write(buffer.Bytes())
 }

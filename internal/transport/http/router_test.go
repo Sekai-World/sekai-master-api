@@ -127,6 +127,18 @@ func TestMasterDataForceSyncUnauthorized(t *testing.T) {
 	}
 }
 
+func TestAdminMasterDataStatusUnauthorized(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/master-data/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on admin master-data status without token, got %d", resp.Code)
+	}
+}
+
 func TestCardByIDUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
@@ -281,6 +293,19 @@ func TestProfileAuthorized(t *testing.T) {
 
 	if profileResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 on profile, got %d", profileResp.Code)
+	}
+}
+
+func TestAdminMasterDataStatusAuthorized(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/master-data/status", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on admin master-data status, got %d", resp.Code)
 	}
 }
 

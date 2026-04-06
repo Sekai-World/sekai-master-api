@@ -289,19 +289,23 @@ export const initDashboardPage = async () => {
     masterDataStatusView.innerHTML = renderMasterDataItems([...statusByRegion.values()]);
   };
 
-  const refreshSyncRegionOptions = () => {
+  const refreshSyncRegionOptions = (regions = null) => {
     const selectedRegion = String(syncRegionSelect.value || "").trim().toLowerCase();
-    const regions = [...statusByRegion.keys()].sort((left, right) => left.localeCompare(right));
+    const resolvedRegions = Array.isArray(regions)
+      ? [...new Set(regions.map((region) => String(region || "").trim().toLowerCase()).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right),
+        )
+      : [...statusByRegion.keys()].sort((left, right) => left.localeCompare(right));
 
     syncRegionSelect.innerHTML = '<option value="">全部地区</option>';
-    for (const region of regions) {
+    for (const region of resolvedRegions) {
       const option = document.createElement("option");
       option.value = region;
       option.textContent = region;
       syncRegionSelect.appendChild(option);
     }
 
-    if (selectedRegion && regions.includes(selectedRegion)) {
+    if (selectedRegion && resolvedRegions.includes(selectedRegion)) {
       syncRegionSelect.value = selectedRegion;
     }
   };
@@ -344,14 +348,19 @@ export const initDashboardPage = async () => {
     infoItem("用户ID", user.id);
 
   const loadMasterDataStatus = async () => {
-    const statusResult = await requestJSON("/api/v1/master-data/status");
+    const statusResult = await requestJSON("/api/v1/admin/master-data/status", { bearer });
+    if (statusResult.status === 401) {
+      clearToken();
+      window.location.href = "/admin/login";
+      return;
+    }
     if (!statusResult.ok) {
       masterDataStatusView.innerHTML = '<div class="profile-item"><span class="profile-label">错误</span><span class="profile-value">加载同步状态失败</span></div>';
       return;
     }
 
     setStatusItems(statusResult.payload?.items ?? []);
-    refreshSyncRegionOptions();
+    refreshSyncRegionOptions(statusResult.payload?.regions ?? []);
     renderStatusFromMap();
   };
 
