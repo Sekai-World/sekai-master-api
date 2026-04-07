@@ -216,7 +216,7 @@ func reportCacheWriteProgress(reporter masterdata.ProgressReporter, region strin
 		Phase:          "cache",
 		Message:        "writing cache",
 		FilePath:       strings.TrimSpace(filePath),
-		FileCount:      processedFiles,
+		FileCount:      totalFiles,
 		ProcessedFiles: processedFiles,
 		TotalFiles:     totalFiles,
 		UpdatedAt:      time.Now().UTC(),
