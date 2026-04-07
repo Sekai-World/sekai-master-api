@@ -62,16 +62,30 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 		return errors.New("region is required")
 	}
 
+	filePaths := make([]string, 0, len(payload))
+	for filePath := range payload {
+		filePaths = append(filePaths, filePath)
+	}
+	sort.Strings(filePaths)
+	progressReporter := masterdata.ProgressReporterFromContext(ctx)
+	totalFiles := len(filePaths)
+	processedFiles := 0
+
 	nextIndex := make(map[string]map[string][]searchIndexItem)
 	touchedEntities := make(map[string]struct{})
-	for filePath, value := range payload {
+	for _, filePath := range filePaths {
+		value := payload[filePath]
 		entity := entityNameFromPath(filePath)
 		if entity == "" {
+			processedFiles++
+			reportCacheWriteProgress(progressReporter, region, filePath, processedFiles, totalFiles)
 			continue
 		}
 
 		records, ok := value.([]any)
 		if !ok {
+			processedFiles++
+			reportCacheWriteProgress(progressReporter, region, filePath, processedFiles, totalFiles)
 			continue
 		}
 
@@ -164,6 +178,9 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 		if _, err := pipe.Exec(ctx); err != nil {
 			return fmt.Errorf("incremental update region %s entity %s: %w", regionName, entity, err)
 		}
+
+		processedFiles++
+		reportCacheWriteProgress(progressReporter, region, filePath, processedFiles, totalFiles)
 	}
 
 	cache.mu.Lock()
@@ -185,6 +202,25 @@ func equalStringSlices(left []string, right []string) bool {
 	}
 
 	return true
+}
+
+func reportCacheWriteProgress(reporter masterdata.ProgressReporter, region string, filePath string, processedFiles int, totalFiles int) {
+	if reporter == nil {
+		return
+	}
+
+	reporter(masterdata.SyncUpdatedEvent{
+		Event:          "master_data_sync_progress",
+		Status:         "running",
+		Region:         strings.TrimSpace(region),
+		Phase:          "cache",
+		Message:        "writing cache",
+		FilePath:       strings.TrimSpace(filePath),
+		FileCount:      processedFiles,
+		ProcessedFiles: processedFiles,
+		TotalFiles:     totalFiles,
+		UpdatedAt:      time.Now().UTC(),
+	})
 }
 
 func mergeRegionIndex(
