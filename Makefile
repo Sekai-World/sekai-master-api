@@ -1,9 +1,8 @@
 APP_NAME=sekai-master-api
-COMPOSE_FILE=deploy/compose/test-compose.yaml
+COMPOSE_FILE=deploy/compose/dev-compose.yaml
 COMPOSE_FILE_ABS := $(abspath $(COMPOSE_FILE))
 WORKSPACE_DIR := $(abspath .)
 APP_PORT ?= 18080
-KEYCLOAK_PORT ?= 18081
 GRAFANA_PORT ?= 3000
 LOKI_PORT ?= 3100
 LOKI_HOST ?= host.docker.internal
@@ -18,7 +17,7 @@ COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "
 DEVCONTAINER ?= devcontainer
 APP_ENV ?= development
 
-.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs test-env-up test-env-down test-env-down-purge test-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui devcontainer-up devcontainer-rebuild devcontainer-test
+.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs smoke admin-open dev-logs-ui devcontainer-up devcontainer-rebuild devcontainer-test
 
 run:
 	go run -buildvcs=false ./cmd/api
@@ -113,40 +112,44 @@ migrate-down:
 	go run -buildvcs=false github.com/pressly/goose/v3/cmd/goose@latest -dir internal/storage/migrations $$DIALECT "$$DSN" down
 
 dev-env-up:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build --remove-orphans; \
+	./scripts/bootstrap-zitadel-dev.sh
 
 dev-env-down:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down --remove-orphans
 
 dev-env-down-purge:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down -v
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down -v --remove-orphans
 
 dev-env-logs:
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f
 
-test-env-up: dev-env-up
-
-test-env-down: dev-env-down
-
-test-env-down-purge: dev-env-down-purge
-
-test-env-logs: dev-env-logs
-
-keycloak-up:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d keycloak
-
-keycloak-down:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) stop keycloak
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) rm -f keycloak
-
-keycloak-logs:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f keycloak
-
-keycloak-token:
-	KEYCLOAK_PORT=$(KEYCLOAK_PORT) sh ./scripts/get-keycloak-token.sh
-
 smoke:
-	APP_PORT=$(APP_PORT) KEYCLOAK_PORT=$(KEYCLOAK_PORT) sh ./scripts/smoke.sh
+	APP_PORT=$(APP_PORT) sh ./scripts/smoke.sh
 
 admin-open:
 	"$$BROWSER" http://localhost:$(APP_PORT)/admin/login

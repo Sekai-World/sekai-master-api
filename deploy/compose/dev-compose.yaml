@@ -1,0 +1,221 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sekai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sekai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - dev
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - dev
+
+  zitadel-proxy:
+    image: traefik:v3.6.8
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=sekai-dev
+      - --entrypoints.web.address=:80
+      - --api.dashboard=false
+      - --api.insecure=false
+      - --ping=true
+      - --ping.entrypoint=web
+      - --log.level=INFO
+      - --accesslog=true
+    ports:
+      - "${ZITADEL_PORT:-18081}:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      zitadel-api:
+        condition: service_healthy
+      zitadel-login:
+        condition: service_healthy
+    networks:
+      - dev
+
+  zitadel-api:
+    image: ghcr.io/zitadel/zitadel:${ZITADEL_VERSION:-v4.11.0}
+    restart: unless-stopped
+    user: "0"
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY:-MasterkeyNeedsToHave32Characters}"
+    environment:
+      ZITADEL_PORT: 8080
+      ZITADEL_EXTERNALDOMAIN: ${ZITADEL_DOMAIN:-localhost}
+      ZITADEL_EXTERNALPORT: ${ZITADEL_PORT:-18081}
+      ZITADEL_EXTERNALSECURE: false
+      ZITADEL_PUBLIC_SCHEME: http
+      ZITADEL_TLS_ENABLED: false
+
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_EXISTINGDATABASE: sekai
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+
+      ZITADEL_FIRSTINSTANCE_ORG_NAME: ${ZITADEL_FIRSTINSTANCE_ORG_NAME:-sekai}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME:-admin}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD:-Admin123!Admin123!}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS:-admin@sekai.local}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED:-true}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME:-Sekai}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME: ${ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME:-Admin}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: false
+      ZITADEL_FIRSTINSTANCE_MACHINEKEYPATH: /zitadel/bootstrap/admin-machine-key.json
+      ZITADEL_FIRSTINSTANCE_PATPATH: /zitadel/bootstrap/admin-machine.pat
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: ${ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME:-sekai-bootstrap}
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: ${ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME:-Sekai Bootstrap Admin}
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINEKEY_TYPE: 1
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: true
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: http://${ZITADEL_DOMAIN:-localhost}:${ZITADEL_PORT:-18081}/ui/v2/login/
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: http://${ZITADEL_DOMAIN:-localhost}:${ZITADEL_PORT:-18081}/ui/v2/login/login?authRequest=
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://${ZITADEL_DOMAIN:-localhost}:${ZITADEL_PORT:-18081}/ui/v2/login/logout?post_logout_redirect=
+      ZITADEL_SAML_DEFAULTLOGINURLV2: http://${ZITADEL_DOMAIN:-localhost}:${ZITADEL_PORT:-18081}/ui/v2/login/login?samlRequest=
+
+      ZITADEL_LOGSTORE_ACCESS_STDOUT_ENABLED: true
+      ZITADEL_INSTRUMENTATION_TRACE_EXPORTER_TYPE: none
+      ZITADEL_INSTRUMENTATION_TRACE_EXPORTER_ENDPOINT: ""
+      ZITADEL_INSTRUMENTATION_TRACE_EXPORTER_INSECURE: false
+      ZITADEL_INSTRUMENTATION_SERVICENAME: zitadel-api
+    healthcheck:
+      test:
+        - CMD
+        - /app/zitadel
+        - ready
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:rw
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dev
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=sekai-dev
+      - traefik.http.services.zitadel-api.loadbalancer.server.port=8080
+      - traefik.http.services.zitadel-api.loadbalancer.server.scheme=h2c
+      - traefik.http.middlewares.zitadel-strip-api.stripprefix.prefixes=/api
+      - traefik.http.middlewares.zitadel-strip-api.stripprefix.forceSlash=false
+      - traefik.http.routers.zitadel-api-alias.rule=Host(`${ZITADEL_DOMAIN:-localhost}`) && PathPrefix(`/api`)
+      - traefik.http.routers.zitadel-api-alias.entrypoints=web
+      - traefik.http.routers.zitadel-api-alias.middlewares=zitadel-strip-api
+      - traefik.http.routers.zitadel-api-alias.service=zitadel-api
+      - traefik.http.routers.zitadel-api-alias.priority=200
+      - traefik.http.routers.zitadel-canonical.rule=Host(`${ZITADEL_DOMAIN:-localhost}`) && !PathPrefix(`/ui/v2/login`) && !PathPrefix(`/api`) && !Path(`/`)
+      - traefik.http.routers.zitadel-canonical.entrypoints=web
+      - traefik.http.routers.zitadel-canonical.service=zitadel-api
+      - traefik.http.routers.zitadel-canonical.priority=100
+
+  zitadel-login:
+    image: ghcr.io/zitadel/zitadel-login:${ZITADEL_VERSION:-v4.11.0}
+    restart: unless-stopped
+    user: "0"
+    environment:
+      ZITADEL_API_URL: http://zitadel-api:8080
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
+      CUSTOM_REQUEST_HEADERS: Host:${ZITADEL_DOMAIN:-localhost},X-Forwarded-Proto:http
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://localhost:3000/ui/v2/login/healthy').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - zitadel-bootstrap:/zitadel/bootstrap:ro
+    depends_on:
+      zitadel-api:
+        condition: service_healthy
+    networks:
+      - dev
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=sekai-dev
+      - traefik.http.services.zitadel-login.loadbalancer.server.port=3000
+      - traefik.http.middlewares.zitadel-root-rewrite.replacepath.path=/ui/v2/login/
+      - traefik.http.routers.zitadel-root.rule=Host(`${ZITADEL_DOMAIN:-localhost}`) && Path(`/`)
+      - traefik.http.routers.zitadel-root.entrypoints=web
+      - traefik.http.routers.zitadel-root.middlewares=zitadel-root-rewrite
+      - traefik.http.routers.zitadel-root.service=zitadel-login
+      - traefik.http.routers.zitadel-root.priority=400
+      - traefik.http.routers.zitadel-login.rule=Host(`${ZITADEL_DOMAIN:-localhost}`) && PathPrefix(`/ui/v2/login`)
+      - traefik.http.routers.zitadel-login.entrypoints=web
+      - traefik.http.routers.zitadel-login.service=zitadel-login
+      - traefik.http.routers.zitadel-login.priority=250
+
+  loki:
+    image: grafana/loki:3.6.7
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    networks:
+      - dev
+
+  grafana:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/grafana/Dockerfile
+    image: sekai/grafana-dev:12.4.0
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - loki
+    networks:
+      - dev
+
+volumes:
+  pg-data:
+  zitadel-bootstrap:
+
+networks:
+  dev:
+    name: sekai-dev
