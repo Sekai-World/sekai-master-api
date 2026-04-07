@@ -1,11 +1,11 @@
 package http
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"sekai-master-api/internal/config"
@@ -32,8 +32,14 @@ func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 	t.Helper()
 
 	cfg := config.Config{
-		Port:   "8080",
-		AppEnv: appEnv,
+		Port:                  "8080",
+		AppEnv:                appEnv,
+		ZitadelIssuerURL:      "https://zitadel.example.com",
+		ZitadelAudience:       "https://api.example.com",
+		ZitadelClientID:       "web-client",
+		ZitadelRedirectURL:    "http://localhost:8080/api/v1/admin/login/callback",
+		ZitadelScopes:         []string{"openid", "profile", "email"},
+		ZitadelPrivateKeyPath: "/tmp/zitadel-test-key.pem",
 	}
 
 	return NewRouter(cfg, nil, mockVerifier{}, nil, nil)
@@ -322,16 +328,43 @@ func TestAdminLoginPage(t *testing.T) {
 	}
 }
 
-func TestAdminLoginInvalidPayload(t *testing.T) {
+func TestAdminLoginStart(t *testing.T) {
 	router := setupRouter(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", bytes.NewBufferString("{invalid-json"))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/login", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 on invalid admin login payload, got %d", resp.Code)
+	if resp.Code != http.StatusFound {
+		t.Fatalf("expected 302 on admin login start, got %d", resp.Code)
+	}
+
+	location := resp.Header().Get("Location")
+	if !strings.HasPrefix(location, "https://zitadel.example.com/oauth/v2/authorize?") {
+		t.Fatalf("expected redirect to zitadel authorize endpoint, got %q", location)
+	}
+
+	if len(resp.Result().Cookies()) == 0 {
+		t.Fatal("expected login cookies to be set")
+	}
+}
+
+func TestAdminLoginCallbackInvalidState(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/login/callback?code=demo-code&state=wrong-state", nil)
+	req.AddCookie(&http.Cookie{Name: "sekai_admin_login_state", Value: "expected-state", Path: "/api/v1/admin/login"})
+	req.AddCookie(&http.Cookie{Name: "sekai_admin_login_code_verifier", Value: "code-verifier", Path: "/api/v1/admin/login"})
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusFound {
+		t.Fatalf("expected 302 on invalid callback state, got %d", resp.Code)
+	}
+
+	if location := resp.Header().Get("Location"); location != "/admin/login?error=oauth_state_mismatch" {
+		t.Fatalf("expected redirect to login error page, got %q", location)
 	}
 }

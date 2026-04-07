@@ -47,9 +47,9 @@ func main() {
 		logger.Fatalf("failed to run database migrations: %v", err)
 	}
 
-	keycloakVerifier, err := auth.NewKeycloakVerifier(context.Background(), cfg)
+	tokenVerifier, err := auth.NewOIDCVerifier(context.Background(), cfg)
 	if err != nil {
-		logger.Fatalf("failed to initialize keycloak verifier: %v", err)
+		logger.Fatalf("failed to initialize oidc verifier: %v", err)
 	}
 
 	masterDataSources := buildMasterDataSources(cfg)
@@ -82,7 +82,7 @@ func main() {
 		masterDataEventHub,
 		cfg.MasterDataSyncConcurrency,
 	)
-	router := transport.NewRouter(cfg, db, keycloakVerifier, masterDataSyncUsecase, masterDataEventHub)
+	router := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub)
 
 	listener, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {

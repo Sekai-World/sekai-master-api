@@ -10,17 +10,11 @@
     <main class="auth-shell">
       <section class="auth-card">
         <h1>Sekai Admin</h1>
-        <p class="subtitle">使用 Keycloak 用户名和密码登录管理后台</p>
+        <p class="subtitle">通过 ZITADEL 登录管理后台，令牌交换由后端完成。</p>
 
-        <form id="login-form" class="auth-form">
-          <label for="username">Username</label>
-          <input id="username" name="username" type="text" autocomplete="username" required />
-
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required />
-
-          <button type="submit">登录 Dashboard</button>
-        </form>
+        <div class="auth-form">
+          <button id="login-button" type="button">使用 ZITADEL 登录</button>
+        </div>
 
         <p id="login-error" class="error-text" aria-live="polite"></p>
       </section>

@@ -58,7 +58,8 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		v1.GET("/events/:region/current", eventHandler.Current)
 		v1.GET("/events/:region/:id", eventHandler.ByID)
 		v1.GET("/events/:region/:id/rewards", eventHandler.RewardsByID)
-		v1.POST("/admin/login", adminLoginHandler.Login)
+		v1.GET("/admin/login", adminLoginHandler.Start)
+		v1.GET("/admin/login/callback", adminLoginHandler.Callback)
 
 		admin := v1.Group("/admin")
 		admin.Use(middleware.Auth(tokenVerifier))

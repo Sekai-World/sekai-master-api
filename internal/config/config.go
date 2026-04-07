@@ -32,13 +32,17 @@ type Config struct {
 	RedisPassword                string
 	RedisDB                      int
 	MasterDataRedisKeyPrefix     string
-	KeycloakBaseURL              string
-	KeycloakRealm                string
-	KeycloakClientID             string
-	KeycloakIssuerURL            string
-	KeycloakAudience             string
-	KeycloakSkipIssuer           bool
-	KeycloakSkipAudCheck         bool
+	ZitadelIssuerURL             string
+	ZitadelAudience              string
+	ZitadelSkipIssuer            bool
+	ZitadelSkipAudCheck          bool
+	ZitadelClientID              string
+	ZitadelAuthURL               string
+	ZitadelTokenURL              string
+	ZitadelRedirectURL           string
+	ZitadelScopes                []string
+	ZitadelPrivateKeyPath        string
+	ZitadelPrivateKeyID          string
 }
 
 type MasterDataSource struct {
@@ -52,10 +56,11 @@ type MasterDataSource struct {
 func Load() Config {
 	loadEnvFiles()
 	appEnv := getEnv("APP_ENV", "development")
+	port := getEnv("APP_PORT", "8080")
 	logLevel := resolveLogLevel(strings.TrimSpace(getEnv("LOG_LEVEL", "")), appEnv)
 
 	return Config{
-		Port:                         getEnv("APP_PORT", "8080"),
+		Port:                         port,
 		AppEnv:                       appEnv,
 		LogLevel:                     logLevel,
 		LokiPushURL:                  strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
@@ -76,13 +81,17 @@ func Load() Config {
 		RedisPassword:                getEnv("REDIS_PASSWORD", ""),
 		RedisDB:                      getEnvInt("REDIS_DB", 0),
 		MasterDataRedisKeyPrefix:     getEnv("MASTER_DATA_REDIS_KEY_PREFIX", "sekai:master-data:"),
-		KeycloakBaseURL:              getEnv("KEYCLOAK_BASE_URL", "http://localhost:8081"),
-		KeycloakRealm:                getEnv("KEYCLOAK_REALM", "sekai"),
-		KeycloakClientID:             getEnv("KEYCLOAK_CLIENT_ID", "sekai-api"),
-		KeycloakIssuerURL:            getEnv("KEYCLOAK_ISSUER_URL", "http://localhost:8081/realms/sekai"),
-		KeycloakAudience:             getEnv("KEYCLOAK_AUDIENCE", "sekai-api"),
-		KeycloakSkipIssuer:           strings.EqualFold(getEnv("KEYCLOAK_SKIP_ISSUER_CHECK", "false"), "true"),
-		KeycloakSkipAudCheck:         strings.EqualFold(getEnv("KEYCLOAK_SKIP_AUDIENCE_CHECK", "false"), "true"),
+		ZitadelIssuerURL:             strings.TrimSpace(getEnv("ZITADEL_ISSUER_URL", "")),
+		ZitadelAudience:              strings.TrimSpace(getEnv("ZITADEL_AUDIENCE", "")),
+		ZitadelSkipIssuer:            strings.EqualFold(getEnv("ZITADEL_SKIP_ISSUER_CHECK", "false"), "true"),
+		ZitadelSkipAudCheck:          strings.EqualFold(getEnv("ZITADEL_SKIP_AUDIENCE_CHECK", "false"), "true"),
+		ZitadelClientID:              strings.TrimSpace(getEnv("ZITADEL_CLIENT_ID", "")),
+		ZitadelAuthURL:               strings.TrimSpace(getEnv("ZITADEL_AUTH_URL", "")),
+		ZitadelTokenURL:              strings.TrimSpace(getEnv("ZITADEL_TOKEN_URL", "")),
+		ZitadelRedirectURL:           strings.TrimSpace(getEnv("ZITADEL_REDIRECT_URL", "http://localhost:"+port+"/api/v1/admin/login/callback")),
+		ZitadelScopes:                getEnvListWithFallback("ZITADEL_SCOPES", []string{"openid", "profile", "email"}),
+		ZitadelPrivateKeyPath:        strings.TrimSpace(getEnv("ZITADEL_PRIVATE_KEY_PATH", "")),
+		ZitadelPrivateKeyID:          strings.TrimSpace(getEnv("ZITADEL_PRIVATE_KEY_ID", "")),
 	}
 }
 
@@ -152,6 +161,22 @@ func (cfg Config) EffectiveDatabaseDSN() string {
 	return cfg.DatabaseURL
 }
 
+func (cfg Config) ZitadelAuthorizationURL() string {
+	if cfg.ZitadelAuthURL != "" {
+		return cfg.ZitadelAuthURL
+	}
+
+	return strings.TrimRight(cfg.ZitadelIssuerURL, "/") + "/oauth/v2/authorize"
+}
+
+func (cfg Config) ZitadelTokenEndpoint() string {
+	if cfg.ZitadelTokenURL != "" {
+		return cfg.ZitadelTokenURL
+	}
+
+	return strings.TrimRight(cfg.ZitadelIssuerURL, "/") + "/oauth/v2/token"
+}
+
 func getEnv(key string, fallback string) string {
 	value, ok := os.LookupEnv(key)
 	if !ok || value == "" {
@@ -200,6 +225,15 @@ func getEnvList(key string) []string {
 	}
 
 	return values
+}
+
+func getEnvListWithFallback(key string, fallback []string) []string {
+	values := getEnvList(key)
+	if len(values) > 0 {
+		return values
+	}
+
+	return append([]string(nil), fallback...)
 }
 
 func loadMasterDataSources(regions []string) map[string]MasterDataSource {

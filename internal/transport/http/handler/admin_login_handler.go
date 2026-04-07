@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,135 +14,272 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/auth"
 	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/transport/http/response"
 )
 
+const (
+	adminLoginStateCookie    = "sekai_admin_login_state"
+	adminCodeVerifierCookie  = "sekai_admin_login_code_verifier"
+	adminLoginCookiePath     = "/api/v1/admin/login"
+	adminDashboardPath       = "/admin"
+	adminLoginPagePath       = "/admin/login"
+	adminSessionStorageToken = "sekai_admin_token"
+)
+
 type AdminLoginHandler struct {
-	tokenEndpoint string
-	clientID      string
-	httpClient    *http.Client
+	authURL        string
+	tokenEndpoint  string
+	clientID       string
+	redirectURL    string
+	scopes         []string
+	privateKeyPath string
+	privateKeyID   string
+	httpClient     *http.Client
 }
 
-type AdminLoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type keycloakTokenResponse struct {
+type oauthTokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"`
 }
 
-type keycloakErrorResponse struct {
+type oauthErrorResponse struct {
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
 }
 
 func NewAdminLoginHandler(cfg config.Config) *AdminLoginHandler {
-	baseURL := strings.TrimRight(cfg.KeycloakBaseURL, "/")
-	realm := strings.TrimSpace(cfg.KeycloakRealm)
-
-	tokenEndpoint := baseURL + "/realms/" + url.PathEscape(realm) + "/protocol/openid-connect/token"
-
 	return &AdminLoginHandler{
-		tokenEndpoint: tokenEndpoint,
-		clientID:      cfg.KeycloakClientID,
+		authURL:        cfg.ZitadelAuthorizationURL(),
+		tokenEndpoint:  cfg.ZitadelTokenEndpoint(),
+		clientID:       cfg.ZitadelClientID,
+		redirectURL:    cfg.ZitadelRedirectURL,
+		scopes:         append([]string(nil), cfg.ZitadelScopes...),
+		privateKeyPath: cfg.ZitadelPrivateKeyPath,
+		privateKeyID:   cfg.ZitadelPrivateKeyID,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
 }
 
-// Login godoc
-// @Summary Login with Keycloak credentials
+// Start godoc
+// @Summary Start admin login with ZITADEL
 // @Tags admin
-// @Accept json
-// @Produce json
-// @Param payload body AdminLoginRequest true "Login payload"
-// @Success 200 {object} AdminLoginResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 401 {object} ErrorResponse
-// @Failure 502 {object} ErrorResponse
+// @Success 302 {string} string "Redirect to ZITADEL authorization endpoint"
 // @Failure 500 {object} ErrorResponse
-// @Router /admin/login [post]
-func (handler *AdminLoginHandler) Login(c *gin.Context) {
-	var reqBody AdminLoginRequest
-	if err := c.ShouldBindJSON(&reqBody); err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid login payload")
+// @Router /admin/login [get]
+func (handler *AdminLoginHandler) Start(c *gin.Context) {
+	if !handler.isConfigured() {
+		redirectToLoginError(c, "auth_not_configured")
 		return
 	}
 
-	username := strings.TrimSpace(reqBody.Username)
-	password := strings.TrimSpace(reqBody.Password)
-	if username == "" || password == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "username and password are required")
+	state, err := auth.RandomToken(32)
+	if err != nil {
+		redirectToLoginError(c, "oauth_callback_failed")
+		return
+	}
+
+	codeVerifier, err := auth.RandomToken(32)
+	if err != nil {
+		redirectToLoginError(c, "oauth_callback_failed")
+		return
+	}
+
+	setLoginCookie(c, adminLoginStateCookie, state)
+	setLoginCookie(c, adminCodeVerifierCookie, codeVerifier)
+
+	params := url.Values{}
+	params.Set("client_id", handler.clientID)
+	params.Set("response_type", "code")
+	params.Set("redirect_uri", handler.redirectURL)
+	params.Set("scope", strings.Join(handler.scopes, " "))
+	params.Set("state", state)
+	params.Set("code_challenge", codeChallenge(codeVerifier))
+	params.Set("code_challenge_method", "S256")
+
+	c.Redirect(http.StatusFound, handler.authURL+"?"+params.Encode())
+}
+
+func (handler *AdminLoginHandler) Callback(c *gin.Context) {
+	clearLoginCookies(c)
+
+	if providerError := strings.TrimSpace(c.Query("error")); providerError != "" {
+		redirectToLoginError(c, "oauth_login_failed")
+		return
+	}
+
+	state := strings.TrimSpace(c.Query("state"))
+	code := strings.TrimSpace(c.Query("code"))
+	expectedState, stateCookieErr := c.Cookie(adminLoginStateCookie)
+	codeVerifier, verifierCookieErr := c.Cookie(adminCodeVerifierCookie)
+
+	if state == "" || code == "" || stateCookieErr != nil || verifierCookieErr != nil || state != expectedState {
+		redirectToLoginError(c, "oauth_state_mismatch")
 		return
 	}
 
 	form := url.Values{}
-	form.Set("grant_type", "password")
+	form.Set("grant_type", "authorization_code")
 	form.Set("client_id", handler.clientID)
-	form.Set("username", username)
-	form.Set("password", password)
+	form.Set("code", code)
+	form.Set("redirect_uri", handler.redirectURL)
+	form.Set("code_verifier", codeVerifier)
+
+	if handler.usesPrivateKeyJWT() {
+		signer, err := auth.NewPrivateKeyJWTSigner(handler.clientID, handler.tokenEndpoint, handler.privateKeyPath, handler.privateKeyID)
+		if err != nil {
+			logWithRequestID(c, "admin login signer init failed: endpoint=%s error=%v", handler.tokenEndpoint, err)
+			redirectToLoginError(c, "oauth_callback_failed")
+			return
+		}
+
+		clientAssertion, err := signer.SignAssertion(time.Now())
+		if err != nil {
+			logWithRequestID(c, "admin login signer assertion failed: endpoint=%s error=%v", handler.tokenEndpoint, err)
+			redirectToLoginError(c, "oauth_callback_failed")
+			return
+		}
+
+		form.Set("client_assertion_type", auth.ClientAssertionType())
+		form.Set("client_assertion", clientAssertion)
+	}
 
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, handler.tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to build login request")
+		redirectToLoginError(c, "oauth_callback_failed")
 		return
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := handler.httpClient.Do(request)
 	if err != nil {
-		logWithRequestID(c, "admin login keycloak request failed: endpoint=%s error=%v", handler.tokenEndpoint, err)
-		response.Error(c, http.StatusBadGateway, "KEYCLOAK_UNAVAILABLE", "failed to connect keycloak")
+		logWithRequestID(c, "admin login token request failed: endpoint=%s error=%v", handler.tokenEndpoint, err)
+		redirectToLoginError(c, "oauth_exchange_failed")
 		return
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logWithRequestID(c, "admin login failed to read keycloak response: status=%d error=%v", resp.StatusCode, err)
-		response.Error(c, http.StatusBadGateway, "KEYCLOAK_RESPONSE_ERROR", "failed to read keycloak response")
+		logWithRequestID(c, "admin login failed to read token response: status=%d error=%v", resp.StatusCode, err)
+		redirectToLoginError(c, "oauth_exchange_failed")
 		return
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		var keycloakErr keycloakErrorResponse
-		if err := json.Unmarshal(body, &keycloakErr); err == nil && (keycloakErr.Error != "" || keycloakErr.ErrorDescription != "") {
-			logWithRequestID(c, "admin login rejected by keycloak: status=%d error=%s description=%s", resp.StatusCode, keycloakErr.Error, keycloakErr.ErrorDescription)
+		var oauthErr oauthErrorResponse
+		if err := json.Unmarshal(body, &oauthErr); err == nil && (oauthErr.Error != "" || oauthErr.ErrorDescription != "") {
+			logWithRequestID(c, "admin login rejected by zitadel: status=%d error=%s description=%s", resp.StatusCode, oauthErr.Error, oauthErr.ErrorDescription)
 		} else {
-			logWithRequestID(c, "admin login rejected by keycloak: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
+			logWithRequestID(c, "admin login rejected by zitadel: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
 		}
 
-		if resp.StatusCode >= http.StatusInternalServerError {
-			response.Error(c, http.StatusBadGateway, "KEYCLOAK_UNAVAILABLE", "failed to connect keycloak")
-			return
-		}
-
-		response.Error(c, http.StatusUnauthorized, "LOGIN_FAILED", "login failed")
+		redirectToLoginError(c, "oauth_exchange_failed")
 		return
 	}
 
-	var keycloakResp keycloakTokenResponse
-	if err := json.Unmarshal(body, &keycloakResp); err != nil {
-		logWithRequestID(c, "admin login received invalid keycloak token response: status=%d error=%v body=%s", resp.StatusCode, err, sanitizeLogBody(string(body)))
-		response.Error(c, http.StatusBadGateway, "KEYCLOAK_RESPONSE_ERROR", "invalid keycloak token response")
+	var tokenResp oauthTokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		logWithRequestID(c, "admin login received invalid token response: status=%d error=%v body=%s", resp.StatusCode, err, sanitizeLogBody(string(body)))
+		redirectToLoginError(c, "oauth_exchange_failed")
 		return
 	}
-	if strings.TrimSpace(keycloakResp.AccessToken) == "" {
-		logWithRequestID(c, "admin login keycloak response missing access token: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
-		response.Error(c, http.StatusBadGateway, "KEYCLOAK_RESPONSE_ERROR", "keycloak token missing")
+	if strings.TrimSpace(tokenResp.AccessToken) == "" {
+		logWithRequestID(c, "admin login token response missing access token: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
+		redirectToLoginError(c, "oauth_exchange_failed")
 		return
 	}
 
-	response.JSON(c, http.StatusOK, gin.H{
-		"access_token": keycloakResp.AccessToken,
-		"token_type":   keycloakResp.TokenType,
-		"expires_in":   keycloakResp.ExpiresIn,
+	renderLoginSuccess(c, tokenResp.AccessToken)
+}
+
+func (handler *AdminLoginHandler) isConfigured() bool {
+	return isAbsoluteURL(handler.authURL) &&
+		isAbsoluteURL(handler.tokenEndpoint) &&
+		isAbsoluteURL(handler.redirectURL) &&
+		strings.TrimSpace(handler.clientID) != "" &&
+		len(handler.scopes) > 0
+}
+
+func (handler *AdminLoginHandler) usesPrivateKeyJWT() bool {
+	return strings.TrimSpace(handler.privateKeyPath) != ""
+}
+
+func setLoginCookie(c *gin.Context, name string, value string) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     adminLoginCookiePath,
+		HttpOnly: true,
+		Secure:   requestUsesHTTPS(c),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600,
 	})
+}
+
+func clearLoginCookies(c *gin.Context) {
+	for _, name := range []string{adminLoginStateCookie, adminCodeVerifierCookie} {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     adminLoginCookiePath,
+			HttpOnly: true,
+			Secure:   requestUsesHTTPS(c),
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	}
+}
+
+func requestUsesHTTPS(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+
+	return strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")), "https")
+}
+
+func codeChallenge(codeVerifier string) string {
+	sum := sha256.Sum256([]byte(codeVerifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+func redirectToLoginError(c *gin.Context, code string) {
+	c.Redirect(http.StatusFound, adminLoginPagePath+"?error="+url.QueryEscape(code))
+}
+
+func isAbsoluteURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && parsed.IsAbs()
+}
+
+func renderLoginSuccess(c *gin.Context, accessToken string) {
+	tokenJSON, err := json.Marshal(accessToken)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to finalize login")
+		return
+	}
+
+	html := fmt.Sprintf(`<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="refresh" content="0;url=%s" />
+    <title>Admin Login</title>
+  </head>
+  <body>
+    <script>
+      sessionStorage.setItem(%q, %s);
+      window.location.replace(%q);
+    </script>
+  </body>
+</html>`, adminDashboardPath, adminSessionStorageToken, string(tokenJSON), adminDashboardPath)
+
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(html))
 }
 
 func sanitizeLogBody(raw string) string {

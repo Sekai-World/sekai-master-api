@@ -15,32 +15,32 @@ type TokenVerifier interface {
 	Verify(ctx context.Context, rawToken string) (map[string]any, error)
 }
 
-type KeycloakVerifier struct {
+type OIDCVerifier struct {
 	verifier *oidc.IDTokenVerifier
 }
 
-func NewKeycloakVerifier(ctx context.Context, cfg config.Config) (*KeycloakVerifier, error) {
-	provider, err := oidc.NewProvider(ctx, cfg.KeycloakIssuerURL)
+func NewOIDCVerifier(ctx context.Context, cfg config.Config) (*OIDCVerifier, error) {
+	provider, err := oidc.NewProvider(ctx, cfg.ZitadelIssuerURL)
 	if err != nil {
 		return nil, err
 	}
 
 	oidcConfig := &oidc.Config{
-		SkipIssuerCheck: cfg.KeycloakSkipIssuer,
+		SkipIssuerCheck: cfg.ZitadelSkipIssuer,
 	}
 
-	if cfg.KeycloakSkipAudCheck {
+	if cfg.ZitadelSkipAudCheck {
 		oidcConfig.SkipClientIDCheck = true
 	} else {
-		oidcConfig.ClientID = cfg.KeycloakAudience
+		oidcConfig.ClientID = cfg.ZitadelAudience
 	}
 
-	return &KeycloakVerifier{
+	return &OIDCVerifier{
 		verifier: provider.Verifier(oidcConfig),
 	}, nil
 }
 
-func (verifier *KeycloakVerifier) Verify(ctx context.Context, rawToken string) (map[string]any, error) {
+func (verifier *OIDCVerifier) Verify(ctx context.Context, rawToken string) (map[string]any, error) {
 	token, err := verifier.verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return nil, ErrInvalidToken
