@@ -663,6 +663,17 @@ func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]ma
 		return statuses, nil
 	}
 
+	hasRunningStatus := false
+	for _, status := range statuses {
+		if strings.EqualFold(strings.TrimSpace(status.Status), "running") {
+			hasRunningStatus = true
+			break
+		}
+	}
+	if !hasRunningStatus {
+		return statuses, nil
+	}
+
 	stableStore, ok := usecase.statusStore.(MasterDataSyncLatestStableStore)
 	if !ok {
 		return statuses, nil
