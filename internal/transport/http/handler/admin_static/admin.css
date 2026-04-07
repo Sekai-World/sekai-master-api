@@ -6,6 +6,9 @@
   --muted: #94a3b8;
   --accent: #38bdf8;
   --danger: #f87171;
+  --control-height: 42px;
+  --control-font-size: 0.95rem;
+  --heading-font-size: 1.05rem;
 }
 
 * {
@@ -58,6 +61,7 @@ textarea {
   background: #0b1120;
   color: var(--text);
   padding: 12px;
+  font-size: var(--control-font-size);
 }
 
 textarea {
@@ -67,11 +71,14 @@ textarea {
 button {
   border: 0;
   border-radius: 10px;
-  padding: 10px 14px;
+  min-height: var(--control-height);
+  padding: 10px 16px;
   color: #031321;
   background: linear-gradient(135deg, #7dd3fc, var(--accent));
   cursor: pointer;
   font-weight: 600;
+  font-size: var(--control-font-size);
+  line-height: 1.2;
 }
 
 button:disabled,
@@ -92,6 +99,7 @@ button.is-loading {
 .topbar p {
   margin: 6px 0 0;
   color: var(--muted);
+  font-size: 0.95rem;
 }
 
 .topbar-actions {
@@ -105,11 +113,14 @@ button.is-loading {
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  padding: 10px 14px;
+  min-height: var(--control-height);
+  padding: 10px 16px;
   color: #031321;
   background: linear-gradient(135deg, #7dd3fc, var(--accent));
   cursor: pointer;
   font-weight: 600;
+  font-size: var(--control-font-size);
+  line-height: 1.2;
   text-decoration: none;
 }
 
@@ -142,6 +153,7 @@ button.is-loading {
 
 .panel-header h2 {
   margin: 0;
+  font-size: var(--heading-font-size);
 }
 
 .sync-actions {
@@ -155,8 +167,14 @@ button.is-loading {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--control-font-size);
   user-select: none;
+}
+
+.sync-force-toggle select {
+  min-width: 124px;
+  min-height: var(--control-height);
+  padding: 10px 12px;
 }
 
 .sync-force-toggle input {
@@ -200,7 +218,7 @@ pre {
 
 .profile-label {
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.88rem;
 }
 
 .profile-value {
@@ -245,7 +263,7 @@ pre {
 
 .sync-progress-title {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   margin-bottom: 8px;
 }
 
@@ -255,7 +273,7 @@ pre {
 }
 
 .sync-progress-item {
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   color: var(--text);
   word-break: break-word;
 }
@@ -282,7 +300,7 @@ pre {
 
 .master-data-status-item .label {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   display: block;
   margin-bottom: 4px;
 }
