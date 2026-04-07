@@ -506,7 +506,7 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 				Message:        "writing cache",
 				CurrentStep:    step,
 				TotalSteps:     totalSteps,
-				FileCount:      0,
+				FileCount:      len(payload),
 				ProcessedFiles: 0,
 				TotalFiles:     len(payload),
 				UpdatedAt:      time.Now().UTC(),
