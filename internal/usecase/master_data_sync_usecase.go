@@ -499,18 +499,20 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 				len(payload),
 			)
 			usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-				Event:       "master_data_sync_progress",
-				Status:      "running",
-				Region:      source.Region,
-				Phase:       "cache",
-				Message:     "writing cache",
-				CurrentStep: step,
-				TotalSteps:  totalSteps,
-				FileCount:   len(payload),
-				UpdatedAt:   time.Now().UTC(),
+				Event:          "master_data_sync_progress",
+				Status:         "running",
+				Region:         source.Region,
+				Phase:          "cache",
+				Message:        "writing cache",
+				CurrentStep:    step,
+				TotalSteps:     totalSteps,
+				FileCount:      0,
+				ProcessedFiles: 0,
+				TotalFiles:     len(payload),
+				UpdatedAt:      time.Now().UTC(),
 			})
 
-			if err := usecase.cache.StoreRegion(ctx, source.Region, payload); err != nil {
+			if err := usecase.cache.StoreRegion(progressCtx, source.Region, payload); err != nil {
 				duration := time.Since(startedAt).Milliseconds()
 				usecase.logf("sync failed region=%s phase=cache files=%d duration_ms=%d error=%v", source.Region, len(payload), duration, err)
 				usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{

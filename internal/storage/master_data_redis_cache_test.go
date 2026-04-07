@@ -7,6 +7,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/domain/masterdata"
 )
 
 func TestStoreRegionIncrementalUpdate(t *testing.T) {
@@ -105,6 +106,57 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 	}
 	if len(skillMatches) != 1 {
 		t.Fatalf("expected untouched skills entity to stay searchable, got %d matches", len(skillMatches))
+	}
+}
+
+func TestStoreRegionReportsCacheWriteProgress(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	events := make([]masterdata.SyncUpdatedEvent, 0)
+	ctx := masterdata.WithProgressReporter(context.Background(), func(event masterdata.SyncUpdatedEvent) {
+		if event.Phase != "cache" {
+			return
+		}
+		events = append(events, event)
+	})
+
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+		"skills.json": []any{
+			map[string]any{"id": 2, "name": "focus"},
+		},
+	}
+
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	if len(events) != 2 {
+		t.Fatalf("expected 2 cache progress events, got %d", len(events))
+	}
+	if events[0].ProcessedFiles != 1 || events[0].TotalFiles != 2 {
+		t.Fatalf("expected first cache progress 1/2, got %d/%d", events[0].ProcessedFiles, events[0].TotalFiles)
+	}
+	if events[1].ProcessedFiles != 2 || events[1].TotalFiles != 2 {
+		t.Fatalf("expected second cache progress 2/2, got %d/%d", events[1].ProcessedFiles, events[1].TotalFiles)
 	}
 }
 
