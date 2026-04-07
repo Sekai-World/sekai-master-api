@@ -1,17 +1,17 @@
 # sekai-master-api
 
-Go RESTful API template (Gin + Keycloak + environment-based database) with Dev Container support.
+Go RESTful API template (Gin + ZITADEL + environment-based database) with Dev Container support.
 
 ## Features
 
 - Gin-based REST API (`/api/v1`)
-- Keycloak access-token validation for admin-only API endpoints
+- ZITADEL access-token validation for protected API endpoints
 - Environment-specific database strategy:
   - development: sqlite
   - test/production: postgresql
   - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
 - Devcontainer for consistent development
-- Compose-based test environment commands
+- Compose-based development environment commands, including a local ZITADEL stack
 - Third-party logging with Zap (configurable log level)
 - Built-in modern admin dashboard with dedicated login page
 - Master data sync from GitHub JSON repositories (multi-region)
@@ -40,21 +40,18 @@ If the host SSH agent socket changed and `devcontainer up` fails with a stale bi
 
 - `make devcontainer-rebuild`
 
-### Local Test Env File
+### Test Env File
 
-This repo provides `.env.test` for local testing. You can keep machine-specific overrides in `.env.local` or `.env.test.local`. Typical flow:
+This repo provides `.env.test` for connecting to the deployed test environment. You can keep machine-specific overrides in `.env.local` or `.env.test.local`. `APP_ENV=test` is expected to connect directly to your remote test PostgreSQL and ZITADEL endpoints; it does not start local compose services.
 
-1. Start dependencies on non-conflicting Keycloak port:
-   - `KEYCLOAK_PORT=18081 make dev-env-up`
-2. Run API in test mode:
-   - `APP_ENV=test go run ./cmd/api`
-
-For local development with PostgreSQL, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local`, then run:
+For local development with PostgreSQL and the bundled ZITADEL stack, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local`, then run:
 
 - `make dev-env-up`
 - `make dev-watch`
 - `make format`
 - `make swagger`
+
+`make dev-env-up` starts PostgreSQL, Redis, ZITADEL, Grafana, and Loki. ZITADEL is exposed on `http://localhost:18081` by default. The command also bootstraps a local ZITADEL project, a public OIDC web application for the admin dashboard, and a default human admin user, then writes the generated client/project values into `.env.development.local`.
 
 `make dev-watch` uses `air` for hot restart on Go code changes.
 For devcontainer workflows with limited memory, `make dev-watch` now defaults to a lower-memory profile:
@@ -99,10 +96,10 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/events/:region/current`
 - `GET /api/v1/events/:region/:id`
 - `GET /api/v1/events/:region/:id/rewards`
-- `GET /api/v1/admin/profile` (Bearer token from Keycloak required)
-- `GET /api/v1/admin/master-data/status` (Bearer token from Keycloak required)
-- `POST /api/v1/admin/master-data/sync` (Bearer token from Keycloak required)
-- `POST /api/v1/admin/master-data/sync/force` (Bearer token from Keycloak required)
+- `GET /api/v1/admin/profile` (Bearer token from ZITADEL required)
+- `GET /api/v1/admin/master-data/status` (Bearer token from ZITADEL required)
+- `POST /api/v1/admin/master-data/sync` (Bearer token from ZITADEL required)
+- `POST /api/v1/admin/master-data/sync/force` (Bearer token from ZITADEL required)
 
 `POST /api/v1/admin/master-data/sync` and `POST /api/v1/admin/master-data/sync/force` support optional JSON payload:
 
@@ -149,6 +146,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
    - `make migrate-down`
 - `make migrate-*` auto-resolves DB connection using `APP_ENV` + dotenv files (`.env`, `.env.<APP_ENV>`, `.env.local`, `.env.<APP_ENV>.local`), with later files overriding earlier ones.
 - Example: `APP_ENV=test make migrate-up`
+  This will target whatever remote test database is configured in `.env.test` / `.env.test.local`.
 
 ### Required env setup pattern
 
@@ -208,51 +206,39 @@ Set `MASTER_DATA_GITHUB_TOKEN` if you need higher GitHub API rate limit.
 
 Login flow:
 
-1. Open `/admin/login` and enter Keycloak username/password.
-2. Dashboard calls `POST /api/v1/admin/login` to exchange credentials for access token.
-3. On success, redirects to `/admin` and calls `GET /api/v1/admin/profile`.
+1. Open `/admin/login`.
+2. Dashboard redirects the browser to ZITADEL authorization endpoint.
+3. After ZITADEL redirects back to `/api/v1/admin/login/callback`, the backend exchanges the authorization code with PKCE. If `ZITADEL_PRIVATE_KEY_PATH` is configured it also sends `private_key_jwt`; otherwise it behaves as a public client.
+4. On success, the callback page stores the access token in session storage, redirects to `/admin`, and the dashboard calls `GET /api/v1/admin/profile`.
 
 Master Data sync panel supports selecting target region (or all regions) and can run both normal sync and force sync per selected scope.
 
-## Keycloak Integration
+## ZITADEL Integration
 
-The API validates bearer tokens with Keycloak OIDC issuer metadata.
+The API validates bearer tokens with ZITADEL OIDC issuer metadata. The admin login flow always uses authorization code plus PKCE, and can optionally add `private_key_jwt` client authentication when a private key is configured.
 
 Required env vars:
 
-- `KEYCLOAK_ISSUER_URL`
-- `KEYCLOAK_AUDIENCE`
+- `ZITADEL_ISSUER_URL`
+- `ZITADEL_AUDIENCE`
+- `ZITADEL_CLIENT_ID`
+- `ZITADEL_REDIRECT_URL`
+- `ZITADEL_SCOPES`
 
 Optional flags for local troubleshooting:
 
-- `KEYCLOAK_SKIP_ISSUER_CHECK`
-- `KEYCLOAK_SKIP_AUDIENCE_CHECK`
+- `ZITADEL_AUTH_URL`
+- `ZITADEL_TOKEN_URL`
+- `ZITADEL_SKIP_ISSUER_CHECK`
+- `ZITADEL_SKIP_AUDIENCE_CHECK`
+- `ZITADEL_PRIVATE_KEY_PATH`
+- `ZITADEL_PRIVATE_KEY_ID`
 
-## Local Keycloak (Dev)
+`ZITADEL_SCOPES` should include your normal OpenID scopes plus the audience scope for the protected API project.
 
-This repository includes a minimal Keycloak setup with pre-imported realm/client/user.
-Keycloak now runs in the same test stack compose file as PostgreSQL and Redis.
+For local development, `.env.development` points the API at the bundled compose ZITADEL instance (`http://host.containers.internal:18081`) so the API can still reach it from inside a devcontainer. `make dev-env-up` now bootstraps the local org/project/app automatically and writes the generated `ZITADEL_CLIENT_ID`, `ZITADEL_AUDIENCE`, and `ZITADEL_SCOPES` into `.env.development.local`. The default local login is `admin@sekai.localhost` with password `Admin123!Admin123!`.
 
-### Start / Stop
-
-- `make keycloak-up`
-- `make keycloak-logs`
-- `make keycloak-down`
-
-### Preloaded realm data
-
-- realm: `sekai`
-- client_id: `sekai-api`
-- username: `alice`
-- password: `alice123!`
-
-### Get access token quickly
-
-- `make keycloak-token`
-
-The command returns token JSON from Keycloak token endpoint. Use the `access_token` as Bearer token for `GET /api/v1/admin/profile`.
-
-If your API runs inside devcontainer while Keycloak runs on host Docker engine, set `KEYCLOAK_ISSUER_URL` to a host-reachable address in container network (for example `http://host.docker.internal:8081/realms/sekai` when available).
+For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your ZITADEL test environment. `make smoke` no longer starts local dependencies.
 
 ## Database by Environment
 
@@ -266,7 +252,6 @@ Health endpoint returns both application and database status.
 
 This project uses Unix socket mounting so devcontainer can call host Docker API.
 The devcontainer installs Docker CLI and does not run daemon inside the devcontainer.
-To avoid host-path mismatch when daemon is outside devcontainer, Keycloak realm import file is baked into a local test image during compose up (no bind mount for realm file).
 
 ### 1) Set socket variables before rebuilding Dev Container
 
@@ -324,7 +309,7 @@ If `devcontainer up` fails with `invalid mount config for type "bind"` and the m
 
 ## Test environment
 
-Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `keycloak:26.5.4`):
+Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `ghcr.io/zitadel/zitadel`, `ghcr.io/zitadel/zitadel-login`, `traefik`, `grafana`, `loki`):
 
 - Makefile uses `docker compose` (fallback: `docker-compose`)
 
@@ -339,20 +324,14 @@ If you need a full cleanup including volumes, use:
 
 `make dev-env-up` also starts Grafana + Loki for Go app log search (`dev-watch` output):
 
+- ZITADEL URL: `http://localhost:${ZITADEL_PORT}` (default `http://localhost:18081`)
+
 - Grafana URL: `http://localhost:${GRAFANA_PORT}` (default `http://localhost:3000`)
 - Quick open: `make dev-logs-ui`
 - API logs are pushed to Loki in-process via `LOKI_PUSH_URL` (default `http://host.docker.internal:${LOKI_PORT}/loki/api/v1/push`)
-
-Legacy aliases remain available:
-
-- `make test-env-up`
-- `make test-env-logs`
-- `make test-env-down`
-- `make test-env-down-purge`
 
 End-to-end local smoke check:
 
 - `make smoke`
 
-`scripts/smoke.sh` defaults dependency host to `localhost`, but when running inside a container it will prefer `host.docker.internal` if resolvable. On some non-OrbStack runtimes, it can also fall back to `host.containers.internal` when that alias exists. You can override explicitly with `COMPOSE_HOST`.
-If host `8081` is occupied, set `KEYCLOAK_PORT` (for example `18081`) before running `make dev-env-up` or `make smoke`.
+`make smoke` requires `ADMIN_BEARER_TOKEN` to already be set in the shell and only validates the API process you start locally against the configured external services.

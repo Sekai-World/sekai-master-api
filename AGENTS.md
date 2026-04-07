@@ -7,7 +7,7 @@
 ## Project Context
 
 - 项目类型：Golang RESTful API（Gin）
-- 鉴权方式：Keycloak OIDC Bearer Token 验签
+- 鉴权方式：ZITADEL OIDC Bearer Token 验签
 - 鉴权边界：仅 admin 相关 API 需要鉴权，其他 GET 接口默认公开
 - 查询策略：
   - `cards` by-id：Redis 哈希缓存
@@ -17,7 +17,7 @@
   - 默认：development 使用 SQLite，test / production 使用 PostgreSQL
   - 可选覆盖：通过 `DATABASE_DRIVER`（`sqlite` / `pgx`）覆盖默认行为
 - Migration 策略：使用 Goose SQL migration，启动自动迁移
-- 本地依赖编排：`deploy/compose/test-compose.yaml`（PostgreSQL 18、Redis 8、Keycloak）
+- 本地依赖编排：`deploy/compose/dev-compose.yaml`（PostgreSQL 18、Redis 8、ZITADEL、Grafana、Loki）
 
 ## Agent Roles
 
@@ -29,7 +29,7 @@
 - 必须保持：
   - 路由前缀 `/api/v1`
   - 统一错误响应格式
-  - 保护接口仅通过 Keycloak Bearer Token 验证
+  - 保护接口仅通过 ZITADEL Bearer Token 验证
   - 非 admin GET API 不应挂载鉴权中间件
   - admin dashboard 提供独立登录页（不引入本地账号密码体系）
   - `cards` 查询接口保持专用化（避免回退到通用 entity 查询接口）
@@ -37,12 +37,12 @@
 
 ### 2) Auth Agent
 
-负责 Keycloak/OIDC 相关逻辑。
+负责 ZITADEL/OIDC 相关逻辑。
 
 - 变更范围：`internal/auth`、认证中间件
 - 必须保持：
   - 不引入本地用户名密码登录逻辑
-  - 不将 Keycloak 密钥硬编码到代码
+  - 不将 ZITADEL 密钥硬编码到代码
   - 通过配置项控制 issuer/audience 校验策略
 
 ### 3) Data Agent
@@ -103,6 +103,5 @@
 - 单元测试：`make test`
 - 迁移升级：`make migrate-up`
 - 迁移回滚：`make migrate-down`
-- 启动依赖：`make dev-env-up`（兼容旧命令 `make test-env-up`）
-- 停止依赖：`make dev-env-down`（兼容旧命令 `make test-env-down`）
-- Keycloak token：`make keycloak-token`
+- 启动依赖：`make dev-env-up`
+- 停止依赖：`make dev-env-down`

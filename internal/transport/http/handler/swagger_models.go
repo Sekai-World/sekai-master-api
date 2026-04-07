@@ -83,12 +83,6 @@ type MasterDataAdminStatusResponse struct {
 	SyncRunning bool                    `json:"sync_running"`
 }
 
-type AdminLoginResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int    `json:"expires_in"`
-}
-
 type ProfileUser struct {
 	ID          string `json:"id"`
 	Username    string `json:"username"`

@@ -13,7 +13,7 @@
 
 ## Constraints
 
-- 技术约束（如 Gin / Keycloak / SQLite / PostgreSQL）
+- 技术约束（如 Gin / ZITADEL / SQLite / PostgreSQL）
 - 变更边界（允许改哪些目录）
 - 不允许项（如不引入新依赖、不改公共 API）
 
@@ -34,7 +34,7 @@
 
 - [ ] 功能行为符合预期
 - [ ] `go test ./...` 通过
-- [ ] 如涉及环境编排，`make test-env-up` / `make test-env-down` 可执行
+- [ ] 如涉及环境编排，`make dev-env-up` / `make dev-env-down` 可执行
 - [ ] 文档已同步（`README.md` / `.env.example`）
 
 ## Validation Steps

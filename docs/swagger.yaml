@@ -1,21 +1,5 @@
 basePath: /api/v1
 definitions:
-  handler.AdminLoginRequest:
-    properties:
-      password:
-        type: string
-      username:
-        type: string
-    type: object
-  handler.AdminLoginResponse:
-    properties:
-      access_token:
-        type: string
-      expires_in:
-        type: integer
-      token_type:
-        type: string
-    type: object
   handler.CardListResponse:
     properties:
       items:
@@ -195,40 +179,17 @@ info:
   version: "1.0"
 paths:
   /admin/login:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Login payload
-        in: body
-        name: payload
-        required: true
-        schema:
-          $ref: '#/definitions/handler.AdminLoginRequest'
-      produces:
-      - application/json
+    get:
       responses:
-        "200":
-          description: OK
+        "302":
+          description: Redirect to ZITADEL authorization endpoint
           schema:
-            $ref: '#/definitions/handler.AdminLoginResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            type: string
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
-        "502":
-          description: Bad Gateway
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      summary: Login with Keycloak credentials
+      summary: Start admin login with ZITADEL
       tags:
       - admin
   /admin/master-data/status:

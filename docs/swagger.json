@@ -9,55 +9,20 @@
     "basePath": "/api/v1",
     "paths": {
         "/admin/login": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
+            "get": {
                 "tags": [
                     "admin"
                 ],
-                "summary": "Login with Keycloak credentials",
-                "parameters": [
-                    {
-                        "description": "Login payload",
-                        "name": "payload",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.AdminLoginRequest"
-                        }
-                    }
-                ],
+                "summary": "Start admin login with ZITADEL",
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "302": {
+                        "description": "Redirect to ZITADEL authorization endpoint",
                         "schema": {
-                            "$ref": "#/definitions/handler.AdminLoginResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
+                            "type": "string"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    },
-                    "502": {
-                        "description": "Bad Gateway",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponse"
                         }
@@ -987,31 +952,6 @@
         }
     },
     "definitions": {
-        "handler.AdminLoginRequest": {
-            "type": "object",
-            "properties": {
-                "password": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                }
-            }
-        },
-        "handler.AdminLoginResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "expires_in": {
-                    "type": "integer"
-                },
-                "token_type": {
-                    "type": "string"
-                }
-            }
-        },
         "handler.CardListResponse": {
             "type": "object",
             "properties": {
