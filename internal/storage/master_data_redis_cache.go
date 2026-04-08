@@ -405,7 +405,20 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	cache.mu.RUnlock()
 
 	if len(entityIndex) == 0 {
-		return []masterdata.SearchMatch{}, nil
+		rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, regionName)
+		if err != nil {
+			return nil, err
+		}
+		if !rebuilt {
+			return []masterdata.SearchMatch{}, nil
+		}
+
+		cache.mu.RLock()
+		entityIndex = cache.index[regionName][entityName]
+		cache.mu.RUnlock()
+		if len(entityIndex) == 0 {
+			return []masterdata.SearchMatch{}, nil
+		}
 	}
 
 	selectedFields := normalizeFields(fields)

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -57,7 +58,7 @@ func (handler *EventHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, buildEventBase(record))
+	response.JSON(c, http.StatusOK, handler.buildEventDetail(c.Request.Context(), region, record))
 }
 
 // Current godoc
@@ -198,6 +199,55 @@ func buildEventBase(record map[string]any) map[string]any {
 			continue
 		}
 		result[key] = value
+	}
+
+	return result
+}
+
+func (handler *EventHandler) buildEventDetail(ctx context.Context, region string, record map[string]any) map[string]any {
+	result := buildEventBase(record)
+	if record == nil || handler == nil || handler.masterDataSync == nil {
+		return result
+	}
+
+	if rawUnit, hasUnit := record["unit"]; hasUnit {
+		unitLookup := normalizeComparableText(rawUnit)
+		if unitLookup != "" {
+			if matches, err := handler.masterDataSync.Search(ctx, region, "unitprofiles", unitLookup, []string{"unit"}, 1); err == nil && len(matches) > 0 {
+				result["unit"] = pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
+			}
+		}
+	}
+
+	if rawVirtualLiveID, hasVirtualLiveID := record["virtualLiveId"]; hasVirtualLiveID {
+		delete(result, "virtualLiveId")
+
+		virtualLiveLookupID := normalizeAnyID(rawVirtualLiveID)
+		if virtualLiveLookupID == "" {
+			result["virtualLive"] = nil
+		} else {
+			virtualLive, found, err := handler.masterDataSync.GetByID(ctx, region, "virtuallives", virtualLiveLookupID)
+			if err != nil || !found {
+				result["virtualLive"] = nil
+			} else {
+				result["virtualLive"] = pickFields(virtualLive, []string{"assetbundleName", "endAt", "id", "name", "startAt", "virtualLiveType"})
+			}
+		}
+	}
+
+	return result
+}
+
+func pickFields(record map[string]any, keys []string) map[string]any {
+	if record == nil {
+		return map[string]any{}
+	}
+
+	result := make(map[string]any, len(keys))
+	for _, key := range keys {
+		if value, ok := record[key]; ok {
+			result[key] = value
+		}
 	}
 
 	return result

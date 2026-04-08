@@ -347,6 +347,58 @@ func TestSearchCardEpisodesByNumericCardID(t *testing.T) {
 	}
 }
 
+func TestSearchRebuildsIndexFromRedisAfterRestart(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+
+	writerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new writer redis cache: %v", err)
+	}
+	defer func() {
+		_ = writerCache.Close()
+	}()
+
+	ctx := context.Background()
+	payload := map[string]any{
+		"unitProfiles.json": []any{
+			map[string]any{"unit": "theme_park", "unitName": "Wonderlands x Showtime"},
+		},
+	}
+
+	if err := writerCache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	readerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new reader redis cache: %v", err)
+	}
+	defer func() {
+		_ = readerCache.Close()
+	}()
+
+	matches, err := readerCache.Search(ctx, "jp", "unitprofiles", "theme_park", []string{"unit"}, 10)
+	if err != nil {
+		t.Fatalf("search unitprofiles after restart: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 unitprofiles match after restart, got %d", len(matches))
+	}
+	if matches[0].Item["unit"] != "theme_park" {
+		t.Fatalf("expected unit theme_park, got %v", matches[0].Item["unit"])
+	}
+}
+
 func TestListByPageRebuildsOrderWhenMissing(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {

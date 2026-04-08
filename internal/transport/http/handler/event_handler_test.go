@@ -144,10 +144,6 @@ func (cache *fakeEventHandlerCache) ListByPage(_ context.Context, region string,
 	return records[start:end], total, nil
 }
 
-func (cache *fakeEventHandlerCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	return nil, nil
-}
-
 func TestEventByIDEndpointOmitsRankingRewardsField(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -190,6 +186,103 @@ func TestEventByIDEndpointOmitsRankingRewardsField(t *testing.T) {
 
 	if body["id"] != float64(101) {
 		t.Fatalf("expected id=101, got %v", body["id"])
+	}
+}
+
+func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":            101,
+						"name":          "test-event",
+						"unit":          "idol",
+						"virtualLiveId": 501,
+					},
+				},
+				"virtuallives": {
+					"501": {
+						"id":              501,
+						"name":            "after live",
+						"assetbundleName": "vl_501",
+						"startAt":         1000,
+						"endAt":           2000,
+						"virtualLiveType": "normal",
+						"screenMvMusicVocalId": 99,
+					},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"unitprofiles": {
+					{
+						"unit":            "idol",
+						"unitName":        "MORE MORE JUMP！",
+						"colorCode":       "#88dd44",
+						"unitProfileName": "MORE MORE JUMP！",
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id", handler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	unit, ok := body["unit"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected expanded unit object, got %T", body["unit"])
+	}
+	if unit["unit"] != "idol" {
+		t.Fatalf("expected unit.unit=idol, got %v", unit["unit"])
+	}
+	if unit["unitName"] != "MORE MORE JUMP！" {
+		t.Fatalf("expected unit.unitName to be preserved, got %v", unit["unitName"])
+	}
+	if unit["colorCode"] != "#88dd44" {
+		t.Fatalf("expected unit.colorCode to be preserved, got %v", unit["colorCode"])
+	}
+	if _, exists := unit["unitProfileName"]; exists {
+		t.Fatalf("expected unitProfileName to be omitted from expanded unit")
+	}
+
+	if _, exists := body["virtualLiveId"]; exists {
+		t.Fatalf("expected virtualLiveId to be removed from by-id response")
+	}
+
+	virtualLive, ok := body["virtualLive"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected expanded virtualLive object, got %T", body["virtualLive"])
+	}
+	if virtualLive["id"] != float64(501) {
+		t.Fatalf("expected virtualLive.id=501, got %v", virtualLive["id"])
+	}
+	if virtualLive["assetbundleName"] != "vl_501" {
+		t.Fatalf("expected virtualLive.assetbundleName to be preserved, got %v", virtualLive["assetbundleName"])
+	}
+	if virtualLive["virtualLiveType"] != "normal" {
+		t.Fatalf("expected virtualLive.virtualLiveType to be preserved, got %v", virtualLive["virtualLiveType"])
+	}
+	if _, exists := virtualLive["screenMvMusicVocalId"]; exists {
+		t.Fatalf("expected screenMvMusicVocalId to be omitted from expanded virtualLive")
 	}
 }
 
@@ -384,4 +477,54 @@ func TestCurrentEventEndpointRefreshesExpiredCache(t *testing.T) {
 	if currentCached[0]["id"] != 301 {
 		t.Fatalf("expected refreshed currentevents id=301, got %v", currentCached[0]["id"])
 	}
+}
+
+func (cache *fakeEventHandlerCache) Search(_ context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
+	normalizedQuery := normalizeComparableText(query)
+	if normalizedRegion == "" || normalizedEntity == "" || normalizedQuery == "" {
+		return []masterdata.SearchMatch{}, nil
+	}
+
+	regionData, ok := cache.listByEntity[normalizedRegion]
+	if !ok {
+		return []masterdata.SearchMatch{}, nil
+	}
+
+	records := regionData[normalizedEntity]
+	if len(records) == 0 {
+		return []masterdata.SearchMatch{}, nil
+	}
+
+	if len(fields) == 0 {
+		fields = []string{"name"}
+	}
+
+	results := make([]masterdata.SearchMatch, 0, len(records))
+	for _, record := range records {
+		for _, field := range fields {
+			if normalizeComparableText(record[field]) != normalizedQuery {
+				continue
+			}
+
+			results = append(results, masterdata.SearchMatch{
+				Item:         record,
+				MatchScore:   100,
+				MatchType:    "exact",
+				MatchedField: field,
+			})
+			break
+		}
+
+		if len(results) >= limit {
+			break
+		}
+	}
+
+	return results, nil
 }
