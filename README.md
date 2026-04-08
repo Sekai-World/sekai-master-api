@@ -236,7 +236,7 @@ Optional flags for local troubleshooting:
 
 `ZITADEL_SCOPES` should include your normal OpenID scopes plus the audience scope for the protected API project.
 
-For local development, `.env.development` points the API at the bundled compose ZITADEL instance (`http://host.containers.internal:18081`) so the API can still reach it from inside a devcontainer. `make dev-env-up` now bootstraps the local org/project/app automatically and writes the generated `ZITADEL_CLIENT_ID`, `ZITADEL_AUDIENCE`, and `ZITADEL_SCOPES` into `.env.development.local`. The default local login is `admin@sekai.localhost` with password `Admin123!Admin123!`.
+For local development, `.env.development` points the API at the bundled compose services through the Docker host alias (`http://host.docker.internal:18081`) so the API can still reach them from inside a devcontainer. `make dev-env-up` now bootstraps the local org/project/app automatically and writes the generated `ZITADEL_CLIENT_ID`, `ZITADEL_AUDIENCE`, and `ZITADEL_SCOPES` into `.env.development.local`. The default local login is `admin@sekai.localhost` with password `Admin123!Admin123!`.
 
 For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your ZITADEL test environment. `make smoke` no longer starts local dependencies.
 
