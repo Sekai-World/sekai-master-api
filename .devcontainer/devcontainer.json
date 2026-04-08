@@ -12,15 +12,13 @@
   "updateRemoteUserUID": true,
   "containerEnv": {
     "DOCKER_HOST": "unix:///var/run/docker.sock",
-    "CGO_ENABLED": "0",
-    "SSH_AUTH_SOCK": "/tmp/ssh-agent.sock"
+    "CGO_ENABLED": "0"
   },
   "runArgs": [
     "--group-add=${localEnv:DOCKER_SOCK_GID:0}"
   ],
   "mounts": [
-    "source=${localEnv:DOCKER_SOCK_PATH:/var/run/docker.sock},target=/var/run/docker.sock,type=bind",
-    "source=${localEnv:SSH_AUTH_SOCK:/run/host-services/ssh-auth.sock},target=/tmp/ssh-agent.sock,type=bind"
+    "source=${localEnv:DOCKER_SOCK_PATH:/var/run/docker.sock},target=/var/run/docker.sock,type=bind"
   ],
   "customizations": {
     "vscode": {
