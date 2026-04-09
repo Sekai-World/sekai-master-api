@@ -82,7 +82,10 @@ func main() {
 		masterDataEventHub,
 		cfg.MasterDataSyncConcurrency,
 	)
-	router := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub)
+	router, err := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub)
+	if err != nil {
+		logger.Fatalf("failed to initialize router: %v", err)
+	}
 
 	listener, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {

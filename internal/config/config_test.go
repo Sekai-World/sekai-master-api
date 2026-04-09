@@ -60,6 +60,47 @@ func TestDetectAppEnvPrefersDotenvLocalOverDotenv(t *testing.T) {
 	}
 }
 
+func TestNormalizedZitadelIssuerURLStripsKnownSuffixes(t *testing.T) {
+	testCases := map[string]string{
+		"https://zitadel.example.com/oauth/v2/authorize":               "https://zitadel.example.com",
+		"https://zitadel.example.com/oauth/v2/token":                   "https://zitadel.example.com",
+		"https://zitadel.example.com/.well-known/openid-configuration": "https://zitadel.example.com",
+		"https://zitadel.example.com/oauth/v2/userinfo":                "https://zitadel.example.com",
+		"https://zitadel.example.com/tenant":                           "https://zitadel.example.com/tenant",
+	}
+
+	for input, want := range testCases {
+		cfg := Config{ZitadelIssuerURL: input}
+		if got := cfg.NormalizedZitadelIssuerURL(); got != want {
+			t.Fatalf("normalized issuer for %q = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizedZitadelInternalURLStripsKnownSuffixes(t *testing.T) {
+	cfg := Config{ZitadelInternalURL: "http://host.docker.internal:18081/oauth/v2/token"}
+
+	if got := cfg.NormalizedZitadelInternalURL(); got != "http://host.docker.internal:18081" {
+		t.Fatalf("normalized internal issuer = %q, want %q", got, "http://host.docker.internal:18081")
+	}
+}
+
+func TestZitadelAuthorizationURLUsesNormalizedIssuer(t *testing.T) {
+	cfg := Config{ZitadelIssuerURL: "https://zitadel.example.com/oauth/v2/authorize"}
+
+	if got := cfg.ZitadelAuthorizationURL(); got != "https://zitadel.example.com/oauth/v2/authorize" {
+		t.Fatalf("authorization url = %q, want %q", got, "https://zitadel.example.com/oauth/v2/authorize")
+	}
+}
+
+func TestZitadelTokenEndpointUsesNormalizedIssuer(t *testing.T) {
+	cfg := Config{ZitadelIssuerURL: "https://zitadel.example.com/oauth/v2/token"}
+
+	if got := cfg.ZitadelTokenEndpoint(); got != "https://zitadel.example.com/oauth/v2/token" {
+		t.Fatalf("token endpoint = %q, want %q", got, "https://zitadel.example.com/oauth/v2/token")
+	}
+}
+
 func restoreEnv(t *testing.T, keys ...string) {
 	t.Helper()
 

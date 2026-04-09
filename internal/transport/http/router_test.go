@@ -35,6 +35,7 @@ func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 		Port:                  "8080",
 		AppEnv:                appEnv,
 		ZitadelIssuerURL:      "https://zitadel.example.com",
+		ZitadelInternalURL:    "https://zitadel-internal.example.com",
 		ZitadelAudience:       "https://api.example.com",
 		ZitadelClientID:       "web-client",
 		ZitadelRedirectURL:    "http://localhost:8080/api/v1/admin/login/callback",
@@ -42,7 +43,12 @@ func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 		ZitadelPrivateKeyPath: "/tmp/zitadel-test-key.pem",
 	}
 
-	return NewRouter(cfg, nil, mockVerifier{}, nil, nil)
+	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+
+	return router
 }
 
 func TestHealth(t *testing.T) {

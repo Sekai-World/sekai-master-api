@@ -50,7 +50,12 @@ type oauthErrorResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
-func NewAdminLoginHandler(cfg config.Config) *AdminLoginHandler {
+func NewAdminLoginHandler(cfg config.Config) (*AdminLoginHandler, error) {
+	httpClient, err := auth.NewZitadelHTTPClient(cfg, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AdminLoginHandler{
 		authURL:        cfg.ZitadelAuthorizationURL(),
 		tokenEndpoint:  cfg.ZitadelTokenEndpoint(),
@@ -59,10 +64,8 @@ func NewAdminLoginHandler(cfg config.Config) *AdminLoginHandler {
 		scopes:         append([]string(nil), cfg.ZitadelScopes...),
 		privateKeyPath: cfg.ZitadelPrivateKeyPath,
 		privateKeyID:   cfg.ZitadelPrivateKeyID,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-	}
+		httpClient:     httpClient,
+	}, nil
 }
 
 // Start godoc

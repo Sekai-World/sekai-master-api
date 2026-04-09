@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
@@ -20,7 +21,13 @@ type OIDCVerifier struct {
 }
 
 func NewOIDCVerifier(ctx context.Context, cfg config.Config) (*OIDCVerifier, error) {
-	provider, err := oidc.NewProvider(ctx, cfg.ZitadelIssuerURL)
+	client, err := NewZitadelHTTPClient(cfg, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx = oidc.ClientContext(ctx, client)
+	provider, err := oidc.NewProvider(ctx, cfg.NormalizedZitadelIssuerURL())
 	if err != nil {
 		return nil, err
 	}

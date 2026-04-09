@@ -18,7 +18,7 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub) *gin.Engine {
+func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub) (*gin.Engine, error) {
 	router := gin.New()
 	router.Use(middleware.RequestID())
 	router.Use(middleware.AccessLog())
@@ -27,7 +27,10 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	healthHandler := handler.NewHealthHandler(db)
 	profileHandler := handler.NewProfileHandler()
 	adminUIHandler := handler.NewAdminUIHandler(cfg)
-	adminLoginHandler := handler.NewAdminLoginHandler(cfg)
+	adminLoginHandler, err := handler.NewAdminLoginHandler(cfg)
+	if err != nil {
+		return nil, err
+	}
 	masterDataStatusHandler := handler.NewMasterDataStatusHandler(masterDataSync)
 	masterDataEventHandler := handler.NewMasterDataEventHandler(masterDataEvents)
 	cardHandler := handler.NewCardHandler(masterDataSync)
@@ -69,7 +72,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		admin.POST("/master-data/sync/force", masterDataAdminHandler.ForceSync)
 	}
 
-	return router
+	return router, nil
 }
 
 func isSwaggerEnabledEnv(appEnv string) bool {

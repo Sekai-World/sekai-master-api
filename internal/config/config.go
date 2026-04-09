@@ -33,6 +33,7 @@ type Config struct {
 	RedisDB                      int
 	MasterDataRedisKeyPrefix     string
 	ZitadelIssuerURL             string
+	ZitadelInternalURL           string
 	ZitadelAudience              string
 	ZitadelSkipIssuer            bool
 	ZitadelSkipAudCheck          bool
@@ -82,6 +83,7 @@ func Load() Config {
 		RedisDB:                      getEnvInt("REDIS_DB", 0),
 		MasterDataRedisKeyPrefix:     getEnv("MASTER_DATA_REDIS_KEY_PREFIX", "sekai:master-data:"),
 		ZitadelIssuerURL:             strings.TrimSpace(getEnv("ZITADEL_ISSUER_URL", "")),
+		ZitadelInternalURL:           strings.TrimSpace(getEnv("ZITADEL_INTERNAL_URL", "")),
 		ZitadelAudience:              strings.TrimSpace(getEnv("ZITADEL_AUDIENCE", "")),
 		ZitadelSkipIssuer:            strings.EqualFold(getEnv("ZITADEL_SKIP_ISSUER_CHECK", "false"), "true"),
 		ZitadelSkipAudCheck:          strings.EqualFold(getEnv("ZITADEL_SKIP_AUDIENCE_CHECK", "false"), "true"),
@@ -161,12 +163,20 @@ func (cfg Config) EffectiveDatabaseDSN() string {
 	return cfg.DatabaseURL
 }
 
+func (cfg Config) NormalizedZitadelIssuerURL() string {
+	return normalizeZitadelIssuerURL(cfg.ZitadelIssuerURL)
+}
+
+func (cfg Config) NormalizedZitadelInternalURL() string {
+	return normalizeZitadelIssuerURL(cfg.ZitadelInternalURL)
+}
+
 func (cfg Config) ZitadelAuthorizationURL() string {
 	if cfg.ZitadelAuthURL != "" {
 		return cfg.ZitadelAuthURL
 	}
 
-	return strings.TrimRight(cfg.ZitadelIssuerURL, "/") + "/oauth/v2/authorize"
+	return cfg.NormalizedZitadelIssuerURL() + "/oauth/v2/authorize"
 }
 
 func (cfg Config) ZitadelTokenEndpoint() string {
@@ -174,7 +184,27 @@ func (cfg Config) ZitadelTokenEndpoint() string {
 		return cfg.ZitadelTokenURL
 	}
 
-	return strings.TrimRight(cfg.ZitadelIssuerURL, "/") + "/oauth/v2/token"
+	return cfg.NormalizedZitadelIssuerURL() + "/oauth/v2/token"
+}
+
+func normalizeZitadelIssuerURL(raw string) string {
+	issuer := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if issuer == "" {
+		return ""
+	}
+
+	for _, suffix := range []string{
+		"/.well-known/openid-configuration",
+		"/oauth/v2/authorize",
+		"/oauth/v2/token",
+		"/oauth/v2/userinfo",
+	} {
+		if strings.HasSuffix(strings.ToLower(issuer), suffix) {
+			return issuer[:len(issuer)-len(suffix)]
+		}
+	}
+
+	return issuer
 }
 
 func getEnv(key string, fallback string) string {
