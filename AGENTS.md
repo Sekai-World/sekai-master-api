@@ -33,7 +33,7 @@
   - 非 admin GET API 不应挂载鉴权中间件
   - admin dashboard 提供独立登录页（不引入本地账号密码体系）
   - `cards` 查询接口保持专用化（避免回退到通用 entity 查询接口）
-  - SSE 通知接口 `GET /api/v1/master-data/events` 可用于同步完成事件推送
+  - SSE 通知接口 `GET /api/v1/admin/master-data/events` 应位于 admin 路径下并受鉴权保护
 
 ### 2) Auth Agent
 
@@ -79,6 +79,7 @@
   - `make dev-env-up`
   - `make dev-env-down`
 5. 对于失败：仅修复与本次任务直接相关的问题。
+6. 所有 git 提交消息必须使用 Conventional Commits 格式，例如：`feat(auth): add admin claim rbac`、`fix(sync): recover interrupted startup sync`。
 
 ## Security & Compliance Rules
 
