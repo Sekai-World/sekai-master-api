@@ -5,8 +5,8 @@ set -eu
 APP_PORT="${APP_PORT:-8080}"
 APP_ENV="${APP_ENV:-test}"
 DATABASE_URL="${DATABASE_URL:-postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable}"
-ZITADEL_ISSUER_URL="${ZITADEL_ISSUER_URL:-https://zitadel.example.com}"
-ZITADEL_AUDIENCE="${ZITADEL_AUDIENCE:-https://api.example.com}"
+OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-https://auth.example.com}"
+OIDC_AUDIENCE="${OIDC_AUDIENCE:-https://api.example.com}"
 ADMIN_BEARER_TOKEN="${ADMIN_BEARER_TOKEN:-}"
 
 API_PID=""
@@ -28,8 +28,8 @@ fi
 
 APP_ENV="${APP_ENV}" \
 DATABASE_URL="${DATABASE_URL}" \
-ZITADEL_ISSUER_URL="${ZITADEL_ISSUER_URL}" \
-ZITADEL_AUDIENCE="${ZITADEL_AUDIENCE}" \
+OIDC_ISSUER_URL="${OIDC_ISSUER_URL}" \
+OIDC_AUDIENCE="${OIDC_AUDIENCE}" \
 APP_PORT="${APP_PORT}" \
 go run ./cmd/api >/tmp/sekai-smoke-api.log 2>&1 &
 API_PID=$!

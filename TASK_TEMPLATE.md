@@ -13,7 +13,7 @@
 
 ## Constraints
 
-- 技术约束（如 Gin / ZITADEL / SQLite / PostgreSQL）
+- 技术约束（如 Gin / OIDC / SQLite / PostgreSQL）
 - 变更边界（允许改哪些目录）
 - 不允许项（如不引入新依赖、不改公共 API）
 

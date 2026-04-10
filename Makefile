@@ -3,7 +3,7 @@ COMPOSE_FILE=deploy/compose/dev-compose.yaml
 COMPOSE_FILE_ABS := $(abspath $(COMPOSE_FILE))
 WORKSPACE_DIR := $(abspath .)
 APP_PORT ?= 18080
-GRAFANA_PORT ?= 3000
+GRAFANA_PORT ?= 13000
 LOKI_PORT ?= 3100
 LOKI_HOST ?= host.docker.internal
 LOKI_PUSH_URL ?= http://$(LOKI_HOST):$(LOKI_PORT)/loki/api/v1/push
@@ -119,7 +119,7 @@ dev-env-up:
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build --remove-orphans; \
-	./scripts/bootstrap-zitadel-dev.sh
+	./scripts/bootstrap-authentik-dev.sh
 
 dev-env-down:
 	@set -a; \

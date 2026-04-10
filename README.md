@@ -1,17 +1,17 @@
 # sekai-master-api
 
-Go RESTful API template (Gin + ZITADEL + environment-based database) with Dev Container support.
+Go RESTful API template (Gin + OIDC + environment-based database) with Dev Container support.
 
 ## Features
 
 - Gin-based REST API (`/api/v1`)
-- ZITADEL access-token validation for protected API endpoints
+- OIDC access-token validation for protected API endpoints
 - Environment-specific database strategy:
   - development: sqlite
   - test/production: postgresql
   - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
 - Devcontainer for consistent development
-- Compose-based development environment commands, including a local ZITADEL stack
+- Compose-based development environment commands for PostgreSQL, Redis, Authentik, Grafana, and Loki
 - Third-party logging with Zap (configurable log level)
 - Built-in modern admin dashboard with dedicated login page
 - Master data sync from GitHub JSON repositories (multi-region)
@@ -42,16 +42,16 @@ If the host SSH agent socket changed and `devcontainer up` fails with a stale bi
 
 ### Test Env File
 
-This repo provides `.env.test` for connecting to the deployed test environment. You can keep machine-specific overrides in `.env.local` or `.env.test.local`. `APP_ENV=test` is expected to connect directly to your remote test PostgreSQL and ZITADEL endpoints; it does not start local compose services.
+This repo provides `.env.test` for connecting to the deployed test environment. You can keep machine-specific overrides in `.env.local` or `.env.test.local`. `APP_ENV=test` is expected to connect directly to your remote test PostgreSQL and OIDC endpoints; it does not start local compose services.
 
-For local development with PostgreSQL and the bundled ZITADEL stack, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local`, then run:
+For local development with PostgreSQL and the bundled support services, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local` if needed, then run:
 
 - `make dev-env-up`
 - `make dev-watch`
 - `make format`
 - `make swagger`
 
-`make dev-env-up` starts PostgreSQL, Redis, ZITADEL, Grafana, and Loki. ZITADEL is exposed on `http://localhost:18081` by default. The command also bootstraps a local ZITADEL project, a public OIDC web application for the admin dashboard, and a default human admin user, then writes the generated client/project values into `.env.development.local`.
+`make dev-env-up` starts PostgreSQL, Redis, Authentik, Grafana, and Loki. Compose health checks are configured for the local support services, and the bootstrap step waits for the local Authentik OIDC issuer to become ready.
 
 `make dev-watch` uses `air` for hot restart on Go code changes.
 For devcontainer workflows with limited memory, `make dev-watch` now defaults to a lower-memory profile:
@@ -96,10 +96,10 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/events/:region/current`
 - `GET /api/v1/events/:region/:id`
 - `GET /api/v1/events/:region/:id/rewards`
-- `GET /api/v1/admin/profile` (Bearer token from ZITADEL required)
-- `GET /api/v1/admin/master-data/status` (Bearer token from ZITADEL required)
-- `POST /api/v1/admin/master-data/sync` (Bearer token from ZITADEL required)
-- `POST /api/v1/admin/master-data/sync/force` (Bearer token from ZITADEL required)
+- `GET /api/v1/admin/profile` (Bearer token from configured OIDC provider required)
+- `GET /api/v1/admin/master-data/status` (Bearer token from configured OIDC provider required)
+- `POST /api/v1/admin/master-data/sync` (Bearer token from configured OIDC provider required)
+- `POST /api/v1/admin/master-data/sync/force` (Bearer token from configured OIDC provider required)
 
 `POST /api/v1/admin/master-data/sync` and `POST /api/v1/admin/master-data/sync/force` support optional JSON payload:
 
@@ -207,38 +207,54 @@ Set `MASTER_DATA_GITHUB_TOKEN` if you need higher GitHub API rate limit.
 Login flow:
 
 1. Open `/admin/login`.
-2. Dashboard redirects the browser to ZITADEL authorization endpoint.
-3. After ZITADEL redirects back to `/api/v1/admin/login/callback`, the backend exchanges the authorization code with PKCE. If `ZITADEL_PRIVATE_KEY_PATH` is configured it also sends `private_key_jwt`; otherwise it behaves as a public client.
+2. Dashboard redirects the browser to the configured OIDC authorization endpoint.
+3. After the OIDC provider redirects back to `/api/v1/admin/login/callback`, the backend exchanges the authorization code with PKCE. If `OIDC_PRIVATE_KEY_PATH` is configured it also sends `private_key_jwt`; otherwise it behaves as a public client.
 4. On success, the callback page stores the access token in session storage, redirects to `/admin`, and the dashboard calls `GET /api/v1/admin/profile`.
 
 Master Data sync panel supports selecting target region (or all regions) and can run both normal sync and force sync per selected scope.
 
-## ZITADEL Integration
+## OIDC Integration
 
-The API validates bearer tokens with ZITADEL OIDC issuer metadata. The admin login flow always uses authorization code plus PKCE, and can optionally add `private_key_jwt` client authentication when a private key is configured.
+The API validates bearer tokens with OIDC issuer metadata. The admin login flow always uses authorization code plus PKCE, and can optionally add `private_key_jwt` client authentication when a private key is configured.
 
 Required env vars:
 
-- `ZITADEL_ISSUER_URL`
-- `ZITADEL_AUDIENCE`
-- `ZITADEL_CLIENT_ID`
-- `ZITADEL_REDIRECT_URL`
-- `ZITADEL_SCOPES`
+- `OIDC_ISSUER_URL`
+- `OIDC_AUDIENCE`
+- `OIDC_CLIENT_ID`
+- `OIDC_REDIRECT_URL`
+- `OIDC_SCOPES`
 
 Optional flags for local troubleshooting:
 
-- `ZITADEL_AUTH_URL`
-- `ZITADEL_TOKEN_URL`
-- `ZITADEL_SKIP_ISSUER_CHECK`
-- `ZITADEL_SKIP_AUDIENCE_CHECK`
-- `ZITADEL_PRIVATE_KEY_PATH`
-- `ZITADEL_PRIVATE_KEY_ID`
+- `OIDC_AUTH_URL`
+- `OIDC_TOKEN_URL`
+- `OIDC_SKIP_ISSUER_CHECK`
+- `OIDC_SKIP_AUDIENCE_CHECK`
+- `OIDC_PRIVATE_KEY_PATH`
+- `OIDC_PRIVATE_KEY_ID`
 
-`ZITADEL_SCOPES` should include your normal OpenID scopes plus the audience scope for the protected API project.
+`OIDC_SCOPES` should include the standard OpenID scopes required by your provider and any API audience/resource scopes required by your deployment.
 
-For local development, `.env.development` points the API at the bundled compose services through the Docker host alias (`http://host.docker.internal:18081`) so the API can still reach them from inside a devcontainer. `make dev-env-up` now bootstraps the local org/project/app automatically and writes the generated `ZITADEL_CLIENT_ID`, `ZITADEL_AUDIENCE`, and `ZITADEL_SCOPES` into `.env.development.local`. The default local login is `admin@sekai.localhost` with password `Admin123!Admin123!`.
+For local development, `.env.development` is preconfigured for the bundled Authentik instance:
 
-For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your ZITADEL test environment. `make smoke` no longer starts local dependencies.
+- Authentik URL: `http://localhost:19100`
+- OIDC issuer: `http://localhost:19100/application/o/sekai-admin-web/`
+- OIDC client ID / audience: `sekai-admin-web`
+- OIDC redirect URI: `http://localhost:8080/api/v1/admin/login/callback`
+
+`make dev-env-up` also provisions, via Authentik blueprints, a local OIDC application and a test login user:
+
+- Test login user: `admin`
+- Test login password: `Admin123!Admin123!`
+- Authentik bootstrap admin: `akadmin`
+- Authentik bootstrap admin password: `Admin123!Admin123!`
+
+The local Authentik instance reuses the existing development `postgres` and `redis` services. By default it stores its PostgreSQL tables in the same local `sekai` database, and uses dedicated Redis DB indexes so it does not collide with the API cache keys.
+
+If you need a different local setup, override the `AUTHENTIK_*` and `OIDC_*` values in `.env.development.local`.
+
+For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your OIDC test environment. `make smoke` no longer starts local dependencies.
 
 ## Database by Environment
 
@@ -309,7 +325,7 @@ If `devcontainer up` fails with `invalid mount config for type "bind"` and the m
 
 ## Test environment
 
-Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `ghcr.io/zitadel/zitadel`, `ghcr.io/zitadel/zitadel-login`, `traefik`, `grafana`, `loki`):
+Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `grafana`, `loki`):
 
 - Makefile uses `docker compose` (fallback: `docker-compose`)
 
@@ -324,9 +340,8 @@ If you need a full cleanup including volumes, use:
 
 `make dev-env-up` also starts Grafana + Loki for Go app log search (`dev-watch` output):
 
-- ZITADEL URL: `http://localhost:${ZITADEL_PORT}` (default `http://localhost:18081`)
 
-- Grafana URL: `http://localhost:${GRAFANA_PORT}` (default `http://localhost:3000`)
+- Grafana URL: `http://localhost:${GRAFANA_PORT}` (default `http://localhost:13000`)
 - Quick open: `make dev-logs-ui`
 - API logs are pushed to Loki in-process via `LOKI_PUSH_URL` (default `http://host.docker.internal:${LOKI_PORT}/loki/api/v1/push`)
 

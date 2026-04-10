@@ -1,0 +1,55 @@
+version: 1
+metadata:
+  name: Sekai Local Authentik Setup
+  labels:
+    blueprints.goauthentik.io/description: Local OIDC provider, application, and test user for sekai-master-api development.
+context:
+  app_slug: !Env [AUTHENTIK_LOCAL_APP_SLUG, "sekai-admin-web"]
+  app_name: !Env [AUTHENTIK_LOCAL_APP_NAME, "Sekai Admin Web"]
+  client_id: !Env [AUTHENTIK_LOCAL_CLIENT_ID, "sekai-admin-web"]
+  redirect_uri: !Env [AUTHENTIK_LOCAL_REDIRECT_URI, "http://localhost:8080/api/v1/admin/login/callback"]
+  test_username: !Env [AUTHENTIK_LOCAL_TEST_USERNAME, "admin"]
+  test_name: !Env [AUTHENTIK_LOCAL_TEST_NAME, "Sekai Admin"]
+  test_email: !Env [AUTHENTIK_LOCAL_TEST_EMAIL, "admin@sekai.localhost"]
+  test_password: !Env [AUTHENTIK_LOCAL_TEST_PASSWORD, "Admin123!Admin123!"]
+entries:
+  - model: authentik_core.user
+    state: present
+    identifiers:
+      username: !Context test_username
+    attrs:
+      email: !Context test_email
+      is_active: true
+      name: !Context test_name
+      password: !Context test_password
+      path: users
+      type: internal
+      groups: []
+      conditions: []
+
+  - model: authentik_providers_oauth2.oauth2provider
+    id: sekai-oidc-provider
+    state: present
+    identifiers:
+      name: !Context app_name
+    attrs:
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      client_id: !Context client_id
+      client_type: public
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+      redirect_uris:
+        - matching_mode: strict
+          url: !Context redirect_uri
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+
+  - model: authentik_core.application
+    state: present
+    identifiers:
+      slug: !Context app_slug
+    attrs:
+      name: !Context app_name
+      provider: !KeyOf sekai-oidc-provider
