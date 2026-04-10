@@ -154,6 +154,81 @@ func (usecase *MasterDataSyncUsecase) SyncRegionForce(ctx context.Context, regio
 	return usecase.sync(ctx, true, targetSources)
 }
 
+func (usecase *MasterDataSyncUsecase) InterruptedRegions(ctx context.Context) ([]string, error) {
+	if usecase.statusStore == nil {
+		return []string{}, nil
+	}
+
+	statuses, err := usecase.statusStore.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	configured := make(map[string]struct{}, len(usecase.sources))
+	for _, source := range usecase.sources {
+		region := strings.ToLower(strings.TrimSpace(source.Region))
+		if region == "" {
+			continue
+		}
+		configured[region] = struct{}{}
+	}
+
+	regions := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, status := range statuses {
+		region := strings.ToLower(strings.TrimSpace(status.Region))
+		if region == "" {
+			continue
+		}
+		if _, ok := configured[region]; !ok {
+			continue
+		}
+
+		normalizedStatus := strings.ToLower(strings.TrimSpace(status.Status))
+		if normalizedStatus != "running" && normalizedStatus != "pending" {
+			continue
+		}
+
+		if _, ok := seen[region]; ok {
+			continue
+		}
+		seen[region] = struct{}{}
+		regions = append(regions, region)
+	}
+
+	sort.Strings(regions)
+	return regions, nil
+}
+
+func (usecase *MasterDataSyncUsecase) RecoverInterruptedSync(ctx context.Context) ([]string, error) {
+	regions, err := usecase.InterruptedRegions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(regions) == 0 {
+		return []string{}, nil
+	}
+
+	targetRegions := make(map[string]struct{}, len(regions))
+	for _, region := range regions {
+		targetRegions[region] = struct{}{}
+	}
+
+	targetSources := make([]masterdata.Source, 0, len(regions))
+	for _, source := range usecase.sources {
+		region := strings.ToLower(strings.TrimSpace(source.Region))
+		if _, ok := targetRegions[region]; ok {
+			targetSources = append(targetSources, source)
+		}
+	}
+
+	if len(targetSources) == 0 {
+		return []string{}, nil
+	}
+
+	return regions, usecase.sync(ctx, false, targetSources)
+}
+
 func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sources []masterdata.Source) error {
 	if !usecase.syncRunning.CompareAndSwap(false, true) {
 		usecase.logf("sync skipped reason=already_running")

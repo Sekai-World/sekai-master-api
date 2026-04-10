@@ -98,10 +98,38 @@ func main() {
 		serverErrCh <- router.RunListener(listener)
 	}()
 
-	if cfg.MasterDataAutoSync && len(masterDataSources) > 0 {
+	if len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
 			defer cancel()
+
+			if cfg.MasterDataRecoverInterrupted {
+				interruptedRegions, err := masterDataSyncUsecase.InterruptedRegions(ctx)
+				if err != nil {
+					logger.Warnw("failed to inspect interrupted master data sync status", "error", err)
+				} else if len(interruptedRegions) > 0 {
+					if cfg.MasterDataAutoSync {
+						logger.Infow(
+							"master data startup sync detected interrupted regions; full startup sync will recover them",
+							"regions", interruptedRegions,
+							"configured_regions", len(masterDataSources),
+						)
+					} else {
+						logger.Infow("master data interrupted sync recovery running in background", "regions", interruptedRegions)
+						if _, recoverErr := masterDataSyncUsecase.RecoverInterruptedSync(ctx); recoverErr != nil {
+							logger.Errorw("master data interrupted sync recovery completed with errors", "error", recoverErr, "regions", interruptedRegions)
+							return
+						}
+
+						logger.Infow("master data interrupted sync recovery completed successfully", "regions", interruptedRegions)
+						return
+					}
+				}
+			}
+
+			if !cfg.MasterDataAutoSync {
+				return
+			}
 
 			logger.Infow("master data startup sync running in background", "regions", len(masterDataSources))
 			if err := masterDataSyncUsecase.SyncAll(ctx); err != nil {

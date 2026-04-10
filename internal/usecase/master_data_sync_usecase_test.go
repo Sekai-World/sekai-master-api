@@ -425,6 +425,70 @@ func TestDashboardStatusKeepsRunningWhileSyncActive(t *testing.T) {
 	}
 }
 
+func TestInterruptedRegionsReturnsConfiguredRunningAndPendingRegions(t *testing.T) {
+	now := time.Now().UTC()
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: "jp", Status: "running", UpdatedAt: now},
+		{Region: "en", Status: "pending", UpdatedAt: now},
+		{Region: "tw", Status: "success", UpdatedAt: now},
+		{Region: "orphan", Status: "running", UpdatedAt: now},
+	})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
+		{Region: "jp"},
+		{Region: "en"},
+		{Region: "tw"},
+	}, nil, nil, statusStore, nil, 1)
+
+	regions, err := usecase.InterruptedRegions(context.Background())
+	if err != nil {
+		t.Fatalf("InterruptedRegions() error = %v", err)
+	}
+
+	if len(regions) != 2 || regions[0] != "en" || regions[1] != "jp" {
+		t.Fatalf("InterruptedRegions() = %v, want [en jp]", regions)
+	}
+}
+
+func TestRecoverInterruptedSyncOnlyRetriesInterruptedRegions(t *testing.T) {
+	sourceJP := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	sourceEN := masterdata.Source{Region: "en", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: "jp", Status: "running", UpdatedAt: time.Now().UTC()},
+		{Region: "en", Status: "success", UpdatedAt: time.Now().UTC()},
+	})
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{
+			"jp": "commit-jp",
+			"en": "commit-en",
+		},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1}}},
+			"en": {"cards.json": []any{map[string]any{"id": 2}}},
+		},
+	}
+	cache := &fakeSyncCache{}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{sourceJP, sourceEN}, loader, cache, statusStore, nil, 1)
+
+	regions, err := usecase.RecoverInterruptedSync(context.Background())
+	if err != nil {
+		t.Fatalf("RecoverInterruptedSync() error = %v", err)
+	}
+
+	if len(regions) != 1 || regions[0] != "jp" {
+		t.Fatalf("RecoverInterruptedSync() regions = %v, want [jp]", regions)
+	}
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected one load call for interrupted region recovery, got %d", loader.loadCalls)
+	}
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected one cache store call for interrupted region recovery, got %d", cache.storeCalls)
+	}
+}
+
 func TestSyncAllLoadsRegionWhenCommitChanged(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
