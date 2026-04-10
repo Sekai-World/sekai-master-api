@@ -7,7 +7,7 @@ export const clearToken = () => sessionStorage.removeItem(tokenKey);
 
 const loginErrorMessage = (code) => {
   if (code === "auth_not_configured") {
-    return "ZITADEL 登录尚未配置完成，请检查服务端环境变量";
+    return "OIDC 登录尚未配置完成，请检查服务端环境变量";
   }
 
   if (code === "oauth_state_mismatch") {

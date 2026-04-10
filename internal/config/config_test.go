@@ -60,44 +60,45 @@ func TestDetectAppEnvPrefersDotenvLocalOverDotenv(t *testing.T) {
 	}
 }
 
-func TestNormalizedZitadelIssuerURLStripsKnownSuffixes(t *testing.T) {
+func TestNormalizedOIDCIssuerURLStripsKnownSuffixes(t *testing.T) {
 	testCases := map[string]string{
-		"https://zitadel.example.com/oauth/v2/authorize":               "https://zitadel.example.com",
-		"https://zitadel.example.com/oauth/v2/token":                   "https://zitadel.example.com",
-		"https://zitadel.example.com/.well-known/openid-configuration": "https://zitadel.example.com",
-		"https://zitadel.example.com/oauth/v2/userinfo":                "https://zitadel.example.com",
-		"https://zitadel.example.com/tenant":                           "https://zitadel.example.com/tenant",
+		"https://auth.example.com/oauth/v2/authorize":               "https://auth.example.com",
+		"https://auth.example.com/oauth/v2/token":                   "https://auth.example.com",
+		"https://auth.example.com/.well-known/openid-configuration": "https://auth.example.com",
+		"https://auth.example.com/oauth/v2/userinfo":                "https://auth.example.com",
+		"https://auth.example.com/tenant":                           "https://auth.example.com/tenant",
+		"https://auth.example.com/application/o/sekai-admin-web/":   "https://auth.example.com/application/o/sekai-admin-web/",
 	}
 
 	for input, want := range testCases {
-		cfg := Config{ZitadelIssuerURL: input}
-		if got := cfg.NormalizedZitadelIssuerURL(); got != want {
+		cfg := Config{OIDCIssuerURL: input}
+		if got := cfg.NormalizedOIDCIssuerURL(); got != want {
 			t.Fatalf("normalized issuer for %q = %q, want %q", input, got, want)
 		}
 	}
 }
 
-func TestNormalizedZitadelInternalURLStripsKnownSuffixes(t *testing.T) {
-	cfg := Config{ZitadelInternalURL: "http://host.docker.internal:18081/oauth/v2/token"}
+func TestNormalizedOIDCInternalURLStripsKnownSuffixes(t *testing.T) {
+	cfg := Config{OIDCInternalURL: "http://host.docker.internal:18081/oauth/v2/token"}
 
-	if got := cfg.NormalizedZitadelInternalURL(); got != "http://host.docker.internal:18081" {
+	if got := cfg.NormalizedOIDCInternalURL(); got != "http://host.docker.internal:18081" {
 		t.Fatalf("normalized internal issuer = %q, want %q", got, "http://host.docker.internal:18081")
 	}
 }
 
-func TestZitadelAuthorizationURLUsesNormalizedIssuer(t *testing.T) {
-	cfg := Config{ZitadelIssuerURL: "https://zitadel.example.com/oauth/v2/authorize"}
+func TestOIDCAuthorizationURLUsesExplicitValue(t *testing.T) {
+	cfg := Config{OIDCAuthURL: "https://auth.example.com/application/o/authorize/"}
 
-	if got := cfg.ZitadelAuthorizationURL(); got != "https://zitadel.example.com/oauth/v2/authorize" {
-		t.Fatalf("authorization url = %q, want %q", got, "https://zitadel.example.com/oauth/v2/authorize")
+	if got := cfg.OIDCAuthorizationURL(); got != "https://auth.example.com/application/o/authorize/" {
+		t.Fatalf("authorization url = %q, want %q", got, "https://auth.example.com/application/o/authorize/")
 	}
 }
 
-func TestZitadelTokenEndpointUsesNormalizedIssuer(t *testing.T) {
-	cfg := Config{ZitadelIssuerURL: "https://zitadel.example.com/oauth/v2/token"}
+func TestOIDCTokenEndpointUsesExplicitValue(t *testing.T) {
+	cfg := Config{OIDCTokenURL: "https://auth.example.com/application/o/token/"}
 
-	if got := cfg.ZitadelTokenEndpoint(); got != "https://zitadel.example.com/oauth/v2/token" {
-		t.Fatalf("token endpoint = %q, want %q", got, "https://zitadel.example.com/oauth/v2/token")
+	if got := cfg.OIDCTokenEndpoint(); got != "https://auth.example.com/application/o/token/" {
+		t.Fatalf("token endpoint = %q, want %q", got, "https://auth.example.com/application/o/token/")
 	}
 }
 

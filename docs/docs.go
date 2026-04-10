@@ -21,10 +21,10 @@ const docTemplate = `{
                 "tags": [
                     "admin"
                 ],
-                "summary": "Start admin login with ZITADEL",
+                "summary": "Start admin login with OIDC provider",
                 "responses": {
                     "302": {
-                        "description": "Redirect to ZITADEL authorization endpoint",
+                        "description": "Redirect to OIDC authorization endpoint",
                         "schema": {
                             "type": "string"
                         }

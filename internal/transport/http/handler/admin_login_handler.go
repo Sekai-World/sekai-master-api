@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -37,6 +38,7 @@ type AdminLoginHandler struct {
 	privateKeyPath string
 	privateKeyID   string
 	httpClient     *http.Client
+	publicClient   *http.Client
 }
 
 type oauthTokenResponse struct {
@@ -51,27 +53,33 @@ type oauthErrorResponse struct {
 }
 
 func NewAdminLoginHandler(cfg config.Config) (*AdminLoginHandler, error) {
-	httpClient, err := auth.NewZitadelHTTPClient(cfg, 10*time.Second)
+	httpClient, err := auth.NewOIDCHTTPClient(cfg, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	authURL, tokenEndpoint, err := auth.ResolveOIDCEndpoints(context.Background(), cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AdminLoginHandler{
-		authURL:        cfg.ZitadelAuthorizationURL(),
-		tokenEndpoint:  cfg.ZitadelTokenEndpoint(),
-		clientID:       cfg.ZitadelClientID,
-		redirectURL:    cfg.ZitadelRedirectURL,
-		scopes:         append([]string(nil), cfg.ZitadelScopes...),
-		privateKeyPath: cfg.ZitadelPrivateKeyPath,
-		privateKeyID:   cfg.ZitadelPrivateKeyID,
+		authURL:        authURL,
+		tokenEndpoint:  tokenEndpoint,
+		clientID:       cfg.OIDCClientID,
+		redirectURL:    cfg.OIDCRedirectURL,
+		scopes:         append([]string(nil), cfg.OIDCScopes...),
+		privateKeyPath: cfg.OIDCPrivateKeyPath,
+		privateKeyID:   cfg.OIDCPrivateKeyID,
 		httpClient:     httpClient,
+		publicClient:   auth.NewPublicOIDCHTTPClient(10 * time.Second),
 	}, nil
 }
 
 // Start godoc
-// @Summary Start admin login with ZITADEL
+// @Summary Start admin login with OIDC provider
 // @Tags admin
-// @Success 302 {string} string "Redirect to ZITADEL authorization endpoint"
+// @Success 302 {string} string "Redirect to OIDC authorization endpoint"
 // @Failure 500 {object} ErrorResponse
 // @Router /admin/login [get]
 func (handler *AdminLoginHandler) Start(c *gin.Context) {
@@ -151,14 +159,7 @@ func (handler *AdminLoginHandler) Callback(c *gin.Context) {
 		form.Set("client_assertion", clientAssertion)
 	}
 
-	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, handler.tokenEndpoint, strings.NewReader(form.Encode()))
-	if err != nil {
-		redirectToLoginError(c, "oauth_callback_failed")
-		return
-	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := handler.httpClient.Do(request)
+	resp, err := handler.exchangeCodeForToken(c.Request.Context(), form)
 	if err != nil {
 		logWithRequestID(c, "admin login token request failed: endpoint=%s error=%v", handler.tokenEndpoint, err)
 		redirectToLoginError(c, "oauth_exchange_failed")
@@ -176,9 +177,9 @@ func (handler *AdminLoginHandler) Callback(c *gin.Context) {
 	if resp.StatusCode >= http.StatusBadRequest {
 		var oauthErr oauthErrorResponse
 		if err := json.Unmarshal(body, &oauthErr); err == nil && (oauthErr.Error != "" || oauthErr.ErrorDescription != "") {
-			logWithRequestID(c, "admin login rejected by zitadel: status=%d error=%s description=%s", resp.StatusCode, oauthErr.Error, oauthErr.ErrorDescription)
+			logWithRequestID(c, "admin login rejected by oidc provider: status=%d error=%s description=%s", resp.StatusCode, oauthErr.Error, oauthErr.ErrorDescription)
 		} else {
-			logWithRequestID(c, "admin login rejected by zitadel: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
+			logWithRequestID(c, "admin login rejected by oidc provider: status=%d body=%s", resp.StatusCode, sanitizeLogBody(string(body)))
 		}
 
 		redirectToLoginError(c, "oauth_exchange_failed")
@@ -210,6 +211,32 @@ func (handler *AdminLoginHandler) isConfigured() bool {
 
 func (handler *AdminLoginHandler) usesPrivateKeyJWT() bool {
 	return strings.TrimSpace(handler.privateKeyPath) != ""
+}
+
+func (handler *AdminLoginHandler) exchangeCodeForToken(ctx context.Context, form url.Values) (*http.Response, error) {
+	encodedForm := form.Encode()
+
+	resp, err := handler.doTokenRequest(ctx, handler.httpClient, encodedForm)
+	if err == nil || handler.publicClient == nil {
+		return resp, err
+	}
+
+	fallbackResp, fallbackErr := handler.doTokenRequest(ctx, handler.publicClient, encodedForm)
+	if fallbackErr == nil {
+		return fallbackResp, nil
+	}
+
+	return nil, fmt.Errorf("primary request failed: %w; public fallback failed: %v", err, fallbackErr)
+}
+
+func (handler *AdminLoginHandler) doTokenRequest(ctx context.Context, client *http.Client, encodedForm string) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, handler.tokenEndpoint, strings.NewReader(encodedForm))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	return client.Do(request)
 }
 
 func setLoginCookie(c *gin.Context, name string, value string) {

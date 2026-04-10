@@ -32,18 +32,18 @@ type Config struct {
 	RedisPassword                string
 	RedisDB                      int
 	MasterDataRedisKeyPrefix     string
-	ZitadelIssuerURL             string
-	ZitadelInternalURL           string
-	ZitadelAudience              string
-	ZitadelSkipIssuer            bool
-	ZitadelSkipAudCheck          bool
-	ZitadelClientID              string
-	ZitadelAuthURL               string
-	ZitadelTokenURL              string
-	ZitadelRedirectURL           string
-	ZitadelScopes                []string
-	ZitadelPrivateKeyPath        string
-	ZitadelPrivateKeyID          string
+	OIDCIssuerURL                string
+	OIDCInternalURL              string
+	OIDCAudience                 string
+	OIDCSkipIssuer               bool
+	OIDCSkipAudCheck             bool
+	OIDCClientID                 string
+	OIDCAuthURL                  string
+	OIDCTokenURL                 string
+	OIDCRedirectURL              string
+	OIDCScopes                   []string
+	OIDCPrivateKeyPath           string
+	OIDCPrivateKeyID             string
 }
 
 type MasterDataSource struct {
@@ -82,18 +82,18 @@ func Load() Config {
 		RedisPassword:                getEnv("REDIS_PASSWORD", ""),
 		RedisDB:                      getEnvInt("REDIS_DB", 0),
 		MasterDataRedisKeyPrefix:     getEnv("MASTER_DATA_REDIS_KEY_PREFIX", "sekai:master-data:"),
-		ZitadelIssuerURL:             strings.TrimSpace(getEnv("ZITADEL_ISSUER_URL", "")),
-		ZitadelInternalURL:           strings.TrimSpace(getEnv("ZITADEL_INTERNAL_URL", "")),
-		ZitadelAudience:              strings.TrimSpace(getEnv("ZITADEL_AUDIENCE", "")),
-		ZitadelSkipIssuer:            strings.EqualFold(getEnv("ZITADEL_SKIP_ISSUER_CHECK", "false"), "true"),
-		ZitadelSkipAudCheck:          strings.EqualFold(getEnv("ZITADEL_SKIP_AUDIENCE_CHECK", "false"), "true"),
-		ZitadelClientID:              strings.TrimSpace(getEnv("ZITADEL_CLIENT_ID", "")),
-		ZitadelAuthURL:               strings.TrimSpace(getEnv("ZITADEL_AUTH_URL", "")),
-		ZitadelTokenURL:              strings.TrimSpace(getEnv("ZITADEL_TOKEN_URL", "")),
-		ZitadelRedirectURL:           strings.TrimSpace(getEnv("ZITADEL_REDIRECT_URL", "http://localhost:"+port+"/api/v1/admin/login/callback")),
-		ZitadelScopes:                getEnvListWithFallback("ZITADEL_SCOPES", []string{"openid", "profile", "email"}),
-		ZitadelPrivateKeyPath:        strings.TrimSpace(getEnv("ZITADEL_PRIVATE_KEY_PATH", "")),
-		ZitadelPrivateKeyID:          strings.TrimSpace(getEnv("ZITADEL_PRIVATE_KEY_ID", "")),
+		OIDCIssuerURL:                strings.TrimSpace(getEnv("OIDC_ISSUER_URL", "")),
+		OIDCInternalURL:              strings.TrimSpace(getEnv("OIDC_INTERNAL_URL", "")),
+		OIDCAudience:                 strings.TrimSpace(getEnv("OIDC_AUDIENCE", "")),
+		OIDCSkipIssuer:               strings.EqualFold(getEnv("OIDC_SKIP_ISSUER_CHECK", "false"), "true"),
+		OIDCSkipAudCheck:             strings.EqualFold(getEnv("OIDC_SKIP_AUDIENCE_CHECK", "false"), "true"),
+		OIDCClientID:                 strings.TrimSpace(getEnv("OIDC_CLIENT_ID", "")),
+		OIDCAuthURL:                  strings.TrimSpace(getEnv("OIDC_AUTH_URL", "")),
+		OIDCTokenURL:                 strings.TrimSpace(getEnv("OIDC_TOKEN_URL", "")),
+		OIDCRedirectURL:              strings.TrimSpace(getEnv("OIDC_REDIRECT_URL", "http://localhost:"+port+"/api/v1/admin/login/callback")),
+		OIDCScopes:                   getEnvListWithFallback("OIDC_SCOPES", []string{"openid", "profile", "email"}),
+		OIDCPrivateKeyPath:           strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_PATH", "")),
+		OIDCPrivateKeyID:             strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_ID", "")),
 	}
 }
 
@@ -163,44 +163,37 @@ func (cfg Config) EffectiveDatabaseDSN() string {
 	return cfg.DatabaseURL
 }
 
-func (cfg Config) NormalizedZitadelIssuerURL() string {
-	return normalizeZitadelIssuerURL(cfg.ZitadelIssuerURL)
+func (cfg Config) NormalizedOIDCIssuerURL() string {
+	return normalizeOIDCIssuerURL(cfg.OIDCIssuerURL)
 }
 
-func (cfg Config) NormalizedZitadelInternalURL() string {
-	return normalizeZitadelIssuerURL(cfg.ZitadelInternalURL)
+func (cfg Config) NormalizedOIDCInternalURL() string {
+	return normalizeOIDCIssuerURL(cfg.OIDCInternalURL)
 }
 
-func (cfg Config) ZitadelAuthorizationURL() string {
-	if cfg.ZitadelAuthURL != "" {
-		return cfg.ZitadelAuthURL
-	}
-
-	return cfg.NormalizedZitadelIssuerURL() + "/oauth/v2/authorize"
+func (cfg Config) OIDCAuthorizationURL() string {
+	return cfg.OIDCAuthURL
 }
 
-func (cfg Config) ZitadelTokenEndpoint() string {
-	if cfg.ZitadelTokenURL != "" {
-		return cfg.ZitadelTokenURL
-	}
-
-	return cfg.NormalizedZitadelIssuerURL() + "/oauth/v2/token"
+func (cfg Config) OIDCTokenEndpoint() string {
+	return cfg.OIDCTokenURL
 }
 
-func normalizeZitadelIssuerURL(raw string) string {
-	issuer := strings.TrimRight(strings.TrimSpace(raw), "/")
+func normalizeOIDCIssuerURL(raw string) string {
+	issuer := strings.TrimSpace(raw)
 	if issuer == "" {
 		return ""
 	}
 
+	trimmedIssuer := strings.TrimRight(issuer, "/")
 	for _, suffix := range []string{
 		"/.well-known/openid-configuration",
 		"/oauth/v2/authorize",
 		"/oauth/v2/token",
 		"/oauth/v2/userinfo",
 	} {
-		if strings.HasSuffix(strings.ToLower(issuer), suffix) {
-			return issuer[:len(issuer)-len(suffix)]
+		if strings.HasSuffix(strings.ToLower(trimmedIssuer), suffix) {
+			return trimmedIssuer[:len(trimmedIssuer)-len(suffix)]
 		}
 	}
 

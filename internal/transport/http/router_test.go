@@ -32,15 +32,17 @@ func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 	t.Helper()
 
 	cfg := config.Config{
-		Port:                  "8080",
-		AppEnv:                appEnv,
-		ZitadelIssuerURL:      "https://zitadel.example.com",
-		ZitadelInternalURL:    "https://zitadel-internal.example.com",
-		ZitadelAudience:       "https://api.example.com",
-		ZitadelClientID:       "web-client",
-		ZitadelRedirectURL:    "http://localhost:8080/api/v1/admin/login/callback",
-		ZitadelScopes:         []string{"openid", "profile", "email"},
-		ZitadelPrivateKeyPath: "/tmp/zitadel-test-key.pem",
+		Port:               "8080",
+		AppEnv:             appEnv,
+		OIDCIssuerURL:      "https://auth.example.com",
+		OIDCInternalURL:    "https://auth-internal.example.com",
+		OIDCAudience:       "https://api.example.com",
+		OIDCClientID:       "web-client",
+		OIDCAuthURL:        "https://auth.example.com/application/o/authorize/",
+		OIDCTokenURL:       "https://auth.example.com/application/o/token/",
+		OIDCRedirectURL:    "http://localhost:8080/api/v1/admin/login/callback",
+		OIDCScopes:         []string{"openid", "profile", "email"},
+		OIDCPrivateKeyPath: "/tmp/oidc-test-key.pem",
 	}
 
 	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil)
@@ -347,8 +349,8 @@ func TestAdminLoginStart(t *testing.T) {
 	}
 
 	location := resp.Header().Get("Location")
-	if !strings.HasPrefix(location, "https://zitadel.example.com/oauth/v2/authorize?") {
-		t.Fatalf("expected redirect to zitadel authorize endpoint, got %q", location)
+	if !strings.HasPrefix(location, "https://auth.example.com/application/o/authorize/?") {
+		t.Fatalf("expected redirect to oidc authorize endpoint, got %q", location)
 	}
 
 	if len(resp.Result().Cookies()) == 0 {

@@ -10,33 +10,40 @@ import (
 	"sekai-master-api/internal/config"
 )
 
-func NewZitadelHTTPClient(cfg config.Config, timeout time.Duration) (*http.Client, error) {
+func NewPublicOIDCHTTPClient(timeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
-	rewrittenTransport, err := newZitadelHTTPTransport(cfg, transport)
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+func NewOIDCHTTPClient(cfg config.Config, timeout time.Duration) (*http.Client, error) {
+	client := NewPublicOIDCHTTPClient(timeout)
+
+	rewrittenTransport, err := newOIDCHTTPTransport(cfg, client.Transport)
 	if err != nil {
 		return nil, err
 	}
 
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: rewrittenTransport,
-	}, nil
+	client.Transport = rewrittenTransport
+	return client, nil
 }
 
-func newZitadelHTTPTransport(cfg config.Config, base http.RoundTripper) (http.RoundTripper, error) {
-	publicIssuer := cfg.NormalizedZitadelIssuerURL()
-	internalBase := cfg.NormalizedZitadelInternalURL()
+func newOIDCHTTPTransport(cfg config.Config, base http.RoundTripper) (http.RoundTripper, error) {
+	publicIssuer := cfg.NormalizedOIDCIssuerURL()
+	internalBase := cfg.NormalizedOIDCInternalURL()
 	if strings.TrimSpace(internalBase) == "" {
 		return base, nil
 	}
 
-	publicBaseURL, err := parseAbsoluteURL(publicIssuer, "ZITADEL_ISSUER_URL")
+	publicBaseURL, err := parseAbsoluteURL(publicIssuer, "OIDC_ISSUER_URL")
 	if err != nil {
 		return nil, err
 	}
 
-	internalBaseURL, err := parseAbsoluteURL(internalBase, "ZITADEL_INTERNAL_URL")
+	internalBaseURL, err := parseAbsoluteURL(internalBase, "OIDC_INTERNAL_URL")
 	if err != nil {
 		return nil, err
 	}
@@ -45,20 +52,20 @@ func newZitadelHTTPTransport(cfg config.Config, base http.RoundTripper) (http.Ro
 		return base, nil
 	}
 
-	return &zitadelRoutingTransport{
+	return &oidcRoutingTransport{
 		base:            base,
 		publicBaseURL:   publicBaseURL,
 		internalBaseURL: internalBaseURL,
 	}, nil
 }
 
-type zitadelRoutingTransport struct {
+type oidcRoutingTransport struct {
 	base            http.RoundTripper
 	publicBaseURL   *url.URL
 	internalBaseURL *url.URL
 }
 
-func (transport *zitadelRoutingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (transport *oidcRoutingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req == nil || req.URL == nil || !transport.matches(req.URL) {
 		return transport.base.RoundTrip(req)
 	}
@@ -80,7 +87,7 @@ func (transport *zitadelRoutingTransport) RoundTrip(req *http.Request) (*http.Re
 	return transport.base.RoundTrip(rewrittenReq)
 }
 
-func (transport *zitadelRoutingTransport) matches(target *url.URL) bool {
+func (transport *oidcRoutingTransport) matches(target *url.URL) bool {
 	return strings.EqualFold(target.Scheme, transport.publicBaseURL.Scheme) &&
 		strings.EqualFold(target.Host, transport.publicBaseURL.Host)
 }
@@ -118,19 +125,16 @@ func rewriteURLPath(publicBasePath string, internalBasePath string, requestPath 
 	normalizedPublic := strings.TrimRight(publicBasePath, "/")
 	normalizedInternal := strings.TrimRight(internalBasePath, "/")
 
+	if normalizedInternal == "" {
+		if requestPath == "" {
+			return "/"
+		}
+		return requestPath
+	}
+
 	suffix := requestPath
 	if normalizedPublic != "" && strings.HasPrefix(requestPath, normalizedPublic) {
 		suffix = strings.TrimPrefix(requestPath, normalizedPublic)
-	}
-
-	if normalizedInternal == "" {
-		if suffix == "" {
-			return "/"
-		}
-		if strings.HasPrefix(suffix, "/") {
-			return suffix
-		}
-		return "/" + suffix
 	}
 
 	if suffix == "" {

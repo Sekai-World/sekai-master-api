@@ -182,14 +182,14 @@ paths:
     get:
       responses:
         "302":
-          description: Redirect to ZITADEL authorization endpoint
+          description: Redirect to OIDC authorization endpoint
           schema:
             type: string
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
-      summary: Start admin login with ZITADEL
+      summary: Start admin login with OIDC provider
       tags:
       - admin
   /admin/master-data/status:
