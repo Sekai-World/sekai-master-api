@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.uber.org/zap"
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/logging"
 )
@@ -1158,6 +1159,8 @@ func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status mas
 }
 
 func (usecase *MasterDataSyncUsecase) publishSyncEvent(ctx context.Context, event masterdata.SyncUpdatedEvent) {
+	usecase.logSyncEventDebug(event)
+
 	if usecase.publisher == nil {
 		usecase.logf("sync event skipped reason=publisher_disabled")
 		return
@@ -1177,6 +1180,72 @@ func (usecase *MasterDataSyncUsecase) publishSyncEvent(ctx context.Context, even
 			len(event.FailedRegions),
 		)
 	}
+}
+
+func (usecase *MasterDataSyncUsecase) logSyncEventDebug(event masterdata.SyncUpdatedEvent) {
+	fields := []any{
+		"component", masterDataSyncLogComponent,
+		"event", strings.TrimSpace(event.Event),
+		"status", strings.TrimSpace(event.Status),
+	}
+
+	if region := strings.TrimSpace(event.Region); region != "" {
+		fields = append(fields, "region", region)
+	}
+	if phase := strings.TrimSpace(event.Phase); phase != "" {
+		fields = append(fields, "phase", phase)
+	}
+	if message := strings.TrimSpace(event.Message); message != "" {
+		fields = append(fields, "message", message)
+	}
+	if filePath := strings.TrimSpace(event.FilePath); filePath != "" {
+		fields = append(fields, "file_path", filePath)
+	}
+	if event.CurrentStep > 0 {
+		fields = append(fields, "current_step", event.CurrentStep)
+	}
+	if event.TotalSteps > 0 {
+		fields = append(fields, "total_steps", event.TotalSteps)
+	}
+	if event.FileCount > 0 {
+		fields = append(fields, "file_count", event.FileCount)
+	}
+	if event.ProcessedFiles > 0 {
+		fields = append(fields, "processed_files", event.ProcessedFiles)
+	}
+	if event.TotalFiles > 0 {
+		fields = append(fields, "total_files", event.TotalFiles)
+	}
+	if event.FailedFiles > 0 {
+		fields = append(fields, "failed_files", event.FailedFiles)
+	}
+	if event.DurationMS > 0 {
+		fields = append(fields, "duration_ms", event.DurationMS)
+	}
+	if len(event.Regions) > 0 {
+		fields = append(fields, "regions", append([]string(nil), event.Regions...))
+	}
+	if len(event.FailedRegions) > 0 {
+		fields = append(fields, "failed_regions", append([]string(nil), event.FailedRegions...))
+	}
+	if !event.UpdatedAt.IsZero() {
+		fields = append(fields, "updated_at", event.UpdatedAt)
+	}
+	if event.StatusItem != nil {
+		fields = append(
+			fields,
+			"status_item_region", strings.TrimSpace(event.StatusItem.Region),
+			"status_item_status", strings.TrimSpace(event.StatusItem.Status),
+			"status_item_file_count", event.StatusItem.FileCount,
+			"status_item_duration_ms", event.StatusItem.SyncDurationMS,
+			"status_item_source_commit", strings.TrimSpace(event.StatusItem.SourceCommit),
+		)
+		if errorMessage := strings.TrimSpace(event.StatusItem.ErrorMessage); errorMessage != "" {
+			fields = append(fields, "status_item_error", errorMessage)
+		}
+	}
+
+	zap.S().Debugw("master data sync event", fields...)
 }
 
 func (usecase *MasterDataSyncUsecase) logf(format string, args ...any) {
