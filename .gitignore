@@ -23,6 +23,7 @@ tmp/
 # Editor / IDE
 .vscode/
 .idea/
+.codex
 .codex/
 
 # OS files
