@@ -352,11 +352,19 @@ export const initDashboardPage = async () => {
   }
 
   const user = profile.payload?.user ?? {};
+  const authDebug = profile.payload?.auth_debug ?? null;
   profileView.innerHTML =
     infoItem("用户名", user.username) +
     infoItem("显示名", user.display_name) +
     infoItem("邮箱", user.email) +
-    infoItem("用户ID", user.id);
+    infoItem("用户ID", user.id) +
+    (authDebug?.admin_claim ? infoItem("Admin Claim", authDebug.admin_claim) : "") +
+    (Array.isArray(authDebug?.claim_values) && authDebug.claim_values.length > 0
+      ? infoItem("Claim 值", authDebug.claim_values.join(", "))
+      : "") +
+    (Array.isArray(authDebug?.matched_values) && authDebug.matched_values.length > 0
+      ? infoItem("Claim 命中", authDebug.matched_values.join(", "))
+      : "");
 
   const loadMasterDataStatus = async () => {
     const statusResult = await requestJSON("/api/v1/admin/master-data/status", { bearer });
@@ -389,7 +397,7 @@ export const initDashboardPage = async () => {
 
   await loadMasterDataStatus();
 
-  const eventSource = new EventSource("/api/v1/master-data/events");
+  const eventSource = new EventSource(`/api/v1/admin/master-data/events?access_token=${encodeURIComponent(bearer)}`);
   eventSource.addEventListener("master_data_sync_progress", (event) => {
     let payload = null;
     try {

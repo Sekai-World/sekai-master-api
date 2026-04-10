@@ -139,13 +139,15 @@ apply_local_blueprint() {
 main() {
 	load_env
 
-	local compose_cmd authentik_port app_slug login_user login_password
+	local compose_cmd authentik_port app_slug login_user login_password admin_group admin_scope
 	local authentik_base issuer_url probe_issuer_url
 	local display_authentik_url display_issuer_url
 
 	compose_cmd="$(resolve_compose_cmd)"
 	authentik_port="${AUTHENTIK_PORT:-19100}"
 	app_slug="${AUTHENTIK_LOCAL_APP_SLUG:-sekai-admin-web}"
+	admin_group="${AUTHENTIK_LOCAL_ADMIN_GROUP_NAME:-sekai-admin}"
+	admin_scope="${AUTHENTIK_LOCAL_ADMIN_SCOPE_NAME:-sekai_admin}"
 	login_user="${AUTHENTIK_LOCAL_TEST_USERNAME:-admin}"
 	login_password="${AUTHENTIK_LOCAL_TEST_PASSWORD:-Admin123!Admin123!}"
 	display_authentik_url="http://localhost:${authentik_port}"
@@ -163,6 +165,8 @@ main() {
 	if [ "$authentik_base" != "$display_authentik_url" ]; then
 		echo "[dev-env-up] bootstrap probe url: ${authentik_base}"
 	fi
+	echo "[dev-env-up] local admin claim group: ${admin_group}"
+	echo "[dev-env-up] local admin scope: ${admin_scope}"
 	echo "[dev-env-up] local oidc test user: ${login_user}"
 	echo "[dev-env-up] local oidc test password: ${login_password}"
 	echo "[dev-env-up] bootstrap admin user: akadmin"

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,7 +15,7 @@ func AccessLog() gin.HandlerFunc {
 		start := time.Now()
 
 		requestPath := c.Request.URL.Path
-		requestQuery := strings.TrimSpace(c.Request.URL.RawQuery)
+		requestQuery := sanitizeQueryString(c.Request.URL.RawQuery)
 		requestPathWithQuery := requestPath
 		if requestQuery != "" {
 			requestPathWithQuery = requestPathWithQuery + "?" + requestQuery
@@ -70,4 +71,22 @@ func AccessLog() gin.HandlerFunc {
 
 		zap.S().Debugw("http response", fields...)
 	}
+}
+
+func sanitizeQueryString(rawQuery string) string {
+	trimmed := strings.TrimSpace(rawQuery)
+	if trimmed == "" {
+		return ""
+	}
+
+	values, err := url.ParseQuery(trimmed)
+	if err != nil {
+		return trimmed
+	}
+
+	if _, ok := values["access_token"]; ok {
+		values.Set("access_token", "[REDACTED]")
+	}
+
+	return values.Encode()
 }

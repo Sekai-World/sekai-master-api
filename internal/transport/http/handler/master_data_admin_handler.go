@@ -40,6 +40,7 @@ func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, ti
 // @Security BearerAuth
 // @Success 200 {object} MasterDataAdminStatusResponse
 // @Failure 401 {object} ErrorResponse
+// @Failure 403 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /admin/master-data/status [get]
 func (handler *MasterDataAdminHandler) Status(c *gin.Context) {
@@ -64,6 +65,7 @@ func (handler *MasterDataAdminHandler) Status(c *gin.Context) {
 // @Param payload body masterDataSyncRequest false "Optional region-scoped sync payload"
 // @Success 200 {object} MasterDataSyncResponse
 // @Failure 401 {object} ErrorResponse
+// @Failure 403 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Failure 503 {object} ErrorResponse
 // @Router /admin/master-data/sync [post]
@@ -116,6 +118,7 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 // @Param payload body masterDataSyncRequest false "Optional region-scoped force sync payload"
 // @Success 200 {object} MasterDataSyncResponse
 // @Failure 401 {object} ErrorResponse
+// @Failure 403 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Failure 503 {object} ErrorResponse
 // @Router /admin/master-data/sync/force [post]

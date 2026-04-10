@@ -38,6 +38,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/master-data/events": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "master-data"
+                ],
+                "summary": "Subscribe master-data sync events",
+                "responses": {
+                    "200": {
+                        "description": "SSE stream",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/master-data/status": {
             "get": {
                 "security": [
@@ -61,6 +103,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponse"
                         }
@@ -107,6 +155,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponse"
                         }
@@ -163,6 +217,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/handler.ErrorResponse"
                         }
                     },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -201,6 +261,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponse"
                         }
@@ -706,56 +772,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/master-data/events": {
-            "get": {
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "master-data"
-                ],
-                "summary": "Subscribe master-data sync events",
-                "responses": {
-                    "200": {
-                        "description": "SSE stream",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/master-data/status": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "master-data"
-                ],
-                "summary": "Get master-data sync status",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/handler.MasterDataStatusListResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/musics/{region}/list": {
             "get": {
                 "produces": [
@@ -1092,17 +1108,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.MasterDataStatusListResponse": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/masterdata.SyncStatus"
-                    }
-                }
-            }
-        },
         "handler.MasterDataSyncResponse": {
             "type": "object",
             "properties": {
@@ -1126,9 +1131,32 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.ProfileAuthDebug": {
+            "type": "object",
+            "properties": {
+                "admin_claim": {
+                    "type": "string"
+                },
+                "claim_values": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "matched_values": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "handler.ProfileResponse": {
             "type": "object",
             "properties": {
+                "auth_debug": {
+                    "$ref": "#/definitions/handler.ProfileAuthDebug"
+                },
                 "user": {
                     "$ref": "#/definitions/handler.ProfileUser"
                 }

@@ -90,6 +90,13 @@ type ProfileUser struct {
 	Email       string `json:"email"`
 }
 
+type ProfileAuthDebug struct {
+	AdminClaim    string   `json:"admin_claim"`
+	ClaimValues   []string `json:"claim_values"`
+	MatchedValues []string `json:"matched_values"`
+}
+
 type ProfileResponse struct {
-	User ProfileUser `json:"user"`
+	User      ProfileUser       `json:"user"`
+	AuthDebug *ProfileAuthDebug `json:"auth_debug,omitempty"`
 }

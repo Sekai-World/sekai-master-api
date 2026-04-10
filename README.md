@@ -82,8 +82,6 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /docs/index.html`
 - `GET /docs/doc.json`
 - `GET /api/v1/health`
-- `GET /api/v1/master-data/status`
-- `GET /api/v1/master-data/events` (SSE stream for sync updates)
 - `GET /api/v1/cards/:region/list?page=1&page_size=20`
 - `GET /api/v1/cards/:region/search?q=<keyword>&field=name|skill&page=1&limit=20`
 - `GET /api/v1/cards/:region/:id`
@@ -97,6 +95,7 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/events/:region/:id`
 - `GET /api/v1/events/:region/:id/rewards`
 - `GET /api/v1/admin/profile` (Bearer token from configured OIDC provider required)
+- `GET /api/v1/admin/master-data/events` (Bearer token from configured OIDC provider required; dashboard SSE uses `access_token` query param)
 - `GET /api/v1/admin/master-data/status` (Bearer token from configured OIDC provider required)
 - `POST /api/v1/admin/master-data/sync` (Bearer token from configured OIDC provider required)
 - `POST /api/v1/admin/master-data/sync/force` (Bearer token from configured OIDC provider required)
@@ -117,6 +116,7 @@ At startup, the API can sync parsed game database JSON files from one or more Gi
 Startup sync runs in background after the API listener is up, so HTTP endpoints are available immediately.
 
 - Region source repos are configured by env vars.
+- `MASTER_DATA_RECOVER_INTERRUPTED_SYNC` controls whether startup should detect stale `running` / `pending` latest statuses and retry only those interrupted regions.
 - Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `4`).
 - `MASTER_DATA_REGION_FILE_CONCURRENCY` is retained for backward-compatible configuration, but archive-based sync no longer performs per-file GitHub fetches.
 - GitHub HTTP requests support retry via `MASTER_DATA_HTTP_RETRY_COUNT` (default `3`) and `MASTER_DATA_HTTP_RETRY_BACKOFF_MS` (default `300`).
@@ -130,10 +130,12 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Temporary archive workspace is created under `tmp/master-data-sync-resume/` during sync and removed after the region load completes.
 - Successful sync payloads are temporarily backed up by region under `tmp/master-data-backup/<region>/latest/`, preserving all synced JSON files as directory snapshots.
 - If commit is unchanged and previous sync status is success: API first tries rebuilding in-memory index from Redis; if Redis data is missing but local backup exists, it restores cache from local backup; otherwise it falls back to full sync.
+- If the process restarts while a region is still marked `running` or `pending`, startup recovery can automatically retry only those interrupted regions.
+- Interrupted sync recovery reuses the normal sync path, so unchanged regions can still be restored from Redis or local backup instead of forcing a full refetch.
 - Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
 - Sync status also includes `source_commit` for change tracking and skip decisions.
-- You can inspect status via `GET /api/v1/master-data/status`.
 - Admin dashboard reads a region-scoped status view from `GET /api/v1/admin/master-data/status`, including configured regions and current sync-running state.
+- Sync progress and completion events are exposed only via `GET /api/v1/admin/master-data/events`.
 - You can trigger manual sync from dashboard or call `POST /api/v1/admin/master-data/sync`.
 - If you need to ignore commit comparison and force a full refresh, call `POST /api/v1/admin/master-data/sync/force`.
 
@@ -185,7 +187,7 @@ Example for `jp`:
 - event by-id endpoint omits `eventRankingRewardRanges` from the main payload
 - current event endpoint (`GET /api/v1/events/:region/current`) reads from Redis cache first, validates event time window, and refreshes cache from `events.json` when cached event is expired/missing
 - event rewards endpoint returns `eventRankingRewardRanges` via `GET /api/v1/events/:region/:id/rewards`
-- `GET /api/v1/master-data/events` can notify frontend after sync finishes (`master_data_updated`)
+- `GET /api/v1/admin/master-data/events` can notify frontend after sync finishes (`master_data_updated`)
 
 Redis settings:
 
@@ -233,8 +235,18 @@ Optional flags for local troubleshooting:
 - `OIDC_SKIP_AUDIENCE_CHECK`
 - `OIDC_PRIVATE_KEY_PATH`
 - `OIDC_PRIVATE_KEY_ID`
+- `OIDC_ADMIN_CLAIM`
+- `OIDC_ADMIN_CLAIM_VALUES`
 
 `OIDC_SCOPES` should include the standard OpenID scopes required by your provider and any API audience/resource scopes required by your deployment.
+
+Optional admin RBAC:
+
+- If `OIDC_ADMIN_CLAIM` and `OIDC_ADMIN_CLAIM_VALUES` are both set, `/api/v1/admin/*` requires the validated token to contain at least one matching claim value.
+- Claim lookup supports top-level or dotted paths such as `groups`, `roles`, or `realm_access.roles`.
+- Claim values can be arrays (`["sekai-admin"]`) or strings. `scope` / `scp` string claims are split on whitespace and commas.
+- If these env vars are left empty, admin authorization falls back to authenticated-user-only behavior.
+- The admin profile endpoint and dashboard only expose matched-claim debug details in `development` / `test`; production hides them even when RBAC is enabled.
 
 For local development, `.env.development` is preconfigured for the bundled Authentik instance:
 
@@ -242,6 +254,9 @@ For local development, `.env.development` is preconfigured for the bundled Authe
 - OIDC issuer: `http://localhost:19100/application/o/sekai-admin-web/`
 - OIDC client ID / audience: `sekai-admin-web`
 - OIDC redirect URI: `http://localhost:8080/api/v1/admin/login/callback`
+- Admin RBAC claim: `groups`
+- Required admin value: `sekai-admin`
+- Local Authentik group-claim scope: `sekai_admin`
 
 `make dev-env-up` also provisions, via Authentik blueprints, a local OIDC application and a test login user:
 

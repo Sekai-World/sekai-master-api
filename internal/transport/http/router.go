@@ -25,13 +25,13 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	router.Use(middleware.RecoveryLog())
 
 	healthHandler := handler.NewHealthHandler(db)
-	profileHandler := handler.NewProfileHandler()
+	adminClaimAuthorizer := auth.NewAdminClaimAuthorizer(cfg.OIDCAdminClaim, cfg.OIDCAdminClaimValues)
+	profileHandler := handler.NewProfileHandler(cfg.AppEnv, adminClaimAuthorizer)
 	adminUIHandler := handler.NewAdminUIHandler(cfg)
 	adminLoginHandler, err := handler.NewAdminLoginHandler(cfg)
 	if err != nil {
 		return nil, err
 	}
-	masterDataStatusHandler := handler.NewMasterDataStatusHandler(masterDataSync)
 	masterDataEventHandler := handler.NewMasterDataEventHandler(masterDataEvents)
 	cardHandler := handler.NewCardHandler(masterDataSync)
 	musicHandler := handler.NewMusicHandler(masterDataSync)
@@ -48,8 +48,6 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	v1 := router.Group("/api/v1")
 	{
 		v1.GET("/health", healthHandler.Check)
-		v1.GET("/master-data/status", masterDataStatusHandler.List)
-		v1.GET("/master-data/events", masterDataEventHandler.Stream)
 		v1.GET("/cards/:region/list", cardHandler.List)
 		v1.GET("/cards/:region/search", cardHandler.SearchByPrefix)
 		v1.GET("/cards/:region/:id", cardHandler.ByID)
@@ -65,8 +63,9 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		v1.GET("/admin/login/callback", adminLoginHandler.Callback)
 
 		admin := v1.Group("/admin")
-		admin.Use(middleware.Auth(tokenVerifier))
+		admin.Use(middleware.AuthWithAuthorizer(tokenVerifier, adminClaimAuthorizer))
 		admin.GET("/profile", profileHandler.Me)
+		admin.GET("/master-data/events", masterDataEventHandler.Stream)
 		admin.GET("/master-data/status", masterDataAdminHandler.Status)
 		admin.POST("/master-data/sync", masterDataAdminHandler.Sync)
 		admin.POST("/master-data/sync/force", masterDataAdminHandler.ForceSync)

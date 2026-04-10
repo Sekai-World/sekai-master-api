@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
-	restoreEnv(t, "APP_ENV", "APP_PORT")
+	restoreEnv(t, "APP_ENV", "APP_PORT", "MASTER_DATA_RECOVER_INTERRUPTED_SYNC")
 
 	tmpDir := t.TempDir()
 	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nAPP_PORT=1000\n")
@@ -23,6 +23,9 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	}
 	if cfg.Port != "4000" {
 		t.Fatalf("expected APP_PORT from .env.development.local, got %q", cfg.Port)
+	}
+	if !cfg.MasterDataRecoverInterrupted {
+		t.Fatalf("expected interrupted sync recovery to default true")
 	}
 }
 
@@ -99,6 +102,37 @@ func TestOIDCTokenEndpointUsesExplicitValue(t *testing.T) {
 
 	if got := cfg.OIDCTokenEndpoint(); got != "https://auth.example.com/application/o/token/" {
 		t.Fatalf("token endpoint = %q, want %q", got, "https://auth.example.com/application/o/token/")
+	}
+}
+
+func TestLoadReadsOIDCAdminClaimConfig(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "OIDC_ADMIN_CLAIM", "OIDC_ADMIN_CLAIM_VALUES")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nOIDC_ADMIN_CLAIM=groups\nOIDC_ADMIN_CLAIM_VALUES=sekai-admin,ops-admin\n")
+
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.OIDCAdminClaim != "groups" {
+		t.Fatalf("OIDC admin claim = %q, want %q", cfg.OIDCAdminClaim, "groups")
+	}
+	if len(cfg.OIDCAdminClaimValues) != 2 || cfg.OIDCAdminClaimValues[0] != "sekai-admin" || cfg.OIDCAdminClaimValues[1] != "ops-admin" {
+		t.Fatalf("OIDC admin claim values = %v, want %v", cfg.OIDCAdminClaimValues, []string{"sekai-admin", "ops-admin"})
+	}
+}
+
+func TestLoadReadsMasterDataRecoverInterruptedSync(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "MASTER_DATA_RECOVER_INTERRUPTED_SYNC")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nMASTER_DATA_RECOVER_INTERRUPTED_SYNC=false\n")
+
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.MasterDataRecoverInterrupted {
+		t.Fatalf("expected interrupted sync recovery to be disabled by env override")
 	}
 }
 

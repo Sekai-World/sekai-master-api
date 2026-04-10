@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,13 @@ func (mockVerifier) Verify(_ context.Context, rawToken string) (map[string]any, 
 		return map[string]any{
 			"sub":                "123",
 			"preferred_username": "alice",
+		}, nil
+	}
+	if rawToken == "admin-token" {
+		return map[string]any{
+			"sub":                "456",
+			"preferred_username": "sekai-admin",
+			"groups":             []any{"sekai-admin"},
 		}, nil
 	}
 	return nil, errors.New("invalid token")
@@ -43,6 +51,38 @@ func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 		OIDCRedirectURL:    "http://localhost:8080/api/v1/admin/login/callback",
 		OIDCScopes:         []string{"openid", "profile", "email"},
 		OIDCPrivateKeyPath: "/tmp/oidc-test-key.pem",
+	}
+
+	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+
+	return router
+}
+
+func setupRouterWithAdminClaim(t *testing.T, claim string, values []string) http.Handler {
+	t.Helper()
+	return setupRouterWithEnvAndAdminClaim(t, "test", claim, values)
+}
+
+func setupRouterWithEnvAndAdminClaim(t *testing.T, appEnv string, claim string, values []string) http.Handler {
+	t.Helper()
+
+	cfg := config.Config{
+		Port:                 "8080",
+		AppEnv:               appEnv,
+		OIDCIssuerURL:        "https://auth.example.com",
+		OIDCInternalURL:      "https://auth-internal.example.com",
+		OIDCAudience:         "https://api.example.com",
+		OIDCClientID:         "web-client",
+		OIDCAuthURL:          "https://auth.example.com/application/o/authorize/",
+		OIDCTokenURL:         "https://auth.example.com/application/o/token/",
+		OIDCRedirectURL:      "http://localhost:8080/api/v1/admin/login/callback",
+		OIDCScopes:           []string{"openid", "profile", "email"},
+		OIDCPrivateKeyPath:   "/tmp/oidc-test-key.pem",
+		OIDCAdminClaim:       claim,
+		OIDCAdminClaimValues: append([]string(nil), values...),
 	}
 
 	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil)
@@ -150,6 +190,30 @@ func TestAdminMasterDataStatusUnauthorized(t *testing.T) {
 
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 on admin master-data status without token, got %d", resp.Code)
+	}
+}
+
+func TestAdminMasterDataEventsUnauthorized(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/master-data/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on admin master-data events without token, got %d", resp.Code)
+	}
+}
+
+func TestPublicMasterDataStatusNotFound(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/master-data/status", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on public master-data status, got %d", resp.Code)
 	}
 }
 
@@ -292,8 +356,8 @@ func TestMasterDataEventsUnavailable(t *testing.T) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on master-data events when service unavailable, got %d", resp.Code)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on public master-data events, got %d", resp.Code)
 	}
 }
 
@@ -310,6 +374,67 @@ func TestProfileAuthorized(t *testing.T) {
 	}
 }
 
+func TestProfileForbiddenWithoutRequiredAdminClaim(t *testing.T) {
+	router := setupRouterWithAdminClaim(t, "groups", []string{"sekai-admin"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/profile", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on profile without required admin claim, got %d", resp.Code)
+	}
+}
+
+func TestProfileAuthorizedWithRequiredAdminClaim(t *testing.T) {
+	router := setupRouterWithAdminClaim(t, "groups", []string{"sekai-admin"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/profile", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on profile with required admin claim, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	authDebug, ok := body["auth_debug"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected auth_debug object in test env response, got %T", body["auth_debug"])
+	}
+	if authDebug["admin_claim"] != "groups" {
+		t.Fatalf("expected admin_claim=groups, got %v", authDebug["admin_claim"])
+	}
+}
+
+func TestProfileHidesAuthDebugInProduction(t *testing.T) {
+	router := setupRouterWithEnvAndAdminClaim(t, "production", "groups", []string{"sekai-admin"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/profile", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on profile in production, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if _, exists := body["auth_debug"]; exists {
+		t.Fatalf("expected auth_debug to be hidden in production response")
+	}
+}
+
 func TestAdminMasterDataStatusAuthorized(t *testing.T) {
 	router := setupRouter(t)
 
@@ -320,6 +445,18 @@ func TestAdminMasterDataStatusAuthorized(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200 on admin master-data status, got %d", resp.Code)
+	}
+}
+
+func TestAdminMasterDataEventsAuthorizedByQueryToken(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/master-data/events?access_token=valid-token", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on admin master-data events without hub, got %d", resp.Code)
 	}
 }
 

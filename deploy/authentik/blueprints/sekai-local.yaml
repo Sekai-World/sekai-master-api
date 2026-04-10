@@ -8,11 +8,22 @@ context:
   app_name: !Env [AUTHENTIK_LOCAL_APP_NAME, "Sekai Admin Web"]
   client_id: !Env [AUTHENTIK_LOCAL_CLIENT_ID, "sekai-admin-web"]
   redirect_uri: !Env [AUTHENTIK_LOCAL_REDIRECT_URI, "http://localhost:8080/api/v1/admin/login/callback"]
+  admin_group_name: !Env [AUTHENTIK_LOCAL_ADMIN_GROUP_NAME, "sekai-admin"]
+  admin_scope_name: !Env [AUTHENTIK_LOCAL_ADMIN_SCOPE_NAME, "sekai_admin"]
   test_username: !Env [AUTHENTIK_LOCAL_TEST_USERNAME, "admin"]
   test_name: !Env [AUTHENTIK_LOCAL_TEST_NAME, "Sekai Admin"]
   test_email: !Env [AUTHENTIK_LOCAL_TEST_EMAIL, "admin@sekai.localhost"]
   test_password: !Env [AUTHENTIK_LOCAL_TEST_PASSWORD, "Admin123!Admin123!"]
 entries:
+  - model: authentik_core.group
+    id: sekai-admin-group
+    state: present
+    identifiers:
+      name: !Context admin_group_name
+    attrs:
+      name: !Context admin_group_name
+      is_superuser: false
+
   - model: authentik_core.user
     state: present
     identifiers:
@@ -24,8 +35,23 @@ entries:
       password: !Context test_password
       path: users
       type: internal
-      groups: []
+      groups:
+        - !KeyOf sekai-admin-group
       conditions: []
+
+  - model: authentik_providers_oauth2.scopemapping
+    id: sekai-admin-scope-mapping
+    state: present
+    identifiers:
+      name: Sekai Admin Groups Claim
+    attrs:
+      name: Sekai Admin Groups Claim
+      description: Include authentik group names in the groups claim for sekai admin RBAC.
+      scope_name: !Context admin_scope_name
+      expression: |
+        return {
+            "groups": [group.name for group in request.user.all_groups()],
+        }
 
   - model: authentik_providers_oauth2.oauth2provider
     id: sekai-oidc-provider
@@ -41,6 +67,7 @@ entries:
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+        - !KeyOf sekai-admin-scope-mapping
       redirect_uris:
         - matching_mode: strict
           url: !Context redirect_uri

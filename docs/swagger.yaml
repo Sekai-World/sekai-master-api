@@ -92,13 +92,6 @@ definitions:
       sync_running:
         type: boolean
     type: object
-  handler.MasterDataStatusListResponse:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/masterdata.SyncStatus'
-        type: array
-    type: object
   handler.MasterDataSyncResponse:
     properties:
       items:
@@ -114,8 +107,23 @@ definitions:
       sync_running:
         type: boolean
     type: object
+  handler.ProfileAuthDebug:
+    properties:
+      admin_claim:
+        type: string
+      claim_values:
+        items:
+          type: string
+        type: array
+      matched_values:
+        items:
+          type: string
+        type: array
+    type: object
   handler.ProfileResponse:
     properties:
+      auth_debug:
+        $ref: '#/definitions/handler.ProfileAuthDebug'
       user:
         $ref: '#/definitions/handler.ProfileUser'
     type: object
@@ -192,6 +200,32 @@ paths:
       summary: Start admin login with OIDC provider
       tags:
       - admin
+  /admin/master-data/events:
+    get:
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE stream
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Subscribe master-data sync events
+      tags:
+      - master-data
   /admin/master-data/status:
     get:
       produces:
@@ -203,6 +237,10 @@ paths:
             $ref: '#/definitions/handler.MasterDataAdminStatusResponse'
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
         "500":
@@ -231,6 +269,10 @@ paths:
             $ref: '#/definitions/handler.MasterDataSyncResponse'
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
         "500":
@@ -265,6 +307,10 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -289,6 +335,10 @@ paths:
             $ref: '#/definitions/handler.ProfileResponse'
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
       security:
@@ -625,38 +675,6 @@ paths:
       summary: Get health status
       tags:
       - system
-  /master-data/events:
-    get:
-      produces:
-      - text/event-stream
-      responses:
-        "200":
-          description: SSE stream
-          schema:
-            type: string
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      summary: Subscribe master-data sync events
-      tags:
-      - master-data
-  /master-data/status:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/handler.MasterDataStatusListResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      summary: Get master-data sync status
-      tags:
-      - master-data
   /musics/{region}/{id}:
     get:
       parameters:
