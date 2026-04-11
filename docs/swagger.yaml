@@ -548,6 +548,37 @@ paths:
       summary: Search cards by prefix
       tags:
       - cards
+  /cards/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get available regions for a card id
+      tags:
+      - cards
   /events/{region}/{id}:
     get:
       parameters:
@@ -661,6 +692,37 @@ paths:
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
       summary: Get current event by region
+      tags:
+      - events
+  /events/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get available regions for an event id
       tags:
       - events
   /health:
@@ -807,6 +869,37 @@ paths:
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
       summary: Search musics
+      tags:
+      - musics
+  /musics/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Music ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get available regions for a music id
       tags:
       - musics
 securityDefinitions:
