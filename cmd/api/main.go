@@ -87,6 +87,17 @@ func main() {
 		logger.Fatalf("failed to initialize router: %v", err)
 	}
 
+	if len(masterDataSources) > 0 && cfg.IsDevelopment() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
+		warmedRegions, warmErr := masterDataSyncUsecase.WarmConfiguredRegionIndexes(ctx)
+		cancel()
+		if warmErr != nil {
+			logger.Warnw("failed to preload persisted master data search indexes", "error", warmErr)
+		} else if len(warmedRegions) > 0 {
+			logger.Infow("preloaded persisted master data search indexes", "regions", warmedRegions)
+		}
+	}
+
 	listener, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
 		logger.Fatalf("failed to listen on port %s: %v", cfg.Port, err)
@@ -97,6 +108,31 @@ func main() {
 	go func() {
 		serverErrCh <- router.RunListener(listener)
 	}()
+
+	if len(masterDataSources) > 0 && cfg.IsDevelopment() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
+			defer cancel()
+
+			logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))
+			loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(ctx)
+			if warmErr != nil {
+				logger.Warnw("master data search index warmup completed with errors", "error", warmErr)
+				return
+			}
+
+			if len(loadedRegions) == 0 && len(rebuiltRegions) == 0 {
+				logger.Infow("master data search index warmup found no missing regions")
+				return
+			}
+
+			logger.Infow(
+				"master data search index warmup completed",
+				"loaded_regions", loadedRegions,
+				"rebuilt_regions", rebuiltRegions,
+			)
+		}()
+	}
 
 	if len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted) {
 		go func() {
