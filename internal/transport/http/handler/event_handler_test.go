@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +190,64 @@ func TestEventByIDEndpointOmitsRankingRewardsField(t *testing.T) {
 	}
 }
 
+func TestEventAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {"id": 101},
+				},
+			},
+			"en": {
+				"events": {
+					"101": {"id": 101},
+				},
+			},
+			"tw": {
+				"events": {
+					"101": {"id": 101},
+				},
+			},
+		},
+	}
+
+	statusStore := &fakeEventHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{
+			{Region: "tw", Status: "running"},
+			{Region: "en", Status: "success"},
+			{Region: "jp", Status: "success"},
+		},
+	}
+
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	handler := NewEventHandler(syncUsecase)
+
+	router := gin.New()
+	router.GET("/api/v1/events/regions/:id/availability", handler.AvailableRegionsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/regions/101/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expected := []string{"en", "jp"}
+	if !reflect.DeepEqual(body.Regions, expected) {
+		t.Fatalf("expected regions %v, got %v", expected, body.Regions)
+	}
+}
+
 func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -205,12 +264,12 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 				},
 				"virtuallives": {
 					"501": {
-						"id":              501,
-						"name":            "after live",
-						"assetbundleName": "vl_501",
-						"startAt":         1000,
-						"endAt":           2000,
-						"virtualLiveType": "normal",
+						"id":                   501,
+						"name":                 "after live",
+						"assetbundleName":      "vl_501",
+						"startAt":              1000,
+						"endAt":                2000,
+						"virtualLiveType":      "normal",
 						"screenMvMusicVocalId": 99,
 					},
 				},

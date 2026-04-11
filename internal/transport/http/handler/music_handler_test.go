@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -180,6 +181,64 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 	}
 	if _, exists := body["liveStageId"]; exists {
 		t.Fatalf("expected liveStageId removed from response")
+	}
+}
+
+func TestMusicAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musics": {
+					"1001": {"id": 1001},
+				},
+			},
+			"en": {
+				"musics": {
+					"1001": {"id": 1001},
+				},
+			},
+			"kr": {
+				"musics": {
+					"1001": {"id": 1001},
+				},
+			},
+		},
+	}
+
+	statusStore := &fakeMusicHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{
+			{Region: "kr", Status: "running"},
+			{Region: "en", Status: "success"},
+			{Region: "jp", Status: "success"},
+		},
+	}
+
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	musicHandler := NewMusicHandler(syncUsecase)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/regions/:id/availability", musicHandler.AvailableRegionsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/regions/1001/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expected := []string{"en", "jp"}
+	if !reflect.DeepEqual(body.Regions, expected) {
+		t.Fatalf("expected regions %v, got %v", expected, body.Regions)
 	}
 }
 

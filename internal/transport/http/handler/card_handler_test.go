@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -352,6 +353,64 @@ func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
 
 	if cardRarity["cardRarityType"] != "rarity_4" {
 		t.Fatalf("expected cardRarity.cardRarityType=rarity_4, got %v", cardRarity["cardRarityType"])
+	}
+}
+
+func TestCardAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {"id": 1001},
+				},
+			},
+			"en": {
+				"cards": {
+					"1001": {"id": 1001},
+				},
+			},
+			"tw": {
+				"cards": {
+					"1001": {"id": 1001},
+				},
+			},
+		},
+	}
+
+	statusStore := &fakeCardHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{
+			{Region: "tw", Status: "running"},
+			{Region: "en", Status: "success"},
+			{Region: "jp", Status: "success"},
+		},
+	}
+
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	cardHandler := NewCardHandler(syncUsecase)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/regions/:id/availability", cardHandler.AvailableRegionsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/regions/1001/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	expected := []string{"en", "jp"}
+	if !reflect.DeepEqual(body.Regions, expected) {
+		t.Fatalf("expected regions %v, got %v", expected, body.Regions)
 	}
 }
 

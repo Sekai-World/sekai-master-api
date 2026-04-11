@@ -62,6 +62,37 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 	response.JSON(c, http.StatusOK, handler.buildMusic(c.Request.Context(), region, record))
 }
 
+// AvailableRegionsByID godoc
+// @Summary Get available regions for a music id
+// @Tags musics
+// @Produce json
+// @Param id path string true "Music ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /musics/regions/{id}/availability [get]
+func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "id is required")
+		return
+	}
+
+	regions, err := availableRegionsByID(c.Request.Context(), handler.masterDataSync, "musics", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music available regions")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{"regions": regions})
+}
+
 // Search godoc
 // @Summary Search musics
 // @Tags musics
@@ -252,35 +283,20 @@ func (handler *MusicHandler) ensureRegionReady(c *gin.Context, region string) bo
 		return true
 	}
 
-	statuses, err := handler.masterDataSync.Status(c.Request.Context())
+	readyRegions, err := readyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
 	}
 
-	normalizedRegion := strings.TrimSpace(region)
-	regionReady := false
-	regionFound := false
-	for _, status := range statuses {
-		if !strings.EqualFold(strings.TrimSpace(status.Region), normalizedRegion) {
-			continue
-		}
-		regionFound = true
-		if strings.EqualFold(strings.TrimSpace(status.Status), "success") {
-			regionReady = true
-			break
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	for _, readyRegion := range readyRegions {
+		if readyRegion == normalizedRegion {
+			return true
 		}
 	}
 
-	if regionReady {
-		return true
-	}
-
-	if !regionFound || !regionReady {
-		response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
-		return false
-	}
-
+	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
 	return false
 }
 
