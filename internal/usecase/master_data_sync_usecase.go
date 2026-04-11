@@ -36,6 +36,10 @@ type MasterDataCacheIndexRebuilder interface {
 	RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error)
 }
 
+type MasterDataCacheIndexLoader interface {
+	LoadRegionIndexFromRedis(ctx context.Context, region string) (bool, error)
+}
+
 type MasterDataCacheIndexInspector interface {
 	HasRegionIndex(region string) bool
 }
@@ -801,6 +805,72 @@ func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
 
 	sort.Strings(regions)
 	return regions
+}
+
+func (usecase *MasterDataSyncUsecase) WarmConfiguredRegionIndexes(ctx context.Context) ([]string, error) {
+	loader, ok := usecase.cache.(MasterDataCacheIndexLoader)
+	if !ok {
+		return nil, nil
+	}
+
+	regions := usecase.ConfiguredRegions()
+	warmed := make([]string, 0, len(regions))
+	for _, region := range regions {
+		loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
+		if err != nil {
+			return warmed, fmt.Errorf("warm region index %s: %w", region, err)
+		}
+		if loaded {
+			warmed = append(warmed, region)
+		}
+	}
+
+	return warmed, nil
+}
+
+func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.Context) ([]string, []string, error) {
+	regions := usecase.ConfiguredRegions()
+	if len(regions) == 0 {
+		return nil, nil, nil
+	}
+
+	loader, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
+	rebuilder, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
+	inspector, canInspect := usecase.cache.(MasterDataCacheIndexInspector)
+	if !canLoad && !canRebuild {
+		return nil, nil, nil
+	}
+
+	loadedRegions := make([]string, 0, len(regions))
+	rebuiltRegions := make([]string, 0, len(regions))
+	for _, region := range regions {
+		if canInspect && inspector.HasRegionIndex(region) {
+			continue
+		}
+
+		if canLoad {
+			loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
+			if err != nil {
+				return loadedRegions, rebuiltRegions, fmt.Errorf("ensure region index %s load: %w", region, err)
+			}
+			if loaded {
+				loadedRegions = append(loadedRegions, region)
+				continue
+			}
+		}
+
+		if canRebuild {
+			rebuilt, err := rebuilder.RebuildRegionIndexFromRedis(ctx, region)
+			if err != nil {
+				return loadedRegions, rebuiltRegions, fmt.Errorf("ensure region index %s rebuild: %w", region, err)
+			}
+			if rebuilt {
+				rebuiltRegions = append(rebuiltRegions, region)
+			}
+		}
+	}
+
+	return loadedRegions, rebuiltRegions, nil
 }
 
 func (usecase *MasterDataSyncUsecase) IsSyncRunning() bool {

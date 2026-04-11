@@ -399,6 +399,125 @@ func TestSearchRebuildsIndexFromRedisAfterRestart(t *testing.T) {
 	}
 }
 
+func TestLoadRegionIndexFromRedisPreloadsPersistedIndexes(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+
+	writerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new writer redis cache: %v", err)
+	}
+	defer func() {
+		_ = writerCache.Close()
+	}()
+
+	ctx := context.Background()
+	payload := map[string]any{
+		"unitProfiles.json": []any{
+			map[string]any{"unit": "theme_park", "unitName": "Wonderlands x Showtime"},
+		},
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+	}
+
+	if err := writerCache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	readerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new reader redis cache: %v", err)
+	}
+	defer func() {
+		_ = readerCache.Close()
+	}()
+
+	if readerCache.HasRegionIndex("jp") {
+		t.Fatalf("expected empty in-memory index before preload")
+	}
+
+	loaded, err := readerCache.LoadRegionIndexFromRedis(ctx, "jp")
+	if err != nil {
+		t.Fatalf("load persisted region index: %v", err)
+	}
+	if !loaded {
+		t.Fatalf("expected persisted region index to load")
+	}
+	if !readerCache.HasRegionIndex("jp") {
+		t.Fatalf("expected in-memory index after preload")
+	}
+
+	matches, err := readerCache.Search(ctx, "jp", "unitprofiles", "theme_park", []string{"unit"}, 10)
+	if err != nil {
+		t.Fatalf("search unitprofiles after preload: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 unitprofiles match after preload, got %d", len(matches))
+	}
+}
+
+func TestStoreRegionReusesPersistedIndexWhenEntityIsUnchanged(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+
+	payload := map[string]any{
+		"unitProfiles.json": []any{
+			map[string]any{"unit": "theme_park", "unitName": "Wonderlands x Showtime"},
+		},
+	}
+
+	writerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new writer redis cache: %v", err)
+	}
+	if err := writerCache.StoreRegion(context.Background(), "jp", payload); err != nil {
+		t.Fatalf("seed payload: %v", err)
+	}
+	_ = writerCache.Close()
+
+	readerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new reader redis cache: %v", err)
+	}
+	defer func() {
+		_ = readerCache.Close()
+	}()
+
+	if err := readerCache.StoreRegion(context.Background(), "jp", payload); err != nil {
+		t.Fatalf("store unchanged payload: %v", err)
+	}
+	if !readerCache.HasRegionIndex("jp") {
+		t.Fatalf("expected unchanged store to restore in-memory index")
+	}
+
+	matches, err := readerCache.Search(context.Background(), "jp", "unitprofiles", "theme_park", []string{"unit"}, 10)
+	if err != nil {
+		t.Fatalf("search after unchanged store: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 unitprofiles match after unchanged store, got %d", len(matches))
+	}
+}
+
 func TestListByPageRebuildsOrderWhenMissing(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {

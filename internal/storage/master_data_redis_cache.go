@@ -27,12 +27,70 @@ type RedisMasterDataCache struct {
 	keyPrefix string
 
 	mu    sync.RWMutex
-	index map[string]map[string]map[string][]searchIndexItem
+	index map[string]map[string]*entitySearchIndex
+}
+
+type entitySearchIndex struct {
+	IDs      []string                     `json:"ids"`
+	TextBlob string                       `json:"b"`
+	Fields   map[string][]searchIndexItem `json:"fields"`
 }
 
 type searchIndexItem struct {
-	ID             string
-	NormalizedText string
+	IDIndex    uint32 `json:"i"`
+	TextOffset uint32 `json:"o"`
+	TextLength uint32 `json:"l"`
+}
+
+type legacySearchIndexItem struct {
+	ID             string `json:"id"`
+	NormalizedText string `json:"normalized_text"`
+}
+
+type legacyPersistedEntitySearchIndex struct {
+	IDs    []string                                    `json:"ids"`
+	Fields map[string][]legacyPersistedSearchIndexItem `json:"fields"`
+}
+
+type legacyPersistedSearchIndexItem struct {
+	IDIndex        uint32 `json:"i"`
+	NormalizedText string `json:"t"`
+}
+
+type textSpan struct {
+	Offset uint32
+	Length uint32
+}
+
+func (index *entitySearchIndex) idsValue(idIndex uint32) string {
+	if index == nil {
+		return ""
+	}
+
+	position := int(idIndex)
+	if position < 0 || position >= len(index.IDs) {
+		return ""
+	}
+
+	return index.IDs[position]
+}
+
+func (index *entitySearchIndex) textValue(item searchIndexItem) string {
+	if index == nil {
+		return ""
+	}
+
+	start := int(item.TextOffset)
+	if start < 0 || start > len(index.TextBlob) {
+		return ""
+	}
+
+	end := start + int(item.TextLength)
+	if end < start || end > len(index.TextBlob) {
+		return ""
+	}
+
+	return index.TextBlob[start:end]
 }
 
 func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
@@ -52,7 +110,7 @@ func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 	return &RedisMasterDataCache{
 		client:    client,
 		keyPrefix: cfg.MasterDataRedisKeyPrefix,
-		index:     make(map[string]map[string]map[string][]searchIndexItem),
+		index:     make(map[string]map[string]*entitySearchIndex),
 	}, nil
 }
 
@@ -71,7 +129,7 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 	totalFiles := len(filePaths)
 	processedFiles := 0
 
-	nextIndex := make(map[string]map[string][]searchIndexItem)
+	nextIndex := make(map[string]*entitySearchIndex)
 	touchedEntities := make(map[string]struct{})
 	for _, filePath := range filePaths {
 		value := payload[filePath]
@@ -89,8 +147,6 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 			continue
 		}
 
-		touchedEntities[entity] = struct{}{}
-
 		key := cache.redisEntityKey(regionName, entity)
 		orderKey := cache.redisEntityOrderKey(regionName, entity)
 
@@ -106,6 +162,7 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 
 		orderedIDs := make([]string, 0, len(records))
 		nextRecords := make(map[string]string, len(records))
+		recordMaps := make([]map[string]any, 0, len(records))
 
 		for _, record := range records {
 			recordMap, ok := record.(map[string]any)
@@ -125,36 +182,53 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 
 			nextRecords[id] = string(body)
 			orderedIDs = append(orderedIDs, id)
+			recordMaps = append(recordMaps, recordMap)
+		}
 
-			searchable := searchableFields(recordMap)
-			if len(searchable) == 0 {
-				continue
-			}
+		recordsChanged := !equalStringMaps(existingRecords, nextRecords)
+		orderChanged := !equalStringSlices(existingOrder, orderedIDs)
+		entityChanged := recordsChanged || orderChanged
+		persistIndexChanged := entityChanged
+		if entityChanged {
+			touchedEntities[entity] = struct{}{}
+			nextIndex[entity] = buildEntitySearchIndex(recordMaps)
+		} else {
+			cache.mu.RLock()
+			regionIndex := cache.index[regionName]
+			_, hasEntityIndex := regionIndex[entity]
+			cache.mu.RUnlock()
+			if !hasEntityIndex {
+				fields, found, err := cache.readEntityIndexFromRedis(ctx, regionName, entity)
+				if err != nil {
+					return fmt.Errorf("load persisted search index region %s entity %s: %w", regionName, entity, err)
+				}
 
-			if _, ok := nextIndex[entity]; !ok {
-				nextIndex[entity] = make(map[string][]searchIndexItem)
-			}
-
-			for field, normalizedText := range searchable {
-				nextIndex[entity][field] = append(nextIndex[entity][field], searchIndexItem{
-					ID:             id,
-					NormalizedText: normalizedText,
-				})
+				touchedEntities[entity] = struct{}{}
+				if found {
+					nextIndex[entity] = fields
+				} else {
+					nextIndex[entity] = buildEntitySearchIndex(recordMaps)
+					persistIndexChanged = true
+				}
 			}
 		}
 
 		toUpsert := make(map[string]any)
-		for id, body := range nextRecords {
-			existingBody, exists := existingRecords[id]
-			if !exists || existingBody != body {
-				toUpsert[id] = body
+		if recordsChanged {
+			for id, body := range nextRecords {
+				existingBody, exists := existingRecords[id]
+				if !exists || existingBody != body {
+					toUpsert[id] = body
+				}
 			}
 		}
 
 		toDelete := make([]string, 0)
-		for id := range existingRecords {
-			if _, exists := nextRecords[id]; !exists {
-				toDelete = append(toDelete, id)
+		if recordsChanged {
+			for id := range existingRecords {
+				if _, exists := nextRecords[id]; !exists {
+					toDelete = append(toDelete, id)
+				}
 			}
 		}
 
@@ -165,7 +239,7 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 		if len(toDelete) > 0 {
 			pipe.HDel(ctx, key, toDelete...)
 		}
-		if !equalStringSlices(existingOrder, orderedIDs) {
+		if orderChanged {
 			pipe.Del(ctx, orderKey)
 			if len(orderedIDs) > 0 {
 				values := make([]any, 0, len(orderedIDs))
@@ -174,6 +248,9 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 				}
 				pipe.RPush(ctx, orderKey, values...)
 			}
+		}
+		if persistIndexChanged {
+			cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, nextIndex[entity])
 		}
 		if _, err := pipe.Exec(ctx); err != nil {
 			return fmt.Errorf("incremental update region %s entity %s: %w", regionName, entity, err)
@@ -188,6 +265,20 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 	cache.mu.Unlock()
 
 	return nil
+}
+
+func equalStringMaps(left map[string]string, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for key, leftValue := range left {
+		if rightValue, ok := right[key]; !ok || leftValue != rightValue {
+			return false
+		}
+	}
+
+	return true
 }
 
 func equalStringSlices(left []string, right []string) bool {
@@ -224,18 +315,18 @@ func reportCacheWriteProgress(reporter masterdata.ProgressReporter, region strin
 }
 
 func mergeRegionIndex(
-	existing map[string]map[string][]searchIndexItem,
-	next map[string]map[string][]searchIndexItem,
+	existing map[string]*entitySearchIndex,
+	next map[string]*entitySearchIndex,
 	touched map[string]struct{},
-) map[string]map[string][]searchIndexItem {
-	merged := make(map[string]map[string][]searchIndexItem)
+) map[string]*entitySearchIndex {
+	merged := make(map[string]*entitySearchIndex)
 	for entity, fields := range existing {
 		merged[entity] = fields
 	}
 
 	for entity := range touched {
 		fields, ok := next[entity]
-		if !ok || len(fields) == 0 {
+		if !ok || fields == nil || len(fields.Fields) == 0 {
 			delete(merged, entity)
 			continue
 		}
@@ -243,6 +334,207 @@ func mergeRegionIndex(
 	}
 
 	return merged
+}
+
+func buildEntitySearchIndex(records []map[string]any) *entitySearchIndex {
+	index := &entitySearchIndex{
+		IDs:    make([]string, 0, len(records)),
+		Fields: make(map[string][]searchIndexItem),
+	}
+	idIndexes := make(map[string]uint32, len(records))
+	textRefs := make(map[string]textSpan)
+	textBlob := strings.Builder{}
+
+	for _, recordMap := range records {
+		if recordMap == nil {
+			continue
+		}
+
+		id := recordID(recordMap)
+		if id == "" {
+			body, err := json.Marshal(recordMap)
+			if err != nil {
+				continue
+			}
+			id = recordStorageID(recordMap, body)
+			if id == "" {
+				continue
+			}
+		}
+
+		idIndex, exists := idIndexes[id]
+		if !exists {
+			idIndex = uint32(len(index.IDs))
+			index.IDs = append(index.IDs, id)
+			idIndexes[id] = idIndex
+		}
+
+		searchable := searchableFields(recordMap)
+		for field, normalizedText := range searchable {
+			span, ok := textRefs[normalizedText]
+			if !ok {
+				offset := uint32(textBlob.Len())
+				textBlob.WriteString(normalizedText)
+				span = textSpan{
+					Offset: offset,
+					Length: uint32(len(normalizedText)),
+				}
+				textRefs[normalizedText] = span
+			}
+
+			index.Fields[field] = append(index.Fields[field], searchIndexItem{
+				IDIndex:    idIndex,
+				TextOffset: span.Offset,
+				TextLength: span.Length,
+			})
+		}
+	}
+
+	if len(index.IDs) == 0 || len(index.Fields) == 0 {
+		return nil
+	}
+	index.TextBlob = textBlob.String()
+
+	return index
+}
+
+func compactLegacySearchIndex(fields map[string][]legacySearchIndexItem) *entitySearchIndex {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	index := &entitySearchIndex{
+		IDs:    make([]string, 0),
+		Fields: make(map[string][]searchIndexItem, len(fields)),
+	}
+	idIndexes := make(map[string]uint32)
+	textRefs := make(map[string]textSpan)
+	textBlob := strings.Builder{}
+
+	for field, items := range fields {
+		if len(items) == 0 {
+			continue
+		}
+
+		compactItems := make([]searchIndexItem, 0, len(items))
+		for _, item := range items {
+			id := strings.TrimSpace(item.ID)
+			if id == "" {
+				continue
+			}
+
+			idIndex, exists := idIndexes[id]
+			if !exists {
+				idIndex = uint32(len(index.IDs))
+				index.IDs = append(index.IDs, id)
+				idIndexes[id] = idIndex
+			}
+
+			span, ok := textRefs[item.NormalizedText]
+			if !ok {
+				offset := uint32(textBlob.Len())
+				textBlob.WriteString(item.NormalizedText)
+				span = textSpan{
+					Offset: offset,
+					Length: uint32(len(item.NormalizedText)),
+				}
+				textRefs[item.NormalizedText] = span
+			}
+
+			compactItems = append(compactItems, searchIndexItem{
+				IDIndex:    idIndex,
+				TextOffset: span.Offset,
+				TextLength: span.Length,
+			})
+		}
+		if len(compactItems) > 0 {
+			index.Fields[field] = compactItems
+		}
+	}
+
+	if len(index.IDs) == 0 || len(index.Fields) == 0 {
+		return nil
+	}
+	index.TextBlob = textBlob.String()
+
+	return index
+}
+
+func compactPersistedSearchIndex(index legacyPersistedEntitySearchIndex) *entitySearchIndex {
+	if len(index.IDs) == 0 || len(index.Fields) == 0 {
+		return nil
+	}
+
+	compact := &entitySearchIndex{
+		IDs:    append([]string(nil), index.IDs...),
+		Fields: make(map[string][]searchIndexItem, len(index.Fields)),
+	}
+	textRefs := make(map[string]textSpan)
+	textBlob := strings.Builder{}
+
+	for field, items := range index.Fields {
+		if len(items) == 0 {
+			continue
+		}
+
+		compactItems := make([]searchIndexItem, 0, len(items))
+		for _, item := range items {
+			if int(item.IDIndex) >= len(compact.IDs) {
+				continue
+			}
+
+			span, ok := textRefs[item.NormalizedText]
+			if !ok {
+				offset := uint32(textBlob.Len())
+				textBlob.WriteString(item.NormalizedText)
+				span = textSpan{
+					Offset: offset,
+					Length: uint32(len(item.NormalizedText)),
+				}
+				textRefs[item.NormalizedText] = span
+			}
+
+			compactItems = append(compactItems, searchIndexItem{
+				IDIndex:    item.IDIndex,
+				TextOffset: span.Offset,
+				TextLength: span.Length,
+			})
+		}
+		if len(compactItems) > 0 {
+			compact.Fields[field] = compactItems
+		}
+	}
+
+	if len(compact.Fields) == 0 {
+		return nil
+	}
+
+	compact.TextBlob = textBlob.String()
+	return compact
+}
+
+func isValidEntitySearchIndex(index *entitySearchIndex) bool {
+	if index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
+		return false
+	}
+
+	for _, items := range index.Fields {
+		if len(items) == 0 {
+			continue
+		}
+		for _, item := range items {
+			if int(item.IDIndex) >= len(index.IDs) {
+				return false
+			}
+			start := int(item.TextOffset)
+			end := start + int(item.TextLength)
+			if start < 0 || end < start || end > len(index.TextBlob) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
@@ -404,7 +696,19 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	entityIndex := cache.index[regionName][entityName]
 	cache.mu.RUnlock()
 
-	if len(entityIndex) == 0 {
+	if entityIndex == nil || len(entityIndex.Fields) == 0 {
+		loaded, err := cache.loadEntityIndexFromRedis(ctx, regionName, entityName)
+		if err != nil {
+			return nil, err
+		}
+		if loaded {
+			cache.mu.RLock()
+			entityIndex = cache.index[regionName][entityName]
+			cache.mu.RUnlock()
+		}
+	}
+
+	if entityIndex == nil || len(entityIndex.Fields) == 0 {
 		rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, regionName)
 		if err != nil {
 			return nil, err
@@ -416,7 +720,7 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 		cache.mu.RLock()
 		entityIndex = cache.index[regionName][entityName]
 		cache.mu.RUnlock()
-		if len(entityIndex) == 0 {
+		if entityIndex == nil || len(entityIndex.Fields) == 0 {
 			return []masterdata.SearchMatch{}, nil
 		}
 	}
@@ -427,29 +731,29 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	}
 
 	type scoredCandidate struct {
-		ID           string
+		IDIndex      uint32
 		Score        int
 		MatchType    string
 		MatchedField string
 	}
 
-	candidateMap := make(map[string]scoredCandidate)
+	candidateMap := make(map[uint32]scoredCandidate)
 	for _, field := range selectedFields {
-		items := entityIndex[field]
+		items := entityIndex.Fields[field]
 		if len(items) == 0 {
 			continue
 		}
 
 		for _, item := range items {
-			score, matchType, matched := matchScore(item.NormalizedText, normalizedQuery)
+			score, matchType, matched := matchScore(entityIndex.textValue(item), normalizedQuery)
 			if !matched {
 				continue
 			}
 
-			existing, exists := candidateMap[item.ID]
+			existing, exists := candidateMap[item.IDIndex]
 			if !exists || score > existing.Score {
-				candidateMap[item.ID] = scoredCandidate{
-					ID:           item.ID,
+				candidateMap[item.IDIndex] = scoredCandidate{
+					IDIndex:      item.IDIndex,
 					Score:        score,
 					MatchType:    matchType,
 					MatchedField: field,
@@ -465,7 +769,7 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 
 	sort.Slice(candidates, func(i int, j int) bool {
 		if candidates[i].Score == candidates[j].Score {
-			return candidates[i].ID < candidates[j].ID
+			return entityIndex.idsValue(candidates[i].IDIndex) < entityIndex.idsValue(candidates[j].IDIndex)
 		}
 		return candidates[i].Score > candidates[j].Score
 	})
@@ -476,7 +780,12 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 
 	results := make([]masterdata.SearchMatch, 0, len(candidates))
 	for _, candidate := range candidates {
-		record, exists, err := cache.GetByID(ctx, regionName, entityName, candidate.ID)
+		recordID := entityIndex.idsValue(candidate.IDIndex)
+		if recordID == "" {
+			continue
+		}
+
+		record, exists, err := cache.GetByID(ctx, regionName, entityName, recordID)
 		if err != nil {
 			return nil, err
 		}
@@ -495,6 +804,45 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	return results, nil
 }
 
+func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context, region string) (bool, error) {
+	regionName := normalizeKey(region)
+	if regionName == "" {
+		return false, nil
+	}
+
+	entities, err := cache.client.SMembers(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName)).Result()
+	if err != nil {
+		return false, fmt.Errorf("list persisted search index entities region %s: %w", regionName, err)
+	}
+	if len(entities) == 0 {
+		return false, nil
+	}
+
+	nextIndex := make(map[string]*entitySearchIndex, len(entities))
+	loaded := false
+	for _, entity := range entities {
+		fields, found, err := cache.readEntityIndexFromRedis(ctx, regionName, entity)
+		if err != nil {
+			return false, err
+		}
+		if !found {
+			continue
+		}
+		nextIndex[entity] = fields
+		loaded = true
+	}
+
+	if !loaded {
+		return false, nil
+	}
+
+	cache.mu.Lock()
+	cache.index[regionName] = nextIndex
+	cache.mu.Unlock()
+
+	return true, nil
+}
+
 func (cache *RedisMasterDataCache) HasRegionIndex(region string) bool {
 	regionName := normalizeKey(region)
 	if regionName == "" {
@@ -510,7 +858,10 @@ func (cache *RedisMasterDataCache) HasRegionIndex(region string) bool {
 	}
 
 	for _, fields := range entityIndex {
-		for _, items := range fields {
+		if fields == nil {
+			continue
+		}
+		for _, items := range fields.Fields {
 			if len(items) > 0 {
 				return true
 			}
@@ -530,7 +881,7 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 	pattern := regionPrefix + ":*:by-id"
 	iterator := cache.client.Scan(ctx, 0, pattern, 0).Iterator()
 
-	nextIndex := make(map[string]map[string][]searchIndexItem)
+	nextIndex := make(map[string]*entitySearchIndex)
 	hasRecords := false
 
 	for iterator.Next(ctx) {
@@ -549,6 +900,13 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 		}
 
 		hasRecords = true
+		entityIndex := &entitySearchIndex{
+			IDs:    make([]string, 0, len(recordMap)),
+			Fields: make(map[string][]searchIndexItem),
+		}
+		idIndexes := make(map[string]uint32, len(recordMap))
+		textRefs := make(map[string]textSpan)
+		textBlob := strings.Builder{}
 		for id, raw := range recordMap {
 			if strings.TrimSpace(id) == "" {
 				continue
@@ -564,16 +922,35 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 				continue
 			}
 
-			if _, ok := nextIndex[entity]; !ok {
-				nextIndex[entity] = make(map[string][]searchIndexItem)
+			idIndex, exists := idIndexes[id]
+			if !exists {
+				idIndex = uint32(len(entityIndex.IDs))
+				entityIndex.IDs = append(entityIndex.IDs, id)
+				idIndexes[id] = idIndex
 			}
 
 			for field, normalizedText := range searchable {
-				nextIndex[entity][field] = append(nextIndex[entity][field], searchIndexItem{
-					ID:             id,
-					NormalizedText: normalizedText,
+				span, ok := textRefs[normalizedText]
+				if !ok {
+					offset := uint32(textBlob.Len())
+					textBlob.WriteString(normalizedText)
+					span = textSpan{
+						Offset: offset,
+						Length: uint32(len(normalizedText)),
+					}
+					textRefs[normalizedText] = span
+				}
+
+				entityIndex.Fields[field] = append(entityIndex.Fields[field], searchIndexItem{
+					IDIndex:    idIndex,
+					TextOffset: span.Offset,
+					TextLength: span.Length,
 				})
 			}
+		}
+		if len(entityIndex.IDs) > 0 && len(entityIndex.Fields) > 0 {
+			entityIndex.TextBlob = textBlob.String()
+			nextIndex[entity] = entityIndex
 		}
 	}
 
@@ -588,6 +965,29 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 	cache.mu.Lock()
 	cache.index[regionName] = nextIndex
 	cache.mu.Unlock()
+
+	existingEntities, err := cache.client.SMembers(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName)).Result()
+	if err != nil {
+		return false, fmt.Errorf("list persisted search index entities before rebuild region %s: %w", regionName, err)
+	}
+
+	pipe := cache.client.Pipeline()
+	pipe.Del(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName))
+
+	nextEntities := make(map[string]struct{}, len(nextIndex))
+	for entity, fields := range nextIndex {
+		nextEntities[entity] = struct{}{}
+		cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, fields)
+	}
+	for _, entity := range existingEntities {
+		if _, ok := nextEntities[normalizeKey(entity)]; ok {
+			continue
+		}
+		pipe.Del(ctx, cache.redisEntitySearchIndexKey(regionName, entity))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return false, fmt.Errorf("persist rebuilt search indexes region %s: %w", regionName, err)
+	}
 
 	return true, nil
 }
@@ -618,6 +1018,99 @@ func (cache *RedisMasterDataCache) redisEntityKey(region string, entity string) 
 
 func (cache *RedisMasterDataCache) redisEntityOrderKey(region string, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":order"
+}
+
+func (cache *RedisMasterDataCache) redisEntitySearchIndexKey(region string, entity string) string {
+	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":search-index"
+}
+
+func (cache *RedisMasterDataCache) redisRegionSearchIndexEntitiesKey(region string) string {
+	return cache.redisKey(region) + ":search-index:entities"
+}
+
+func (cache *RedisMasterDataCache) persistEntitySearchIndex(ctx context.Context, pipe redis.Pipeliner, region string, entity string, index *entitySearchIndex) {
+	entityName := normalizeKey(entity)
+	if entityName == "" {
+		return
+	}
+
+	indexKey := cache.redisEntitySearchIndexKey(region, entityName)
+	entitiesKey := cache.redisRegionSearchIndexEntitiesKey(region)
+	if index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
+		pipe.Del(ctx, indexKey)
+		pipe.SRem(ctx, entitiesKey, entityName)
+		return
+	}
+
+	body, err := json.Marshal(index)
+	if err != nil {
+		return
+	}
+
+	pipe.Set(ctx, indexKey, body, 0)
+	pipe.SAdd(ctx, entitiesKey, entityName)
+}
+
+func (cache *RedisMasterDataCache) loadEntityIndexFromRedis(ctx context.Context, region string, entity string) (bool, error) {
+	index, found, err := cache.readEntityIndexFromRedis(ctx, region, entity)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+
+	cache.mu.Lock()
+	if _, ok := cache.index[region]; !ok {
+		cache.index[region] = make(map[string]*entitySearchIndex)
+	}
+	cache.index[region][normalizeKey(entity)] = index
+	cache.mu.Unlock()
+
+	return true, nil
+}
+
+func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context, region string, entity string) (*entitySearchIndex, bool, error) {
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return nil, false, nil
+	}
+
+	body, err := cache.client.Get(ctx, cache.redisEntitySearchIndexKey(regionName, entityName)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("get persisted search index region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	var index entitySearchIndex
+	if err := json.Unmarshal(body, &index); err == nil {
+		if isValidEntitySearchIndex(&index) {
+			return &index, true, nil
+		}
+	}
+
+	var legacyPersisted legacyPersistedEntitySearchIndex
+	if err := json.Unmarshal(body, &legacyPersisted); err == nil {
+		compact := compactPersistedSearchIndex(legacyPersisted)
+		if compact != nil {
+			return compact, true, nil
+		}
+	}
+
+	var legacyFields map[string][]legacySearchIndexItem
+	if err := json.Unmarshal(body, &legacyFields); err != nil {
+		return nil, false, fmt.Errorf("decode persisted search index region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	legacyIndex := compactLegacySearchIndex(legacyFields)
+	if legacyIndex == nil {
+		return nil, false, nil
+	}
+
+	return legacyIndex, true, nil
 }
 
 func entityNameFromByIDKey(regionPrefix string, key string) string {

@@ -50,7 +50,9 @@ type fakeSyncCache struct {
 	mu                 sync.Mutex
 	storeCalls         int
 	rebuildCalls       int
+	loadCalls          int
 	rebuildFromRedisOK bool
+	loadFromRedisOK    bool
 	hasRegionIndex     bool
 	hasRegionIndexSet  bool
 }
@@ -181,6 +183,18 @@ func (cache *fakeSyncCache) RebuildRegionIndexFromRedis(_ context.Context, _ str
 
 	cache.rebuildCalls++
 	if cache.rebuildFromRedisOK {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (cache *fakeSyncCache) LoadRegionIndexFromRedis(_ context.Context, _ string) (bool, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	cache.loadCalls++
+	if cache.loadFromRedisOK {
 		return true, nil
 	}
 
@@ -1271,5 +1285,80 @@ func TestCurrentEventScansBeyondFirstHundredRecords(t *testing.T) {
 	}
 	if fmt.Sprintf("%v", record["id"]) != "120" {
 		t.Fatalf("expected id=120, got %v", record["id"])
+	}
+}
+
+func TestWarmConfiguredRegionIndexesLoadsPersistedIndexes(t *testing.T) {
+	cache := &fakeSyncCache{
+		loadFromRedisOK: true,
+	}
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
+		{Region: "jp"},
+		{Region: "en"},
+	}, nil, cache, nil, nil, 1)
+
+	regions, err := usecase.WarmConfiguredRegionIndexes(context.Background())
+	if err != nil {
+		t.Fatalf("warm configured region indexes: %v", err)
+	}
+	if len(regions) != 2 {
+		t.Fatalf("expected 2 warmed regions, got %d", len(regions))
+	}
+	if cache.loadCalls != 2 {
+		t.Fatalf("expected 2 persisted index load calls, got %d", cache.loadCalls)
+	}
+}
+
+func TestEnsureConfiguredRegionIndexesRebuildsMissingIndexes(t *testing.T) {
+	cache := &fakeSyncCache{
+		hasRegionIndexSet:  true,
+		hasRegionIndex:     false,
+		loadFromRedisOK:    false,
+		rebuildFromRedisOK: true,
+	}
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
+		{Region: "jp"},
+		{Region: "en"},
+	}, nil, cache, nil, nil, 1)
+
+	loadedRegions, rebuiltRegions, err := usecase.EnsureConfiguredRegionIndexes(context.Background())
+	if err != nil {
+		t.Fatalf("ensure configured region indexes: %v", err)
+	}
+	if len(loadedRegions) != 0 {
+		t.Fatalf("expected no loaded regions, got %v", loadedRegions)
+	}
+	if len(rebuiltRegions) != 2 {
+		t.Fatalf("expected 2 rebuilt regions, got %d", len(rebuiltRegions))
+	}
+	if cache.loadCalls != 2 {
+		t.Fatalf("expected 2 persisted index load calls, got %d", cache.loadCalls)
+	}
+	if cache.rebuildCalls != 2 {
+		t.Fatalf("expected 2 index rebuild calls, got %d", cache.rebuildCalls)
+	}
+}
+
+func TestEnsureConfiguredRegionIndexesSkipsRegionsAlreadyInMemory(t *testing.T) {
+	cache := &fakeSyncCache{
+		hasRegionIndexSet: true,
+		hasRegionIndex:    true,
+	}
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
+		{Region: "jp"},
+	}, nil, cache, nil, nil, 1)
+
+	loadedRegions, rebuiltRegions, err := usecase.EnsureConfiguredRegionIndexes(context.Background())
+	if err != nil {
+		t.Fatalf("ensure configured region indexes: %v", err)
+	}
+	if len(loadedRegions) != 0 || len(rebuiltRegions) != 0 {
+		t.Fatalf("expected no loaded or rebuilt regions, got loaded=%v rebuilt=%v", loadedRegions, rebuiltRegions)
+	}
+	if cache.loadCalls != 0 {
+		t.Fatalf("expected no persisted index load calls, got %d", cache.loadCalls)
+	}
+	if cache.rebuildCalls != 0 {
+		t.Fatalf("expected no rebuild calls, got %d", cache.rebuildCalls)
 	}
 }
