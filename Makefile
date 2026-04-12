@@ -26,10 +26,9 @@ DEV_APP_NETWORK ?= sekai-dev
 DEV_APP_INTERNAL_PORT ?= 8080
 DOCKER ?= docker
 COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "$(DOCKER) compose"; elif command -v docker-compose >/dev/null 2>&1; then echo docker-compose; else echo "$(DOCKER) compose"; fi)
-DEVCONTAINER ?= devcontainer
 APP_ENV ?= development
 
-.PHONY: run dev dev-down dev-logs test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui devcontainer-up devcontainer-rebuild devcontainer-test
+.PHONY: run dev dev-down dev-logs test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
 
 run:
 	go run -buildvcs=false ./cmd/api
@@ -214,12 +213,3 @@ admin-open:
 
 dev-logs-ui:
 	"$$BROWSER" http://localhost:$(GRAFANA_PORT)
-
-devcontainer-up:
-	$(DEVCONTAINER) up --workspace-folder $(WORKSPACE_DIR)
-
-devcontainer-rebuild:
-	$(DEVCONTAINER) up --remove-existing-container --workspace-folder $(WORKSPACE_DIR)
-
-devcontainer-test:
-	$(DEVCONTAINER) exec --workspace-folder $(WORKSPACE_DIR) go test -buildvcs=false ./...

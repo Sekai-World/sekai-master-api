@@ -6,7 +6,7 @@ cmd = "go build -buildvcs=false -o ./tmp/air/main ./cmd/api"
 entrypoint = "./tmp/air/main"
 full_bin = "./tmp/air/main"
 include_ext = ["go", "env"]
-exclude_dir = ["tmp", "bin", ".git", ".devcontainer"]
+exclude_dir = ["tmp", "bin", ".git"]
 exclude_file = []
 exclude_regex = ["_test\\.go"]
 delay = 300

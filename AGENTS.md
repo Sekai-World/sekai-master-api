@@ -59,9 +59,9 @@
 
 ### 4) Environment Agent
 
-负责 devcontainer、compose、脚本与开发体验。
+负责 compose、脚本与开发体验。
 
-- 变更范围：`.devcontainer`、`deploy/compose`、`scripts`、`Makefile`
+- 变更范围：`deploy/compose`、`scripts`、`Makefile`
 - 必须保持：
   - 支持通过宿主机容器引擎（Docker API + docker compose 语义）运行测试依赖
   - 命令幂等（重复执行可恢复）
@@ -71,9 +71,9 @@
 1. 先读取受影响文件再修改，避免覆盖用户手工变更。
 2. 优先小步修改，不做与任务无关的重构。
 3. 每次改动后至少执行：
-   - 若本次改动涉及 Go 相关文件（如 `.go`、`go.mod`、`go.sum`），在 devcontainer 环境内执行 `go test ./...`
+   - 若本次改动涉及 Go 相关文件（如 `.go`、`go.mod`、`go.sum`），优先执行 `go test ./...`
    - 若本次改动未涉及 Go 相关文件，`go test ./...` 不作为必需验收项；如未执行，需在交付说明中明确
-   - 若当前为宿主机非 devcontainer 环境，`go test ./...` 不作为必需验收项；如未执行，需在交付说明中明确
+   - 若当前环境无法满足运行条件，`go test ./...` 不作为必需验收项；如未执行，需在交付说明中明确
    - 若涉及数据库结构变更，补充 migration 文件，不在业务代码中直接做 DDL
 4. 若改动涉及 compose 或脚本，同时检查：
   - `make dev-env-up`
@@ -91,9 +91,9 @@
 
 当以下条件满足时任务才算完成：
 
-- 在 devcontainer 环境内工作且本次改动涉及 Go 相关文件时，代码通过 `go test ./...`
+- 本次改动涉及 Go 相关文件时，优先执行并通过 `go test ./...`
 - 若本次改动未涉及 Go 相关文件，可不以 `go test ./...` 作为完成条件，但需在交付说明中明确
-- 若当前为宿主机非 devcontainer 环境，可不以 `go test ./...` 作为完成条件，但需在交付说明中明确
+- 若当前环境无法满足运行条件，可不以 `go test ./...` 作为完成条件，但需在交付说明中明确
 - 文档（README / env 示例）与实际行为一致
 - 新增配置项写入 `.env.example`
 - 变更范围聚焦且可回滚
