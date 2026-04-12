@@ -51,88 +51,25 @@ services:
     networks:
       - dev
 
-  authentik-server:
-    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION:-2026.2.2}
-    command: server
+  keycloak:
+    build:
+      context: ../..
+      dockerfile: deploy/keycloak/Dockerfile
+    image: sekai/keycloak-dev:${KEYCLOAK_VERSION:-26.5.4}
     restart: unless-stopped
+    command:
+      - start-dev
+      - --import-realm
     environment:
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-local-authentik-secret-key-change-me}
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
-      AUTHENTIK_POSTGRESQL__HOST: postgres
-      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_PG_DB:-sekai}
-      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_PG_USER:-postgres}
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_PG_PASS:-postgres}
-      AUTHENTIK_REDIS__HOST: redis
-      AUTHENTIK_REDIS__CACHE_DB: ${AUTHENTIK_REDIS_CACHE_DB:-1}
-      AUTHENTIK_REDIS__MESSAGE_QUEUE_DB: ${AUTHENTIK_REDIS_MESSAGE_QUEUE_DB:-2}
-      AUTHENTIK_REDIS__WS_DB: ${AUTHENTIK_REDIS_WS_DB:-3}
-      AUTHENTIK_REDIS__OUTPOST_SESSION_DB: ${AUTHENTIK_REDIS_OUTPOST_SESSION_DB:-4}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-18081}
+      KC_HOSTNAME_STRICT: "false"
     ports:
-      - "${AUTHENTIK_PORT:-19100}:9000"
-      - "${AUTHENTIK_HTTPS_PORT:-19443}:9443"
+      - "${KEYCLOAK_PORT:-18081}:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        - CMD
-        - ak
-        - healthcheck
-      interval: 30s
-      timeout: 30s
-      retries: 5
-      start_period: 90s
-    volumes:
-      - authentik-media:/data
-    networks:
-      - dev
-
-  authentik-worker:
-    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION:-2026.2.2}
-    command: worker
-    restart: unless-stopped
-    user: "0"
-    environment:
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-local-authentik-secret-key-change-me}
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
-      AUTHENTIK_POSTGRESQL__HOST: postgres
-      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_PG_DB:-sekai}
-      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_PG_USER:-postgres}
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_PG_PASS:-postgres}
-      AUTHENTIK_REDIS__HOST: redis
-      AUTHENTIK_REDIS__CACHE_DB: ${AUTHENTIK_REDIS_CACHE_DB:-1}
-      AUTHENTIK_REDIS__MESSAGE_QUEUE_DB: ${AUTHENTIK_REDIS_MESSAGE_QUEUE_DB:-2}
-      AUTHENTIK_REDIS__WS_DB: ${AUTHENTIK_REDIS_WS_DB:-3}
-      AUTHENTIK_REDIS__OUTPOST_SESSION_DB: ${AUTHENTIK_REDIS_OUTPOST_SESSION_DB:-4}
-      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL:-akadmin@sekai.localhost}
-      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:-Admin123!Admin123!}
-      AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:-sekai-local-bootstrap-token}
-      AUTHENTIK_LOCAL_APP_SLUG: ${AUTHENTIK_LOCAL_APP_SLUG:-sekai-admin-web}
-      AUTHENTIK_LOCAL_APP_NAME: ${AUTHENTIK_LOCAL_APP_NAME:-Sekai Admin Web}
-      AUTHENTIK_LOCAL_CLIENT_ID: ${AUTHENTIK_LOCAL_CLIENT_ID:-sekai-admin-web}
-      AUTHENTIK_LOCAL_REDIRECT_URI: ${AUTHENTIK_LOCAL_REDIRECT_URI:-http://localhost:8080/api/v1/admin/login/callback}
-      AUTHENTIK_LOCAL_TEST_USERNAME: ${AUTHENTIK_LOCAL_TEST_USERNAME:-admin}
-      AUTHENTIK_LOCAL_TEST_NAME: ${AUTHENTIK_LOCAL_TEST_NAME:-Sekai Admin}
-      AUTHENTIK_LOCAL_TEST_EMAIL: ${AUTHENTIK_LOCAL_TEST_EMAIL:-admin@sekai.localhost}
-      AUTHENTIK_LOCAL_TEST_PASSWORD: ${AUTHENTIK_LOCAL_TEST_PASSWORD:-Admin123!Admin123!}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        - CMD
-        - ak
-        - healthcheck
-      interval: 30s
-      timeout: 30s
-      retries: 5
-      start_period: 90s
-    volumes:
-      - authentik-media:/data
     networks:
       - dev
 
@@ -168,7 +105,6 @@ services:
 
 volumes:
   pg-data:
-  authentik-media:
 
 networks:
   dev:

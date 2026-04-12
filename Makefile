@@ -3,6 +3,7 @@ COMPOSE_FILE=deploy/compose/dev-compose.yaml
 COMPOSE_FILE_ABS := $(abspath $(COMPOSE_FILE))
 WORKSPACE_DIR := $(abspath .)
 APP_PORT ?= 18080
+KEYCLOAK_PORT ?= 18081
 GRAFANA_PORT ?= 13000
 LOKI_PORT ?= 3100
 LOKI_HOST ?= host.docker.internal
@@ -17,7 +18,7 @@ COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "
 DEVCONTAINER ?= devcontainer
 APP_ENV ?= development
 
-.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs smoke admin-open dev-logs-ui devcontainer-up devcontainer-rebuild devcontainer-test
+.PHONY: run dev-watch test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui devcontainer-up devcontainer-rebuild devcontainer-test
 
 run:
 	go run -buildvcs=false ./cmd/api
@@ -118,8 +119,7 @@ dev-env-up:
 	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build --remove-orphans; \
-	./scripts/bootstrap-authentik-dev.sh
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build --remove-orphans
 
 dev-env-down:
 	@set -a; \
@@ -147,6 +147,43 @@ dev-env-logs:
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f
+
+keycloak-up:
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build keycloak
+
+keycloak-down:
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) stop keycloak; \
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) rm -f keycloak
+
+keycloak-logs:
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f keycloak
+
+keycloak-token:
+	@set -a; \
+	if [ -f "./.env" ]; then . "./.env"; fi; \
+	if [ -f "./.env.development" ]; then . "./.env.development"; fi; \
+	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
+	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
+	set +a; \
+	KEYCLOAK_PORT="$(KEYCLOAK_PORT)" sh ./scripts/get-keycloak-token.sh
 
 smoke:
 	APP_PORT=$(APP_PORT) sh ./scripts/smoke.sh

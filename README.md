@@ -11,7 +11,7 @@ Go RESTful API template (Gin + OIDC + environment-based database) with Dev Conta
   - test/production: postgresql
   - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
 - Devcontainer for consistent development
-- Compose-based development environment commands for PostgreSQL, Redis, Authentik, Grafana, and Loki
+- Compose-based development environment commands for PostgreSQL, Redis, Keycloak, Grafana, and Loki
 - Third-party logging with Zap (configurable log level)
 - Built-in modern admin dashboard with dedicated login page
 - Master data sync from GitHub JSON repositories (multi-region)
@@ -51,7 +51,7 @@ For local development with PostgreSQL and the bundled support services, use `.en
 - `make format`
 - `make swagger`
 
-`make dev-env-up` starts PostgreSQL, Redis, Authentik, Grafana, and Loki. Compose health checks are configured for the local support services, and the bootstrap step waits for the local Authentik OIDC issuer to become ready.
+`make dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, and Loki. Compose health checks are configured for PostgreSQL, Redis, Loki, and Grafana, and the local Keycloak realm/client/user are pre-imported in the Keycloak image.
 
 `make dev-watch` uses `air` for hot restart on Go code changes.
 For devcontainer workflows with limited memory, `make dev-watch` now defaults to a lower-memory profile:
@@ -248,26 +248,28 @@ Optional admin RBAC:
 - If these env vars are left empty, admin authorization falls back to authenticated-user-only behavior.
 - The admin profile endpoint and dashboard only expose matched-claim debug details in `development` / `test`; production hides them even when RBAC is enabled.
 
-For local development, `.env.development` is preconfigured for the bundled Authentik instance:
+For local development, `.env.development` is preconfigured for the bundled Keycloak instance:
 
-- Authentik URL: `http://localhost:19100`
-- OIDC issuer: `http://localhost:19100/application/o/sekai-admin-web/`
-- OIDC client ID / audience: `sekai-admin-web`
+- Keycloak URL: `http://localhost:18081`
+- OIDC issuer: `http://localhost:18081/realms/sekai`
+- OIDC internal issuer URL: `http://host.docker.internal:18081/realms/sekai`
+- OIDC client ID / audience: `sekai-api`
 - OIDC redirect URI: `http://localhost:8080/api/v1/admin/login/callback`
 - Admin RBAC claim: `groups`
 - Required admin value: `sekai-admin`
-- Local Authentik group-claim scope: `sekai_admin`
 
-`make dev-env-up` also provisions, via Authentik blueprints, a local OIDC application and a test login user:
+`make dev-env-up` also starts Keycloak with a pre-imported local realm, client, admin group, and test login user:
 
-- Test login user: `admin`
-- Test login password: `Admin123!Admin123!`
-- Authentik bootstrap admin: `akadmin`
-- Authentik bootstrap admin password: `Admin123!Admin123!`
+- Test login user: `alice`
+- Test login password: `alice123!`
+- Keycloak bootstrap admin: `admin`
+- Keycloak bootstrap admin password: `admin`
 
-The local Authentik instance reuses the existing development `postgres` and `redis` services. By default it stores its PostgreSQL tables in the same local `sekai` database, and uses dedicated Redis DB indexes so it does not collide with the API cache keys.
+To fetch a local access token without going through the browser login flow, you can run:
 
-If you need a different local setup, override the `AUTHENTIK_*` and `OIDC_*` values in `.env.development.local`.
+- `make keycloak-token`
+
+If you need a different local setup, override the `KEYCLOAK_*` and `OIDC_*` values in `.env.development.local`.
 
 For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your OIDC test environment. `make smoke` no longer starts local dependencies.
 
