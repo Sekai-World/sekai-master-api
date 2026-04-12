@@ -53,7 +53,7 @@ For local development with PostgreSQL and the bundled support services, use `.en
 
 `make dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector. Compose health checks are configured for PostgreSQL, Redis, Loki, and Grafana, and the local Keycloak realm/client/user are pre-imported in the Keycloak image.
 
-`make dev` now builds a dedicated app image, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
+`make dev` now builds a dedicated app image with `docker buildx build --load`, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
 The image bakes in repository `.env*` files, and the container entrypoint writes a `.env.development.local` override so the app talks to `postgres`, `redis`, `otel-collector`, `loki`, and `keycloak` over the internal Docker network instead of `host.docker.internal`.
 The app container publishes `http://localhost:8080` by default and mounts a dedicated named volume at `/app/tmp` so SQLite files, master-data backups, and rebuilt caches can persist across restarts.
 

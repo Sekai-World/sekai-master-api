@@ -38,8 +38,8 @@ dev:
 	@\
 	echo "[dev] ensuring dependency stack is running"; \
 	$(MAKE) dev-env-up; \
-	echo "[dev] building app image $(DEV_APP_IMAGE)"; \
-	$(DOCKER) build -f deploy/compose/app/Dockerfile -t "$(DEV_APP_IMAGE)" .; \
+	echo "[dev] building app image $(DEV_APP_IMAGE) with buildx"; \
+	$(DOCKER) buildx build --load -f deploy/compose/app/Dockerfile -t "$(DEV_APP_IMAGE)" .; \
 	echo "[dev] recreating container $(DEV_APP_CONTAINER) on network $(DEV_APP_NETWORK)"; \
 	$(DOCKER) rm -f "$(DEV_APP_CONTAINER)" >/dev/null 2>&1 || true; \
 	$(DOCKER) volume create "$(DEV_APP_VOLUME)" >/dev/null; \
