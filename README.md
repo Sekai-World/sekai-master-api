@@ -11,7 +11,7 @@ Go RESTful API template (Gin + OIDC + environment-based database) with Dev Conta
   - test/production: postgresql
   - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
 - Devcontainer for consistent development
-- Compose-based development environment commands for PostgreSQL, Redis, Keycloak, Grafana, and Loki
+- Compose-based development environment commands for PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector
 - Third-party logging with Zap (configurable log level)
 - Built-in modern admin dashboard with dedicated login page
 - Master data sync from GitHub JSON repositories (multi-region)
@@ -47,27 +47,23 @@ This repo provides `.env.test` for connecting to the deployed test environment. 
 For local development with PostgreSQL and the bundled support services, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local` if needed, then run:
 
 - `make dev-env-up`
-- `make dev-watch`
+- `make dev`
 - `make format`
 - `make swagger`
 
-`make dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, and Loki. Compose health checks are configured for PostgreSQL, Redis, Loki, and Grafana, and the local Keycloak realm/client/user are pre-imported in the Keycloak image.
+`make dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector. Compose health checks are configured for PostgreSQL, Redis, Loki, and Grafana, and the local Keycloak realm/client/user are pre-imported in the Keycloak image.
 
-`make dev-watch` uses `air` for hot restart on Go code changes.
-For devcontainer workflows with limited memory, `make dev-watch` now defaults to a lower-memory profile:
+`make dev` now builds a dedicated app image, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
+The image bakes in repository `.env*` files, and the container entrypoint writes a `.env.development.local` override so the app talks to `postgres`, `redis`, `otel-collector`, `loki`, and `keycloak` over the internal Docker network instead of `host.docker.internal`.
+The app container publishes `http://localhost:8080` by default and mounts a dedicated named volume at `/app/tmp` so SQLite files, master-data backups, and rebuilt caches can persist across restarts.
 
-- `MASTER_DATA_AUTO_SYNC=false`
-- `GOFLAGS=-p=1`
-- `GOMEMLIMIT=1500MiB`
-- `GOGC=50`
+Useful local commands:
 
-This avoids repeated startup sync and reduces Go build peak memory inside 8G containers. If you need the old behavior or want to tune it, override the Make variables explicitly, for example:
+- `make dev`
+- `make dev-logs`
+- `make dev-down`
 
-- `make dev-watch DEV_WATCH_MASTER_DATA_AUTO_SYNC=true`
-- `make dev-watch DEV_WATCH_GOFLAGS='-p=2' DEV_WATCH_GOMEMLIMIT=2GiB DEV_WATCH_GOGC=100`
-
-`make dev-watch` passes `LOKI_PUSH_URL` to the API process; the Go logger pushes app logs to Loki in-process (no external log-push script required).
-Gin access/error logs are also routed through the same Zap pipeline, so they are pushed to Loki as well.
+The Go logger pushes app logs to Loki in-process (no external log-push script required), Gin access/error logs follow the same Zap pipeline, and the API exports traces and metrics through OTLP/HTTP to the local OpenTelemetry Collector for Prometheus and Tempo backed Grafana dashboards.
 `make format` applies `gofmt` to all Go files.
 `make swagger` regenerates Swagger docs from Go annotations.
 
@@ -130,6 +126,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Temporary archive workspace is created under `tmp/master-data-sync-resume/` during sync and removed after the region load completes.
 - Successful sync payloads are temporarily backed up by region under `tmp/master-data-backup/<region>/latest/`, preserving all synced JSON files as directory snapshots.
 - If commit is unchanged and previous sync status is success: API first tries rebuilding in-memory index from Redis; if Redis data is missing but local backup exists, it restores cache from local backup; otherwise it falls back to full sync.
+- In development, if local backup files exist for a configured region but sync status is missing from the database, startup can restore cache and rebuild indexes directly from the latest local backup before any remote sync runs.
 - If the process restarts while a region is still marked `running` or `pending`, startup recovery can automatically retry only those interrupted regions.
 - Interrupted sync recovery reuses the normal sync path, so unchanged regions can still be restored from Redis or local backup instead of forcing a full refetch.
 - Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
@@ -342,7 +339,7 @@ If `devcontainer up` fails with `invalid mount config for type "bind"` and the m
 
 ## Test environment
 
-Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `grafana`, `loki`):
+Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `grafana`, `loki`, `tempo`, `prometheus`, `otel-collector`):
 
 - Makefile uses `docker compose` (fallback: `docker-compose`)
 
@@ -355,12 +352,17 @@ If you need a full cleanup including volumes, use:
 
 - `make dev-env-down-purge`
 
-`make dev-env-up` also starts Grafana + Loki for Go app log search (`dev-watch` output):
+`make dev-env-up` also starts a local observability stack for the Go app, and `make dev` connects the app container to it automatically:
 
 
 - Grafana URL: `http://localhost:${GRAFANA_PORT}` (default `http://localhost:13000`)
 - Quick open: `make dev-logs-ui`
-- API logs are pushed to Loki in-process via `LOKI_PUSH_URL` (default `http://host.docker.internal:${LOKI_PORT}/loki/api/v1/push`)
+- `make run` uses host-facing defaults such as `http://host.docker.internal:${LOKI_PORT}/loki/api/v1/push`; `make dev` rewrites the app container to use internal service URLs such as `http://loki:3100/loki/api/v1/push`
+- Prometheus URL: `http://localhost:${PROMETHEUS_PORT}` (default `http://localhost:9090`)
+- Tempo API URL: `http://localhost:${TEMPO_PORT}` (default `http://localhost:3200`)
+- `make run` uses `http://host.docker.internal:${OTEL_COLLECTOR_HTTP_PORT}` by default; `make dev` rewrites the app container to use `http://otel-collector:4318`
+- Grafana provisions Loki, Prometheus, Tempo datasources and a `Sekai / Sekai API Observability` dashboard automatically
+- The default dashboard includes HTTP throughput/latency, Go runtime memory and goroutines, Redis memory and key count, plus per-region master-data sync/index metrics such as status, synced file count, indexed record count, and approximate index size
 
 End-to-end local smoke check:
 
