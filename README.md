@@ -1,6 +1,6 @@
 # sekai-master-api
 
-Go RESTful API template (Gin + OIDC + environment-based database) with Dev Container support.
+Go RESTful API template (Gin + OIDC + environment-based database).
 
 ## Features
 
@@ -10,7 +10,6 @@ Go RESTful API template (Gin + OIDC + environment-based database) with Dev Conta
   - development: sqlite
   - test/production: postgresql
   - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
-- Devcontainer for consistent development
 - Compose-based development environment commands for PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector
 - Third-party logging with Zap (configurable log level)
 - Built-in modern admin dashboard with dedicated login page
@@ -28,17 +27,6 @@ Go RESTful API template (Gin + OIDC + environment-based database) with Dev Conta
    - `go mod tidy`
 3. Start API:
    - `make run`
-
-### Devcontainer Workflow
-
-If you develop through the repository devcontainer, prefer the Makefile helpers so the workspace path stays consistent:
-
-- `make devcontainer-up`
-- `make devcontainer-test`
-
-If the host SSH agent socket changed and `devcontainer up` fails with a stale bind-mount error, rebuild the container instead of reusing the old one:
-
-- `make devcontainer-rebuild`
 
 ### Test Env File
 
@@ -278,64 +266,15 @@ For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKE
 
 Health endpoint returns both application and database status.
 
-## Devcontainer + OrbStack / Docker Desktop
+## Local Docker
 
-This project uses Unix socket mounting so devcontainer can call host Docker API.
-The devcontainer installs Docker CLI and does not run daemon inside the devcontainer.
+Local development assumes a host Docker engine with both `docker compose` semantics and `docker buildx`.
 
-### 1) Set socket variables before rebuilding Dev Container
+Useful checks:
 
-Set host environment variables before opening/rebuilding container:
-
-- `DOCKER_SOCK_PATH`: host Docker socket path to mount into devcontainer
-- `DOCKER_SOCK_GID`: socket group id for devcontainer user access
-- `SSH_AUTH_SOCK`: host SSH agent socket path to mount into devcontainer
-
-Typical values on macOS OrbStack and Windows Docker Desktop:
-
-- `DOCKER_SOCK_PATH=/var/run/docker.sock`
-- `DOCKER_SOCK_GID=0`
-
-For SSH agent forwarding, the devcontainer uses `${SSH_AUTH_SOCK}` from host if present.
-If it is not exported, the mount falls back to `/run/host-services/ssh-auth.sock`, which works on Docker Desktop / OrbStack host-service sockets.
-On Linux or any custom SSH agent setup, export the current host socket path before rebuilding:
-
-- `echo $SSH_AUTH_SOCK`
-- `ssh-add -l`
-
-If socket owner group is `root`, this value is usually `0`.
-
-### 2) Rebuild Dev Container and verify
-
-After container starts, validate from terminal in container:
-
-- `echo $DOCKER_HOST`
-- `echo $SSH_AUTH_SOCK`
 - `docker version`
 - `docker compose version`
-- `ssh-add -l`
-
-Codex CLI is also available in devcontainer:
-
-- `codex --help`
-- Config file is editable at `.devcontainer/config.toml`
-- The devcontainer links it to `~/.codex/config.toml`
-
-For repeatable local setup from the host terminal, you can also use:
-
-- `make devcontainer-up`
-- `make devcontainer-rebuild`
-- `make devcontainer-test`
-
-If you see `permission denied while trying to connect to docker socket`, verify both variables are exported before rebuilding devcontainer:
-
-- `echo $DOCKER_SOCK_PATH`
-- `echo $DOCKER_SOCK_GID`
-
-If `ssh-add -l` inside devcontainer says it cannot connect to agent, confirm the host SSH agent is running and `SSH_AUTH_SOCK` is exported before rebuild.
-The devcontainer does not mount host private key files directly; it forwards the agent socket only.
-If you need SSH host verification inside container, populate `~/.ssh/known_hosts` in the container as usual.
-If `devcontainer up` fails with `invalid mount config for type "bind"` and the missing path points to an old launchd socket under `/private/tmp/com.apple.launchd.*`, the previous container likely captured a stale `SSH_AUTH_SOCK`; run `make devcontainer-rebuild` after confirming the current `SSH_AUTH_SOCK` exists.
+- `docker buildx version`
 
 ## Test environment
 
