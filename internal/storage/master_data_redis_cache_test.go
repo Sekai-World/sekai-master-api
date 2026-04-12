@@ -160,6 +160,72 @@ func TestStoreRegionReportsCacheWriteProgress(t *testing.T) {
 	}
 }
 
+func TestRegionIndexStatsReportsInMemoryIndexShape(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha", "cardSkillName": "score up"},
+			map[string]any{"id": 2, "prefix": "beta", "cardSkillName": "life recover"},
+		},
+		"skills.json": []any{
+			map[string]any{"id": 100, "name": "focus"},
+		},
+	}
+
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	stats := cache.RegionIndexStats()
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 region index stat, got %d", len(stats))
+	}
+
+	stat := stats[0]
+	if stat.Region != "jp" {
+		t.Fatalf("expected region jp, got %q", stat.Region)
+	}
+	if !stat.Loaded {
+		t.Fatalf("expected region index to be marked loaded")
+	}
+	if stat.EntityCount != 2 {
+		t.Fatalf("expected 2 indexed entities, got %d", stat.EntityCount)
+	}
+	if stat.RecordCount != 3 {
+		t.Fatalf("expected 3 indexed records, got %d", stat.RecordCount)
+	}
+	if stat.FieldCount < 3 {
+		t.Fatalf("expected at least 3 indexed fields, got %d", stat.FieldCount)
+	}
+	if stat.EntryCount < 3 {
+		t.Fatalf("expected at least 3 index entries, got %d", stat.EntryCount)
+	}
+	if stat.TextBlobBytes <= 0 {
+		t.Fatalf("expected text blob bytes > 0, got %d", stat.TextBlobBytes)
+	}
+	if stat.ApproxSizeBytes <= 0 {
+		t.Fatalf("expected approx size bytes > 0, got %d", stat.ApproxSizeBytes)
+	}
+}
+
 func TestSearchUsesCardPrefixField(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {

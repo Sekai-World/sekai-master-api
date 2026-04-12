@@ -30,6 +30,24 @@ type RedisMasterDataCache struct {
 	index map[string]map[string]*entitySearchIndex
 }
 
+type RegionIndexStats struct {
+	Region          string
+	Loaded          bool
+	EntityCount     int
+	RecordCount     int
+	FieldCount      int
+	EntryCount      int
+	TextBlobBytes   int
+	ApproxSizeBytes int
+}
+
+type RedisUsageStats struct {
+	UsedMemoryBytes    int64
+	UsedMemoryRSSBytes int64
+	PeakMemoryBytes    int64
+	KeyCount           int64
+}
+
 type entitySearchIndex struct {
 	IDs      []string                     `json:"ids"`
 	TextBlob string                       `json:"b"`
@@ -1000,6 +1018,78 @@ func (cache *RedisMasterDataCache) Close() error {
 	return cache.client.Close()
 }
 
+func (cache *RedisMasterDataCache) RegionIndexStats() []RegionIndexStats {
+	if cache == nil {
+		return nil
+	}
+
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+
+	regions := make([]string, 0, len(cache.index))
+	for region := range cache.index {
+		regions = append(regions, region)
+	}
+	sort.Strings(regions)
+
+	stats := make([]RegionIndexStats, 0, len(regions))
+	for _, region := range regions {
+		entityIndexes := cache.index[region]
+		stat := RegionIndexStats{
+			Region: region,
+			Loaded: len(entityIndexes) > 0,
+		}
+
+		for entityName, index := range entityIndexes {
+			if index == nil {
+				continue
+			}
+
+			stat.EntityCount++
+			stat.RecordCount += len(index.IDs)
+			stat.FieldCount += len(index.Fields)
+			stat.TextBlobBytes += len(index.TextBlob)
+			stat.ApproxSizeBytes += len(entityName) + len(index.TextBlob)
+
+			for _, id := range index.IDs {
+				stat.ApproxSizeBytes += len(id)
+			}
+
+			for field, items := range index.Fields {
+				stat.EntryCount += len(items)
+				stat.ApproxSizeBytes += len(field) + len(items)*12
+			}
+		}
+
+		stats = append(stats, stat)
+	}
+
+	return stats
+}
+
+func (cache *RedisMasterDataCache) RedisUsageStats(ctx context.Context) (RedisUsageStats, error) {
+	if cache == nil || cache.client == nil {
+		return RedisUsageStats{}, nil
+	}
+
+	info, err := cache.client.Info(ctx, "memory").Result()
+	if err != nil {
+		return RedisUsageStats{}, err
+	}
+
+	keyCount, err := cache.client.DBSize(ctx).Result()
+	if err != nil {
+		return RedisUsageStats{}, err
+	}
+
+	return RedisUsageStats{
+		UsedMemoryBytes:    parseRedisInfoInt64(info, "used_memory"),
+		UsedMemoryRSSBytes: parseRedisInfoInt64(info, "used_memory_rss"),
+		PeakMemoryBytes:    parseRedisInfoInt64(info, "used_memory_peak"),
+		KeyCount:           keyCount,
+	}, nil
+}
+
 func (cache *RedisMasterDataCache) redisKey(region string) string {
 	cleanPrefix := strings.TrimSpace(cache.keyPrefix)
 	if cleanPrefix == "" {
@@ -1177,6 +1267,29 @@ func normalizeSearchText(value string) string {
 	}
 
 	return builder.String()
+}
+
+func parseRedisInfoInt64(info string, key string) int64 {
+	for _, line := range strings.Split(info, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		left, right, found := strings.Cut(trimmed, ":")
+		if !found || strings.TrimSpace(left) != key {
+			continue
+		}
+
+		value, err := strconv.ParseInt(strings.TrimSpace(right), 10, 64)
+		if err != nil {
+			return 0
+		}
+
+		return value
+	}
+
+	return 0
 }
 
 func searchableFields(record map[string]any) map[string]string {

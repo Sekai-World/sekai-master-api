@@ -22,6 +22,7 @@ type fakeSyncLoader struct {
 	payloadByZone  map[string]map[string]any
 	loadErrByZone  map[string]error
 	loadCalls      int
+	resolveCalls   int
 }
 
 func (loader *fakeSyncLoader) LoadRegion(_ context.Context, source masterdata.Source) (map[string]any, error) {
@@ -43,6 +44,7 @@ func (loader *fakeSyncLoader) ResolveRegionVersion(_ context.Context, source mas
 	loader.mu.Lock()
 	defer loader.mu.Unlock()
 
+	loader.resolveCalls++
 	return loader.resolvedByZone[source.Region], nil
 }
 
@@ -762,6 +764,108 @@ func TestSyncAllFallsBackToFullSyncWhenRedisAndLocalBackupMissing(t *testing.T) 
 	}
 	if cache.storeCalls != 1 {
 		t.Fatalf("expected cache to be built from github payload, got storeCalls=%d", cache.storeCalls)
+	}
+}
+
+func TestSyncAllRestoresFromLocalBackupWhenStatusMissingInDevelopment(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "remote-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
+			},
+		},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore(nil)
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	usecase.EnableDevelopmentBackupBootstrap(true)
+
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
+		"cards.json":  []any{map[string]any{"id": 99, "prefix": "from-local"}},
+		"skills.json": []any{map[string]any{"id": 100, "name": "from-local-skill"}},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+	usecase.backupStore = backupStore
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.resolveCalls != 0 {
+		t.Fatalf("expected remote compare to be skipped, got resolveCalls=%d", loader.resolveCalls)
+	}
+	if loader.loadCalls != 0 {
+		t.Fatalf("expected remote load to be skipped, got loadCalls=%d", loader.loadCalls)
+	}
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected one cache store from local backup, got %d", cache.storeCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected restored status for jp")
+	}
+	if latest.Status != "success" {
+		t.Fatalf("expected success status, got %s", latest.Status)
+	}
+	if latest.SourceCommit != "local-commit" {
+		t.Fatalf("expected restored commit local-commit, got %s", latest.SourceCommit)
+	}
+	if latest.FileCount != 2 {
+		t.Fatalf("expected restored file_count=2, got %d", latest.FileCount)
+	}
+}
+
+func TestSyncAllDoesNotRestoreFromLocalBackupWhenStatusMissingOutsideDevelopment(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "remote-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
+			},
+		},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore(nil)
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
+		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+	usecase.backupStore = backupStore
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.resolveCalls != 1 {
+		t.Fatalf("expected remote compare to run outside development bootstrap, got resolveCalls=%d", loader.resolveCalls)
+	}
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected remote load to run outside development bootstrap, got loadCalls=%d", loader.loadCalls)
+	}
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected one cache store from remote payload, got %d", cache.storeCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected latest status for jp")
+	}
+	if latest.SourceCommit != "remote-commit" {
+		t.Fatalf("expected remote commit remote-commit, got %s", latest.SourceCommit)
 	}
 }
 

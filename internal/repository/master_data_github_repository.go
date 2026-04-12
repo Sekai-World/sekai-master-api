@@ -20,6 +20,7 @@ import (
 
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/logging"
+	"sekai-master-api/internal/observability"
 )
 
 type GitHubMasterDataRepository struct {
@@ -56,7 +57,10 @@ func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConc
 	}
 
 	return &GitHubMasterDataRepository{
-		httpClient:      &http.Client{Timeout: timeout},
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: observability.NewHTTPTransport(http.DefaultTransport, "github-master-data"),
+		},
 		token:           strings.TrimSpace(token),
 		fileConcurrency: fileConcurrency,
 		retryCount:      retryCount,

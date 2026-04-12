@@ -64,18 +64,20 @@ type MasterDataEventPublisher interface {
 type MasterDataPayloadBackupStore interface {
 	SaveRegionPayload(ctx context.Context, source masterdata.Source, commit string, payload map[string]any) error
 	LoadRegionPayload(ctx context.Context, source masterdata.Source, commit string) (map[string]any, bool, error)
+	LoadLatestRegionPayload(ctx context.Context, source masterdata.Source) (map[string]any, string, time.Time, bool, error)
 }
 
 type MasterDataSyncUsecase struct {
-	sources     []masterdata.Source
-	loader      MasterDataSourceLoader
-	cache       MasterDataCache
-	statusStore MasterDataSyncStatusStore
-	publisher   MasterDataEventPublisher
-	backupStore MasterDataPayloadBackupStore
-	concurrency int
-	statusMu    sync.Mutex
-	syncRunning atomic.Bool
+	sources                             []masterdata.Source
+	loader                              MasterDataSourceLoader
+	cache                               MasterDataCache
+	statusStore                         MasterDataSyncStatusStore
+	publisher                           MasterDataEventPublisher
+	backupStore                         MasterDataPayloadBackupStore
+	concurrency                         int
+	restoreFromLocalBackupWithoutStatus bool
+	statusMu                            sync.Mutex
+	syncRunning                         atomic.Bool
 
 	currentEventLocks sync.Map
 }
@@ -106,6 +108,14 @@ func NewMasterDataSyncUsecase(
 		backupStore: NewFileMasterDataPayloadBackupStore("tmp/master-data-backup"),
 		concurrency: concurrency,
 	}
+}
+
+func (usecase *MasterDataSyncUsecase) EnableDevelopmentBackupBootstrap(enabled bool) {
+	if usecase == nil {
+		return
+	}
+
+	usecase.restoreFromLocalBackupWithoutStatus = enabled
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
@@ -287,10 +297,20 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 			startedAt := time.Now().UTC()
 			now := time.Now().UTC()
 			resolvedCommit := ""
+			previous, hasPreviousStatus := previousStatuses[source.Region]
+
+			if !force && usecase.restoreFromLocalBackupWithoutStatus && !hasPreviousStatus {
+				restored, restoreErr := usecase.restoreRegionFromLatestLocalBackup(ctx, source, step, totalSteps)
+				if restoreErr != nil {
+					usecase.logf("sync local bootstrap restore failed region=%s error=%v", source.Region, restoreErr)
+				} else if restored {
+					return
+				}
+			}
 
 			if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok && !inspector.HasRegionIndex(source.Region) {
 				pendingCommit := ""
-				if previous, exists := previousStatuses[source.Region]; exists {
+				if hasPreviousStatus {
 					pendingCommit = strings.TrimSpace(previous.SourceCommit)
 				}
 
@@ -330,7 +350,7 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 					resolvedCommit = strings.TrimSpace(commit)
 					usecase.logf("sync compare region=%s remote_commit=%s force=%t", source.Region, resolvedCommit, force)
 					if !force {
-						if previous, exists := previousStatuses[source.Region]; exists && strings.EqualFold(strings.TrimSpace(previous.Status), "success") && previous.SourceCommit != "" && previous.SourceCommit == resolvedCommit {
+						if hasPreviousStatus && strings.EqualFold(strings.TrimSpace(previous.Status), "success") && previous.SourceCommit != "" && previous.SourceCommit == resolvedCommit {
 							rebuildFromRedis := false
 							if rebuilder, ok := usecase.cache.(MasterDataCacheIndexRebuilder); ok {
 								rebuilt, rebuildErr := rebuilder.RebuildRegionIndexFromRedis(ctx, source.Region)
@@ -523,7 +543,7 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 			if err != nil {
 				duration := time.Since(startedAt).Milliseconds()
 				if isRateLimitError(err) {
-					fallbackErr := usecase.fallbackToPreviousAvailableState(ctx, source, previousStatuses[source.Region], now)
+					fallbackErr := usecase.fallbackToPreviousAvailableState(ctx, source, previous, now)
 					if fallbackErr == nil {
 						usecase.logf("sync rate limit fallback applied region=%s duration_ms=%d", source.Region, duration)
 						usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
@@ -955,6 +975,58 @@ func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region s
 	}
 
 	return current, true, nil
+}
+
+func (usecase *MasterDataSyncUsecase) restoreRegionFromLatestLocalBackup(ctx context.Context, source masterdata.Source, currentStep int, totalSteps int) (bool, error) {
+	if usecase.backupStore == nil {
+		return false, nil
+	}
+
+	backupPayload, commit, restoredAt, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
+	if err != nil {
+		return false, fmt.Errorf("load latest backup payload: %w", err)
+	}
+	if !found {
+		return false, nil
+	}
+
+	if err := usecase.cache.StoreRegion(ctx, source.Region, backupPayload); err != nil {
+		return false, fmt.Errorf("restore latest backup payload: %w", err)
+	}
+
+	if restoredAt.IsZero() {
+		restoredAt = time.Now().UTC()
+	}
+
+	statusSavedAt := time.Now().UTC()
+	status := masterdata.SyncStatus{
+		Region:         source.Region,
+		Status:         "success",
+		FileCount:      len(backupPayload),
+		SyncDurationMS: 0,
+		LastSyncedAt:   restoredAt,
+		SourceCommit:   strings.TrimSpace(commit),
+		Source:         source,
+		UpdatedAt:      statusSavedAt,
+	}
+	if err := usecase.saveStatus(ctx, status); err != nil {
+		return false, fmt.Errorf("save restored backup status: %w", err)
+	}
+
+	usecase.logf("sync bootstrap restored from local backup region=%s commit=%s files=%d", source.Region, status.SourceCommit, len(backupPayload))
+	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+		Event:       "master_data_sync_progress",
+		Status:      "success",
+		Region:      source.Region,
+		Phase:       "bootstrap",
+		Message:     "database status missing, restored cache from local backup",
+		CurrentStep: currentStep,
+		TotalSteps:  totalSteps,
+		FileCount:   len(backupPayload),
+		UpdatedAt:   statusSavedAt,
+	})
+
+	return true, nil
 }
 
 func (usecase *MasterDataSyncUsecase) fallbackToPreviousAvailableState(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, fallbackAt time.Time) error {

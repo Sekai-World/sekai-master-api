@@ -15,6 +15,12 @@ type Config struct {
 	AppEnv                       string
 	LogLevel                     string
 	LokiPushURL                  string
+	OTELEnabled                  bool
+	OTELServiceName              string
+	OTELServiceVersion           string
+	OTELExporterOTLPEndpoint     string
+	OTELExporterOTLPInsecure     bool
+	OTELMetricExportIntervalMS   int
 	DatabaseDriverName           string
 	DatabaseURL                  string
 	SQLitePath                   string
@@ -62,12 +68,19 @@ func Load() Config {
 	appEnv := getEnv("APP_ENV", "development")
 	port := getEnv("APP_PORT", "8080")
 	logLevel := resolveLogLevel(strings.TrimSpace(getEnv("LOG_LEVEL", "")), appEnv)
+	otelEnabled := getEnvBool("OTEL_ENABLED", strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev"))
 
 	return Config{
 		Port:                         port,
 		AppEnv:                       appEnv,
 		LogLevel:                     logLevel,
 		LokiPushURL:                  strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
+		OTELEnabled:                  otelEnabled,
+		OTELServiceName:              strings.TrimSpace(getEnv("OTEL_SERVICE_NAME", "sekai-master-api")),
+		OTELServiceVersion:           strings.TrimSpace(getEnv("OTEL_SERVICE_VERSION", "")),
+		OTELExporterOTLPEndpoint:     strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
+		OTELExporterOTLPInsecure:     getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
+		OTELMetricExportIntervalMS:   getEnvInt("OTEL_METRIC_EXPORT_INTERVAL", 10000),
 		DatabaseDriverName:           getEnv("DATABASE_DRIVER", ""),
 		DatabaseURL:                  getEnv("DATABASE_URL", "postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable"),
 		SQLitePath:                   getEnv("SQLITE_PATH", "./tmp/dev.db"),
