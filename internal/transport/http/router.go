@@ -2,12 +2,14 @@ package http
 
 import (
 	"database/sql"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	_ "sekai-master-api/docs"
 
@@ -20,7 +22,20 @@ import (
 
 func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub) (*gin.Engine, error) {
 	router := gin.New()
+
+	httpMetrics, err := middleware.HTTPMetrics()
+	if err != nil {
+		return nil, err
+	}
+
 	router.Use(middleware.RequestID())
+	router.Use(otelgin.Middleware(cfg.OTELServiceName, otelgin.WithFilter(func(request *http.Request) bool {
+		if request == nil || request.URL == nil {
+			return false
+		}
+		return !strings.HasPrefix(request.URL.Path, "/docs")
+	})))
+	router.Use(httpMetrics)
 	router.Use(middleware.AccessLog())
 	router.Use(middleware.RecoveryLog())
 

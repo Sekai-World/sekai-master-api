@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
-	restoreEnv(t, "APP_ENV", "APP_PORT", "MASTER_DATA_RECOVER_INTERRUPTED_SYNC")
+	restoreEnv(t, "APP_ENV", "APP_PORT", "MASTER_DATA_RECOVER_INTERRUPTED_SYNC", "OTEL_ENABLED")
 
 	tmpDir := t.TempDir()
 	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nAPP_PORT=1000\n")
@@ -26,6 +26,9 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	}
 	if !cfg.MasterDataRecoverInterrupted {
 		t.Fatalf("expected interrupted sync recovery to default true")
+	}
+	if !cfg.OTELEnabled {
+		t.Fatalf("expected OTel to default enabled in development")
 	}
 }
 
@@ -133,6 +136,51 @@ func TestLoadReadsMasterDataRecoverInterruptedSync(t *testing.T) {
 	cfg := Load()
 	if cfg.MasterDataRecoverInterrupted {
 		t.Fatalf("expected interrupted sync recovery to be disabled by env override")
+	}
+}
+
+func TestLoadReadsOTELConfig(t *testing.T) {
+	restoreEnv(
+		t,
+		"APP_ENV",
+		"OTEL_ENABLED",
+		"OTEL_SERVICE_NAME",
+		"OTEL_SERVICE_VERSION",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_INSECURE",
+		"OTEL_METRIC_EXPORT_INTERVAL",
+	)
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), ""+
+		"APP_ENV=production\n"+
+		"OTEL_ENABLED=true\n"+
+		"OTEL_SERVICE_NAME=sekai-master-api-dev\n"+
+		"OTEL_SERVICE_VERSION=1.2.3\n"+
+		"OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318\n"+
+		"OTEL_EXPORTER_OTLP_INSECURE=true\n"+
+		"OTEL_METRIC_EXPORT_INTERVAL=5000\n")
+
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if !cfg.OTELEnabled {
+		t.Fatalf("expected OTel to be enabled")
+	}
+	if cfg.OTELServiceName != "sekai-master-api-dev" {
+		t.Fatalf("OTEL service name = %q, want %q", cfg.OTELServiceName, "sekai-master-api-dev")
+	}
+	if cfg.OTELServiceVersion != "1.2.3" {
+		t.Fatalf("OTEL service version = %q, want %q", cfg.OTELServiceVersion, "1.2.3")
+	}
+	if cfg.OTELExporterOTLPEndpoint != "http://host.docker.internal:4318" {
+		t.Fatalf("OTEL exporter endpoint = %q, want %q", cfg.OTELExporterOTLPEndpoint, "http://host.docker.internal:4318")
+	}
+	if !cfg.OTELExporterOTLPInsecure {
+		t.Fatalf("expected OTEL exporter insecure to be enabled")
+	}
+	if cfg.OTELMetricExportIntervalMS != 5000 {
+		t.Fatalf("OTEL metric export interval = %d, want %d", cfg.OTELMetricExportIntervalMS, 5000)
 	}
 }
 

@@ -110,27 +110,50 @@ func (store *fileMasterDataPayloadBackupStore) LoadRegionPayload(_ context.Conte
 		return nil, false, nil
 	}
 
+	payload, _, found, err := store.loadRegionPayload(source, func(snapshot backupSnapshot) bool {
+		return strings.TrimSpace(snapshot.Commit) == commit
+	})
+	return payload, found, err
+}
+
+func (store *fileMasterDataPayloadBackupStore) LoadLatestRegionPayload(_ context.Context, source masterdata.Source) (map[string]any, string, time.Time, bool, error) {
+	payload, snapshot, found, err := store.loadRegionPayload(source, func(snapshot backupSnapshot) bool {
+		return true
+	})
+	if err != nil || !found {
+		return nil, "", time.Time{}, found, err
+	}
+
+	return payload, strings.TrimSpace(snapshot.Commit), snapshot.UpdatedAt, true, nil
+}
+
+func (store *fileMasterDataPayloadBackupStore) loadRegionPayload(source masterdata.Source, match func(snapshot backupSnapshot) bool) (map[string]any, backupSnapshot, bool, error) {
+	region := strings.TrimSpace(source.Region)
+	if region == "" {
+		return nil, backupSnapshot{}, false, nil
+	}
+
 	body, err := os.ReadFile(store.metaFilePath(region))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
+			return nil, backupSnapshot{}, false, nil
 		}
-		return nil, false, fmt.Errorf("read backup snapshot: %w", err)
+		return nil, backupSnapshot{}, false, fmt.Errorf("read backup snapshot: %w", err)
 	}
 
 	var snapshot backupSnapshot
 	if err := json.Unmarshal(body, &snapshot); err != nil {
-		return nil, false, fmt.Errorf("decode backup snapshot: %w", err)
+		return nil, backupSnapshot{}, false, fmt.Errorf("decode backup snapshot: %w", err)
 	}
 
-	if strings.TrimSpace(snapshot.Commit) != commit {
-		return nil, false, nil
-	}
 	if !sameSource(snapshot.Source, source) {
-		return nil, false, nil
+		return nil, backupSnapshot{}, false, nil
+	}
+	if match != nil && !match(snapshot) {
+		return nil, backupSnapshot{}, false, nil
 	}
 	if len(snapshot.Files) == 0 {
-		return nil, false, nil
+		return nil, backupSnapshot{}, false, nil
 	}
 
 	latestDir := filepath.Join(store.regionDir(region), "latest")
@@ -144,24 +167,24 @@ func (store *fileMasterDataPayloadBackupStore) LoadRegionPayload(_ context.Conte
 		content, readErr := os.ReadFile(filePath)
 		if readErr != nil {
 			if errors.Is(readErr, os.ErrNotExist) {
-				return nil, false, nil
+				return nil, backupSnapshot{}, false, nil
 			}
-			return nil, false, fmt.Errorf("read backup file %s: %w", relPath, readErr)
+			return nil, backupSnapshot{}, false, fmt.Errorf("read backup file %s: %w", relPath, readErr)
 		}
 
 		var value any
 		if decodeErr := json.Unmarshal(content, &value); decodeErr != nil {
-			return nil, false, fmt.Errorf("decode backup file %s: %w", relPath, decodeErr)
+			return nil, backupSnapshot{}, false, fmt.Errorf("decode backup file %s: %w", relPath, decodeErr)
 		}
 
 		payload[relPath] = value
 	}
 
 	if len(payload) == 0 {
-		return nil, false, nil
+		return nil, backupSnapshot{}, false, nil
 	}
 
-	return payload, true, nil
+	return payload, snapshot, true, nil
 }
 
 func (store *fileMasterDataPayloadBackupStore) regionDir(region string) string {

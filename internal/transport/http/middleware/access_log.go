@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -25,11 +26,14 @@ func AccessLog() gin.HandlerFunc {
 		if requestID == "" {
 			requestID = "missing"
 		}
+		traceID, spanID := traceFields(c)
 
 		zap.S().Debugw(
 			"http request",
 			"component", "gin-access",
 			"request_id", requestID,
+			"trace_id", traceID,
+			"span_id", spanID,
 			"request_method", c.Request.Method,
 			"request_path", requestPath,
 			"request_query", requestQuery,
@@ -58,6 +62,8 @@ func AccessLog() gin.HandlerFunc {
 		fields := []any{
 			"component", "gin-access",
 			"request_id", requestID,
+			"trace_id", traceID,
+			"span_id", spanID,
 			"latency_ms", latency.Milliseconds(),
 			"response_status", statusCode,
 			"response_status_text", responseStatusText,
@@ -71,6 +77,15 @@ func AccessLog() gin.HandlerFunc {
 
 		zap.S().Debugw("http response", fields...)
 	}
+}
+
+func traceFields(c *gin.Context) (string, string) {
+	spanContext := trace.SpanContextFromContext(c.Request.Context())
+	if !spanContext.IsValid() {
+		return "missing", "missing"
+	}
+
+	return spanContext.TraceID().String(), spanContext.SpanID().String()
 }
 
 func sanitizeQueryString(rawQuery string) string {

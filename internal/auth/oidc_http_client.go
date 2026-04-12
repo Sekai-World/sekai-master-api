@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/observability"
 )
 
 func NewPublicOIDCHTTPClient(timeout time.Duration) *http.Client {
@@ -15,19 +16,23 @@ func NewPublicOIDCHTTPClient(timeout time.Duration) *http.Client {
 
 	return &http.Client{
 		Timeout:   timeout,
-		Transport: transport,
+		Transport: observability.NewHTTPTransport(transport, "oidc"),
 	}
 }
 
 func NewOIDCHTTPClient(cfg config.Config, timeout time.Duration) (*http.Client, error) {
-	client := NewPublicOIDCHTTPClient(timeout)
+	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: baseTransport,
+	}
 
 	rewrittenTransport, err := newOIDCHTTPTransport(cfg, client.Transport)
 	if err != nil {
 		return nil, err
 	}
 
-	client.Transport = rewrittenTransport
+	client.Transport = observability.NewHTTPTransport(rewrittenTransport, "oidc")
 	return client, nil
 }
 

@@ -1,3 +1,4 @@
 FROM grafana/grafana-oss:12.4.0
 
-COPY deploy/compose/grafana/provisioning/datasources/loki.yaml /etc/grafana/provisioning/datasources/loki.yaml
+COPY deploy/compose/grafana/provisioning /etc/grafana/provisioning
+COPY deploy/compose/grafana/dashboards /etc/grafana/dashboards

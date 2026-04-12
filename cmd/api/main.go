@@ -11,6 +11,7 @@ import (
 	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/logging"
+	"sekai-master-api/internal/observability"
 	"sekai-master-api/internal/repository"
 	"sekai-master-api/internal/storage"
 	transport "sekai-master-api/internal/transport/http"
@@ -36,6 +37,15 @@ func main() {
 	logging.ConfigureGinWriters()
 
 	logger := zap.S()
+
+	cleanupObservability, err := observability.Setup(context.Background(), cfg)
+	if err != nil {
+		logger.Fatalf("failed to initialize observability: %v", err)
+	}
+	defer cleanupObservability()
+	if err := observability.RegisterRuntimeMetrics(); err != nil {
+		logger.Fatalf("failed to register runtime metrics: %v", err)
+	}
 
 	db, err := storage.OpenDB(cfg)
 	if err != nil {
@@ -82,6 +92,10 @@ func main() {
 		masterDataEventHub,
 		cfg.MasterDataSyncConcurrency,
 	)
+	masterDataSyncUsecase.EnableDevelopmentBackupBootstrap(cfg.IsDevelopment())
+	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase, masterDataCache); err != nil {
+		logger.Fatalf("failed to register master data metrics: %v", err)
+	}
 	router, err := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub)
 	if err != nil {
 		logger.Fatalf("failed to initialize router: %v", err)
