@@ -72,6 +72,18 @@ func (cache *fakeCardHandlerCache) GetByID(_ context.Context, region string, ent
 	return record, true, nil
 }
 
+func (cache *fakeCardHandlerCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
+	items := make([]map[string]any, 0, len(cache.listItems))
+	for _, item := range cache.listItems {
+		copied := make(map[string]any, len(item))
+		for key, value := range item {
+			copied[key] = value
+		}
+		items = append(items, copied)
+	}
+	return items, nil
+}
+
 func (cache *fakeCardHandlerCache) ListByPage(_ context.Context, _, _ string, _, _ int) ([]map[string]any, int, error) {
 	return cache.listItems, cache.listTotal, nil
 }
@@ -481,6 +493,33 @@ func TestCardListEndpointMapsCardSupply(t *testing.T) {
 	assertFirstItemHasMappedCardSupply(t, body)
 }
 
+func TestCardListEndpointSupportsSorting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 2, "prefix": "bravo", "seq": 2},
+			{"id": 1, "prefix": "alpha", "seq": 1},
+		},
+		listTotal: 2,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&sort_by=prefix&sort_order=asc", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
 func TestCardSearchEndpointMapsCardSupply(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -552,6 +591,32 @@ func TestCardSearchEndpointMapsCardSupply(t *testing.T) {
 	assertFirstItemHasMappedCardSupply(t, body)
 }
 
+func TestCardSearchEndpointSupportsSorting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"id": 1, "prefix": "alpha", "seq": 1}, MatchScore: 100},
+			{Item: map[string]any{"id": 2, "prefix": "bravo", "seq": 2}, MatchScore: 90},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=test&page=1&limit=20&sort_by=prefix&sort_order=desc", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2, 1})
+}
+
 func TestCardSearchFieldNameMapsToPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -606,6 +671,48 @@ func TestCardSearchFieldInvalidReturnsBadRequest(t *testing.T) {
 	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=test&field=unknown&page=1&limit=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
+func TestCardListSortOrderWithoutSortByReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{}
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&sort_order=desc", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
+func TestCardListInvalidSortByReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "prefix": "alpha"},
+		},
+		listTotal: 1,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&sort_by=cardSupply&sort_order=asc", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -941,5 +1048,36 @@ func assertFirstItemHasMappedCardSupply(t *testing.T, body map[string]any) {
 
 	if cardRarity["cardRarityType"] != "rarity_4" {
 		t.Fatalf("expected cardRarity.cardRarityType=rarity_4, got %v", cardRarity["cardRarityType"])
+	}
+}
+
+func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64) {
+	t.Helper()
+
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(items))
+	}
+
+	for index, want := range expected {
+		item, ok := items[index].(map[string]any)
+		if !ok {
+			t.Fatalf("expected item object, got %T", items[index])
+		}
+		if item["id"] != want {
+			t.Fatalf("expected item %d id=%v, got %v", index, want, item["id"])
+		}
 	}
 }
