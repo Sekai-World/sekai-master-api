@@ -82,6 +82,9 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/virtualLives/:region/list?page=1&page_size=20`
 - `GET /api/v1/virtualLives/:region/search?q=<keyword>&field=name|type|assetbundle&page=1&limit=20`
 - `GET /api/v1/virtualLives/:region/:id`
+- `GET /api/v1/virtualLives/:region/:id/items`
+- `GET /api/v1/virtualLives/:region/:id/schedules`
+- `GET /api/v1/virtualLives/:region/:id/setlists`
 - `GET /api/v1/admin/profile` (Bearer token from configured OIDC provider required)
 - `GET /api/v1/admin/master-data/events` (Bearer token from configured OIDC provider required; dashboard SSE uses `access_token` query param)
 - `GET /api/v1/admin/master-data/status` (Bearer token from configured OIDC provider required)
@@ -177,6 +180,7 @@ Example for `jp`:
 - current event endpoint (`GET /api/v1/events/:region/current`) reads from Redis cache first, validates event time window, and refreshes cache from `events.json` when cached event is expired/missing
 - event rewards endpoint returns `eventRankingRewardRanges` via `GET /api/v1/events/:region/:id/rewards`
 - virtual live search supports `field=name|type|assetbundle`: `name` maps to `name`, `type` maps to `virtualLiveType`, `assetbundle` maps to `assetbundleName`
+- virtual live base response omits `virtualItems`, `virtualLiveSchedules`, `virtualLiveSetlists`; use the dedicated `items` / `schedules` / `setlists` endpoints
 - `GET /api/v1/admin/master-data/events` can notify frontend after sync finishes (`master_data_updated`)
 
 Redis settings:
