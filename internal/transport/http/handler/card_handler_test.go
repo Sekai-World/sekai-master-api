@@ -20,6 +20,7 @@ type fakeCardHandlerCache struct {
 	listTotal     int
 	searchMatches []masterdata.SearchMatch
 	rarityMatches []masterdata.SearchMatch
+	searchCalls   []fakeCardSearchCall
 	lastSearch    struct {
 		region string
 		entity string
@@ -27,6 +28,14 @@ type fakeCardHandlerCache struct {
 		fields []string
 		limit  int
 	}
+}
+
+type fakeCardSearchCall struct {
+	region string
+	entity string
+	query  string
+	fields []string
+	limit  int
 }
 
 type fakeCardHandlerStatusStore struct {
@@ -94,6 +103,13 @@ func (cache *fakeCardHandlerCache) Search(_ context.Context, region, entity, que
 	cache.lastSearch.query = query
 	cache.lastSearch.limit = limit
 	cache.lastSearch.fields = append([]string{}, fields...)
+	cache.searchCalls = append(cache.searchCalls, fakeCardSearchCall{
+		region: region,
+		entity: entity,
+		query:  query,
+		fields: append([]string{}, fields...),
+		limit:  limit,
+	})
 	if entity == "cardrarities" {
 		return cache.rarityMatches, nil
 	}
@@ -518,6 +534,44 @@ func TestCardListEndpointSupportsSorting(t *testing.T) {
 	}
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestCardListSortingBuildsOnlyCurrentPage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 2, "prefix": "bravo", "cardRarityType": "rarity_4"},
+			{"id": 1, "prefix": "alpha", "cardRarityType": "rarity_4"},
+		},
+		listTotal: 2,
+		rarityMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4"}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=1&sort_by=prefix&sort_order=asc", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	rarityLookups := 0
+	for _, call := range cache.searchCalls {
+		if call.entity == "cardrarities" {
+			rarityLookups++
+		}
+	}
+	if rarityLookups != 1 {
+		t.Fatalf("expected 1 cardrarities lookup for current page, got %d", rarityLookups)
+	}
 }
 
 func TestCardSearchEndpointMapsCardSupply(t *testing.T) {

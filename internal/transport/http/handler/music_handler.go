@@ -181,17 +181,18 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 	}
 
 	if sortOptions.Enabled {
-		items := make([]map[string]any, 0, len(matches))
+		records := make([]map[string]any, 0, len(matches))
 		for _, match := range matches {
-			items = append(items, handler.buildMusic(c.Request.Context(), region, match.Item))
+			records = append(records, match.Item)
 		}
-		if !validateSortField(c, sortOptions.Field, items, defaultSortableMusicFields) {
+		if !validateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
 			return
 		}
-		sortResponseItems(items, sortOptions.Field, sortOptions.Descending)
-		pagedItems, pagination := paginateItems(items, page, limit)
+		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := paginateItems(records, page, limit)
+		items := handler.buildMusicList(c.Request.Context(), region, pagedRecords)
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      pagedItems,
+			"items":      items,
 			"pagination": pagination,
 		})
 		return
@@ -301,15 +302,14 @@ func (handler *MusicHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to list musics")
 			return
 		}
-
-		items := handler.buildMusicList(c.Request.Context(), region, records)
-		if !validateSortField(c, sortOptions.Field, items, defaultSortableMusicFields) {
+		if !validateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
 			return
 		}
-		sortResponseItems(items, sortOptions.Field, sortOptions.Descending)
-		pagedItems, pagination := paginateItems(items, page, pageSize)
+		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := paginateItems(records, page, pageSize)
+		items := handler.buildMusicList(c.Request.Context(), region, pagedRecords)
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      pagedItems,
+			"items":      items,
 			"pagination": pagination,
 		})
 		return
