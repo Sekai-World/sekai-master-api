@@ -300,8 +300,10 @@ If you need a full cleanup including volumes, use:
 - Prometheus URL: `http://localhost:${PROMETHEUS_PORT}` (default `http://localhost:9090`)
 - Tempo API URL: `http://localhost:${TEMPO_PORT}` (default `http://localhost:3200`)
 - `make run` uses `http://host.docker.internal:${OTEL_COLLECTOR_HTTP_PORT}` by default; `make dev` rewrites the app container to use `http://otel-collector:4318`
-- Grafana provisions Loki, Prometheus, Tempo datasources and a `Sekai / Sekai API Observability` dashboard automatically
-- The default dashboard includes HTTP throughput/latency, Go runtime memory and goroutines, Redis memory and key count, plus per-region master-data sync/index metrics such as status, synced file count, indexed record count, and approximate index size
+- Grafana provisions Loki, Prometheus, Tempo datasources and three dashboards automatically: `Sekai / API & Network`, `Sekai / Memory & Runtime`, and `Sekai / Master Data`
+- `Sekai / API & Network` focuses on HTTP throughput, error rate, active requests, and route-level latency
+- `Sekai / Memory & Runtime` focuses on Go heap/runtime memory, stack usage, goroutines, GC pause, and Redis memory
+- `Sekai / Master Data` focuses on region sync state, synced file counts, and search index size/count metrics
 
 End-to-end local smoke check:
 
