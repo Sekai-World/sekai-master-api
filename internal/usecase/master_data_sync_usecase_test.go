@@ -155,6 +155,32 @@ func (cache *fakeCurrentEventCache) GetByID(_ context.Context, _, _, _ string) (
 	return nil, false, nil
 }
 
+func (cache *fakeCurrentEventCache) ListAll(_ context.Context, _, entity string) ([]map[string]any, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	var source []map[string]any
+	switch strings.ToLower(strings.TrimSpace(entity)) {
+	case "events":
+		source = cache.events
+	case "currentevents":
+		source = cache.currentEvents
+	default:
+		return []map[string]any{}, nil
+	}
+
+	items := make([]map[string]any, 0, len(source))
+	for _, record := range source {
+		copied := make(map[string]any, len(record))
+		for key, value := range record {
+			copied[key] = value
+		}
+		items = append(items, copied)
+	}
+
+	return items, nil
+}
+
 func (cache *fakeCurrentEventCache) ListByPage(_ context.Context, _, entity string, page int, pageSize int) ([]map[string]any, int, error) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -223,6 +249,10 @@ func (cache *fakeSyncCache) StoreRegion(_ context.Context, _ string, _ map[strin
 
 func (cache *fakeSyncCache) GetByID(_ context.Context, _, _, _ string) (map[string]any, bool, error) {
 	return nil, false, nil
+}
+
+func (cache *fakeSyncCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
+	return nil, nil
 }
 
 func (cache *fakeSyncCache) ListByPage(_ context.Context, _, _ string, _, _ int) ([]map[string]any, int, error) {

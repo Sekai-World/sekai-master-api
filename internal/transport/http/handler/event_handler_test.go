@@ -113,6 +113,27 @@ func (cache *fakeEventHandlerCache) GetByID(_ context.Context, region string, en
 	return record, true, nil
 }
 
+func (cache *fakeEventHandlerCache) ListAll(_ context.Context, region string, entity string) ([]map[string]any, error) {
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
+	regionData, ok := cache.listByEntity[normalizedRegion]
+	if !ok {
+		return []map[string]any{}, nil
+	}
+
+	records := regionData[normalizedEntity]
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		copied := make(map[string]any, len(record))
+		for key, value := range record {
+			copied[key] = value
+		}
+		items = append(items, copied)
+	}
+
+	return items, nil
+}
+
 func (cache *fakeEventHandlerCache) ListByPage(_ context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
 	if page <= 0 {
 		page = 1
