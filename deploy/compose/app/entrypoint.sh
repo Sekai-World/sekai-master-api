@@ -5,23 +5,42 @@ APP_DIR="/app"
 OVERRIDE_FILE="${APP_DIR}/.env.development.local"
 BAKED_FILE="${APP_DIR}/.env.development.local.baked"
 HOST_APP_PORT="${DEV_HOST_APP_PORT:-8080}"
+MASTER_DATA_AUTO_SYNC_OVERRIDE="${DEV_MASTER_DATA_AUTO_SYNC:-false}"
+MASTER_DATA_RECOVER_INTERRUPTED_SYNC_OVERRIDE="${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC:-false}"
 
-load_env_file() {
+read_dotenv_value() {
   file_path="$1"
-  if [ -f "${file_path}" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "${file_path}"
-    set +a
+  key="$2"
+
+  if [ ! -f "${file_path}" ]; then
+    return 1
   fi
+
+  awk -F= -v key="${key}" '
+    $0 ~ "^[[:space:]]*" key "=" {
+      sub(/^[[:space:]]*[^=]+=/, "", $0)
+      gsub(/\r$/, "", $0)
+      print $0
+      exit
+    }
+  ' "${file_path}"
 }
 
-load_env_file "${APP_DIR}/.env"
-load_env_file "${APP_DIR}/.env.development"
-load_env_file "${APP_DIR}/.env.local"
-load_env_file "${BAKED_FILE}"
+lookup_baked_value() {
+  key="$1"
 
-issuer_base="${OIDC_ISSUER_URL:-${OIDC_INTERNAL_URL:-}}"
+  for file_path in "${BAKED_FILE}" "${APP_DIR}/.env.local" "${APP_DIR}/.env.development" "${APP_DIR}/.env"; do
+    value="$(read_dotenv_value "${file_path}" "${key}" || true)"
+    if [ -n "${value}" ]; then
+      printf '%s\n' "${value}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+issuer_base="$(lookup_baked_value OIDC_ISSUER_URL || lookup_baked_value OIDC_INTERNAL_URL || true)"
 issuer_path=""
 if [ -n "${issuer_base}" ]; then
   issuer_without_scheme="${issuer_base#*://}"
@@ -31,7 +50,10 @@ if [ -n "${issuer_base}" ]; then
 fi
 
 if [ -z "${issuer_path}" ]; then
-  keycloak_realm="${KEYCLOAK_REALM:-sekai}"
+  keycloak_realm="$(lookup_baked_value KEYCLOAK_REALM || true)"
+  if [ -z "${keycloak_realm}" ]; then
+    keycloak_realm="sekai"
+  fi
   issuer_path="/realms/${keycloak_realm}"
 fi
 
@@ -47,6 +69,8 @@ mkdir -p /app/tmp
   printf 'DATABASE_DRIVER=pgx\n'
   printf 'DATABASE_URL=postgres://postgres:postgres@postgres:5432/sekai?sslmode=disable\n'
   printf 'SQLITE_PATH=/app/tmp/dev.db\n'
+  printf 'MASTER_DATA_AUTO_SYNC=%s\n' "${MASTER_DATA_AUTO_SYNC_OVERRIDE}"
+  printf 'MASTER_DATA_RECOVER_INTERRUPTED_SYNC=%s\n' "${MASTER_DATA_RECOVER_INTERRUPTED_SYNC_OVERRIDE}"
   printf 'REDIS_ADDR=redis:6379\n'
   printf 'LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push\n'
   printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318\n'

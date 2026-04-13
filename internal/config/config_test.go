@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
-	restoreEnv(t, "APP_ENV", "APP_PORT", "MASTER_DATA_RECOVER_INTERRUPTED_SYNC", "OTEL_ENABLED")
+	restoreEnv(t, "APP_ENV", "APP_PORT", "MASTER_DATA_RECOVER_INTERRUPTED_SYNC", "MASTER_DATA_SYNC_CONCURRENCY", "OTEL_ENABLED")
 
 	tmpDir := t.TempDir()
 	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nAPP_PORT=1000\n")
@@ -26,6 +26,9 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	}
 	if !cfg.MasterDataRecoverInterrupted {
 		t.Fatalf("expected interrupted sync recovery to default true")
+	}
+	if cfg.MasterDataSyncConcurrency != 3 {
+		t.Fatalf("expected master data sync concurrency to default to 3, got %d", cfg.MasterDataSyncConcurrency)
 	}
 	if !cfg.OTELEnabled {
 		t.Fatalf("expected OTel to default enabled in development")

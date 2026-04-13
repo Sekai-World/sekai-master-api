@@ -44,6 +44,7 @@ For local development with PostgreSQL and the bundled support services, use `.en
 `make dev` now builds a dedicated app image with `docker buildx build --load`, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
 The image bakes in repository `.env*` files, and the container entrypoint writes a `.env.development.local` override so the app talks to `postgres`, `redis`, `otel-collector`, `loki`, and `keycloak` over the internal Docker network instead of `host.docker.internal`.
 The app container publishes `http://localhost:8080` by default and mounts a dedicated named volume at `/app/tmp` so SQLite files, master-data backups, and rebuilt caches can persist across restarts.
+To match the old `dev-watch` workflow, `make dev` defaults to `MASTER_DATA_AUTO_SYNC=false` and `MASTER_DATA_RECOVER_INTERRUPTED_SYNC=false`; if you do want startup sync/recovery, run `make dev DEV_MASTER_DATA_AUTO_SYNC=true DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC=true`.
 
 Useful local commands:
 
@@ -101,7 +102,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 
 - Region source repos are configured by env vars.
 - `MASTER_DATA_RECOVER_INTERRUPTED_SYNC` controls whether startup should detect stale `running` / `pending` latest statuses and retry only those interrupted regions.
-- Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `4`).
+- Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `3`).
 - `MASTER_DATA_REGION_FILE_CONCURRENCY` is retained for backward-compatible configuration, but archive-based sync no longer performs per-file GitHub fetches.
 - GitHub HTTP requests support retry via `MASTER_DATA_HTTP_RETRY_COUNT` (default `3`) and `MASTER_DATA_HTTP_RETRY_BACKOFF_MS` (default `300`).
 - Each region can point to a different repository/ref/path.

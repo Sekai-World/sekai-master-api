@@ -24,6 +24,8 @@ DEV_APP_CONTAINER ?= $(APP_NAME)-dev
 DEV_APP_VOLUME ?= $(APP_NAME)-dev-data
 DEV_APP_NETWORK ?= sekai-dev
 DEV_APP_INTERNAL_PORT ?= 8080
+DEV_MASTER_DATA_AUTO_SYNC ?= false
+DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC ?= false
 DOCKER ?= docker
 COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "$(DOCKER) compose"; elif command -v docker-compose >/dev/null 2>&1; then echo docker-compose; else echo "$(DOCKER) compose"; fi)
 APP_ENV ?= development
@@ -47,10 +49,14 @@ dev:
 		--restart unless-stopped \
 		--network "$(DEV_APP_NETWORK)" \
 		-e DEV_HOST_APP_PORT="$(APP_PORT)" \
+		-e DEV_MASTER_DATA_AUTO_SYNC="$(DEV_MASTER_DATA_AUTO_SYNC)" \
+		-e DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC="$(DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC)" \
 		-p "$(APP_PORT):$(DEV_APP_INTERNAL_PORT)" \
 		-v "$(DEV_APP_VOLUME):/app/tmp" \
 		"$(DEV_APP_IMAGE)" >/dev/null; \
 	echo "[dev] app listening on http://localhost:$(APP_PORT)"; \
+	echo "[dev] MASTER_DATA_AUTO_SYNC=$(DEV_MASTER_DATA_AUTO_SYNC)"; \
+	echo "[dev] MASTER_DATA_RECOVER_INTERRUPTED_SYNC=$(DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC)"; \
 	echo "[dev] logs: make dev-logs"
 
 dev-down:

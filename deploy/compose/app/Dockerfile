@@ -7,13 +7,17 @@ RUN apk add --no-cache ca-certificates git
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
+COPY cmd/ cmd/
+COPY docs/ docs/
+COPY internal/ internal/
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) \
 	go build -buildvcs=false -o /out/sekai-master-api ./cmd/api
 
+COPY .env* /tmp/env/
+
 RUN mkdir -p /out/env && \
-	find /src -maxdepth 1 -type f -name '.env*' -exec cp {} /out/env/ \;
+	find /tmp/env -maxdepth 1 -type f -name '.env*' -exec cp {} /out/env/ \;
 
 FROM alpine:3.22
 
