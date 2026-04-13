@@ -76,6 +76,8 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		v1.GET("/musics/:region/:id", musicHandler.ByID)
 		v1.GET("/events/regions/:id/availability", eventHandler.AvailableRegionsByID)
 		v1.GET("/events/:region/current", eventHandler.Current)
+		v1.GET("/events/:region/list", eventHandler.List)
+		v1.GET("/events/:region/search", eventHandler.Search)
 		v1.GET("/events/:region/:id", eventHandler.ByID)
 		v1.GET("/events/:region/:id/rewards", eventHandler.RewardsByID)
 		v1.GET("/admin/login", adminLoginHandler.Start)

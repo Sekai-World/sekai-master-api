@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,18 @@ import (
 
 type EventHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
+}
+
+var sortableEventFields = []string{
+	"id",
+	"eventType",
+	"name",
+	"assetbundleName",
+	"bgmAssetbundleName",
+	"unit",
+	"startAt",
+	"aggregateAt",
+	"closedAt",
 }
 
 func NewEventHandler(masterDataSync *usecase.MasterDataSyncUsecase) *EventHandler {
@@ -131,6 +144,239 @@ func (handler *EventHandler) Current(c *gin.Context) {
 	response.JSON(c, http.StatusOK, buildEventBase(record))
 }
 
+// List godoc
+// @Summary List events by page
+// @Tags events
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /events/{region}/list [get]
+func (handler *EventHandler) List(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	if region == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	page := 1
+	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
+		parsedPage, err := strconv.Atoi(rawPage)
+		if err != nil || parsedPage <= 0 {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page must be a positive integer")
+			return
+		}
+		page = parsedPage
+	}
+
+	pageSize := 20
+	if rawPageSize := strings.TrimSpace(c.Query("page_size")); rawPageSize != "" {
+		parsedPageSize, err := strconv.Atoi(rawPageSize)
+		if err != nil || parsedPageSize <= 0 {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page_size must be a positive integer")
+			return
+		}
+		pageSize = parsedPageSize
+	}
+
+	sortOptions, ok := parseListSortOptions(c)
+	if !ok {
+		return
+	}
+
+	if sortOptions.Enabled {
+		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "events")
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
+			return
+		}
+		if !validateSortField(c, sortOptions.Field, records, sortableEventFields) {
+			return
+		}
+		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := paginateItems(records, page, pageSize)
+		response.JSON(c, http.StatusOK, gin.H{
+			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
+			"pagination": pagination,
+		})
+		return
+	}
+
+	records, total, err := handler.masterDataSync.ListByPage(c.Request.Context(), region, "events", page, pageSize)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
+		return
+	}
+
+	totalPages := 0
+	if pageSize > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"items": handler.buildEventList(c.Request.Context(), region, records),
+		"pagination": gin.H{
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+			"has_next":    page < totalPages,
+		},
+	})
+}
+
+// Search godoc
+// @Summary Search events
+// @Tags events
+// @Produce json
+// @Param region path string true "Region"
+// @Param q query string true "Search query"
+// @Param field query string false "Search field (name|unit), default=name"
+// @Param page query int false "Page number"
+// @Param limit query int false "Max results"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /events/{region}/search [get]
+func (handler *EventHandler) Search(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	query := strings.TrimSpace(c.Query("q"))
+	if region == "" || query == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and q are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	field := strings.ToLower(strings.TrimSpace(c.Query("field")))
+	if field == "" {
+		field = "name"
+	}
+
+	searchFields := []string{"name"}
+	switch field {
+	case "name":
+		searchFields = []string{"name"}
+	case "unit":
+		searchFields = []string{"unit"}
+	default:
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "field must be one of: name, unit")
+		return
+	}
+
+	page := 1
+	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
+		parsedPage, err := strconv.Atoi(rawPage)
+		if err != nil || parsedPage <= 0 {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page must be a positive integer")
+			return
+		}
+		page = parsedPage
+	}
+
+	limit := 20
+	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+		parsedLimit, err := strconv.Atoi(rawLimit)
+		if err != nil || parsedLimit <= 0 {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "limit must be a positive integer")
+			return
+		}
+		limit = parsedLimit
+	}
+
+	sortOptions, ok := parseListSortOptions(c)
+	if !ok {
+		return
+	}
+
+	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "events", query, searchFields, 1000000)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to search events")
+		return
+	}
+
+	if sortOptions.Enabled {
+		records := make([]map[string]any, 0, len(matches))
+		for _, match := range matches {
+			records = append(records, match.Item)
+		}
+		if !validateSortField(c, sortOptions.Field, records, sortableEventFields) {
+			return
+		}
+		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := paginateItems(records, page, limit)
+		response.JSON(c, http.StatusOK, gin.H{
+			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
+			"pagination": pagination,
+		})
+		return
+	}
+
+	total := len(matches)
+	start := (page - 1) * limit
+	if start >= total {
+		_, pagination := paginateItems([]map[string]any{}, page, limit)
+		pagination["total"] = total
+		if limit > 0 {
+			pagination["total_pages"] = (total + limit - 1) / limit
+		}
+		response.JSON(c, http.StatusOK, gin.H{
+			"items":      []map[string]any{},
+			"pagination": pagination,
+		})
+		return
+	}
+
+	end := start + limit
+	if end > total {
+		end = total
+	}
+
+	items := make([]map[string]any, 0, end-start)
+	for _, match := range matches[start:end] {
+		items = append(items, handler.buildEventDetail(c.Request.Context(), region, match.Item))
+	}
+
+	totalPages := 0
+	if limit > 0 {
+		totalPages = (total + limit - 1) / limit
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"items": items,
+		"pagination": gin.H{
+			"page":        page,
+			"page_size":   limit,
+			"total":       total,
+			"total_pages": totalPages,
+			"has_next":    page < totalPages,
+		},
+	})
+}
+
 // RewardsByID godoc
 // @Summary Get event rewards by id
 // @Tags events
@@ -218,6 +464,15 @@ func buildEventBase(record map[string]any) map[string]any {
 	}
 
 	return result
+}
+
+func (handler *EventHandler) buildEventList(ctx context.Context, region string, records []map[string]any) []map[string]any {
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, handler.buildEventDetail(ctx, region, record))
+	}
+
+	return items
 }
 
 func (handler *EventHandler) buildEventDetail(ctx context.Context, region string, record map[string]any) map[string]any {

@@ -22,6 +22,15 @@ type fakeEventHandlerCache struct {
 	byID           map[string]map[string]map[string]map[string]any
 	listByEntity   map[string]map[string][]map[string]any
 	storeCallCount int
+	searchCalls    []fakeEventSearchCall
+}
+
+type fakeEventSearchCall struct {
+	region string
+	entity string
+	query  string
+	fields []string
+	limit  int
 }
 
 type fakeEventHandlerStatusStore struct {
@@ -366,6 +375,224 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 	}
 }
 
+func TestEventListEndpointReturnsItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":              501,
+						"name":            "after live",
+						"assetbundleName": "vl_501",
+						"startAt":         1000,
+						"endAt":           2000,
+						"virtualLiveType": "normal",
+					},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{
+						"id":            101,
+						"name":          "test-event",
+						"unit":          "idol",
+						"virtualLiveId": 501,
+					},
+				},
+				"unitprofiles": {
+					{
+						"unit":      "idol",
+						"unitName":  "MORE MORE JUMP！",
+						"colorCode": "#88dd44",
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected 1 item, got %T len=%d", body["items"], len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item object, got %T", items[0])
+	}
+	if _, exists := first["virtualLiveId"]; exists {
+		t.Fatalf("expected virtualLiveId removed from list response")
+	}
+	if _, exists := first["eventRankingRewardRanges"]; exists {
+		t.Fatalf("expected eventRankingRewardRanges removed from list response")
+	}
+	if _, ok := first["unit"].(map[string]any); !ok {
+		t.Fatalf("expected expanded unit object, got %T", first["unit"])
+	}
+}
+
+func TestEventListEndpointSupportsSorting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 2, "name": "bravo"},
+					{"id": 1, "name": "alpha"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?page=1&page_size=20&sort_by=name&sort_order=asc", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestEventSearchByNameParam(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "test-event"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/search", handler.Search)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/search?q=test-event&field=name&page=1&limit=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	if len(cache.searchCalls) == 0 {
+		t.Fatalf("expected event search call")
+	}
+	last := cache.searchCalls[0]
+	if last.entity != "events" || len(last.fields) != 1 || last.fields[0] != "name" || last.query != "test-event" {
+		t.Fatalf("unexpected search call: %+v", last)
+	}
+}
+
+func TestEventSearchFieldUnitMapsToUnit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "unit": "idol"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/search", handler.Search)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/search?q=idol&field=unit&page=1&limit=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	if len(cache.searchCalls) == 0 {
+		t.Fatalf("expected event search call")
+	}
+	last := cache.searchCalls[0]
+	if len(last.fields) != 1 || last.fields[0] != "unit" {
+		t.Fatalf("expected search field unit, got %+v", last)
+	}
+}
+
+func TestEventSearchEndpointSupportsSorting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 2, "name": "bravo", "unit": "idol"},
+					{"id": 1, "name": "alpha", "unit": "idol"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/search", handler.Search)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/search?q=idol&field=unit&page=1&limit=20&sort_by=name&sort_order=asc", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestEventSearchFieldInvalidReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := newReadyEventHandler(&fakeEventHandlerCache{})
+	router := gin.New()
+	router.GET("/api/v1/events/:region/search", handler.Search)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/search?q=test&field=unknown&page=1&limit=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
+	}
+}
+
 func TestEventRewardsByIDEndpointReturnsRankingRewards(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -584,6 +811,14 @@ func (cache *fakeEventHandlerCache) Search(_ context.Context, region string, ent
 	if len(fields) == 0 {
 		fields = []string{"name"}
 	}
+
+	cache.searchCalls = append(cache.searchCalls, fakeEventSearchCall{
+		region: normalizedRegion,
+		entity: normalizedEntity,
+		query:  query,
+		fields: append([]string{}, fields...),
+		limit:  limit,
+	})
 
 	results := make([]masterdata.SearchMatch, 0, len(records))
 	for _, record := range records {

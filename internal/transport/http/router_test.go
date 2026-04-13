@@ -375,6 +375,30 @@ func TestCurrentEventUnavailable(t *testing.T) {
 	}
 }
 
+func TestEventListUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event list when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestEventSearchUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/search?q=test", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event search when service unavailable, got %d", resp.Code)
+	}
+}
+
 func TestEventRewardsUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
