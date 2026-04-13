@@ -670,19 +670,63 @@ func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, e
 		return nil, fmt.Errorf("lrange order ids region %s entity %s: %w", regionName, entityName, err)
 	}
 
+	return cache.getEntityRecordsByIDs(ctx, regionName, entityName, ids)
+}
+
+func (cache *RedisMasterDataCache) getEntityRecordsByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	if len(ids) == 0 {
+		return []map[string]any{}, nil
+	}
+
+	const hmgetBatchSize = 500
+
+	entityKey := cache.redisEntityKey(region, entity)
 	items := make([]map[string]any, 0, len(ids))
-	for _, id := range ids {
-		record, found, err := cache.GetByID(ctx, regionName, entityName, id)
+	for start := 0; start < len(ids); start += hmgetBatchSize {
+		end := start + hmgetBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+
+		batchIDs := ids[start:end]
+		values, err := cache.client.HMGet(ctx, entityKey, batchIDs...).Result()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("hmget region %s entity %s: %w", region, entity, err)
 		}
-		if !found {
-			continue
+
+		for index, raw := range values {
+			if raw == nil {
+				continue
+			}
+
+			record, err := unmarshalRedisEntityRecord(raw, region, entity, batchIDs[index])
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, record)
 		}
-		items = append(items, record)
 	}
 
 	return items, nil
+}
+
+func unmarshalRedisEntityRecord(raw any, region string, entity string, id string) (map[string]any, error) {
+	var body []byte
+	switch typed := raw.(type) {
+	case string:
+		body = []byte(typed)
+	case []byte:
+		body = typed
+	default:
+		return nil, fmt.Errorf("unexpected record type region %s entity %s id %s: %T", region, entity, id, raw)
+	}
+
+	var record map[string]any
+	if err := json.Unmarshal(body, &record); err != nil {
+		return nil, fmt.Errorf("unmarshal record region %s entity %s id %s: %w", region, entity, id, err)
+	}
+
+	return record, nil
 }
 
 func (cache *RedisMasterDataCache) rebuildEntityOrderFromByID(ctx context.Context, region string, entity string) ([]string, error) {

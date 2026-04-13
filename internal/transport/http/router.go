@@ -29,7 +29,6 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	}
 
 	router.Use(middleware.RequestID())
-	router.Use(middleware.StartupGate(startupState))
 	router.Use(otelgin.Middleware(cfg.OTELServiceName, otelgin.WithFilter(func(request *http.Request) bool {
 		if request == nil || request.URL == nil {
 			return false
@@ -38,6 +37,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	})))
 	router.Use(httpMetrics)
 	router.Use(middleware.AccessLog())
+	router.Use(middleware.StartupGate(startupState))
 	router.Use(middleware.RecoveryLog())
 
 	healthHandler := handler.NewHealthHandler(db)

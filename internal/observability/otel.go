@@ -54,7 +54,7 @@ func Setup(ctx context.Context, cfg config.Config) (func(), error) {
 	)
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
+		sdktrace.WithSampler(defaultTraceSampler(cfg.AppEnv)),
 		sdktrace.WithBatcher(traceExporter),
 	)
 
@@ -82,6 +82,15 @@ func Setup(ctx context.Context, cfg config.Config) (func(), error) {
 	return func() {
 		shutdownProviders(meterProvider, tracerProvider)
 	}, nil
+}
+
+func defaultTraceSampler(appEnv string) sdktrace.Sampler {
+	switch strings.ToLower(strings.TrimSpace(appEnv)) {
+	case "development", "dev", "test":
+		return sdktrace.ParentBased(sdktrace.AlwaysSample())
+	default:
+		return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.1))
+	}
 }
 
 func newResource(ctx context.Context, cfg config.Config) (*resource.Resource, error) {

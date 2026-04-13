@@ -100,6 +100,20 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 		t.Fatalf("expected second card id=3, got %v", cards[1]["id"])
 	}
 
+	allCards, err := cache.ListAll(ctx, "jp", "cards")
+	if err != nil {
+		t.Fatalf("list all cards: %v", err)
+	}
+	if len(allCards) != 2 {
+		t.Fatalf("expected list all cards len=2, got %d", len(allCards))
+	}
+	if allCards[0]["id"] != float64(1) {
+		t.Fatalf("expected list all first card id=1, got %v", allCards[0]["id"])
+	}
+	if allCards[1]["id"] != float64(3) {
+		t.Fatalf("expected list all second card id=3, got %v", allCards[1]["id"])
+	}
+
 	skillMatches, err := cache.Search(ctx, "jp", "skills", "focus", []string{"name"}, 10)
 	if err != nil {
 		t.Fatalf("search skills: %v", err)
