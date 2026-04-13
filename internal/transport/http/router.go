@@ -52,6 +52,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	cardHandler := handler.NewCardHandler(masterDataSync)
 	musicHandler := handler.NewMusicHandler(masterDataSync)
 	eventHandler := handler.NewEventHandler(masterDataSync)
+	virtualLiveHandler := handler.NewVirtualLiveHandler(masterDataSync)
 	masterDataAdminHandler := handler.NewMasterDataAdminHandler(masterDataSync, startupState)
 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
@@ -80,6 +81,10 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		v1.GET("/events/:region/search", eventHandler.Search)
 		v1.GET("/events/:region/:id", eventHandler.ByID)
 		v1.GET("/events/:region/:id/rewards", eventHandler.RewardsByID)
+		v1.GET("/virtualLives/regions/:id/availability", virtualLiveHandler.AvailableRegionsByID)
+		v1.GET("/virtualLives/:region/list", virtualLiveHandler.List)
+		v1.GET("/virtualLives/:region/search", virtualLiveHandler.Search)
+		v1.GET("/virtualLives/:region/:id", virtualLiveHandler.ByID)
 		v1.GET("/admin/login", adminLoginHandler.Start)
 		v1.GET("/admin/login/callback", adminLoginHandler.Callback)
 

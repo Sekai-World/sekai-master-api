@@ -1037,6 +1037,180 @@ paths:
       summary: Get available regions for a music id
       tags:
       - musics
+  /virtualLives/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Virtual Live ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get virtual live by id
+      tags:
+      - virtualLives
+  /virtualLives/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List virtual lives by page
+      tags:
+      - virtualLives
+  /virtualLives/{region}/search:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Search field (name|type|assetbundle), default=name
+        in: query
+        name: field
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Search virtual lives
+      tags:
+      - virtualLives
+  /virtualLives/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Virtual Live ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get available regions for a virtual live id
+      tags:
+      - virtualLives
 securityDefinitions:
   BearerAuth:
     in: header

@@ -423,6 +423,54 @@ func TestEventAvailableRegionsUnavailable(t *testing.T) {
 	}
 }
 
+func TestVirtualLiveByIDUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on virtual live by id when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestVirtualLiveSearchUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/search?q=after", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on virtual live search when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestVirtualLiveListUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on virtual live list when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestVirtualLiveAvailableRegionsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/regions/501/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on virtual live available regions when service unavailable, got %d", resp.Code)
+	}
+}
+
 func TestMasterDataEventsUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
