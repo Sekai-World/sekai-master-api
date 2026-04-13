@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -15,12 +14,13 @@ import (
 
 	"sekai-master-api/internal/auth"
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/startup"
 	"sekai-master-api/internal/transport/http/handler"
 	"sekai-master-api/internal/transport/http/middleware"
 	"sekai-master-api/internal/usecase"
 )
 
-func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub) (*gin.Engine, error) {
+func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub, startupState *startup.State) (*gin.Engine, error) {
 	router := gin.New()
 
 	httpMetrics, err := middleware.HTTPMetrics()
@@ -29,6 +29,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	}
 
 	router.Use(middleware.RequestID())
+	router.Use(middleware.StartupGate(startupState))
 	router.Use(otelgin.Middleware(cfg.OTELServiceName, otelgin.WithFilter(func(request *http.Request) bool {
 		if request == nil || request.URL == nil {
 			return false
@@ -51,7 +52,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	cardHandler := handler.NewCardHandler(masterDataSync)
 	musicHandler := handler.NewMusicHandler(masterDataSync)
 	eventHandler := handler.NewEventHandler(masterDataSync)
-	masterDataAdminHandler := handler.NewMasterDataAdminHandler(masterDataSync, time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
+	masterDataAdminHandler := handler.NewMasterDataAdminHandler(masterDataSync, startupState)
 
 	router.GET("/admin/login", adminUIHandler.LoginPage)
 	router.GET("/admin", adminUIHandler.DashboardPage)
