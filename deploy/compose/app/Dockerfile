@@ -14,7 +14,7 @@ COPY internal/ internal/
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) \
 	go build -buildvcs=false -o /out/sekai-master-api ./cmd/api
 
-COPY .env* /tmp/env/
+COPY .env.development .env.example .env.test /tmp/env/
 
 RUN mkdir -p /out/env && \
 	find /tmp/env -maxdepth 1 -type f -name '.env*' -exec cp {} /out/env/ \;

@@ -47,8 +47,8 @@ func parseListSortOptions(c *gin.Context) (listSortOptions, bool) {
 	}
 }
 
-func validateSortField(c *gin.Context, sortBy string, items []map[string]any, baseFields []string) bool {
-	allowed := sortableFieldSet(items, baseFields)
+func validateSortField(c *gin.Context, sortBy string, _ []map[string]any, baseFields []string) bool {
+	allowed := sortableFieldSet(baseFields)
 	if _, ok := allowed[sortBy]; ok {
 		return true
 	}
@@ -67,7 +67,7 @@ func validateSortField(c *gin.Context, sortBy string, items []map[string]any, ba
 	return false
 }
 
-func sortableFieldSet(items []map[string]any, baseFields []string) map[string]struct{} {
+func sortableFieldSet(baseFields []string) map[string]struct{} {
 	fields := make(map[string]struct{}, len(baseFields))
 	for _, field := range baseFields {
 		normalized := strings.TrimSpace(field)
@@ -77,33 +77,7 @@ func sortableFieldSet(items []map[string]any, baseFields []string) map[string]st
 		fields[normalized] = struct{}{}
 	}
 
-	for _, item := range items {
-		for key, value := range item {
-			if !isSortableScalarValue(value) {
-				continue
-			}
-			fields[key] = struct{}{}
-		}
-	}
-
 	return fields
-}
-
-func isSortableScalarValue(value any) bool {
-	if value == nil {
-		return true
-	}
-
-	switch value.(type) {
-	case string, bool,
-		int, int8, int16, int32, int64,
-		uint, uint8, uint16, uint32, uint64,
-		float32, float64,
-		jsonNumber:
-		return true
-	default:
-		return false
-	}
 }
 
 type jsonNumber interface {
