@@ -19,6 +19,21 @@ type CardHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 }
 
+var sortableCardFields = []string{
+	"id",
+	"seq",
+	"attr",
+	"supportUnit",
+	"cardSkillName",
+	"prefix",
+	"assetbundleName",
+	"gachaPhrase",
+	"flavorText",
+	"releaseAt",
+	"archivePublishedAt",
+	"initialSpecialTrainingStatus",
+}
+
 func NewCardHandler(masterDataSync *usecase.MasterDataSyncUsecase) *CardHandler {
 	return &CardHandler{masterDataSync: masterDataSync}
 }
@@ -203,6 +218,8 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 // @Param field query string false "Search field (name|skill), default=name"
 // @Param page query int false "Page number"
 // @Param limit query int false "Max results"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} CardListResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 503 {object} ErrorResponse
@@ -260,6 +277,11 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 		limit = parsedLimit
 	}
 
+	sortOptions, ok := parseListSortOptions(c)
+	if !ok {
+		return
+	}
+
 	fetchLimit := 1000000
 
 	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "cards", query, searchFields, fetchLimit)
@@ -268,22 +290,34 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 		return
 	}
 
+	if sortOptions.Enabled {
+		items := make([]map[string]any, 0, len(matches))
+		for _, match := range matches {
+			items = append(items, handler.buildCardBase(c.Request.Context(), region, match.Item))
+		}
+		if !validateSortField(c, sortOptions.Field, items, sortableCardFields) {
+			return
+		}
+		sortResponseItems(items, sortOptions.Field, sortOptions.Descending)
+		pagedItems, pagination := paginateItems(items, page, limit)
+		response.JSON(c, http.StatusOK, gin.H{
+			"items":      pagedItems,
+			"pagination": pagination,
+		})
+		return
+	}
+
 	total := len(matches)
 	start := (page - 1) * limit
 	if start >= total {
-		totalPages := 0
+		_, pagination := paginateItems([]map[string]any{}, page, limit)
+		pagination["total"] = total
 		if limit > 0 {
-			totalPages = (total + limit - 1) / limit
+			pagination["total_pages"] = (total + limit - 1) / limit
 		}
 		response.JSON(c, http.StatusOK, gin.H{
-			"items": []map[string]any{},
-			"pagination": gin.H{
-				"page":        page,
-				"page_size":   limit,
-				"total":       total,
-				"total_pages": totalPages,
-				"has_next":    false,
-			},
+			"items":      []map[string]any{},
+			"pagination": pagination,
 		})
 		return
 	}
@@ -324,6 +358,8 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} CardListResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 503 {object} ErrorResponse
@@ -362,6 +398,34 @@ func (handler *CardHandler) List(c *gin.Context) {
 			return
 		}
 		pageSize = parsedPageSize
+	}
+
+	sortOptions, ok := parseListSortOptions(c)
+	if !ok {
+		return
+	}
+
+	if sortOptions.Enabled {
+		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "cards")
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to list cards")
+			return
+		}
+
+		items := make([]map[string]any, 0, len(records))
+		for _, record := range records {
+			items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
+		}
+		if !validateSortField(c, sortOptions.Field, items, sortableCardFields) {
+			return
+		}
+		sortResponseItems(items, sortOptions.Field, sortOptions.Descending)
+		pagedItems, pagination := paginateItems(items, page, pageSize)
+		response.JSON(c, http.StatusOK, gin.H{
+			"items":      pagedItems,
+			"pagination": pagination,
+		})
+		return
 	}
 
 	records, total, err := handler.masterDataSync.ListByPage(c.Request.Context(), region, "cards", page, pageSize)

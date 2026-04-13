@@ -628,6 +628,63 @@ func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string
 	return items, int(total), nil
 }
 
+func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return []map[string]any{}, nil
+	}
+
+	orderKey := cache.redisEntityOrderKey(regionName, entityName)
+	total, err := cache.client.LLen(ctx, orderKey).Result()
+	if err != nil {
+		return nil, fmt.Errorf("llen order ids region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	byIDCount, err := cache.client.HLen(ctx, cache.redisEntityKey(regionName, entityName)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("hlen by-id region %s entity %s: %w", regionName, entityName, err)
+	}
+	if byIDCount > total {
+		rebuiltIDs, rebuildErr := cache.rebuildEntityOrderFromByID(ctx, regionName, entityName)
+		if rebuildErr != nil {
+			return nil, rebuildErr
+		}
+		total = int64(len(rebuiltIDs))
+	}
+
+	if total <= 0 {
+		rebuiltIDs, rebuildErr := cache.rebuildEntityOrderFromByID(ctx, regionName, entityName)
+		if rebuildErr != nil {
+			return nil, rebuildErr
+		}
+		if len(rebuiltIDs) == 0 {
+			return []map[string]any{}, nil
+		}
+
+		total = int64(len(rebuiltIDs))
+	}
+
+	ids, err := cache.client.LRange(ctx, orderKey, 0, total-1).Result()
+	if err != nil {
+		return nil, fmt.Errorf("lrange order ids region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	items := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		record, found, err := cache.GetByID(ctx, regionName, entityName, id)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		items = append(items, record)
+	}
+
+	return items, nil
+}
+
 func (cache *RedisMasterDataCache) rebuildEntityOrderFromByID(ctx context.Context, region string, entity string) ([]string, error) {
 	recordMap, err := cache.client.HGetAll(ctx, cache.redisEntityKey(region, entity)).Result()
 	if err != nil {

@@ -28,6 +28,7 @@ type MasterDataSourceVersionResolver interface {
 type MasterDataCache interface {
 	StoreRegion(ctx context.Context, region string, payload map[string]any) error
 	GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error)
+	ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error)
 	ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error)
 	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
@@ -930,6 +931,14 @@ func (usecase *MasterDataSyncUsecase) ListByPage(ctx context.Context, region str
 	}
 
 	return usecase.cache.ListByPage(ctx, region, entity, page, pageSize)
+}
+
+func (usecase *MasterDataSyncUsecase) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
+	if usecase.cache == nil {
+		return []map[string]any{}, nil
+	}
+
+	return usecase.cache.ListAll(ctx, region, entity)
 }
 
 func (usecase *MasterDataSyncUsecase) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
