@@ -435,6 +435,41 @@ func TestVirtualLiveByIDUnavailable(t *testing.T) {
 	}
 }
 
+func TestVirtualLiveItemsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501/items", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on virtual live items when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestVirtualLiveSchedulesUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501/schedules", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on virtual live schedules when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestVirtualLiveSetlistsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501/setlists", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on virtual live setlists when service unavailable, got %d", resp.Code)
+	}
+}
 func TestVirtualLiveSearchUnavailable(t *testing.T) {
 	router := setupRouter(t)
 

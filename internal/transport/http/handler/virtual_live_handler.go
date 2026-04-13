@@ -69,6 +69,54 @@ func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 	response.JSON(c, http.StatusOK, buildVirtualLive(record))
 }
 
+// ItemsByID godoc
+// @Summary Get virtual live items by id
+// @Tags virtualLives
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Virtual Live ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /virtualLives/{region}/{id}/items [get]
+func (handler *VirtualLiveHandler) ItemsByID(c *gin.Context) {
+	handler.respondVirtualLiveArrayField(c, "virtualItems", "virtual live items")
+}
+
+// SchedulesByID godoc
+// @Summary Get virtual live schedules by id
+// @Tags virtualLives
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Virtual Live ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /virtualLives/{region}/{id}/schedules [get]
+func (handler *VirtualLiveHandler) SchedulesByID(c *gin.Context) {
+	handler.respondVirtualLiveArrayField(c, "virtualLiveSchedules", "virtual live schedules")
+}
+
+// SetlistsByID godoc
+// @Summary Get virtual live setlists by id
+// @Tags virtualLives
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Virtual Live ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /virtualLives/{region}/{id}/setlists [get]
+func (handler *VirtualLiveHandler) SetlistsByID(c *gin.Context) {
+	handler.respondVirtualLiveArrayField(c, "virtualLiveSetlists", "virtual live setlists")
+}
+
 // AvailableRegionsByID godoc
 // @Summary Get available regions for a virtual live id
 // @Tags virtualLives
@@ -373,8 +421,50 @@ func buildVirtualLive(record map[string]any) map[string]any {
 
 	result := make(map[string]any, len(record))
 	for key, value := range record {
+		if key == "virtualItems" || key == "virtualLiveSchedules" || key == "virtualLiveSetlists" {
+			continue
+		}
 		result[key] = value
 	}
 
 	return result
+}
+
+func (handler *VirtualLiveHandler) respondVirtualLiveArrayField(c *gin.Context, field string, description string) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "virtuallives", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to query "+description)
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "VIRTUAL_LIVE_NOT_FOUND", "virtual live not found")
+		return
+	}
+
+	items := []any{}
+	if value, ok := record[field]; ok {
+		switch typed := value.(type) {
+		case []any:
+			items = typed
+		default:
+			items = []any{typed}
+		}
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{"items": items})
 }

@@ -113,6 +113,12 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 						"virtualItems": []any{
 							map[string]any{"virtualItemId": 1, "quantity": 2},
 						},
+						"virtualLiveSchedules": []any{
+							map[string]any{"id": 10, "startAt": 1000},
+						},
+						"virtualLiveSetlists": []any{
+							map[string]any{"musicId": 1, "seq": 1},
+						},
 					},
 				},
 			},
@@ -142,6 +148,171 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 	}
 	if body["name"] != "after live" {
 		t.Fatalf("expected name=after live, got %v", body["name"])
+	}
+	if _, exists := body["virtualItems"]; exists {
+		t.Fatalf("expected virtualItems to be omitted from by-id response")
+	}
+	if _, exists := body["virtualLiveSchedules"]; exists {
+		t.Fatalf("expected virtualLiveSchedules to be omitted from by-id response")
+	}
+	if _, exists := body["virtualLiveSetlists"]; exists {
+		t.Fatalf("expected virtualLiveSetlists to be omitted from by-id response")
+	}
+}
+
+func TestVirtualLiveItemsByIDEndpointReturnsItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":   501,
+						"name": "after live",
+						"virtualItems": []any{
+							map[string]any{"virtualItemId": 1, "quantity": 2},
+							map[string]any{"virtualItemId": 2, "quantity": 1},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id/items", handler.ItemsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501/items", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+}
+
+func TestVirtualLiveSchedulesByIDEndpointReturnsItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":   501,
+						"name": "after live",
+						"virtualLiveSchedules": []any{
+							map[string]any{"id": 10, "startAt": 1000},
+							map[string]any{"id": 11, "startAt": 2000},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id/schedules", handler.SchedulesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501/schedules", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+}
+
+func TestVirtualLiveSetlistsByIDEndpointReturnsItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":   501,
+						"name": "after live",
+						"virtualLiveSetlists": []any{
+							map[string]any{"musicId": 1, "seq": 1},
+							map[string]any{"musicId": 2, "seq": 2},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id/setlists", handler.SetlistsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501/setlists", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
 	}
 }
 
@@ -216,6 +387,12 @@ func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 				"virtualItems": []any{
 					map[string]any{"virtualItemId": 1, "quantity": 2},
 				},
+				"virtualLiveSchedules": []any{
+					map[string]any{"id": 10, "startAt": 1000},
+				},
+				"virtualLiveSetlists": []any{
+					map[string]any{"musicId": 1, "seq": 1},
+				},
 			},
 		},
 		listTotal: 1,
@@ -256,6 +433,15 @@ func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 
 	if first["name"] != "after live" {
 		t.Fatalf("expected first.name=after live, got %v", first["name"])
+	}
+	if _, exists := first["virtualItems"]; exists {
+		t.Fatalf("expected virtualItems to be omitted from list response")
+	}
+	if _, exists := first["virtualLiveSchedules"]; exists {
+		t.Fatalf("expected virtualLiveSchedules to be omitted from list response")
+	}
+	if _, exists := first["virtualLiveSetlists"]; exists {
+		t.Fatalf("expected virtualLiveSetlists to be omitted from list response")
 	}
 }
 
