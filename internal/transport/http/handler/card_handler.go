@@ -291,17 +291,21 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 	}
 
 	if sortOptions.Enabled {
-		items := make([]map[string]any, 0, len(matches))
+		records := make([]map[string]any, 0, len(matches))
 		for _, match := range matches {
-			items = append(items, handler.buildCardBase(c.Request.Context(), region, match.Item))
+			records = append(records, match.Item)
 		}
-		if !validateSortField(c, sortOptions.Field, items, sortableCardFields) {
+		if !validateSortField(c, sortOptions.Field, records, sortableCardFields) {
 			return
 		}
-		sortResponseItems(items, sortOptions.Field, sortOptions.Descending)
-		pagedItems, pagination := paginateItems(items, page, limit)
+		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := paginateItems(records, page, limit)
+		items := make([]map[string]any, 0, len(pagedRecords))
+		for _, record := range pagedRecords {
+			items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
+		}
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      pagedItems,
+			"items":      items,
 			"pagination": pagination,
 		})
 		return
@@ -411,18 +415,17 @@ func (handler *CardHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to list cards")
 			return
 		}
-
-		items := make([]map[string]any, 0, len(records))
-		for _, record := range records {
-			items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
-		}
-		if !validateSortField(c, sortOptions.Field, items, sortableCardFields) {
+		if !validateSortField(c, sortOptions.Field, records, sortableCardFields) {
 			return
 		}
-		sortResponseItems(items, sortOptions.Field, sortOptions.Descending)
-		pagedItems, pagination := paginateItems(items, page, pageSize)
+		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := paginateItems(records, page, pageSize)
+		items := make([]map[string]any, 0, len(pagedRecords))
+		for _, record := range pagedRecords {
+			items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
+		}
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      pagedItems,
+			"items":      items,
 			"pagination": pagination,
 		})
 		return

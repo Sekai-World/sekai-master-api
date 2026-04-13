@@ -20,6 +20,7 @@ type fakeMusicHandlerCache struct {
 	listTotal     int
 	searchMatches []masterdata.SearchMatch
 	searchCalls   []fakeMusicSearchCall
+	getByIDCalls  []fakeMusicGetByIDCall
 	lastSearch    struct {
 		region string
 		entity string
@@ -35,6 +36,12 @@ type fakeMusicSearchCall struct {
 	query  string
 	fields []string
 	limit  int
+}
+
+type fakeMusicGetByIDCall struct {
+	region string
+	entity string
+	id     string
 }
 
 type fakeMusicHandlerStatusStore struct {
@@ -65,6 +72,11 @@ func (cache *fakeMusicHandlerCache) StoreRegion(_ context.Context, _ string, _ m
 }
 
 func (cache *fakeMusicHandlerCache) GetByID(_ context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	cache.getByIDCalls = append(cache.getByIDCalls, fakeMusicGetByIDCall{
+		region: region,
+		entity: entity,
+		id:     id,
+	})
 	regionData, ok := cache.byID[region]
 	if !ok {
 		return nil, false, nil
@@ -349,6 +361,45 @@ func TestMusicListEndpointSupportsSorting(t *testing.T) {
 	}
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestMusicListSortingBuildsOnlyCurrentPage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musicartists": {
+					"77": {"id": 77, "name": "Artist A"},
+				},
+			},
+		},
+		listItems: []map[string]any{
+			{"id": 2, "title": "bravo", "creatorArtistId": 88},
+			{"id": 1, "title": "alpha", "creatorArtistId": 77},
+		},
+		listTotal: 2,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?page=1&page_size=1&sort_by=title&sort_order=asc", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	if len(cache.getByIDCalls) != 1 {
+		t.Fatalf("expected 1 related GetByID call for current page, got %d", len(cache.getByIDCalls))
+	}
+	if cache.getByIDCalls[0].entity != "musicartists" || cache.getByIDCalls[0].id != "77" {
+		t.Fatalf("expected creatorArtist lookup for id=77, got %+v", cache.getByIDCalls[0])
+	}
 }
 
 func TestMusicSearchByTitleParam(t *testing.T) {
