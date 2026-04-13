@@ -13,6 +13,7 @@ import (
 	"sekai-master-api/internal/logging"
 	"sekai-master-api/internal/observability"
 	"sekai-master-api/internal/repository"
+	"sekai-master-api/internal/startup"
 	"sekai-master-api/internal/storage"
 	transport "sekai-master-api/internal/transport/http"
 	"sekai-master-api/internal/usecase"
@@ -53,10 +54,6 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
-		logger.Fatalf("failed to run database migrations: %v", err)
-	}
-
 	tokenVerifier, err := auth.NewOIDCVerifier(context.Background(), cfg)
 	if err != nil {
 		logger.Fatalf("failed to initialize oidc verifier: %v", err)
@@ -92,24 +89,15 @@ func main() {
 		masterDataEventHub,
 		cfg.MasterDataSyncConcurrency,
 	)
+	masterDataSyncUsecase.SetRegionTimeout(time.Duration(cfg.MasterDataSyncTimeout) * time.Second)
 	masterDataSyncUsecase.EnableDevelopmentBackupBootstrap(cfg.IsDevelopment())
 	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase, masterDataCache); err != nil {
 		logger.Fatalf("failed to register master data metrics: %v", err)
 	}
-	router, err := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub)
+	startupState := startup.NewState()
+	router, err := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub, startupState)
 	if err != nil {
 		logger.Fatalf("failed to initialize router: %v", err)
-	}
-
-	if len(masterDataSources) > 0 && cfg.IsDevelopment() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
-		warmedRegions, warmErr := masterDataSyncUsecase.WarmConfiguredRegionIndexes(ctx)
-		cancel()
-		if warmErr != nil {
-			logger.Warnw("failed to preload persisted master data search indexes", "error", warmErr)
-		} else if len(warmedRegions) > 0 {
-			logger.Infow("preloaded persisted master data search indexes", "regions", warmedRegions)
-		}
 	}
 
 	listener, err := net.Listen("tcp", ":"+cfg.Port)
@@ -123,73 +111,92 @@ func main() {
 		serverErrCh <- router.RunListener(listener)
 	}()
 
-	if len(masterDataSources) > 0 && cfg.IsDevelopment() {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
-			defer cancel()
+	go func() {
+		if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
+			logger.Fatalf("failed to run database migrations: %v", err)
+		}
 
-			logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))
-			loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(ctx)
-			if warmErr != nil {
-				logger.Warnw("master data search index warmup completed with errors", "error", warmErr)
-				return
-			}
+		startupState.MarkReady()
+		logger.Infow("startup migrations completed; general api routes enabled")
 
-			if len(loadedRegions) == 0 && len(rebuiltRegions) == 0 {
-				logger.Infow("master data search index warmup found no missing regions")
-				return
-			}
+		if len(masterDataSources) > 0 && cfg.IsDevelopment() {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
+				warmedRegions, warmErr := masterDataSyncUsecase.WarmConfiguredRegionIndexes(ctx)
+				cancel()
+				if warmErr != nil {
+					logger.Warnw("failed to preload persisted master data search indexes", "error", warmErr)
+				} else if len(warmedRegions) > 0 {
+					logger.Infow("preloaded persisted master data search indexes", "regions", warmedRegions)
+				}
+			}()
+		}
 
-			logger.Infow(
-				"master data search index warmup completed",
-				"loaded_regions", loadedRegions,
-				"rebuilt_regions", rebuiltRegions,
-			)
-		}()
-	}
+		if len(masterDataSources) > 0 && cfg.IsDevelopment() {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
+				defer cancel()
 
-	if len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted) {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
-			defer cancel()
+				logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))
+				loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(ctx)
+				if warmErr != nil {
+					logger.Warnw("master data search index warmup completed with errors", "error", warmErr)
+					return
+				}
 
-			if cfg.MasterDataRecoverInterrupted {
-				interruptedRegions, err := masterDataSyncUsecase.InterruptedRegions(ctx)
-				if err != nil {
-					logger.Warnw("failed to inspect interrupted master data sync status", "error", err)
-				} else if len(interruptedRegions) > 0 {
-					if cfg.MasterDataAutoSync {
-						logger.Infow(
-							"master data startup sync detected interrupted regions; full startup sync will recover them",
-							"regions", interruptedRegions,
-							"configured_regions", len(masterDataSources),
-						)
-					} else {
-						logger.Infow("master data interrupted sync recovery running in background", "regions", interruptedRegions)
-						if _, recoverErr := masterDataSyncUsecase.RecoverInterruptedSync(ctx); recoverErr != nil {
-							logger.Errorw("master data interrupted sync recovery completed with errors", "error", recoverErr, "regions", interruptedRegions)
+				if len(loadedRegions) == 0 && len(rebuiltRegions) == 0 {
+					logger.Infow("master data search index warmup found no missing regions")
+					return
+				}
+
+				logger.Infow(
+					"master data search index warmup completed",
+					"loaded_regions", loadedRegions,
+					"rebuilt_regions", rebuiltRegions,
+				)
+			}()
+		}
+
+		if len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted) {
+			go func() {
+				if cfg.MasterDataRecoverInterrupted {
+					interruptedRegions, err := masterDataSyncUsecase.InterruptedRegions(context.Background())
+					if err != nil {
+						logger.Warnw("failed to inspect interrupted master data sync status", "error", err)
+					} else if len(interruptedRegions) > 0 {
+						if cfg.MasterDataAutoSync {
+							logger.Infow(
+								"master data startup sync detected interrupted regions; full startup sync will recover them",
+								"regions", interruptedRegions,
+								"configured_regions", len(masterDataSources),
+							)
+						} else {
+							logger.Infow("master data interrupted sync recovery running in background", "regions", interruptedRegions)
+							if _, recoverErr := masterDataSyncUsecase.RecoverInterruptedSync(context.Background()); recoverErr != nil {
+								logger.Errorw("master data interrupted sync recovery completed with errors", "error", recoverErr, "regions", interruptedRegions)
+								return
+							}
+
+							logger.Infow("master data interrupted sync recovery completed successfully", "regions", interruptedRegions)
 							return
 						}
-
-						logger.Infow("master data interrupted sync recovery completed successfully", "regions", interruptedRegions)
-						return
 					}
 				}
-			}
 
-			if !cfg.MasterDataAutoSync {
-				return
-			}
+				if !cfg.MasterDataAutoSync {
+					return
+				}
 
-			logger.Infow("master data startup sync running in background", "regions", len(masterDataSources))
-			if err := masterDataSyncUsecase.SyncAll(ctx); err != nil {
-				logger.Errorw("master data startup sync completed with errors", "error", err)
-				return
-			}
+				logger.Infow("master data startup sync running in background", "regions", len(masterDataSources))
+				if err := masterDataSyncUsecase.SyncAll(context.Background()); err != nil {
+					logger.Errorw("master data startup sync completed with errors", "error", err)
+					return
+				}
 
-			logger.Infow("master data startup sync completed successfully", "regions", len(masterDataSources))
-		}()
-	}
+				logger.Infow("master data startup sync completed successfully", "regions", len(masterDataSources))
+			}()
+		}
+	}()
 
 	if err := <-serverErrCh; err != nil {
 		logger.Fatalf("server exited with error: %v", err)

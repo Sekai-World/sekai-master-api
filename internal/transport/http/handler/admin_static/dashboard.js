@@ -378,6 +378,15 @@ export const initDashboardPage = async () => {
       return;
     }
 
+    const startupReady = statusResult.payload?.startup_ready !== false;
+    if (!startupReady) {
+      syncButton.disabled = true;
+      syncButton.classList.remove("is-loading");
+      masterDataStatusView.innerHTML = '<div class="profile-item"><span class="profile-label">状态</span><span class="profile-value">服务启动中，等待迁移完成</span></div>';
+      return;
+    }
+
+    syncButton.disabled = false;
     setStatusItems(statusResult.payload?.items ?? []);
     refreshSyncRegionOptions(statusResult.payload?.regions ?? []);
     renderStatusFromMap();

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/startup"
 )
 
 type mockVerifier struct{}
@@ -38,6 +39,11 @@ func setupRouter(t *testing.T) http.Handler {
 
 func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 	t.Helper()
+	return setupRouterWithEnvAndStartupReady(t, appEnv, true)
+}
+
+func setupRouterWithEnvAndStartupReady(t *testing.T, appEnv string, ready bool) http.Handler {
+	t.Helper()
 
 	cfg := config.Config{
 		Port:               "8080",
@@ -53,7 +59,12 @@ func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 		OIDCPrivateKeyPath: "/tmp/oidc-test-key.pem",
 	}
 
-	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil)
+	startupState := startup.NewState()
+	if ready {
+		startupState.MarkReady()
+	}
+
+	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil, startupState)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v", err)
 	}
@@ -85,7 +96,10 @@ func setupRouterWithEnvAndAdminClaim(t *testing.T, appEnv string, claim string, 
 		OIDCAdminClaimValues: append([]string(nil), values...),
 	}
 
-	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil)
+	startupState := startup.NewState()
+	startupState.MarkReady()
+
+	router, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil, startupState)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v", err)
 	}
@@ -493,6 +507,76 @@ func TestAdminMasterDataEventsAuthorizedByQueryToken(t *testing.T) {
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 on admin master-data events without hub, got %d", resp.Code)
+	}
+}
+
+func TestStartupGateAllowsAdminLoginBeforeReady(t *testing.T) {
+	router := setupRouterWithEnvAndStartupReady(t, "test", false)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on admin login page during startup, got %d", resp.Code)
+	}
+}
+
+func TestStartupGateAllowsAdminProfileBeforeReady(t *testing.T) {
+	router := setupRouterWithEnvAndStartupReady(t, "test", false)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/profile", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on admin profile during startup, got %d", resp.Code)
+	}
+}
+
+func TestStartupGateBlocksPublicDataEndpointsBeforeReady(t *testing.T) {
+	router := setupRouterWithEnvAndStartupReady(t, "test", false)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on public data endpoint during startup, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	errorPayload, ok := body["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected error payload, got %T", body["error"])
+	}
+	if errorPayload["code"] != "STARTUP_IN_PROGRESS" {
+		t.Fatalf("expected STARTUP_IN_PROGRESS code, got %v", errorPayload["code"])
+	}
+}
+
+func TestStartupStatusReturnsBootstrapPayloadBeforeReady(t *testing.T) {
+	router := setupRouterWithEnvAndStartupReady(t, "test", false)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/master-data/status", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on admin master-data status during startup, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["startup_ready"] != false {
+		t.Fatalf("expected startup_ready=false, got %v", body["startup_ready"])
 	}
 }
 

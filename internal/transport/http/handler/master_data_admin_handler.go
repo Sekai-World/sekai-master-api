@@ -5,31 +5,27 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/startup"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
 
 type MasterDataAdminHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
-	timeout        time.Duration
+	startupState   *startup.State
 }
 
 type masterDataSyncRequest struct {
 	Region string `json:"region"`
 }
 
-func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, timeout time.Duration) *MasterDataAdminHandler {
-	if timeout <= 0 {
-		timeout = 120 * time.Second
-	}
-
+func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, startupState *startup.State) *MasterDataAdminHandler {
 	return &MasterDataAdminHandler{
 		masterDataSync: masterDataSync,
-		timeout:        timeout,
+		startupState:   startupState,
 	}
 }
 
@@ -44,12 +40,29 @@ func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, ti
 // @Failure 500 {object} ErrorResponse
 // @Router /admin/master-data/status [get]
 func (handler *MasterDataAdminHandler) Status(c *gin.Context) {
+	if handler != nil && handler.startupState != nil && !handler.startupState.Ready() {
+		regions := []string{}
+		if handler.masterDataSync != nil {
+			regions = handler.masterDataSync.ConfiguredRegions()
+		}
+
+		response.JSON(c, http.StatusOK, gin.H{
+			"status":        "ok",
+			"items":         []any{},
+			"regions":       regions,
+			"sync_running":  false,
+			"startup_ready": false,
+		})
+		return
+	}
+
 	if handler.masterDataSync == nil {
 		response.JSON(c, http.StatusOK, gin.H{
-			"status":       "ok",
-			"items":        []any{},
-			"regions":      []string{},
-			"sync_running": false,
+			"status":        "ok",
+			"items":         []any{},
+			"regions":       []string{},
+			"sync_running":  false,
+			"startup_ready": true,
 		})
 		return
 	}
@@ -70,6 +83,11 @@ func (handler *MasterDataAdminHandler) Status(c *gin.Context) {
 // @Failure 503 {object} ErrorResponse
 // @Router /admin/master-data/sync [post]
 func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
+	if handler != nil && handler.startupState != nil && !handler.startupState.Ready() {
+		response.Error(c, http.StatusServiceUnavailable, "STARTUP_IN_PROGRESS", "service startup is still in progress")
+		return
+	}
+
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_SYNC_DISABLED", "master data sync is not configured")
 		return
@@ -84,9 +102,7 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 	}
 
 	region := strings.TrimSpace(request.Region)
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), handler.timeout)
-	defer cancel()
+	ctx := c.Request.Context()
 
 	var err error
 	if region == "" {
@@ -123,6 +139,11 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 // @Failure 503 {object} ErrorResponse
 // @Router /admin/master-data/sync/force [post]
 func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
+	if handler != nil && handler.startupState != nil && !handler.startupState.Ready() {
+		response.Error(c, http.StatusServiceUnavailable, "STARTUP_IN_PROGRESS", "service startup is still in progress")
+		return
+	}
+
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_SYNC_DISABLED", "master data sync is not configured")
 		return
@@ -137,9 +158,7 @@ func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 	}
 
 	region := strings.TrimSpace(request.Region)
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), handler.timeout)
-	defer cancel()
+	ctx := c.Request.Context()
 
 	var err error
 	if region == "" {
@@ -171,9 +190,10 @@ func (handler *MasterDataAdminHandler) writeStatusResponse(c *gin.Context, ctx c
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
-		"status":       "ok",
-		"items":        statuses,
-		"regions":      handler.masterDataSync.ConfiguredRegions(),
-		"sync_running": handler.masterDataSync.IsSyncRunning(),
+		"status":        "ok",
+		"items":         statuses,
+		"regions":       handler.masterDataSync.ConfiguredRegions(),
+		"sync_running":  handler.masterDataSync.IsSyncRunning(),
+		"startup_ready": true,
 	})
 }

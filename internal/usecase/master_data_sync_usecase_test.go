@@ -25,6 +25,15 @@ type fakeSyncLoader struct {
 	resolveCalls   int
 }
 
+type timedSyncLoader struct {
+	mu                 sync.Mutex
+	payloadByZone      map[string]map[string]any
+	loadDelayByZone    map[string]time.Duration
+	loadCallsByZone    map[string]int
+	activeLoads        int
+	maxConcurrentLoads int
+}
+
 func (loader *fakeSyncLoader) LoadRegion(_ context.Context, source masterdata.Source) (map[string]any, error) {
 	loader.mu.Lock()
 	defer loader.mu.Unlock()
@@ -46,6 +55,51 @@ func (loader *fakeSyncLoader) ResolveRegionVersion(_ context.Context, source mas
 
 	loader.resolveCalls++
 	return loader.resolvedByZone[source.Region], nil
+}
+
+func (loader *timedSyncLoader) LoadRegion(ctx context.Context, source masterdata.Source) (map[string]any, error) {
+	loader.mu.Lock()
+	if loader.loadCallsByZone == nil {
+		loader.loadCallsByZone = make(map[string]int)
+	}
+	loader.loadCallsByZone[source.Region]++
+	loader.activeLoads++
+	if loader.activeLoads > loader.maxConcurrentLoads {
+		loader.maxConcurrentLoads = loader.activeLoads
+	}
+	delay := loader.loadDelayByZone[source.Region]
+	payload := loader.payloadByZone[source.Region]
+	loader.mu.Unlock()
+
+	defer func() {
+		loader.mu.Lock()
+		loader.activeLoads--
+		loader.mu.Unlock()
+	}()
+
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	if payload == nil {
+		return map[string]any{}, nil
+	}
+
+	return payload, nil
+}
+
+func (loader *timedSyncLoader) MaxConcurrentLoads() int {
+	loader.mu.Lock()
+	defer loader.mu.Unlock()
+
+	return loader.maxConcurrentLoads
 }
 
 type fakeSyncCache struct {
@@ -505,6 +559,46 @@ func TestRecoverInterruptedSyncOnlyRetriesInterruptedRegions(t *testing.T) {
 	}
 }
 
+func TestRecoverInterruptedSyncRespectsConfiguredConcurrency(t *testing.T) {
+	sources := []masterdata.Source{
+		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+		{Region: "en", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+		{Region: "tw", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+	}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: "jp", Status: "running", UpdatedAt: time.Now().UTC()},
+		{Region: "en", Status: "pending", UpdatedAt: time.Now().UTC()},
+		{Region: "tw", Status: "running", UpdatedAt: time.Now().UTC()},
+	})
+	loader := &timedSyncLoader{
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1}}},
+			"en": {"cards.json": []any{map[string]any{"id": 2}}},
+			"tw": {"cards.json": []any{map[string]any{"id": 3}}},
+		},
+		loadDelayByZone: map[string]time.Duration{
+			"jp": 40 * time.Millisecond,
+			"en": 40 * time.Millisecond,
+			"tw": 40 * time.Millisecond,
+		},
+	}
+	cache := &fakeSyncCache{}
+
+	usecase := NewMasterDataSyncUsecase(sources, loader, cache, statusStore, nil, 2)
+
+	regions, err := usecase.RecoverInterruptedSync(context.Background())
+	if err != nil {
+		t.Fatalf("RecoverInterruptedSync() error = %v", err)
+	}
+
+	if len(regions) != 3 {
+		t.Fatalf("RecoverInterruptedSync() regions = %v, want all 3 interrupted regions", regions)
+	}
+	if loader.MaxConcurrentLoads() != 2 {
+		t.Fatalf("expected interrupted recovery to respect concurrency 2, got max concurrent loads %d", loader.MaxConcurrentLoads())
+	}
+}
+
 func TestSyncAllLoadsRegionWhenCommitChanged(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
@@ -550,6 +644,45 @@ func TestSyncAllLoadsRegionWhenCommitChanged(t *testing.T) {
 	}
 	if latest.Status != "success" {
 		t.Fatalf("expected status success, got %s", latest.Status)
+	}
+}
+
+func TestSyncAllAppliesTimeoutPerRegion(t *testing.T) {
+	sources := []masterdata.Source{
+		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+		{Region: "en", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+	}
+	loader := &timedSyncLoader{
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1}}},
+			"en": {"cards.json": []any{map[string]any{"id": 2}}},
+		},
+		loadDelayByZone: map[string]time.Duration{
+			"jp": 80 * time.Millisecond,
+			"en": 10 * time.Millisecond,
+		},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore(nil)
+
+	usecase := NewMasterDataSyncUsecase(sources, loader, cache, statusStore, nil, 1)
+	usecase.SetRegionTimeout(40 * time.Millisecond)
+
+	err := usecase.SyncAll(context.Background())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected sync error to include context deadline exceeded, got %v", err)
+	}
+
+	jpStatus, ok := statusStore.latest("jp")
+	if !ok || !strings.EqualFold(jpStatus.Status, "failed") {
+		t.Fatalf("expected jp timeout to be persisted as failed, got %#v exists=%t", jpStatus, ok)
+	}
+	enStatus, ok := statusStore.latest("en")
+	if !ok || !strings.EqualFold(enStatus.Status, "success") {
+		t.Fatalf("expected en to still complete successfully after jp timeout, got %#v exists=%t", enStatus, ok)
+	}
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected only one successful cache store after per-region timeout handling, got %d", cache.storeCalls)
 	}
 }
 
