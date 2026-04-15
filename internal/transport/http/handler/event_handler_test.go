@@ -220,6 +220,49 @@ func TestEventByIDEndpointOmitsRankingRewardsField(t *testing.T) {
 	}
 }
 
+func TestEventByIDEndpointMapsEventPointAssetbundleNameToIcon(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":                         101,
+						"name":                       "test-event",
+						"eventPointAssetbundleName": "point_101",
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id", handler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if _, exists := body["eventPointAssetbundleName"]; exists {
+		t.Fatalf("expected eventPointAssetbundleName to be omitted from response")
+	}
+
+	if body["eventPointIcon"] != "thumbnail/common_event/point_101/icon_eventpoint" {
+		t.Fatalf("expected mapped eventPointIcon, got %v", body["eventPointIcon"])
+	}
+}
+
 func TestEventAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

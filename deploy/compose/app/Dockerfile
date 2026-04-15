@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS build
+FROM golang:1.26.2-alpine3.23 AS build
 
 WORKDIR /src
 
@@ -19,11 +19,16 @@ COPY .env.development .env.example .env.test /tmp/env/
 RUN mkdir -p /out/env && \
 	find /tmp/env -maxdepth 1 -type f -name '.env*' -exec cp {} /out/env/ \;
 
-FROM alpine:3.22
+FROM alpine:3.23 AS runtime-assets
+
+RUN apk add --no-cache ca-certificates tzdata
+
+FROM busybox:1.37.0-musl
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates tzdata
+COPY --from=runtime-assets /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=runtime-assets /usr/share/zoneinfo /usr/share/zoneinfo
 
 COPY --from=build /out/sekai-master-api /usr/local/bin/sekai-master-api
 COPY --from=build /out/env/ /app/

@@ -457,10 +457,14 @@ func buildEventBase(record map[string]any) map[string]any {
 
 	result := make(map[string]any, len(record))
 	for key, value := range record {
-		if key == "eventRankingRewardRanges" {
+		if key == "eventRankingRewardRanges" || key == "eventPointAssetbundleName" {
 			continue
 		}
 		result[key] = value
+	}
+
+	if eventPointAssetbundleName := normalizeAnyID(record["eventPointAssetbundleName"]); eventPointAssetbundleName != "" {
+		result["eventPointIcon"] = "thumbnail/common_event/" + eventPointAssetbundleName + "/icon_eventpoint"
 	}
 
 	return result
