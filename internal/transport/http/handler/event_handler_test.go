@@ -228,8 +228,8 @@ func TestEventByIDEndpointMapsEventPointAssetbundleNameToIcon(t *testing.T) {
 			"jp": {
 				"events": {
 					"101": {
-						"id":                         101,
-						"name":                       "test-event",
+						"id":                        101,
+						"name":                      "test-event",
 						"eventPointAssetbundleName": "point_101",
 					},
 				},
@@ -415,6 +415,73 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 	}
 	if _, exists := virtualLive["screenMvMusicVocalId"]; exists {
 		t.Fatalf("expected screenMvMusicVocalId to be omitted from expanded virtualLive")
+	}
+}
+
+func TestEventBreakTimesByIDEndpointReturnsBreakTime(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":               101,
+						"eventBreakTimeId": 1,
+					},
+				},
+				"eventbreaktimes": {
+					"1": {
+						"id":                      1,
+						"initialPoint":            0,
+						"maxPoint":                6600000,
+						"notificationBorderPoint": 5940000,
+						"requiredIntervalMinutes": 2,
+					},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"eventbreaktimes": {
+					{
+						"id":                      1,
+						"initialPoint":            0,
+						"maxPoint":                6600000,
+						"notificationBorderPoint": 5940000,
+						"gaugeDisplayBorderPoint": 3300000,
+						"pointsPerMusicSecond":    115,
+						"musicOffsetSeconds":      10,
+						"decreaseMinutes":         30,
+						"decreasePoint":           550000,
+						"requiredIntervalMinutes": 2,
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/break-times", handler.BreakTimesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/break-times", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["id"] != float64(1) {
+		t.Fatalf("expected id=1, got %v", body["id"])
+	}
+	if body["requiredIntervalMinutes"] != float64(2) {
+		t.Fatalf("expected requiredIntervalMinutes=2, got %v", body["requiredIntervalMinutes"])
 	}
 }
 
@@ -680,6 +747,224 @@ func TestEventRewardsByIDEndpointReturnsRankingRewards(t *testing.T) {
 
 	if len(items) != 2 {
 		t.Fatalf("expected 2 rewards, got %d", len(items))
+	}
+}
+
+func TestEventMusicsByIDEndpointReturnsEventMusics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":   101,
+						"name": "test-event",
+					},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"eventmusics": {
+					{"eventId": 101, "musicId": 2001, "musicVocalId": 3001},
+					{"eventId": 102, "musicId": 2002, "musicVocalId": 3002},
+					{"eventId": "101", "musicId": 2003, "musicVocalId": 3003},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/musics", handler.MusicsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/musics", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	items, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", body["items"])
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 event musics, got %d", len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item object, got %T", items[0])
+	}
+	if first["musicId"] != float64(2001) {
+		t.Fatalf("expected first musicId=2001, got %v", first["musicId"])
+	}
+}
+
+func TestEventCardsByIDEndpointReturnsEventCards(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":   101,
+						"name": "test-event",
+					},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"eventcards": {
+					{"eventId": 101, "cardId": 2001, "bonusRate": 50},
+					{"eventId": 102, "cardId": 2002, "bonusRate": 60},
+					{"eventId": "101", "cardId": 2003, "bonusRate": 70},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/cards", handler.CardsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/cards", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	items, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", body["items"])
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 event cards, got %d", len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item object, got %T", items[0])
+	}
+	if first["cardId"] != float64(2001) {
+		t.Fatalf("expected first cardId=2001, got %v", first["cardId"])
+	}
+}
+
+func TestEventBonusesByIDEndpointReturnsBonusDatasets(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":   101,
+						"name": "test-event",
+					},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"eventcardbonuslimits": {
+					{"eventId": 101, "memberCountLimit": 4},
+					{"eventId": 102, "memberCountLimit": 3},
+				},
+				"eventdeckbonuses": {
+					{"eventId": 101, "gameCharacterUnitId": 1, "cardAttr": "cool", "bonusRate": 50},
+					{"eventId": 102, "gameCharacterUnitId": 2, "cardAttr": "cute", "bonusRate": 60},
+				},
+				"eventhonorbonuses": {
+					{"eventId": 101, "honorId": 123, "bonusRate": 25},
+					{"eventId": 102, "honorId": 456, "bonusRate": 35},
+				},
+				"eventmysekaifixturegamecharacterperformancebonuslimits": {
+					{"eventId": 101, "bonusRateLimit": 20},
+					{"eventId": 102, "bonusRateLimit": 10},
+				},
+				"eventraritybonusrates": {
+					{"cardRarityType": "rarity_4", "masterRank": 0, "bonusRate": 20},
+					{"cardRarityType": "rarity_3", "masterRank": 0, "bonusRate": 10},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/bonuses", handler.BonusesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/bonuses", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	cardBonusLimits, ok := body["eventCardBonusLimits"].([]any)
+	if !ok {
+		t.Fatalf("expected eventCardBonusLimits array, got %T", body["eventCardBonusLimits"])
+	}
+	if len(cardBonusLimits) != 1 {
+		t.Fatalf("expected 1 eventCardBonusLimits item, got %d", len(cardBonusLimits))
+	}
+
+	deckBonuses, ok := body["eventDeckBonuses"].([]any)
+	if !ok {
+		t.Fatalf("expected eventDeckBonuses array, got %T", body["eventDeckBonuses"])
+	}
+	if len(deckBonuses) != 1 {
+		t.Fatalf("expected 1 eventDeckBonuses item, got %d", len(deckBonuses))
+	}
+
+	honorBonuses, ok := body["eventHonorBonuses"].([]any)
+	if !ok {
+		t.Fatalf("expected eventHonorBonuses array, got %T", body["eventHonorBonuses"])
+	}
+	if len(honorBonuses) != 1 {
+		t.Fatalf("expected 1 eventHonorBonuses item, got %d", len(honorBonuses))
+	}
+
+	mysekaiLimits, ok := body["eventMysekaiFixtureGameCharacterPerformanceBonusLimits"].([]any)
+	if !ok {
+		t.Fatalf("expected eventMysekaiFixtureGameCharacterPerformanceBonusLimits array, got %T", body["eventMysekaiFixtureGameCharacterPerformanceBonusLimits"])
+	}
+	if len(mysekaiLimits) != 1 {
+		t.Fatalf("expected 1 eventMysekaiFixtureGameCharacterPerformanceBonusLimits item, got %d", len(mysekaiLimits))
+	}
+
+	rarityBonusRates, ok := body["eventRarityBonusRates"].([]any)
+	if !ok {
+		t.Fatalf("expected eventRarityBonusRates array, got %T", body["eventRarityBonusRates"])
+	}
+	if len(rarityBonusRates) != 2 {
+		t.Fatalf("expected 2 eventRarityBonusRates items, got %d", len(rarityBonusRates))
 	}
 }
 
