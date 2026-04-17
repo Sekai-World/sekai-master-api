@@ -144,6 +144,63 @@ func (handler *EventHandler) Current(c *gin.Context) {
 	response.JSON(c, http.StatusOK, buildEventBase(record))
 }
 
+// BreakTimesByID godoc
+// @Summary Get event break times by event id
+// @Tags events
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Event ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /events/{region}/{id}/break-times [get]
+func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "events", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "EVENT_NOT_FOUND", "event not found")
+		return
+	}
+
+	breakTimeID := normalizeAnyID(record["eventBreakTimeId"])
+	if breakTimeID == "" {
+		response.Error(c, http.StatusNotFound, "EVENT_BREAK_TIME_NOT_FOUND", "event break time not found")
+		return
+	}
+
+	breakTime, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "eventbreaktimes", breakTimeID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event break times")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "EVENT_BREAK_TIME_NOT_FOUND", "event break time not found")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, breakTime)
+}
+
 // List godoc
 // @Summary List events by page
 // @Tags events
@@ -426,6 +483,176 @@ func (handler *EventHandler) RewardsByID(c *gin.Context) {
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{"items": rewards})
+}
+
+// MusicsByID godoc
+// @Summary Get event musics by id
+// @Tags events
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Event ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /events/{region}/{id}/musics [get]
+func (handler *EventHandler) MusicsByID(c *gin.Context) {
+	items, ok := handler.loadEventBonusItems(c, "eventmusics", "event musics")
+	if !ok {
+		return
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{"items": items})
+}
+
+// CardsByID godoc
+// @Summary Get event cards by id
+// @Tags events
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Event ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /events/{region}/{id}/cards [get]
+func (handler *EventHandler) CardsByID(c *gin.Context) {
+	items, ok := handler.loadEventBonusItems(c, "eventcards", "event cards")
+	if !ok {
+		return
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{"items": items})
+}
+
+// BonusesByID godoc
+// @Summary Get event bonuses by id
+// @Tags events
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Event ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 503 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /events/{region}/{id}/bonuses [get]
+func (handler *EventHandler) BonusesByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+	if ok := handler.ensureEventExists(c, region, id); !ok {
+		return
+	}
+
+	type bonusDataset struct {
+		ResponseKey string
+		Entity      string
+		Label       string
+		ScopedByID  bool
+	}
+
+	datasets := []bonusDataset{
+		{ResponseKey: "eventCardBonusLimits", Entity: "eventcardbonuslimits", Label: "event card bonus limits", ScopedByID: true},
+		{ResponseKey: "eventDeckBonuses", Entity: "eventdeckbonuses", Label: "event deck bonuses", ScopedByID: true},
+		{ResponseKey: "eventHonorBonuses", Entity: "eventhonorbonuses", Label: "event honor bonuses", ScopedByID: true},
+		{ResponseKey: "eventMysekaiFixtureGameCharacterPerformanceBonusLimits", Entity: "eventmysekaifixturegamecharacterperformancebonuslimits", Label: "event mysekai fixture game character performance bonus limits", ScopedByID: true},
+		{ResponseKey: "eventRarityBonusRates", Entity: "eventraritybonusrates", Label: "event rarity bonus rates", ScopedByID: false},
+	}
+
+	payload := gin.H{}
+	for _, dataset := range datasets {
+		var (
+			items []map[string]any
+			err   error
+		)
+		if dataset.ScopedByID {
+			items, err = handler.findEventBonusItems(c.Request.Context(), region, id, dataset.Entity)
+		} else {
+			items, err = handler.masterDataSync.ListAll(c.Request.Context(), region, dataset.Entity)
+		}
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query "+dataset.Label)
+			return
+		}
+		payload[dataset.ResponseKey] = items
+	}
+
+	response.JSON(c, http.StatusOK, payload)
+}
+
+func (handler *EventHandler) loadEventBonusItems(c *gin.Context, entity string, label string) ([]map[string]any, bool) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return nil, false
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return nil, false
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return nil, false
+	}
+
+	if ok := handler.ensureEventExists(c, region, id); !ok {
+		return nil, false
+	}
+
+	items, err := handler.findEventBonusItems(c.Request.Context(), region, id, entity)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query "+label)
+		return nil, false
+	}
+
+	return items, true
+}
+
+func (handler *EventHandler) ensureEventExists(c *gin.Context, region string, id string) bool {
+	_, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "events", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event")
+		return false
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "EVENT_NOT_FOUND", "event not found")
+		return false
+	}
+
+	return true
+}
+
+func (handler *EventHandler) findEventBonusItems(ctx context.Context, region string, eventID string, entity string) ([]map[string]any, error) {
+	matches, err := handler.masterDataSync.Search(ctx, region, entity, eventID, []string{"eventId"}, 1000000)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, 0, len(matches))
+	targetEventID := normalizeAnyID(eventID)
+	for _, match := range matches {
+		if normalizeAnyID(match.Item["eventId"]) != targetEventID {
+			continue
+		}
+		items = append(items, match.Item)
+	}
+
+	return items, nil
 }
 
 func (handler *EventHandler) ensureRegionReady(c *gin.Context, region string) bool {

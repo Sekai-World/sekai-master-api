@@ -375,6 +375,18 @@ func TestCurrentEventUnavailable(t *testing.T) {
 	}
 }
 
+func TestEventBreakTimesUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/break-times", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event break times when service unavailable, got %d", resp.Code)
+	}
+}
+
 func TestEventListUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
@@ -408,6 +420,42 @@ func TestEventRewardsUnavailable(t *testing.T) {
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 on event rewards when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestEventBonusesUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/bonuses", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event bonuses when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestEventMusicsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/musics", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event musics when service unavailable, got %d", resp.Code)
+	}
+}
+
+func TestEventCardsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/cards", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on event cards when service unavailable, got %d", resp.Code)
 	}
 }
 
