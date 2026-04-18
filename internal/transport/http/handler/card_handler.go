@@ -201,7 +201,7 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 		if normalizeAnyID(match.Item["cardId"]) != targetCardID {
 			continue
 		}
-		items = append(items, match.Item)
+		items = append(items, buildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, match.Item))
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{

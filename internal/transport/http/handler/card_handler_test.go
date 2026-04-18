@@ -786,11 +786,18 @@ func TestCardEpisodesByIDEndpointReturnsItems(t *testing.T) {
 						"id": 1001,
 					},
 				},
+				"releaseconditions": {
+					"7": {
+						"id":                   7,
+						"releaseConditionType": "card_episode",
+						"sentence":             "Unlock Side Story",
+					},
+				},
 			},
 		},
 		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"id": 1, "cardId": 1001, "episodeNo": 1}},
-			{Item: map[string]any{"id": 2, "cardId": 1001, "episodeNo": 2}},
+			{Item: map[string]any{"id": 1, "cardId": 1001, "episodeNo": 1, "releaseConditionId": 7}},
+			{Item: map[string]any{"id": 2, "cardId": 1001, "episodeNo": 2, "releaseConditionId": 7}},
 		},
 	}
 
@@ -832,6 +839,25 @@ func TestCardEpisodesByIDEndpointReturnsItems(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item object, got %T", items[0])
+	}
+	releaseConditionRaw, ok := first["releaseCondition"]
+	if !ok {
+		t.Fatalf("expected releaseCondition in first episode")
+	}
+	releaseCondition, ok := releaseConditionRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected releaseCondition object, got %T", releaseConditionRaw)
+	}
+	if releaseCondition["id"] != float64(7) {
+		t.Fatalf("expected releaseCondition.id=7, got %v", releaseCondition["id"])
+	}
+	if _, exists := first["releaseConditionId"]; exists {
+		t.Fatalf("expected releaseConditionId removed from response")
 	}
 }
 

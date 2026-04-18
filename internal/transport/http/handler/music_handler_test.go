@@ -142,13 +142,21 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 						"name": "Stage 66",
 					},
 				},
+				"releaseconditions": {
+					"88": {
+						"id":                   88,
+						"releaseConditionType": "music",
+						"sentence":             "Unlock Test Song",
+					},
+				},
 				"musics": {
 					"1001": {
-						"id":              1001,
-						"title":           "Test Song",
-						"lyricist":        "Alice",
-						"creatorArtistId": 77,
-						"liveStageId":     66,
+						"id":                 1001,
+						"title":              "Test Song",
+						"lyricist":           "Alice",
+						"creatorArtistId":    77,
+						"liveStageId":        66,
+						"releaseConditionId": 88,
 					},
 				},
 			},
@@ -205,6 +213,21 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 	}
 	if _, exists := body["liveStageId"]; exists {
 		t.Fatalf("expected liveStageId removed from response")
+	}
+
+	releaseConditionRaw, ok := body["releaseCondition"]
+	if !ok {
+		t.Fatalf("expected releaseCondition in response")
+	}
+	releaseCondition, ok := releaseConditionRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected releaseCondition object, got %T", releaseConditionRaw)
+	}
+	if releaseCondition["id"] != float64(88) {
+		t.Fatalf("expected releaseCondition.id=88, got %v", releaseCondition["id"])
+	}
+	if _, exists := body["releaseConditionId"]; exists {
+		t.Fatalf("expected releaseConditionId removed from response")
 	}
 }
 

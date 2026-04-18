@@ -762,14 +762,26 @@ func TestEventMusicsByIDEndpointReturnsEventMusics(t *testing.T) {
 						"name": "test-event",
 					},
 				},
+				"releaseconditions": {
+					"1": {
+						"id":                   1,
+						"releaseConditionType": "event_music",
+						"sentence":             "Default unlock",
+					},
+					"5": {
+						"id":                   5,
+						"releaseConditionType": "event_music",
+						"sentence":             "Second unlock",
+					},
+				},
 			},
 		},
 		listByEntity: map[string]map[string][]map[string]any{
 			"jp": {
 				"eventmusics": {
-					{"eventId": 101, "musicId": 2001, "musicVocalId": 3001},
-					{"eventId": 102, "musicId": 2002, "musicVocalId": 3002},
-					{"eventId": "101", "musicId": 2003, "musicVocalId": 3003},
+					{"eventId": 101, "musicId": 2001, "releaseConditionId": 1, "seq": 1},
+					{"eventId": 102, "musicId": 2002, "releaseConditionId": 1, "seq": 1},
+					{"eventId": "101", "musicId": 2003, "releaseConditionId": 5, "seq": 2},
 				},
 			},
 		},
@@ -807,6 +819,23 @@ func TestEventMusicsByIDEndpointReturnsEventMusics(t *testing.T) {
 	}
 	if first["musicId"] != float64(2001) {
 		t.Fatalf("expected first musicId=2001, got %v", first["musicId"])
+	}
+	releaseConditionRaw, ok := first["releaseCondition"]
+	if !ok {
+		t.Fatalf("expected releaseCondition in first event music")
+	}
+	releaseCondition, ok := releaseConditionRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected releaseCondition object, got %T", releaseConditionRaw)
+	}
+	if releaseCondition["id"] != float64(1) {
+		t.Fatalf("expected first releaseCondition.id=1, got %v", releaseCondition["id"])
+	}
+	if _, exists := first["releaseConditionId"]; exists {
+		t.Fatalf("expected releaseConditionId to be removed from event music")
+	}
+	if _, exists := first["musicVocalId"]; exists {
+		t.Fatalf("expected musicVocalId to be absent from real event musics payload")
 	}
 }
 
