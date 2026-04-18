@@ -116,6 +116,14 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 	cache := &fakeVirtualLiveHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
+				"musicvocals": {
+					"29": {
+						"id":             29,
+						"musicId":        27,
+						"caption":        "VIRTUAL SINGER ver.",
+						"musicVocalType": "original_song",
+					},
+				},
 				"virtuallivegroups": {
 					"77": {
 						"id":   77,
@@ -129,6 +137,7 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 						"assetbundleName":    "vl_501",
 						"startAt":            1000,
 						"endAt":              2000,
+						"screenMvMusicVocalId": 29,
 						"virtualLiveType":    "normal",
 						"virtualLiveGroupId": 77,
 						"virtualItems": []any{
@@ -217,6 +226,20 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 	}
 	if _, exists := body["virtualLiveGroupId"]; exists {
 		t.Fatalf("expected virtualLiveGroupId to be omitted from response")
+	}
+	screenMvMusicVocalRaw, ok := body["screenMvMusicVocal"]
+	if !ok {
+		t.Fatalf("expected screenMvMusicVocal in response")
+	}
+	screenMvMusicVocal, ok := screenMvMusicVocalRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected screenMvMusicVocal object, got %T", screenMvMusicVocalRaw)
+	}
+	if screenMvMusicVocal["id"] != float64(29) {
+		t.Fatalf("expected screenMvMusicVocal.id=29, got %v", screenMvMusicVocal["id"])
+	}
+	if _, exists := body["screenMvMusicVocalId"]; exists {
+		t.Fatalf("expected screenMvMusicVocalId to be omitted from response")
 	}
 	pamphletRaw, ok := body["pamphlet"]
 	if !ok {
@@ -533,6 +556,9 @@ func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 	}
 	if virtualLiveGroup, exists := first["virtualLiveGroup"]; exists && virtualLiveGroup != nil {
 		t.Fatalf("expected virtualLiveGroup to be absent or null when not found, got %v", first["virtualLiveGroup"])
+	}
+	if screenMvMusicVocal, exists := first["screenMvMusicVocal"]; exists && screenMvMusicVocal != nil {
+		t.Fatalf("expected screenMvMusicVocal to be absent or null when not found, got %v", first["screenMvMusicVocal"])
 	}
 	if pamphlet, exists := first["pamphlet"]; !exists || pamphlet != nil {
 		t.Fatalf("expected pamphlet to be null when not found, got %v", first["pamphlet"])
