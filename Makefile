@@ -29,8 +29,13 @@ DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC ?= false
 DOCKER ?= docker
 COMPOSE_CMD ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then echo "$(DOCKER) compose"; elif command -v docker-compose >/dev/null 2>&1; then echo docker-compose; else echo "$(DOCKER) compose"; fi)
 APP_ENV ?= development
+GO_DOCKER_IMAGE ?= golang:1.26.2-alpine3.23
+GO_DOCKER_WORKDIR ?= /src
+GO_DOCKER_MOD_CACHE_VOLUME ?= $(APP_NAME)-go-mod-cache
+GO_DOCKER_BUILD_CACHE_VOLUME ?= $(APP_NAME)-go-build-cache
+GO_DOCKER_GOTOOLCHAIN_CACHE_VOLUME ?= $(APP_NAME)-go-toolchain-cache
 
-.PHONY: run dev dev-down dev-logs test tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
+.PHONY: run dev dev-down dev-logs test test-docker tidy format lint swagger migrate-up migrate-down dev-env-up dev-env-down dev-env-down-purge dev-env-logs keycloak-up keycloak-down keycloak-logs keycloak-token smoke admin-open dev-logs-ui
 
 run:
 	go run -buildvcs=false ./cmd/api
@@ -66,7 +71,22 @@ dev-logs:
 	@$(DOCKER) logs -f "$(DEV_APP_CONTAINER)"
 
 test:
-	go test -buildvcs=false ./...
+	@if command -v go >/dev/null 2>&1; then \
+		go test -buildvcs=false ./...; \
+	else \
+		echo "[test] local go not found, using docker with cached go module/build volumes"; \
+		$(MAKE) test-docker; \
+	fi
+
+test-docker:
+	@WORKSPACE_DIR="$(WORKSPACE_DIR)" \
+	DOCKER_BIN="$(DOCKER)" \
+	GO_DOCKER_IMAGE="$(GO_DOCKER_IMAGE)" \
+	GO_DOCKER_WORKDIR="$(GO_DOCKER_WORKDIR)" \
+	GO_DOCKER_MOD_CACHE_VOLUME="$(GO_DOCKER_MOD_CACHE_VOLUME)" \
+	GO_DOCKER_BUILD_CACHE_VOLUME="$(GO_DOCKER_BUILD_CACHE_VOLUME)" \
+	GO_DOCKER_GOTOOLCHAIN_CACHE_VOLUME="$(GO_DOCKER_GOTOOLCHAIN_CACHE_VOLUME)" \
+	sh ./scripts/docker-go.sh "go test -buildvcs=false ./..."
 
 tidy:
 	go mod tidy
