@@ -649,7 +649,7 @@ func (handler *EventHandler) findEventBonusItems(ctx context.Context, region str
 		if normalizeAnyID(match.Item["eventId"]) != targetEventID {
 			continue
 		}
-		items = append(items, match.Item)
+		items = append(items, buildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
 	}
 
 	return items, nil

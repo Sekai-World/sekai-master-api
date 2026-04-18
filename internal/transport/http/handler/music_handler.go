@@ -371,14 +371,7 @@ func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, 
 }
 
 func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any) map[string]any {
-	if record == nil {
-		return map[string]any{}
-	}
-
-	result := make(map[string]any, len(record)+2)
-	for key, value := range record {
-		result[key] = value
-	}
+	result := buildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record)
 
 	if handler == nil || handler.masterDataSync == nil {
 		return result
