@@ -17,6 +17,14 @@ type VirtualLiveHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 }
 
+type virtualLiveRelatedData struct {
+	preloaded bool
+	groups    map[string]map[string]any
+	vocals    map[string]map[string]any
+	pamphlets map[string]map[string]any
+	tickets   map[string]map[string]any
+}
+
 var sortableVirtualLiveFields = []string{
 	"id",
 	"name",
@@ -320,7 +328,8 @@ func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 		return
 	}
 
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "virtuallives", query, searchFields, 1000000)
+	fetchLimit := virtualLiveSearchFetchLimit(page, limit, sortOptions.Enabled)
+	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "virtuallives", query, searchFields, fetchLimit)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to search virtual lives")
 		return
@@ -363,10 +372,11 @@ func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 		end = total
 	}
 
-	items := make([]map[string]any, 0, end-start)
+	pagedRecords := make([]map[string]any, 0, end-start)
 	for _, match := range matches[start:end] {
-		items = append(items, handler.buildVirtualLive(c.Request.Context(), region, match.Item))
+		pagedRecords = append(pagedRecords, match.Item)
 	}
+	items := handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords)
 
 	totalPages := 0
 	if limit > 0 {
@@ -408,15 +418,25 @@ func (handler *VirtualLiveHandler) ensureRegionReady(c *gin.Context, region stri
 }
 
 func (handler *VirtualLiveHandler) buildVirtualLiveList(ctx context.Context, region string, records []map[string]any) []map[string]any {
+	related := handler.preloadVirtualLiveRelatedData(ctx, region, records)
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, handler.buildVirtualLive(ctx, region, record))
+		items = append(items, handler.buildVirtualLiveWithRelated(ctx, region, record, related))
 	}
 
 	return items
 }
 
 func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region string, record map[string]any) map[string]any {
+	return handler.buildVirtualLiveWithRelated(ctx, region, record, virtualLiveRelatedData{})
+}
+
+func (handler *VirtualLiveHandler) buildVirtualLiveWithRelated(
+	ctx context.Context,
+	region string,
+	record map[string]any,
+	related virtualLiveRelatedData,
+) map[string]any {
 	if record == nil {
 		return map[string]any{}
 	}
@@ -433,36 +453,172 @@ func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region 
 		delete(result, "virtualLiveGroupId")
 
 		virtualLiveGroupLookupID := shared.NormalizeAnyID(rawVirtualLiveGroupID)
-		if handler == nil || handler.masterDataSync == nil || virtualLiveGroupLookupID == "" {
+		if virtualLiveGroupLookupID == "" {
 			result["virtualLiveGroup"] = nil
+		} else if related.preloaded {
+			result["virtualLiveGroup"] = related.groups[virtualLiveGroupLookupID]
 		} else {
-			virtualLiveGroup, found, err := handler.masterDataSync.GetByID(ctx, region, "virtuallivegroups", virtualLiveGroupLookupID)
-			if err != nil || !found {
-				result["virtualLiveGroup"] = nil
-			} else {
-				result["virtualLiveGroup"] = virtualLiveGroup
-			}
+			result["virtualLiveGroup"] = handler.loadVirtualLiveGroup(ctx, region, virtualLiveGroupLookupID)
 		}
 	}
 	if rawScreenMvMusicVocalID, hasScreenMvMusicVocalID := record["screenMvMusicVocalId"]; hasScreenMvMusicVocalID {
 		delete(result, "screenMvMusicVocalId")
 
 		screenMvMusicVocalLookupID := shared.NormalizeAnyID(rawScreenMvMusicVocalID)
-		if handler == nil || handler.masterDataSync == nil || screenMvMusicVocalLookupID == "" {
+		if screenMvMusicVocalLookupID == "" {
 			result["screenMvMusicVocal"] = nil
+		} else if related.preloaded {
+			result["screenMvMusicVocal"] = related.vocals[screenMvMusicVocalLookupID]
 		} else {
-			screenMvMusicVocal, found, err := handler.masterDataSync.GetByID(ctx, region, "musicvocals", screenMvMusicVocalLookupID)
-			if err != nil || !found {
-				result["screenMvMusicVocal"] = nil
-			} else {
-				result["screenMvMusicVocal"] = screenMvMusicVocal
-			}
+			result["screenMvMusicVocal"] = handler.loadScreenMvMusicVocal(ctx, region, screenMvMusicVocalLookupID)
 		}
 	}
-	result["pamphlet"] = findVirtualLivePamphlet(ctx, handler.masterDataSync, region, shared.NormalizeAnyID(record["id"]))
-	result["ticket"] = findVirtualLiveTicket(ctx, handler.masterDataSync, region, shared.NormalizeAnyID(record["id"]))
+	virtualLiveID := shared.NormalizeAnyID(record["id"])
+	if related.preloaded {
+		result["pamphlet"] = related.pamphlets[virtualLiveID]
+		result["ticket"] = related.tickets[virtualLiveID]
+	} else {
+		result["pamphlet"] = findVirtualLivePamphlet(ctx, handler.masterDataSync, region, virtualLiveID)
+		result["ticket"] = findVirtualLiveTicket(ctx, handler.masterDataSync, region, virtualLiveID)
+	}
 
 	return result
+}
+
+func (handler *VirtualLiveHandler) preloadVirtualLiveRelatedData(
+	ctx context.Context,
+	region string,
+	records []map[string]any,
+) virtualLiveRelatedData {
+	related := virtualLiveRelatedData{
+		preloaded: true,
+		groups:    map[string]map[string]any{},
+		vocals:    map[string]map[string]any{},
+		pamphlets: map[string]map[string]any{},
+		tickets:   map[string]map[string]any{},
+	}
+	if handler == nil || handler.masterDataSync == nil || len(records) == 0 {
+		return related
+	}
+
+	virtualLiveIDs := map[string]struct{}{}
+	groupIDs := map[string]struct{}{}
+	vocalIDs := map[string]struct{}{}
+	for _, record := range records {
+		virtualLiveID := shared.NormalizeAnyID(record["id"])
+		if virtualLiveID != "" {
+			virtualLiveIDs[virtualLiveID] = struct{}{}
+		}
+		if groupID := shared.NormalizeAnyID(record["virtualLiveGroupId"]); groupID != "" {
+			groupIDs[groupID] = struct{}{}
+		}
+		if vocalID := shared.NormalizeAnyID(record["screenMvMusicVocalId"]); vocalID != "" {
+			vocalIDs[vocalID] = struct{}{}
+		}
+	}
+
+	for groupID := range groupIDs {
+		if group := handler.loadVirtualLiveGroup(ctx, region, groupID); group != nil {
+			related.groups[groupID] = group
+		}
+	}
+	for vocalID := range vocalIDs {
+		if vocal := handler.loadScreenMvMusicVocal(ctx, region, vocalID); vocal != nil {
+			related.vocals[vocalID] = vocal
+		}
+	}
+	for virtualLiveID, pamphlet := range handler.loadVirtualLiveRelatedEntityMap(ctx, region, "virtuallivepamphlets", virtualLiveIDs) {
+		related.pamphlets[virtualLiveID] = pamphlet
+	}
+	for virtualLiveID, ticket := range handler.loadVirtualLiveRelatedEntityMap(ctx, region, "virtuallivetickets", virtualLiveIDs) {
+		related.tickets[virtualLiveID] = ticket
+	}
+
+	return related
+}
+
+func (handler *VirtualLiveHandler) loadVirtualLiveGroup(ctx context.Context, region string, groupID string) map[string]any {
+	if handler == nil || handler.masterDataSync == nil || groupID == "" {
+		return nil
+	}
+
+	virtualLiveGroup, found, err := handler.masterDataSync.GetByID(ctx, region, "virtuallivegroups", groupID)
+	if err != nil || !found {
+		return nil
+	}
+
+	return virtualLiveGroup
+}
+
+func (handler *VirtualLiveHandler) loadScreenMvMusicVocal(ctx context.Context, region string, vocalID string) map[string]any {
+	if handler == nil || handler.masterDataSync == nil || vocalID == "" {
+		return nil
+	}
+
+	screenMvMusicVocal, found, err := handler.masterDataSync.GetByID(ctx, region, "musicvocals", vocalID)
+	if err != nil || !found {
+		return nil
+	}
+
+	return screenMvMusicVocal
+}
+
+func (handler *VirtualLiveHandler) loadVirtualLiveRelatedEntityMap(
+	ctx context.Context,
+	region string,
+	entity string,
+	virtualLiveIDs map[string]struct{},
+) map[string]map[string]any {
+	items := map[string]map[string]any{}
+	if handler == nil || handler.masterDataSync == nil || len(virtualLiveIDs) == 0 {
+		return items
+	}
+
+	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
+	if err != nil {
+		return items
+	}
+
+	for _, record := range records {
+		virtualLiveID := shared.NormalizeAnyID(record["virtualLiveId"])
+		if _, ok := virtualLiveIDs[virtualLiveID]; !ok {
+			continue
+		}
+
+		item := make(map[string]any, len(record))
+		for key, value := range record {
+			if key == "virtualLiveId" {
+				continue
+			}
+			item[key] = value
+		}
+		items[virtualLiveID] = item
+	}
+
+	return items
+}
+
+func virtualLiveSearchFetchLimit(page int, limit int, sortEnabled bool) int {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	fetchLimit := page * limit
+	if !sortEnabled {
+		return fetchLimit
+	}
+
+	if fetchLimit < 1000 {
+		return 1000
+	}
+	if fetchLimit > 5000 {
+		return 5000
+	}
+
+	return fetchLimit
 }
 
 func (handler *VirtualLiveHandler) respondVirtualLiveArrayField(c *gin.Context, field string, description string) {
