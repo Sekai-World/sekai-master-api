@@ -607,6 +607,9 @@ func TestVirtualLiveSearchEndpointDefaultsToNameField(t *testing.T) {
 	if cache.searchCalls[0].query != "after" {
 		t.Fatalf("expected search query after, got %s", cache.searchCalls[0].query)
 	}
+	if cache.searchCalls[0].limit != 20 {
+		t.Fatalf("expected search limit 20, got %d", cache.searchCalls[0].limit)
+	}
 
 	expectedFields := []string{"name"}
 	if !reflect.DeepEqual(cache.searchCalls[0].fields, expectedFields) {
@@ -645,6 +648,9 @@ func TestVirtualLiveSearchEndpointSupportsTypeField(t *testing.T) {
 	expectedFields := []string{"virtualLiveType"}
 	if len(cache.searchCalls) == 0 {
 		t.Fatalf("expected search calls to be recorded")
+	}
+	if cache.searchCalls[0].limit != 20 {
+		t.Fatalf("expected search limit 20, got %d", cache.searchCalls[0].limit)
 	}
 	if !reflect.DeepEqual(cache.searchCalls[0].fields, expectedFields) {
 		t.Fatalf("expected search fields %v, got %v", expectedFields, cache.searchCalls[0].fields)

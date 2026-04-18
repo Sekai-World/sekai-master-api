@@ -86,7 +86,7 @@ test-docker:
 	GO_DOCKER_MOD_CACHE_VOLUME="$(GO_DOCKER_MOD_CACHE_VOLUME)" \
 	GO_DOCKER_BUILD_CACHE_VOLUME="$(GO_DOCKER_BUILD_CACHE_VOLUME)" \
 	GO_DOCKER_GOTOOLCHAIN_CACHE_VOLUME="$(GO_DOCKER_GOTOOLCHAIN_CACHE_VOLUME)" \
-	sh ./scripts/docker-go.sh "go test -buildvcs=false ./..."
+	sh ./scripts/docker-go.sh go test -buildvcs=false ./...
 
 tidy:
 	go mod tidy

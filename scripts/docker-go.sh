@@ -19,8 +19,6 @@ fi
 "${DOCKER_BIN}" volume create "${GO_DOCKER_BUILD_CACHE_VOLUME}" >/dev/null
 "${DOCKER_BIN}" volume create "${GO_DOCKER_GOTOOLCHAIN_CACHE_VOLUME}" >/dev/null
 
-COMMAND="$*"
-
 exec "${DOCKER_BIN}" run --rm \
 	-v "${WORKSPACE_DIR}:${GO_DOCKER_WORKDIR}" \
 	-v "${GO_DOCKER_MOD_CACHE_VOLUME}:/go/pkg/mod" \
@@ -32,4 +30,4 @@ exec "${DOCKER_BIN}" run --rm \
 	-e GOTOOLCHAIN=auto \
 	-e GOTOOLCHAINCACHE=/root/.cache/go-toolchains \
 	"${GO_DOCKER_IMAGE}" \
-	sh -lc "export PATH=/usr/local/go/bin:\$PATH && apk add --no-cache git >/dev/null && ${COMMAND}"
+	sh -lc 'export PATH=/usr/local/go/bin:$PATH && apk add --no-cache git >/dev/null && exec "$@"' sh "$@"
