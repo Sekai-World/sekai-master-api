@@ -1,147 +1,6 @@
 basePath: /api/v1
 definitions:
-  handler.CardListResponse:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/handler.CardObjectResponse'
-        type: array
-      pagination:
-        $ref: '#/definitions/handler.CardPagination'
-    type: object
-  handler.CardObjectResponse:
-    properties:
-      archivePublishedAt: {}
-      assetbundleName: {}
-      attr: {}
-      cardParameters: {}
-      cardRarity:
-        $ref: '#/definitions/handler.CardRarityResponse'
-      cardSkillName: {}
-      cardSupply:
-        $ref: '#/definitions/handler.CardSupplyResponse'
-      character:
-        $ref: '#/definitions/handler.CharacterResponse'
-      flavorText: {}
-      gachaPhrase: {}
-      id: {}
-      initialSpecialTrainingStatus: {}
-      prefix: {}
-      releaseAt: {}
-      seq: {}
-      skill:
-        $ref: '#/definitions/handler.SkillResponse'
-      specialTrainingPower1BonusFixed: {}
-      specialTrainingPower2BonusFixed: {}
-      specialTrainingPower3BonusFixed: {}
-      supportUnit: {}
-    type: object
-  handler.CardPagination:
-    properties:
-      has_next:
-        type: boolean
-      page:
-        type: integer
-      page_size:
-        type: integer
-      total:
-        type: integer
-      total_pages:
-        type: integer
-    type: object
-  handler.CardRarityResponse:
-    additionalProperties: {}
-    type: object
-  handler.CardSupplyResponse:
-    additionalProperties: {}
-    type: object
-  handler.CharacterResponse:
-    additionalProperties: {}
-    type: object
-  handler.ErrorBody:
-    properties:
-      code:
-        type: string
-      message:
-        type: string
-    type: object
-  handler.ErrorResponse:
-    properties:
-      error:
-        $ref: '#/definitions/handler.ErrorBody'
-    type: object
-  handler.HealthResponse:
-    properties:
-      database:
-        type: string
-      status:
-        type: string
-    type: object
-  handler.MasterDataAdminStatusResponse:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/masterdata.SyncStatus'
-        type: array
-      regions:
-        items:
-          type: string
-        type: array
-      status:
-        type: string
-      sync_running:
-        type: boolean
-    type: object
-  handler.MasterDataSyncResponse:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/masterdata.SyncStatus'
-        type: array
-      regions:
-        items:
-          type: string
-        type: array
-      status:
-        type: string
-      sync_running:
-        type: boolean
-    type: object
-  handler.ProfileAuthDebug:
-    properties:
-      admin_claim:
-        type: string
-      claim_values:
-        items:
-          type: string
-        type: array
-      matched_values:
-        items:
-          type: string
-        type: array
-    type: object
-  handler.ProfileResponse:
-    properties:
-      auth_debug:
-        $ref: '#/definitions/handler.ProfileAuthDebug'
-      user:
-        $ref: '#/definitions/handler.ProfileUser'
-    type: object
-  handler.ProfileUser:
-    properties:
-      display_name:
-        type: string
-      email:
-        type: string
-      id:
-        type: string
-      username:
-        type: string
-    type: object
-  handler.SkillResponse:
-    additionalProperties: {}
-    type: object
-  handler.masterDataSyncRequest:
+  admin.masterDataSyncRequest:
     properties:
       region:
         type: string
@@ -180,6 +39,147 @@ definitions:
       updated_at:
         type: string
     type: object
+  shared.CardListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.CardObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.CardPagination'
+    type: object
+  shared.CardObjectResponse:
+    properties:
+      archivePublishedAt: {}
+      assetbundleName: {}
+      attr: {}
+      cardParameters: {}
+      cardRarity:
+        $ref: '#/definitions/shared.CardRarityResponse'
+      cardSkillName: {}
+      cardSupply:
+        $ref: '#/definitions/shared.CardSupplyResponse'
+      character:
+        $ref: '#/definitions/shared.CharacterResponse'
+      flavorText: {}
+      gachaPhrase: {}
+      id: {}
+      initialSpecialTrainingStatus: {}
+      prefix: {}
+      releaseAt: {}
+      seq: {}
+      skill:
+        $ref: '#/definitions/shared.SkillResponse'
+      specialTrainingPower1BonusFixed: {}
+      specialTrainingPower2BonusFixed: {}
+      specialTrainingPower3BonusFixed: {}
+      supportUnit: {}
+    type: object
+  shared.CardPagination:
+    properties:
+      has_next:
+        type: boolean
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  shared.CardRarityResponse:
+    additionalProperties: {}
+    type: object
+  shared.CardSupplyResponse:
+    additionalProperties: {}
+    type: object
+  shared.CharacterResponse:
+    additionalProperties: {}
+    type: object
+  shared.ErrorBody:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  shared.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/shared.ErrorBody'
+    type: object
+  shared.HealthResponse:
+    properties:
+      database:
+        type: string
+      status:
+        type: string
+    type: object
+  shared.MasterDataAdminStatusResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/masterdata.SyncStatus'
+        type: array
+      regions:
+        items:
+          type: string
+        type: array
+      status:
+        type: string
+      sync_running:
+        type: boolean
+    type: object
+  shared.MasterDataSyncResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/masterdata.SyncStatus'
+        type: array
+      regions:
+        items:
+          type: string
+        type: array
+      status:
+        type: string
+      sync_running:
+        type: boolean
+    type: object
+  shared.ProfileAuthDebug:
+    properties:
+      admin_claim:
+        type: string
+      claim_values:
+        items:
+          type: string
+        type: array
+      matched_values:
+        items:
+          type: string
+        type: array
+    type: object
+  shared.ProfileResponse:
+    properties:
+      auth_debug:
+        $ref: '#/definitions/shared.ProfileAuthDebug'
+      user:
+        $ref: '#/definitions/shared.ProfileUser'
+    type: object
+  shared.ProfileUser:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  shared.SkillResponse:
+    additionalProperties: {}
+    type: object
 info:
   contact: {}
   description: API for master data sync and card querying.
@@ -196,7 +196,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Start admin login with OIDC provider
       tags:
       - admin
@@ -212,15 +212,15 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Subscribe master-data sync events
@@ -234,19 +234,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.MasterDataAdminStatusResponse'
+            $ref: '#/definitions/shared.MasterDataAdminStatusResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get admin master-data sync status
@@ -259,30 +259,30 @@ paths:
         in: body
         name: payload
         schema:
-          $ref: '#/definitions/handler.masterDataSyncRequest'
+          $ref: '#/definitions/admin.masterDataSyncRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.MasterDataSyncResponse'
+            $ref: '#/definitions/shared.MasterDataSyncResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Trigger master-data sync
@@ -295,30 +295,30 @@ paths:
         in: body
         name: payload
         schema:
-          $ref: '#/definitions/handler.masterDataSyncRequest'
+          $ref: '#/definitions/admin.masterDataSyncRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.MasterDataSyncResponse'
+            $ref: '#/definitions/shared.MasterDataSyncResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Trigger force master-data sync
@@ -332,15 +332,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.ProfileResponse'
+            $ref: '#/definitions/shared.ProfileResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get admin profile
@@ -365,23 +365,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardObjectResponse'
+            $ref: '#/definitions/shared.CardObjectResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get card basic info by id
       tags:
       - cards
@@ -404,23 +404,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardListResponse'
+            $ref: '#/definitions/shared.CardListResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get card episodes by card id
       tags:
       - cards
@@ -443,23 +443,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardObjectResponse'
+            $ref: '#/definitions/shared.CardObjectResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get card params by id
       tags:
       - cards
@@ -493,19 +493,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardListResponse'
+            $ref: '#/definitions/shared.CardListResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: List cards by page
       tags:
       - cards
@@ -548,19 +548,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.CardListResponse'
+            $ref: '#/definitions/shared.CardListResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Search cards by prefix
       tags:
       - cards
@@ -583,15 +583,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get available regions for a card id
       tags:
       - cards
@@ -619,100 +619,20 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get event basic info by id
-      tags:
-      - events
-  /events/{region}/{id}/musics:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      - description: Event ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      summary: Get event musics by id
-      tags:
-      - events
-  /events/{region}/{id}/cards:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      - description: Event ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      summary: Get event cards by id
       tags:
       - events
   /events/{region}/{id}/bonuses:
@@ -739,95 +659,20 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get event bonuses by id
-      tags:
-      - events
-  /events/{region}/{id}/rewards:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      - description: Event ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      summary: Get event rewards by id
-      tags:
-      - events
-  /events/{region}/current:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      summary: Get current event by region
       tags:
       - events
   /events/{region}/{id}/break-times:
@@ -854,20 +699,175 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get event break times by event id
+      tags:
+      - events
+  /events/{region}/{id}/cards:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get event cards by id
+      tags:
+      - events
+  /events/{region}/{id}/musics:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get event musics by id
+      tags:
+      - events
+  /events/{region}/{id}/rewards:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get event rewards by id
+      tags:
+      - events
+  /events/{region}/current:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get current event by region
       tags:
       - events
   /events/{region}/list:
@@ -905,15 +905,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: List events by page
       tags:
       - events
@@ -961,15 +961,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Search events
       tags:
       - events
@@ -992,15 +992,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get available regions for an event id
       tags:
       - events
@@ -1012,7 +1012,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/handler.HealthResponse'
+            $ref: '#/definitions/shared.HealthResponse'
       summary: Get health status
       tags:
       - system
@@ -1040,19 +1040,19 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get music by id
       tags:
       - musics
@@ -1091,15 +1091,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: List musics by page
       tags:
       - musics
@@ -1154,15 +1154,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Search musics
       tags:
       - musics
@@ -1185,15 +1185,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get available regions for a music id
       tags:
       - musics
@@ -1221,19 +1221,19 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get virtual live by id
       tags:
       - virtualLives
@@ -1261,19 +1261,19 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get virtual live items by id
       tags:
       - virtualLives
@@ -1301,19 +1301,19 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get virtual live schedules by id
       tags:
       - virtualLives
@@ -1341,19 +1341,19 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get virtual live setlists by id
       tags:
       - virtualLives
@@ -1392,15 +1392,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: List virtual lives by page
       tags:
       - virtualLives
@@ -1448,15 +1448,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Search virtual lives
       tags:
       - virtualLives
@@ -1479,15 +1479,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
         "503":
           description: Service Unavailable
           schema:
-            $ref: '#/definitions/handler.ErrorResponse'
+            $ref: '#/definitions/shared.ErrorResponse'
       summary: Get available regions for a virtual live id
       tags:
       - virtualLives

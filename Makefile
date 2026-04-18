@@ -104,7 +104,7 @@ lint:
 	go vet ./...
 
 swagger:
-	go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handler,internal/domain/masterdata -o docs
+	go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handlers/admin,internal/transport/http/handlers/cards,internal/transport/http/handlers/events,internal/transport/http/handlers/musics,internal/transport/http/handlers/shared,internal/transport/http/handlers/system,internal/transport/http/handlers/virtuallives,internal/domain/masterdata -o docs
 
 migrate-up:
 	@set -a; \
