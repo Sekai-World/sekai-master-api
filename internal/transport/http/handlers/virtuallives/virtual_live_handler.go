@@ -421,7 +421,7 @@ func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region 
 		return map[string]any{}
 	}
 
-	result := make(map[string]any, len(record)+3)
+	result := make(map[string]any, len(record)+4)
 	for key, value := range record {
 		if key == "virtualItems" || key == "virtualLiveSchedules" || key == "virtualLiveSetlists" {
 			continue
@@ -441,6 +441,21 @@ func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region 
 				result["virtualLiveGroup"] = nil
 			} else {
 				result["virtualLiveGroup"] = virtualLiveGroup
+			}
+		}
+	}
+	if rawScreenMvMusicVocalID, hasScreenMvMusicVocalID := record["screenMvMusicVocalId"]; hasScreenMvMusicVocalID {
+		delete(result, "screenMvMusicVocalId")
+
+		screenMvMusicVocalLookupID := shared.NormalizeAnyID(rawScreenMvMusicVocalID)
+		if handler == nil || handler.masterDataSync == nil || screenMvMusicVocalLookupID == "" {
+			result["screenMvMusicVocal"] = nil
+		} else {
+			screenMvMusicVocal, found, err := handler.masterDataSync.GetByID(ctx, region, "musicvocals", screenMvMusicVocalLookupID)
+			if err != nil || !found {
+				result["screenMvMusicVocal"] = nil
+			} else {
+				result["screenMvMusicVocal"] = screenMvMusicVocal
 			}
 		}
 	}
