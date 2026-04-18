@@ -13,6 +13,7 @@
   - `cards` by-id：Redis 哈希缓存
   - `cards` name 模糊：内存索引（当前字段为 `prefix`）
   - `cards` 列表分页：按真实数据顺序（数组 index）分页，不依赖 id 连续性
+  - 响应中若存在顶层 `releaseConditionId`，必须查 `releaseConditions` 并展开为 `releaseCondition`，不直接透出 `releaseConditionId`
 - 数据库策略：
   - 默认：development 使用 SQLite，test / production 使用 PostgreSQL
   - 可选覆盖：通过 `DATABASE_DRIVER`（`sqlite` / `pgx`）覆盖默认行为
