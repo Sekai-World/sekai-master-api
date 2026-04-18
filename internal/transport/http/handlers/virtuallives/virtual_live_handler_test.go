@@ -132,14 +132,14 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 				},
 				"virtuallives": {
 					"501": {
-						"id":                 501,
-						"name":               "after live",
-						"assetbundleName":    "vl_501",
-						"startAt":            1000,
-						"endAt":              2000,
+						"id":                   501,
+						"name":                 "after live",
+						"assetbundleName":      "vl_501",
+						"startAt":              1000,
+						"endAt":                2000,
 						"screenMvMusicVocalId": 29,
-						"virtualLiveType":    "normal",
-						"virtualLiveGroupId": 77,
+						"virtualLiveType":      "normal",
+						"virtualLiveGroupId":   77,
 						"virtualItems": []any{
 							map[string]any{"virtualItemId": 1, "quantity": 2},
 						},
