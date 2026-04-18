@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -66,7 +67,7 @@ func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, buildVirtualLive(record))
+	response.JSON(c, http.StatusOK, handler.buildVirtualLive(c.Request.Context(), region, record))
 }
 
 // ItemsByID godoc
@@ -214,7 +215,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		pagedRecords, pagination := paginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      buildVirtualLiveList(pagedRecords),
+			"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),
 			"pagination": pagination,
 		})
 		return
@@ -232,7 +233,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
-		"items": buildVirtualLiveList(records),
+		"items": handler.buildVirtualLiveList(c.Request.Context(), region, records),
 		"pagination": gin.H{
 			"page":        page,
 			"page_size":   pageSize,
@@ -335,7 +336,7 @@ func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		pagedRecords, pagination := paginateItems(records, page, limit)
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      buildVirtualLiveList(pagedRecords),
+			"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),
 			"pagination": pagination,
 		})
 		return
@@ -363,7 +364,7 @@ func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 
 	items := make([]map[string]any, 0, end-start)
 	for _, match := range matches[start:end] {
-		items = append(items, buildVirtualLive(match.Item))
+		items = append(items, handler.buildVirtualLive(c.Request.Context(), region, match.Item))
 	}
 
 	totalPages := 0
@@ -405,27 +406,45 @@ func (handler *VirtualLiveHandler) ensureRegionReady(c *gin.Context, region stri
 	return false
 }
 
-func buildVirtualLiveList(records []map[string]any) []map[string]any {
+func (handler *VirtualLiveHandler) buildVirtualLiveList(ctx context.Context, region string, records []map[string]any) []map[string]any {
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, buildVirtualLive(record))
+		items = append(items, handler.buildVirtualLive(ctx, region, record))
 	}
 
 	return items
 }
 
-func buildVirtualLive(record map[string]any) map[string]any {
+func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region string, record map[string]any) map[string]any {
 	if record == nil {
 		return map[string]any{}
 	}
 
-	result := make(map[string]any, len(record))
+	result := make(map[string]any, len(record)+3)
 	for key, value := range record {
 		if key == "virtualItems" || key == "virtualLiveSchedules" || key == "virtualLiveSetlists" {
 			continue
 		}
 		result[key] = value
 	}
+
+	if rawVirtualLiveGroupID, hasVirtualLiveGroupID := record["virtualLiveGroupId"]; hasVirtualLiveGroupID {
+		delete(result, "virtualLiveGroupId")
+
+		virtualLiveGroupLookupID := normalizeAnyID(rawVirtualLiveGroupID)
+		if handler == nil || handler.masterDataSync == nil || virtualLiveGroupLookupID == "" {
+			result["virtualLiveGroup"] = nil
+		} else {
+			virtualLiveGroup, found, err := handler.masterDataSync.GetByID(ctx, region, "virtuallivegroups", virtualLiveGroupLookupID)
+			if err != nil || !found {
+				result["virtualLiveGroup"] = nil
+			} else {
+				result["virtualLiveGroup"] = virtualLiveGroup
+			}
+		}
+	}
+	result["pamphlet"] = findVirtualLivePamphlet(ctx, handler.masterDataSync, region, normalizeAnyID(record["id"]))
+	result["ticket"] = findVirtualLiveTicket(ctx, handler.masterDataSync, region, normalizeAnyID(record["id"]))
 
 	return result
 }
