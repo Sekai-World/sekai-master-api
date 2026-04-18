@@ -1,8 +1,9 @@
-package handler
+package virtuallives
 
 import (
 	"context"
 
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -40,9 +41,9 @@ func findVirtualLiveRelatedRecord(
 		return nil
 	}
 
-	targetVirtualLiveID := normalizeAnyID(virtualLiveID)
+	targetVirtualLiveID := shared.NormalizeAnyID(virtualLiveID)
 	for _, match := range matches {
-		if normalizeAnyID(match.Item["virtualLiveId"]) != targetVirtualLiveID {
+		if shared.NormalizeAnyID(match.Item["virtualLiveId"]) != targetVirtualLiveID {
 			continue
 		}
 

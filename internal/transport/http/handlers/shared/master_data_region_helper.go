@@ -1,4 +1,4 @@
-package handler
+package shared
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func readyMasterDataRegions(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase) ([]string, error) {
+func ReadyMasterDataRegions(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase) ([]string, error) {
 	if masterDataSync == nil {
 		return nil, nil
 	}
@@ -41,8 +41,8 @@ func readyMasterDataRegions(ctx context.Context, masterDataSync *usecase.MasterD
 	return regions, nil
 }
 
-func availableRegionsByID(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, entity string, id string) ([]string, error) {
-	readyRegions, err := readyMasterDataRegions(ctx, masterDataSync)
+func AvailableRegionsByID(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, entity string, id string) ([]string, error) {
+	readyRegions, err := ReadyMasterDataRegions(ctx, masterDataSync)
 	if err != nil {
 		return nil, err
 	}

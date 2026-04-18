@@ -1,4 +1,4 @@
-package handler
+package musics
 
 import (
 	"context"
@@ -122,6 +122,37 @@ func (cache *fakeMusicHandlerCache) Search(_ context.Context, region, entity, qu
 		limit:  limit,
 	})
 	return cache.searchMatches, nil
+}
+
+func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64) {
+	t.Helper()
+
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(items))
+	}
+
+	for index, want := range expected {
+		item, ok := items[index].(map[string]any)
+		if !ok {
+			t.Fatalf("expected item object, got %T", items[index])
+		}
+		if item["id"] != want {
+			t.Fatalf("expected item %d id=%v, got %v", index, want, item["id"])
+		}
+	}
 }
 
 func TestMusicByIDEndpointReturnsMusic(t *testing.T) {

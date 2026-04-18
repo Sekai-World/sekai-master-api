@@ -1,4 +1,4 @@
-package handler
+package shared
 
 import "sekai-master-api/internal/domain/masterdata"
 

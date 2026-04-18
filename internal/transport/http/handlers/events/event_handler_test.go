@@ -1,4 +1,4 @@
-package handler
+package events
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -1150,7 +1151,7 @@ func (cache *fakeEventHandlerCache) Search(_ context.Context, region string, ent
 
 	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
 	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
-	normalizedQuery := normalizeComparableText(query)
+	normalizedQuery := shared.NormalizeComparableText(query)
 	if normalizedRegion == "" || normalizedEntity == "" || normalizedQuery == "" {
 		return []masterdata.SearchMatch{}, nil
 	}
@@ -1180,7 +1181,7 @@ func (cache *fakeEventHandlerCache) Search(_ context.Context, region string, ent
 	results := make([]masterdata.SearchMatch, 0, len(records))
 	for _, record := range records {
 		for _, field := range fields {
-			if normalizeComparableText(record[field]) != normalizedQuery {
+			if shared.NormalizeComparableText(record[field]) != normalizedQuery {
 				continue
 			}
 
@@ -1199,4 +1200,35 @@ func (cache *fakeEventHandlerCache) Search(_ context.Context, region string, ent
 	}
 
 	return results, nil
+}
+
+func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64) {
+	t.Helper()
+
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(items))
+	}
+
+	for index, want := range expected {
+		item, ok := items[index].(map[string]any)
+		if !ok {
+			t.Fatalf("expected item object, got %T", items[index])
+		}
+		if item["id"] != want {
+			t.Fatalf("expected item %d id=%v, got %v", index, want, item["id"])
+		}
+	}
 }

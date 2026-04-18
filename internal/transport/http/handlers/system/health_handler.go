@@ -1,4 +1,4 @@
-package handler
+package system
 
 import (
 	"database/sql"
@@ -21,7 +21,7 @@ func NewHealthHandler(db *sql.DB) *HealthHandler {
 // @Summary Get health status
 // @Tags system
 // @Produce json
-// @Success 200 {object} HealthResponse
+// @Success 200 {object} shared.HealthResponse
 // @Router /health [get]
 func (handler *HealthHandler) Check(c *gin.Context) {
 	databaseStatus := "up"

@@ -1,4 +1,4 @@
-package handler
+package musics
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
@@ -43,10 +44,10 @@ func NewMusicHandler(masterDataSync *usecase.MasterDataSyncUsecase) *MusicHandle
 // @Param region path string true "Region"
 // @Param id path string true "Music ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /musics/{region}/{id} [get]
 func (handler *MusicHandler) ByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -83,9 +84,9 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 // @Produce json
 // @Param id path string true "Music ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /musics/regions/{id}/availability [get]
 func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -99,7 +100,7 @@ func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 		return
 	}
 
-	regions, err := availableRegionsByID(c.Request.Context(), handler.masterDataSync, "musics", id)
+	regions, err := shared.AvailableRegionsByID(c.Request.Context(), handler.masterDataSync, "musics", id)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music available regions")
 		return
@@ -122,9 +123,9 @@ func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /musics/{region}/search [get]
 func (handler *MusicHandler) Search(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -168,7 +169,7 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 		limit = parsedLimit
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -185,11 +186,11 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 		for _, match := range matches {
 			records = append(records, match.Item)
 		}
-		if !validateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, limit)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, limit)
 		items := handler.buildMusicList(c.Request.Context(), region, pagedRecords)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      items,
@@ -201,7 +202,7 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 	total := len(matches)
 	start := (page - 1) * limit
 	if start >= total {
-		_, pagination := paginateItems([]map[string]any{}, page, limit)
+		_, pagination := shared.PaginateItems([]map[string]any{}, page, limit)
 		pagination["total"] = total
 		if limit > 0 {
 			pagination["total_pages"] = (total + limit - 1) / limit
@@ -252,9 +253,9 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /musics/{region}/list [get]
 func (handler *MusicHandler) List(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -291,7 +292,7 @@ func (handler *MusicHandler) List(c *gin.Context) {
 		pageSize = parsedPageSize
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -302,11 +303,11 @@ func (handler *MusicHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to list musics")
 			return
 		}
-		if !validateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, pageSize)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		items := handler.buildMusicList(c.Request.Context(), region, pagedRecords)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      items,
@@ -344,7 +345,7 @@ func (handler *MusicHandler) ensureRegionReady(c *gin.Context, region string) bo
 		return true
 	}
 
-	readyRegions, err := readyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
+	readyRegions, err := shared.ReadyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
@@ -371,7 +372,7 @@ func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, 
 }
 
 func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any) map[string]any {
-	result := buildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record)
+	result := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record)
 
 	if handler == nil || handler.masterDataSync == nil {
 		return result
@@ -380,7 +381,7 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 	if rawCreatorArtistID, hasCreatorArtistID := record["creatorArtistId"]; hasCreatorArtistID {
 		delete(result, "creatorArtistId")
 
-		creatorArtistLookupID := normalizeAnyID(rawCreatorArtistID)
+		creatorArtistLookupID := shared.NormalizeAnyID(rawCreatorArtistID)
 		if creatorArtistLookupID == "" {
 			result["creatorArtist"] = nil
 		} else {
@@ -396,7 +397,7 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 	if rawLiveStageID, hasLiveStageID := record["liveStageId"]; hasLiveStageID {
 		delete(result, "liveStageId")
 
-		liveStageLookupID := normalizeAnyID(rawLiveStageID)
+		liveStageLookupID := shared.NormalizeAnyID(rawLiveStageID)
 		if liveStageLookupID == "" {
 			result["liveStage"] = nil
 		} else {
@@ -465,7 +466,7 @@ func (handler *MusicHandler) searchMusicsWithFieldKeywords(
 
 		currentFieldResults := make(map[string]aggregate, len(matches))
 		for _, match := range matches {
-			id := normalizeAnyID(match.Item["id"])
+			id := shared.NormalizeAnyID(match.Item["id"])
 			if id == "" {
 				continue
 			}
@@ -503,7 +504,7 @@ func (handler *MusicHandler) searchMusicsWithFieldKeywords(
 
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].Score == results[j].Score {
-			return normalizeAnyID(results[i].Item["id"]) < normalizeAnyID(results[j].Item["id"])
+			return shared.NormalizeAnyID(results[i].Item["id"]) < shared.NormalizeAnyID(results[j].Item["id"])
 		}
 		return results[i].Score > results[j].Score
 	})

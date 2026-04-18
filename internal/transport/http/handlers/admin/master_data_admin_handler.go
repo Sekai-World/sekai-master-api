@@ -1,4 +1,4 @@
-package handler
+package admin
 
 import (
 	"context"
@@ -34,10 +34,10 @@ func NewMasterDataAdminHandler(masterDataSync *usecase.MasterDataSyncUsecase, st
 // @Tags admin
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} MasterDataAdminStatusResponse
-// @Failure 401 {object} ErrorResponse
-// @Failure 403 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Success 200 {object} shared.MasterDataAdminStatusResponse
+// @Failure 401 {object} shared.ErrorResponse
+// @Failure 403 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /admin/master-data/status [get]
 func (handler *MasterDataAdminHandler) Status(c *gin.Context) {
 	if handler != nil && handler.startupState != nil && !handler.startupState.Ready() {
@@ -76,11 +76,11 @@ func (handler *MasterDataAdminHandler) Status(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param payload body masterDataSyncRequest false "Optional region-scoped sync payload"
-// @Success 200 {object} MasterDataSyncResponse
-// @Failure 401 {object} ErrorResponse
-// @Failure 403 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
+// @Success 200 {object} shared.MasterDataSyncResponse
+// @Failure 401 {object} shared.ErrorResponse
+// @Failure 403 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
 // @Router /admin/master-data/sync [post]
 func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 	if handler != nil && handler.startupState != nil && !handler.startupState.Ready() {
@@ -132,11 +132,11 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param payload body masterDataSyncRequest false "Optional region-scoped force sync payload"
-// @Success 200 {object} MasterDataSyncResponse
-// @Failure 401 {object} ErrorResponse
-// @Failure 403 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
+// @Success 200 {object} shared.MasterDataSyncResponse
+// @Failure 401 {object} shared.ErrorResponse
+// @Failure 403 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
 // @Router /admin/master-data/sync/force [post]
 func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 	if handler != nil && handler.startupState != nil && !handler.startupState.Ready() {
