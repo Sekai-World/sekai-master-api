@@ -15,11 +15,12 @@ import (
 )
 
 type fakeVirtualLiveHandlerCache struct {
-	byID          map[string]map[string]map[string]map[string]any
-	listItems     []map[string]any
-	listTotal     int
-	searchMatches []masterdata.SearchMatch
-	lastSearch    struct {
+	byID                 map[string]map[string]map[string]map[string]any
+	listItems            []map[string]any
+	listTotal            int
+	searchMatches        []masterdata.SearchMatch
+	searchMatchesByEntity map[string][]masterdata.SearchMatch
+	searchCalls          []struct {
 		region string
 		entity string
 		query  string
@@ -88,11 +89,24 @@ func (cache *fakeVirtualLiveHandlerCache) ListByPage(_ context.Context, _, _ str
 }
 
 func (cache *fakeVirtualLiveHandlerCache) Search(_ context.Context, region, entity, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	cache.lastSearch.region = region
-	cache.lastSearch.entity = entity
-	cache.lastSearch.query = query
-	cache.lastSearch.fields = append([]string{}, fields...)
-	cache.lastSearch.limit = limit
+	cache.searchCalls = append(cache.searchCalls, struct {
+		region string
+		entity string
+		query  string
+		fields []string
+		limit  int
+	}{
+		region: region,
+		entity: entity,
+		query:  query,
+		fields: append([]string{}, fields...),
+		limit:  limit,
+	})
+	if cache.searchMatchesByEntity != nil {
+		if matches, ok := cache.searchMatchesByEntity[entity]; ok {
+			return matches, nil
+		}
+	}
 	return cache.searchMatches, nil
 }
 
@@ -102,14 +116,21 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 	cache := &fakeVirtualLiveHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
+				"virtuallivegroups": {
+					"77": {
+						"id":   77,
+						"name": "Group A",
+					},
+				},
 				"virtuallives": {
 					"501": {
-						"id":              501,
-						"name":            "after live",
-						"assetbundleName": "vl_501",
-						"startAt":         1000,
-						"endAt":           2000,
-						"virtualLiveType": "normal",
+						"id":                 501,
+						"name":               "after live",
+						"assetbundleName":    "vl_501",
+						"startAt":            1000,
+						"endAt":              2000,
+						"virtualLiveType":    "normal",
+						"virtualLiveGroupId": 77,
 						"virtualItems": []any{
 							map[string]any{"virtualItemId": 1, "quantity": 2},
 						},
@@ -119,6 +140,31 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 						"virtualLiveSetlists": []any{
 							map[string]any{"musicId": 1, "seq": 1},
 						},
+					},
+				},
+			},
+		},
+		searchMatchesByEntity: map[string][]masterdata.SearchMatch{
+			"virtuallivepamphlets": {
+				{
+					Item: map[string]any{
+						"id":              9001,
+						"name":            "Pamphlet A",
+						"assetbundleName": "pamphlet_501",
+						"flavorText":      "hello",
+						"virtualLiveId":   501,
+					},
+				},
+			},
+			"virtuallivetickets": {
+				{
+					Item: map[string]any{
+						"id":                    9101,
+						"name":                  "Ticket A",
+						"assetbundleName":       "ticket_501",
+						"flavorText":            "admit one",
+						"virtualLiveTicketType": "normal",
+						"virtualLiveId":         501,
 					},
 				},
 			},
@@ -157,6 +203,48 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 	}
 	if _, exists := body["virtualLiveSetlists"]; exists {
 		t.Fatalf("expected virtualLiveSetlists to be omitted from by-id response")
+	}
+	virtualLiveGroupRaw, ok := body["virtualLiveGroup"]
+	if !ok {
+		t.Fatalf("expected virtualLiveGroup in response")
+	}
+	virtualLiveGroup, ok := virtualLiveGroupRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected virtualLiveGroup object, got %T", virtualLiveGroupRaw)
+	}
+	if virtualLiveGroup["id"] != float64(77) {
+		t.Fatalf("expected virtualLiveGroup.id=77, got %v", virtualLiveGroup["id"])
+	}
+	if _, exists := body["virtualLiveGroupId"]; exists {
+		t.Fatalf("expected virtualLiveGroupId to be omitted from response")
+	}
+	pamphletRaw, ok := body["pamphlet"]
+	if !ok {
+		t.Fatalf("expected pamphlet in response")
+	}
+	pamphlet, ok := pamphletRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected pamphlet object, got %T", pamphletRaw)
+	}
+	if pamphlet["id"] != float64(9001) {
+		t.Fatalf("expected pamphlet.id=9001, got %v", pamphlet["id"])
+	}
+	if _, exists := pamphlet["virtualLiveId"]; exists {
+		t.Fatalf("expected pamphlet.virtualLiveId to be omitted")
+	}
+	ticketRaw, ok := body["ticket"]
+	if !ok {
+		t.Fatalf("expected ticket in response")
+	}
+	ticket, ok := ticketRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected ticket object, got %T", ticketRaw)
+	}
+	if ticket["id"] != float64(9101) {
+		t.Fatalf("expected ticket.id=9101, got %v", ticket["id"])
+	}
+	if _, exists := ticket["virtualLiveId"]; exists {
+		t.Fatalf("expected ticket.virtualLiveId to be omitted")
 	}
 }
 
@@ -443,6 +531,15 @@ func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 	if _, exists := first["virtualLiveSetlists"]; exists {
 		t.Fatalf("expected virtualLiveSetlists to be omitted from list response")
 	}
+	if virtualLiveGroup, exists := first["virtualLiveGroup"]; exists && virtualLiveGroup != nil {
+		t.Fatalf("expected virtualLiveGroup to be absent or null when not found, got %v", first["virtualLiveGroup"])
+	}
+	if pamphlet, exists := first["pamphlet"]; !exists || pamphlet != nil {
+		t.Fatalf("expected pamphlet to be null when not found, got %v", first["pamphlet"])
+	}
+	if ticket, exists := first["ticket"]; !exists || ticket != nil {
+		t.Fatalf("expected ticket to be null when not found, got %v", first["ticket"])
+	}
 }
 
 func TestVirtualLiveSearchEndpointDefaultsToNameField(t *testing.T) {
@@ -472,19 +569,22 @@ func TestVirtualLiveSearchEndpointDefaultsToNameField(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 
-	if cache.lastSearch.region != "jp" {
-		t.Fatalf("expected search region jp, got %s", cache.lastSearch.region)
+	if len(cache.searchCalls) == 0 {
+		t.Fatalf("expected search calls to be recorded")
 	}
-	if cache.lastSearch.entity != "virtuallives" {
-		t.Fatalf("expected search entity virtuallives, got %s", cache.lastSearch.entity)
+	if cache.searchCalls[0].region != "jp" {
+		t.Fatalf("expected search region jp, got %s", cache.searchCalls[0].region)
 	}
-	if cache.lastSearch.query != "after" {
-		t.Fatalf("expected search query after, got %s", cache.lastSearch.query)
+	if cache.searchCalls[0].entity != "virtuallives" {
+		t.Fatalf("expected search entity virtuallives, got %s", cache.searchCalls[0].entity)
+	}
+	if cache.searchCalls[0].query != "after" {
+		t.Fatalf("expected search query after, got %s", cache.searchCalls[0].query)
 	}
 
 	expectedFields := []string{"name"}
-	if !reflect.DeepEqual(cache.lastSearch.fields, expectedFields) {
-		t.Fatalf("expected search fields %v, got %v", expectedFields, cache.lastSearch.fields)
+	if !reflect.DeepEqual(cache.searchCalls[0].fields, expectedFields) {
+		t.Fatalf("expected search fields %v, got %v", expectedFields, cache.searchCalls[0].fields)
 	}
 }
 
@@ -517,8 +617,11 @@ func TestVirtualLiveSearchEndpointSupportsTypeField(t *testing.T) {
 	}
 
 	expectedFields := []string{"virtualLiveType"}
-	if !reflect.DeepEqual(cache.lastSearch.fields, expectedFields) {
-		t.Fatalf("expected search fields %v, got %v", expectedFields, cache.lastSearch.fields)
+	if len(cache.searchCalls) == 0 {
+		t.Fatalf("expected search calls to be recorded")
+	}
+	if !reflect.DeepEqual(cache.searchCalls[0].fields, expectedFields) {
+		t.Fatalf("expected search fields %v, got %v", expectedFields, cache.searchCalls[0].fields)
 	}
 }
 
