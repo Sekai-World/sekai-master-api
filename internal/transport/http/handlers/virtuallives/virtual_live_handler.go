@@ -1,4 +1,4 @@
-package handler
+package virtuallives
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
@@ -36,10 +37,10 @@ func NewVirtualLiveHandler(masterDataSync *usecase.MasterDataSyncUsecase) *Virtu
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /virtualLives/{region}/{id} [get]
 func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -77,10 +78,10 @@ func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /virtualLives/{region}/{id}/items [get]
 func (handler *VirtualLiveHandler) ItemsByID(c *gin.Context) {
 	handler.respondVirtualLiveArrayField(c, "virtualItems", "virtual live items")
@@ -93,10 +94,10 @@ func (handler *VirtualLiveHandler) ItemsByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /virtualLives/{region}/{id}/schedules [get]
 func (handler *VirtualLiveHandler) SchedulesByID(c *gin.Context) {
 	handler.respondVirtualLiveArrayField(c, "virtualLiveSchedules", "virtual live schedules")
@@ -109,10 +110,10 @@ func (handler *VirtualLiveHandler) SchedulesByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /virtualLives/{region}/{id}/setlists [get]
 func (handler *VirtualLiveHandler) SetlistsByID(c *gin.Context) {
 	handler.respondVirtualLiveArrayField(c, "virtualLiveSetlists", "virtual live setlists")
@@ -124,9 +125,9 @@ func (handler *VirtualLiveHandler) SetlistsByID(c *gin.Context) {
 // @Produce json
 // @Param id path string true "Virtual Live ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /virtualLives/regions/{id}/availability [get]
 func (handler *VirtualLiveHandler) AvailableRegionsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -140,7 +141,7 @@ func (handler *VirtualLiveHandler) AvailableRegionsByID(c *gin.Context) {
 		return
 	}
 
-	regions, err := availableRegionsByID(c.Request.Context(), handler.masterDataSync, "virtuallives", id)
+	regions, err := shared.AvailableRegionsByID(c.Request.Context(), handler.masterDataSync, "virtuallives", id)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to query virtual live available regions")
 		return
@@ -159,9 +160,9 @@ func (handler *VirtualLiveHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /virtualLives/{region}/list [get]
 func (handler *VirtualLiveHandler) List(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -198,7 +199,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 		pageSize = parsedPageSize
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -209,11 +210,11 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to list virtual lives")
 			return
 		}
-		if !validateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, pageSize)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),
 			"pagination": pagination,
@@ -256,9 +257,9 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /virtualLives/{region}/search [get]
 func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -314,7 +315,7 @@ func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 		limit = parsedLimit
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -330,11 +331,11 @@ func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 		for _, match := range matches {
 			records = append(records, match.Item)
 		}
-		if !validateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, limit)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, limit)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),
 			"pagination": pagination,
@@ -345,7 +346,7 @@ func (handler *VirtualLiveHandler) Search(c *gin.Context) {
 	total := len(matches)
 	start := (page - 1) * limit
 	if start >= total {
-		_, pagination := paginateItems([]map[string]any{}, page, limit)
+		_, pagination := shared.PaginateItems([]map[string]any{}, page, limit)
 		pagination["total"] = total
 		if limit > 0 {
 			pagination["total_pages"] = (total + limit - 1) / limit
@@ -389,7 +390,7 @@ func (handler *VirtualLiveHandler) ensureRegionReady(c *gin.Context, region stri
 		return true
 	}
 
-	readyRegions, err := readyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
+	readyRegions, err := shared.ReadyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
@@ -431,7 +432,7 @@ func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region 
 	if rawVirtualLiveGroupID, hasVirtualLiveGroupID := record["virtualLiveGroupId"]; hasVirtualLiveGroupID {
 		delete(result, "virtualLiveGroupId")
 
-		virtualLiveGroupLookupID := normalizeAnyID(rawVirtualLiveGroupID)
+		virtualLiveGroupLookupID := shared.NormalizeAnyID(rawVirtualLiveGroupID)
 		if handler == nil || handler.masterDataSync == nil || virtualLiveGroupLookupID == "" {
 			result["virtualLiveGroup"] = nil
 		} else {
@@ -443,8 +444,8 @@ func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region 
 			}
 		}
 	}
-	result["pamphlet"] = findVirtualLivePamphlet(ctx, handler.masterDataSync, region, normalizeAnyID(record["id"]))
-	result["ticket"] = findVirtualLiveTicket(ctx, handler.masterDataSync, region, normalizeAnyID(record["id"]))
+	result["pamphlet"] = findVirtualLivePamphlet(ctx, handler.masterDataSync, region, shared.NormalizeAnyID(record["id"]))
+	result["ticket"] = findVirtualLiveTicket(ctx, handler.masterDataSync, region, shared.NormalizeAnyID(record["id"]))
 
 	return result
 }

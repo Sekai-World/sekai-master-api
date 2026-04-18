@@ -1,4 +1,4 @@
-package handler
+package events
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
@@ -40,10 +41,10 @@ func NewEventHandler(masterDataSync *usecase.MasterDataSyncUsecase) *EventHandle
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/{id} [get]
 func (handler *EventHandler) ByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -80,9 +81,9 @@ func (handler *EventHandler) ByID(c *gin.Context) {
 // @Produce json
 // @Param id path string true "Event ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/regions/{id}/availability [get]
 func (handler *EventHandler) AvailableRegionsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -96,7 +97,7 @@ func (handler *EventHandler) AvailableRegionsByID(c *gin.Context) {
 		return
 	}
 
-	regions, err := availableRegionsByID(c.Request.Context(), handler.masterDataSync, "events", id)
+	regions, err := shared.AvailableRegionsByID(c.Request.Context(), handler.masterDataSync, "events", id)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event available regions")
 		return
@@ -111,10 +112,10 @@ func (handler *EventHandler) AvailableRegionsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/current [get]
 func (handler *EventHandler) Current(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -151,10 +152,10 @@ func (handler *EventHandler) Current(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/{id}/break-times [get]
 func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -182,7 +183,7 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 		return
 	}
 
-	breakTimeID := normalizeAnyID(record["eventBreakTimeId"])
+	breakTimeID := shared.NormalizeAnyID(record["eventBreakTimeId"])
 	if breakTimeID == "" {
 		response.Error(c, http.StatusNotFound, "EVENT_BREAK_TIME_NOT_FOUND", "event break time not found")
 		return
@@ -211,9 +212,9 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/list [get]
 func (handler *EventHandler) List(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -250,7 +251,7 @@ func (handler *EventHandler) List(c *gin.Context) {
 		pageSize = parsedPageSize
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -261,11 +262,11 @@ func (handler *EventHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
 			return
 		}
-		if !validateSortField(c, sortOptions.Field, records, sortableEventFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, pageSize)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
 			"pagination": pagination,
@@ -308,9 +309,9 @@ func (handler *EventHandler) List(c *gin.Context) {
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/search [get]
 func (handler *EventHandler) Search(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -364,7 +365,7 @@ func (handler *EventHandler) Search(c *gin.Context) {
 		limit = parsedLimit
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -380,11 +381,11 @@ func (handler *EventHandler) Search(c *gin.Context) {
 		for _, match := range matches {
 			records = append(records, match.Item)
 		}
-		if !validateSortField(c, sortOptions.Field, records, sortableEventFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, limit)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, limit)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
 			"pagination": pagination,
@@ -395,7 +396,7 @@ func (handler *EventHandler) Search(c *gin.Context) {
 	total := len(matches)
 	start := (page - 1) * limit
 	if start >= total {
-		_, pagination := paginateItems([]map[string]any{}, page, limit)
+		_, pagination := shared.PaginateItems([]map[string]any{}, page, limit)
 		pagination["total"] = total
 		if limit > 0 {
 			pagination["total_pages"] = (total + limit - 1) / limit
@@ -441,10 +442,10 @@ func (handler *EventHandler) Search(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/{id}/rewards [get]
 func (handler *EventHandler) RewardsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -492,10 +493,10 @@ func (handler *EventHandler) RewardsByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/{id}/musics [get]
 func (handler *EventHandler) MusicsByID(c *gin.Context) {
 	items, ok := handler.loadEventBonusItems(c, "eventmusics", "event musics")
@@ -513,10 +514,10 @@ func (handler *EventHandler) MusicsByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/{id}/cards [get]
 func (handler *EventHandler) CardsByID(c *gin.Context) {
 	items, ok := handler.loadEventBonusItems(c, "eventcards", "event cards")
@@ -534,10 +535,10 @@ func (handler *EventHandler) CardsByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /events/{region}/{id}/bonuses [get]
 func (handler *EventHandler) BonusesByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -644,12 +645,12 @@ func (handler *EventHandler) findEventBonusItems(ctx context.Context, region str
 	}
 
 	items := make([]map[string]any, 0, len(matches))
-	targetEventID := normalizeAnyID(eventID)
+	targetEventID := shared.NormalizeAnyID(eventID)
 	for _, match := range matches {
-		if normalizeAnyID(match.Item["eventId"]) != targetEventID {
+		if shared.NormalizeAnyID(match.Item["eventId"]) != targetEventID {
 			continue
 		}
-		items = append(items, buildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
 	}
 
 	return items, nil
@@ -660,7 +661,7 @@ func (handler *EventHandler) ensureRegionReady(c *gin.Context, region string) bo
 		return true
 	}
 
-	readyRegions, err := readyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
+	readyRegions, err := shared.ReadyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
@@ -690,7 +691,7 @@ func buildEventBase(record map[string]any) map[string]any {
 		result[key] = value
 	}
 
-	if eventPointAssetbundleName := normalizeAnyID(record["eventPointAssetbundleName"]); eventPointAssetbundleName != "" {
+	if eventPointAssetbundleName := shared.NormalizeAnyID(record["eventPointAssetbundleName"]); eventPointAssetbundleName != "" {
 		result["eventPointIcon"] = "thumbnail/common_event/" + eventPointAssetbundleName + "/icon_eventpoint"
 	}
 
@@ -713,7 +714,7 @@ func (handler *EventHandler) buildEventDetail(ctx context.Context, region string
 	}
 
 	if rawUnit, hasUnit := record["unit"]; hasUnit {
-		unitLookup := normalizeComparableText(rawUnit)
+		unitLookup := shared.NormalizeComparableText(rawUnit)
 		if unitLookup != "" {
 			if matches, err := handler.masterDataSync.Search(ctx, region, "unitprofiles", unitLookup, []string{"unit"}, 1); err == nil && len(matches) > 0 {
 				result["unit"] = pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
@@ -724,7 +725,7 @@ func (handler *EventHandler) buildEventDetail(ctx context.Context, region string
 	if rawVirtualLiveID, hasVirtualLiveID := record["virtualLiveId"]; hasVirtualLiveID {
 		delete(result, "virtualLiveId")
 
-		virtualLiveLookupID := normalizeAnyID(rawVirtualLiveID)
+		virtualLiveLookupID := shared.NormalizeAnyID(rawVirtualLiveID)
 		if virtualLiveLookupID == "" {
 			result["virtualLive"] = nil
 		} else {

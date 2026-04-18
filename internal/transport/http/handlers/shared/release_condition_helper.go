@@ -1,4 +1,4 @@
-package handler
+package shared
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func buildRecordWithReleaseCondition(
+func BuildRecordWithReleaseCondition(
 	ctx context.Context,
 	masterDataSync *usecase.MasterDataSyncUsecase,
 	region string,
@@ -28,7 +28,7 @@ func buildRecordWithReleaseCondition(
 
 	delete(result, "releaseConditionId")
 
-	releaseConditionLookupID := normalizeAnyID(rawReleaseConditionID)
+	releaseConditionLookupID := NormalizeAnyID(rawReleaseConditionID)
 	if masterDataSync == nil || releaseConditionLookupID == "" {
 		result["releaseCondition"] = nil
 		return result

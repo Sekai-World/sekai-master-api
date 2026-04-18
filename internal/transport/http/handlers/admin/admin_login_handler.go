@@ -1,4 +1,4 @@
-package handler
+package admin
 
 import (
 	"context"
@@ -80,7 +80,7 @@ func NewAdminLoginHandler(cfg config.Config) (*AdminLoginHandler, error) {
 // @Summary Start admin login with OIDC provider
 // @Tags admin
 // @Success 302 {string} string "Redirect to OIDC authorization endpoint"
-// @Failure 500 {object} ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /admin/login [get]
 func (handler *AdminLoginHandler) Start(c *gin.Context) {
 	if !handler.isConfigured() {

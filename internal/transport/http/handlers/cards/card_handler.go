@@ -1,8 +1,7 @@
-package handler
+package cards
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
@@ -44,11 +44,11 @@ func NewCardHandler(masterDataSync *usecase.MasterDataSyncUsecase) *CardHandler 
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} CardObjectResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Success 200 {object} shared.CardObjectResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /cards/{region}/{id} [get]
 func (handler *CardHandler) ByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -85,9 +85,9 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 // @Produce json
 // @Param id path string true "Card ID"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /cards/regions/{id}/availability [get]
 func (handler *CardHandler) AvailableRegionsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -101,7 +101,7 @@ func (handler *CardHandler) AvailableRegionsByID(c *gin.Context) {
 		return
 	}
 
-	regions, err := availableRegionsByID(c.Request.Context(), handler.masterDataSync, "cards", id)
+	regions, err := shared.AvailableRegionsByID(c.Request.Context(), handler.masterDataSync, "cards", id)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card available regions")
 		return
@@ -116,11 +116,11 @@ func (handler *CardHandler) AvailableRegionsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} CardObjectResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Success 200 {object} shared.CardObjectResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /cards/{region}/{id}/params [get]
 func (handler *CardHandler) ParamsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -157,11 +157,11 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} CardListResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Success 200 {object} shared.CardListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /cards/{region}/{id}/episodes [get]
 func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -196,12 +196,12 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 	}
 
 	items := make([]map[string]any, 0, len(matches))
-	targetCardID := normalizeAnyID(id)
+	targetCardID := shared.NormalizeAnyID(id)
 	for _, match := range matches {
-		if normalizeAnyID(match.Item["cardId"]) != targetCardID {
+		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
 			continue
 		}
-		items = append(items, buildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, match.Item))
+		items = append(items, shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, match.Item))
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
@@ -220,10 +220,10 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 // @Param limit query int false "Max results"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} CardListResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Success 200 {object} shared.CardListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /cards/{region}/search [get]
 func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -277,7 +277,7 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 		limit = parsedLimit
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -295,11 +295,11 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 		for _, match := range matches {
 			records = append(records, match.Item)
 		}
-		if !validateSortField(c, sortOptions.Field, records, sortableCardFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableCardFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, limit)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, limit)
 		items := make([]map[string]any, 0, len(pagedRecords))
 		for _, record := range pagedRecords {
 			items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
@@ -314,7 +314,7 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 	total := len(matches)
 	start := (page - 1) * limit
 	if start >= total {
-		_, pagination := paginateItems([]map[string]any{}, page, limit)
+		_, pagination := shared.PaginateItems([]map[string]any{}, page, limit)
 		pagination["total"] = total
 		if limit > 0 {
 			pagination["total_pages"] = (total + limit - 1) / limit
@@ -364,10 +364,10 @@ func (handler *CardHandler) SearchByPrefix(c *gin.Context) {
 // @Param page_size query int false "Page size"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} CardListResponse
-// @Failure 400 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Success 200 {object} shared.CardListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
 // @Router /cards/{region}/list [get]
 func (handler *CardHandler) List(c *gin.Context) {
 	if handler.masterDataSync == nil {
@@ -404,7 +404,7 @@ func (handler *CardHandler) List(c *gin.Context) {
 		pageSize = parsedPageSize
 	}
 
-	sortOptions, ok := parseListSortOptions(c)
+	sortOptions, ok := shared.ParseListSortOptions(c)
 	if !ok {
 		return
 	}
@@ -415,11 +415,11 @@ func (handler *CardHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to list cards")
 			return
 		}
-		if !validateSortField(c, sortOptions.Field, records, sortableCardFields) {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableCardFields) {
 			return
 		}
-		sortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := paginateItems(records, page, pageSize)
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		items := make([]map[string]any, 0, len(pagedRecords))
 		for _, record := range pagedRecords {
 			items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
@@ -492,7 +492,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	}
 
 	if cardSupplyID, ok := record["cardSupplyId"]; ok {
-		lookupID := normalizeAnyID(cardSupplyID)
+		lookupID := shared.NormalizeAnyID(cardSupplyID)
 		if lookupID == "" {
 			result["cardSupply"] = nil
 		} else {
@@ -506,7 +506,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	}
 
 	if skillID, ok := record["skillId"]; ok {
-		skillLookupID := normalizeAnyID(skillID)
+		skillLookupID := shared.NormalizeAnyID(skillID)
 		if skillLookupID == "" {
 			result["skill"] = nil
 		} else {
@@ -520,7 +520,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	}
 
 	if characterID, ok := record["characterId"]; ok {
-		characterLookupID := normalizeAnyID(characterID)
+		characterLookupID := shared.NormalizeAnyID(characterID)
 		if characterLookupID == "" {
 			result["character"] = nil
 		} else {
@@ -534,8 +534,8 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	}
 
 	if cardRarityType, ok := record["cardRarityType"]; ok {
-		cardID := normalizeAnyID(record["id"])
-		rarityTypeLookup := normalizeComparableText(cardRarityType)
+		cardID := shared.NormalizeAnyID(record["id"])
+		rarityTypeLookup := shared.NormalizeComparableText(cardRarityType)
 		zap.S().Debugw(
 			"card rarity lookup start",
 			"component", "card-handler",
@@ -565,7 +565,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 			}
 		}
 	} else {
-		zap.S().Warnw("card rarity lookup skipped", "component", "card-handler", "reason", "missing_card_rarity_type", "region", region, "card_id", normalizeAnyID(record["id"]))
+		zap.S().Warnw("card rarity lookup skipped", "component", "card-handler", "reason", "missing_card_rarity_type", "region", region, "card_id", shared.NormalizeAnyID(record["id"]))
 	}
 
 	return result
@@ -576,7 +576,7 @@ func (handler *CardHandler) ensureRegionReady(c *gin.Context, region string) boo
 		return true
 	}
 
-	readyRegions, err := readyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
+	readyRegions, err := shared.ReadyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
@@ -611,29 +611,13 @@ func sanitizeGameCharacter(character map[string]any) map[string]any {
 	return result
 }
 
-func normalizeAnyID(value any) string {
-	if value == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(fmt.Sprintf("%v", value))
-}
-
-func normalizeComparableText(value any) string {
-	if value == nil {
-		return ""
-	}
-
-	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", value)))
-}
-
 func findExactCardRarityByType(matches []masterdata.SearchMatch, rarityType string) map[string]any {
 	if rarityType == "" || len(matches) == 0 {
 		return nil
 	}
 
 	for _, match := range matches {
-		candidateType := normalizeComparableText(match.Item["cardRarityType"])
+		candidateType := shared.NormalizeComparableText(match.Item["cardRarityType"])
 		if candidateType == rarityType {
 			return match.Item
 		}

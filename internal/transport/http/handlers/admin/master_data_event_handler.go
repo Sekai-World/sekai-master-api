@@ -1,4 +1,4 @@
-package handler
+package admin
 
 import (
 	"io"
@@ -25,9 +25,9 @@ func NewMasterDataEventHandler(hub *usecase.MasterDataEventHub) *MasterDataEvent
 // @Produce text/event-stream
 // @Security BearerAuth
 // @Success 200 {string} string "SSE stream"
-// @Failure 401 {object} ErrorResponse
-// @Failure 403 {object} ErrorResponse
-// @Failure 503 {object} ErrorResponse
+// @Failure 401 {object} shared.ErrorResponse
+// @Failure 403 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
 // @Router /admin/master-data/events [get]
 func (handler *MasterDataEventHandler) Stream(c *gin.Context) {
 	if handler.hub == nil {

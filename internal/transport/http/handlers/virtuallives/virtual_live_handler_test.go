@@ -1,4 +1,4 @@
-package handler
+package virtuallives
 
 import (
 	"context"
@@ -15,12 +15,12 @@ import (
 )
 
 type fakeVirtualLiveHandlerCache struct {
-	byID                 map[string]map[string]map[string]map[string]any
-	listItems            []map[string]any
-	listTotal            int
-	searchMatches        []masterdata.SearchMatch
+	byID                  map[string]map[string]map[string]map[string]any
+	listItems             []map[string]any
+	listTotal             int
+	searchMatches         []masterdata.SearchMatch
 	searchMatchesByEntity map[string][]masterdata.SearchMatch
-	searchCalls          []struct {
+	searchCalls           []struct {
 		region string
 		entity string
 		query  string

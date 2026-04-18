@@ -1,4 +1,4 @@
-package handler
+package shared
 
 import (
 	"fmt"
@@ -13,24 +13,24 @@ import (
 	"sekai-master-api/internal/transport/http/response"
 )
 
-type listSortOptions struct {
+type ListSortOptions struct {
 	Field      string
 	Descending bool
 	Enabled    bool
 }
 
-func parseListSortOptions(c *gin.Context) (listSortOptions, bool) {
+func ParseListSortOptions(c *gin.Context) (ListSortOptions, bool) {
 	sortBy := strings.TrimSpace(c.Query("sort_by"))
 	sortOrder := strings.ToLower(strings.TrimSpace(c.Query("sort_order")))
 	if sortBy == "" && sortOrder == "" {
-		return listSortOptions{}, true
+		return ListSortOptions{}, true
 	}
 	if sortBy == "" {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "sort_by is required when sort_order is provided")
-		return listSortOptions{}, false
+		return ListSortOptions{}, false
 	}
 
-	options := listSortOptions{
+	options := ListSortOptions{
 		Field:   sortBy,
 		Enabled: true,
 	}
@@ -43,11 +43,11 @@ func parseListSortOptions(c *gin.Context) (listSortOptions, bool) {
 		return options, true
 	default:
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "sort_order must be one of: asc, desc")
-		return listSortOptions{}, false
+		return ListSortOptions{}, false
 	}
 }
 
-func validateSortField(c *gin.Context, sortBy string, _ []map[string]any, baseFields []string) bool {
+func ValidateSortField(c *gin.Context, sortBy string, _ []map[string]any, baseFields []string) bool {
 	allowed := sortableFieldSet(baseFields)
 	if _, ok := allowed[sortBy]; ok {
 		return true
@@ -84,7 +84,7 @@ type jsonNumber interface {
 	String() string
 }
 
-func sortResponseItems(items []map[string]any, sortBy string, descending bool) {
+func SortResponseItems(items []map[string]any, sortBy string, descending bool) {
 	sort.SliceStable(items, func(i int, j int) bool {
 		left := items[i][sortBy]
 		right := items[j][sortBy]
@@ -133,8 +133,8 @@ func compareSortableValues(left any, right any) int {
 		}
 	}
 
-	leftText := normalizeComparableText(left)
-	rightText := normalizeComparableText(right)
+	leftText := NormalizeComparableText(left)
+	rightText := NormalizeComparableText(right)
 	switch {
 	case leftText < rightText:
 		return -1
@@ -186,8 +186,8 @@ func sortableNumericValue(value any) (float64, bool) {
 }
 
 func compareIDValue(left any, right any) int {
-	leftID := normalizeAnyID(left)
-	rightID := normalizeAnyID(right)
+	leftID := NormalizeAnyID(left)
+	rightID := NormalizeAnyID(right)
 	switch {
 	case leftID < rightID:
 		return -1
@@ -198,7 +198,7 @@ func compareIDValue(left any, right any) int {
 	}
 }
 
-func paginateItems(items []map[string]any, page int, pageSize int) ([]map[string]any, gin.H) {
+func PaginateItems(items []map[string]any, page int, pageSize int) ([]map[string]any, gin.H) {
 	total := len(items)
 	totalPages := 0
 	if pageSize > 0 {

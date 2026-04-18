@@ -1,4 +1,4 @@
-package handler
+package admin
 
 import (
 	"net/http"
@@ -27,9 +27,9 @@ func NewProfileHandler(appEnv string, adminClaimAuthorizer *auth.AdminClaimAutho
 // @Tags admin
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} ProfileResponse
-// @Failure 401 {object} ErrorResponse
-// @Failure 403 {object} ErrorResponse
+// @Success 200 {object} shared.ProfileResponse
+// @Failure 401 {object} shared.ErrorResponse
+// @Failure 403 {object} shared.ErrorResponse
 // @Router /admin/profile [get]
 func (handler *ProfileHandler) Me(c *gin.Context) {
 	rawClaims, _ := c.Get("claims")
