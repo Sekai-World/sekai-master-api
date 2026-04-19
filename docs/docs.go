@@ -49,7 +49,7 @@ const docTemplate = `{
                     "text/event-stream"
                 ],
                 "tags": [
-                    "master-data"
+                    "admin"
                 ],
                 "summary": "Subscribe master-data sync events",
                 "responses": {
@@ -1632,7 +1632,7 @@ const docTemplate = `{
                 "tags": [
                     "system"
                 ],
-                "summary": "Get cached version.json by region",
+                "summary": "Get cached versions.json by region",
                 "parameters": [
                     {
                         "type": "string",
