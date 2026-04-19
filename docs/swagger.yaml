@@ -1016,6 +1016,50 @@ paths:
       summary: Get health status
       tags:
       - system
+  /internal/github/webhooks/master-data:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: GitHub event type
+        in: header
+        name: X-GitHub-Event
+        required: true
+        type: string
+      - description: GitHub HMAC SHA-256 signature
+        in: header
+        name: X-Hub-Signature-256
+        type: string
+      - description: GitHub webhook payload
+        in: body
+        name: payload
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Receive GitHub master-data webhook
+      tags:
+      - system
   /musics/{region}/{id}:
     get:
       parameters:
@@ -1197,6 +1241,41 @@ paths:
       summary: Get available regions for a music id
       tags:
       - musics
+  /versions/{region}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get cached version.json by region
+      tags:
+      - system
   /virtualLives/{region}/{id}:
     get:
       parameters:
