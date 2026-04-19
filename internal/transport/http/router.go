@@ -46,6 +46,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	router.Use(middleware.RecoveryLog())
 
 	healthHandler := systemhandlers.NewHealthHandler(db)
+	versionsHandler := systemhandlers.NewVersionsHandler(masterDataSync)
 	adminClaimAuthorizer := auth.NewAdminClaimAuthorizer(cfg.OIDCAdminClaim, cfg.OIDCAdminClaimValues)
 	profileHandler := adminhandlers.NewProfileHandler(cfg.AppEnv, adminClaimAuthorizer)
 	adminUIHandler := adminhandlers.NewAdminUIHandler(cfg)
@@ -65,7 +66,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	}
 
 	v1 := router.Group("/api/v1")
-	registerPublicRoutes(v1, healthHandler, cardHandler, musicHandler, eventHandler, virtualLiveHandler)
+	registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, virtualLiveHandler)
 
 	registerAdminRoutes(
 		router,
