@@ -13,12 +13,14 @@ import (
 func registerPublicRoutes(
 	v1 *gin.RouterGroup,
 	healthHandler *systemhandlers.HealthHandler,
+	versionsHandler *systemhandlers.VersionsHandler,
 	cardHandler *cardhandlers.CardHandler,
 	musicHandler *musichandlers.MusicHandler,
 	eventHandler *eventhandlers.EventHandler,
 	virtualLiveHandler *virtuallivehandlers.VirtualLiveHandler,
 ) {
 	v1.GET("/health", healthHandler.Check)
+	v1.GET("/versions/:region", versionsHandler.ByRegion)
 	v1.GET("/cards/regions/:id/availability", cardHandler.AvailableRegionsByID)
 	v1.GET("/cards/:region/list", cardHandler.List)
 	v1.GET("/cards/:region/search", cardHandler.SearchByPrefix)

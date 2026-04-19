@@ -120,6 +120,19 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestVersionsUnavailableWithoutMasterDataService(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/versions/jp", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", resp.Code)
+	}
+}
+
 func TestDocsPage(t *testing.T) {
 	router := setupRouter(t)
 

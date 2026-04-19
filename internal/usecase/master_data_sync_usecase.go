@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,6 +119,14 @@ func (usecase *MasterDataSyncUsecase) EnableDevelopmentBackupBootstrap(enabled b
 	}
 
 	usecase.restoreFromLocalBackupWithoutStatus = enabled
+}
+
+func (usecase *MasterDataSyncUsecase) SetBackupStore(store MasterDataPayloadBackupStore) {
+	if usecase == nil {
+		return
+	}
+
+	usecase.backupStore = store
 }
 
 func (usecase *MasterDataSyncUsecase) SetRegionTimeout(timeout time.Duration) {
@@ -847,6 +856,29 @@ func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
 	return regions
 }
 
+func (usecase *MasterDataSyncUsecase) VersionByRegion(ctx context.Context, region string) (any, bool, error) {
+	if usecase == nil || usecase.backupStore == nil {
+		return nil, false, nil
+	}
+
+	source, found := usecase.sourceByRegion(region)
+	if !found {
+		return nil, false, nil
+	}
+
+	payload, _, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
+	if err != nil || !found {
+		return nil, found, err
+	}
+
+	version, found := versionPayloadFromBackup(source, payload)
+	if !found {
+		return nil, false, nil
+	}
+
+	return version, true, nil
+}
+
 func (usecase *MasterDataSyncUsecase) WarmConfiguredRegionIndexes(ctx context.Context) ([]string, error) {
 	loader, ok := usecase.cache.(MasterDataCacheIndexLoader)
 	if !ok {
@@ -866,6 +898,46 @@ func (usecase *MasterDataSyncUsecase) WarmConfiguredRegionIndexes(ctx context.Co
 	}
 
 	return warmed, nil
+}
+
+func (usecase *MasterDataSyncUsecase) sourceByRegion(region string) (masterdata.Source, bool) {
+	targetRegion := strings.ToLower(strings.TrimSpace(region))
+	if targetRegion == "" {
+		return masterdata.Source{}, false
+	}
+
+	for _, source := range usecase.sources {
+		if strings.EqualFold(strings.TrimSpace(source.Region), targetRegion) {
+			return source, true
+		}
+	}
+
+	return masterdata.Source{}, false
+}
+
+func versionPayloadFromBackup(source masterdata.Source, payload map[string]any) (any, bool) {
+	if len(payload) == 0 {
+		return nil, false
+	}
+
+	candidates := []string{"version.json"}
+	if trimmedPath := strings.Trim(strings.TrimSpace(source.Path), "/"); trimmedPath != "" {
+		candidates = append([]string{path.Join(trimmedPath, "version.json")}, candidates...)
+	}
+
+	for _, candidate := range candidates {
+		if value, ok := payload[candidate]; ok {
+			return value, true
+		}
+	}
+
+	for filePath, value := range payload {
+		if strings.EqualFold(path.Base(strings.TrimSpace(filePath)), "version.json") {
+			return value, true
+		}
+	}
+
+	return nil, false
 }
 
 func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.Context) ([]string, []string, error) {
