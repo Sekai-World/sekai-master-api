@@ -232,6 +232,19 @@ func TestAdminMasterDataEventsUnauthorized(t *testing.T) {
 	}
 }
 
+func TestInternalGitHubMasterDataWebhookDoesNotRequireBearerAuth(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(`{}`))
+	req.Header.Set("X-GitHub-Event", "push")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on internal github webhook without sync service, got %d", resp.Code)
+	}
+}
+
 func TestPublicMasterDataStatusNotFound(t *testing.T) {
 	router := setupRouter(t)
 

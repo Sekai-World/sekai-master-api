@@ -90,6 +90,7 @@ If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` f
 - `GET /api/v1/admin/master-data/status` (Bearer token from configured OIDC provider required)
 - `POST /api/v1/admin/master-data/sync` (Bearer token from configured OIDC provider required)
 - `POST /api/v1/admin/master-data/sync/force` (Bearer token from configured OIDC provider required)
+- `POST /api/v1/internal/github/webhooks/master-data` (internal GitHub webhook endpoint; matches configured region by owner/repo/ref)
 
 `POST /api/v1/admin/master-data/sync` and `POST /api/v1/admin/master-data/sync/force` support optional JSON payload:
 
@@ -111,6 +112,9 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `3`).
 - `MASTER_DATA_REGION_FILE_CONCURRENCY` is retained for backward-compatible configuration, but archive-based sync no longer performs per-file GitHub fetches.
 - GitHub HTTP requests support retry via `MASTER_DATA_HTTP_RETRY_COUNT` (default `3`) and `MASTER_DATA_HTTP_RETRY_BACKOFF_MS` (default `300`).
+- GitHub push webhooks can trigger region-scoped sync through `POST /api/v1/internal/github/webhooks/master-data`.
+- Webhook matching uses configured region source `owner + repo + ref`; only `push` events with changed `versions.json` or `version.json` trigger sync.
+- Set `MASTER_DATA_GITHUB_WEBHOOK_SECRET` to validate `X-Hub-Signature-256`. If left empty, signature validation is skipped.
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
 - Sync status storage model uses append-only history rows in `master_data_sync_status`; `created_at` is generated automatically by database default timestamp on insert. Latest status query uses database view `master_data_sync_status_latest` (one row per region) and exposes `last_updated_at` from that creation timestamp.
