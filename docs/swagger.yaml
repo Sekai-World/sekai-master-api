@@ -225,7 +225,7 @@ paths:
       - BearerAuth: []
       summary: Subscribe master-data sync events
       tags:
-      - master-data
+      - admin
   /admin/master-data/status:
     get:
       produces:
@@ -1273,7 +1273,7 @@ paths:
           description: Service Unavailable
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
-      summary: Get cached version.json by region
+      summary: Get cached versions.json by region
       tags:
       - system
   /virtualLives/{region}/{id}:
