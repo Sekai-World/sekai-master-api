@@ -142,6 +142,20 @@ func TestLoadReadsMasterDataRecoverInterruptedSync(t *testing.T) {
 	}
 }
 
+func TestLoadReadsMasterDataGitHubWebhookSecret(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "MASTER_DATA_GITHUB_WEBHOOK_SECRET")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nMASTER_DATA_GITHUB_WEBHOOK_SECRET=secret-value\n")
+
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.MasterDataGitHubWebhookSecret != "secret-value" {
+		t.Fatalf("expected github webhook secret to be loaded, got %q", cfg.MasterDataGitHubWebhookSecret)
+	}
+}
+
 func TestLoadReadsOTELConfig(t *testing.T) {
 	restoreEnv(
 		t,

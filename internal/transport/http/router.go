@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -55,6 +56,12 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		return nil, err
 	}
 	masterDataEventHandler := adminhandlers.NewMasterDataEventHandler(masterDataEvents)
+	gitHubWebhookHandler := systemhandlers.NewGitHubWebhookHandler(
+		cfg.MasterDataSources,
+		masterDataSync,
+		time.Duration(cfg.MasterDataSyncTimeout)*time.Second,
+		cfg.MasterDataGitHubWebhookSecret,
+	)
 	cardHandler := cardhandlers.NewCardHandler(masterDataSync)
 	musicHandler := musichandlers.NewMusicHandler(masterDataSync)
 	eventHandler := eventhandlers.NewEventHandler(masterDataSync)
@@ -67,6 +74,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 
 	v1 := router.Group("/api/v1")
 	registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, virtualLiveHandler)
+	registerInternalRoutes(v1, gitHubWebhookHandler)
 
 	registerAdminRoutes(
 		router,
