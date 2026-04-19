@@ -1394,7 +1394,7 @@ func TestCurrentEventSupportsSecondBasedTimestamps(t *testing.T) {
 	}
 }
 
-func TestCurrentEventIgnoresZeroClosedAtUsesAggregateAt(t *testing.T) {
+func TestCurrentEventRequiresClosedAt(t *testing.T) {
 	now := time.UnixMilli(1_772_438_533_000).UTC()
 	nowMillis := now.UnixMilli()
 
@@ -1417,11 +1417,11 @@ func TestCurrentEventIgnoresZeroClosedAtUsesAggregateAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current event query error: %v", err)
 	}
-	if !found {
-		t.Fatalf("expected current event to be found when closedAt is zero")
+	if found {
+		t.Fatalf("expected current event to be missing when closedAt is zero")
 	}
-	if fmt.Sprintf("%v", record["id"]) != "888" {
-		t.Fatalf("expected id=888, got %v", record["id"])
+	if record != nil {
+		t.Fatalf("expected no record, got %v", record)
 	}
 }
 
@@ -1552,6 +1552,37 @@ func TestCurrentEventScansBeyondFirstHundredRecords(t *testing.T) {
 	}
 	if fmt.Sprintf("%v", record["id"]) != "120" {
 		t.Fatalf("expected id=120, got %v", record["id"])
+	}
+}
+
+func TestCurrentEventDoesNotExtendWindowWithDisplayOrDistributionTimes(t *testing.T) {
+	now := time.UnixMilli(1_776_625_626_773).UTC()
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{
+				"id":                               201,
+				"name":                             "Show",
+				"startAt":                          float64(1_775_714_400_000),
+				"eventOnlyComponentDisplayStartAt": float64(1_775_703_600_000),
+				"distributionStartAt":              float64(1_776_391_199_000),
+				"closedAt":                         float64(1_776_509_999_000),
+				"aggregateAt":                      float64(1_776_340_799_000),
+				"distributionEndAt":                float64(1_777_647_599_000),
+				"eventOnlyComponentDisplayEndAt":   float64(1_776_481_199_000),
+			},
+		},
+		currentEvents: []map[string]any{},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	_, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil {
+		t.Fatalf("current event query error: %v", err)
+	}
+	if found {
+		t.Fatalf("expected event to be expired when only distribution/display windows remain")
 	}
 }
 
