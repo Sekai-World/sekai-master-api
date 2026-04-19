@@ -43,7 +43,7 @@ func TestVersionsByRegionReturnsCachedVersionPayload(t *testing.T) {
 	backupStore := &fakeVersionsBackupStore{
 		found: true,
 		payload: map[string]any{
-			"data/version.json": map[string]any{
+			"data/versions.json": map[string]any{
 				"appVersion":  "3.2.1",
 				"dataVersion": "20260419",
 			},

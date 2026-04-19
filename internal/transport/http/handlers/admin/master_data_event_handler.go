@@ -21,7 +21,7 @@ func NewMasterDataEventHandler(hub *usecase.MasterDataEventHub) *MasterDataEvent
 
 // Stream godoc
 // @Summary Subscribe master-data sync events
-// @Tags master-data
+// @Tags admin
 // @Produce text/event-stream
 // @Security BearerAuth
 // @Success 200 {string} string "SSE stream"
