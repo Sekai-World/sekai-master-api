@@ -1370,27 +1370,13 @@ func resolveEventTimeRangeDetails(record map[string]any) (int64, int64, bool, st
 		return 0, 0, false, "record_nil"
 	}
 
-	starts := collectPositiveTimestamps(record, "startAt", "eventOnlyComponentDisplayStartAt", "distributionStartAt")
-	if len(starts) == 0 {
+	startAt, startFound := selectPositiveTimestamp(record, "startAt")
+	if !startFound {
 		return 0, 0, false, "missing_start"
 	}
-	ends := collectPositiveTimestamps(record, "closedAt", "aggregateAt", "distributionEndAt", "eventOnlyComponentDisplayEndAt")
-	if len(ends) == 0 {
+	endAt, endFound := selectPositiveTimestamp(record, "closedAt")
+	if !endFound {
 		return 0, 0, false, "missing_end"
-	}
-
-	startAt := starts[0]
-	for _, value := range starts[1:] {
-		if value < startAt {
-			startAt = value
-		}
-	}
-
-	endAt := ends[0]
-	for _, value := range ends[1:] {
-		if value > endAt {
-			endAt = value
-		}
 	}
 
 	if endAt < startAt {
@@ -1532,6 +1518,24 @@ func collectPositiveTimestamps(record map[string]any, keys ...string) []int64 {
 	}
 
 	return values
+}
+
+func selectPositiveTimestamp(record map[string]any, keys ...string) (int64, bool) {
+	for _, key := range keys {
+		value, exists := record[key]
+		if !exists {
+			continue
+		}
+
+		timestamp, ok := parseTimestamp(value)
+		if !ok || timestamp <= 0 {
+			continue
+		}
+
+		return timestamp, true
+	}
+
+	return 0, false
 }
 
 func parseTimestamp(value any) (int64, bool) {
