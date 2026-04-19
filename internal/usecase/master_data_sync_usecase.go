@@ -920,9 +920,9 @@ func versionPayloadFromBackup(source masterdata.Source, payload map[string]any) 
 		return nil, false
 	}
 
-	candidates := []string{"version.json"}
+	candidates := []string{"versions.json"}
 	if trimmedPath := strings.Trim(strings.TrimSpace(source.Path), "/"); trimmedPath != "" {
-		candidates = append([]string{path.Join(trimmedPath, "version.json")}, candidates...)
+		candidates = append([]string{path.Join(trimmedPath, "versions.json")}, candidates...)
 	}
 
 	for _, candidate := range candidates {
@@ -932,7 +932,7 @@ func versionPayloadFromBackup(source masterdata.Source, payload map[string]any) 
 	}
 
 	for filePath, value := range payload {
-		if strings.EqualFold(path.Base(strings.TrimSpace(filePath)), "version.json") {
+		if strings.EqualFold(path.Base(strings.TrimSpace(filePath)), "versions.json") {
 			return value, true
 		}
 	}
@@ -1035,12 +1035,32 @@ func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region s
 		now = time.Now().UTC()
 	}
 	nowMillis := now.UnixMilli()
+	usecase.logf("current_event check_start region=%s now_ms=%d now=%s", normalizedRegion, nowMillis, now.UTC().Format(time.RFC3339))
 
 	cached, found, err := usecase.readCurrentEventCache(ctx, normalizedRegion)
 	if err != nil {
 		return nil, false, err
 	}
+	if !found {
+		usecase.logf("current_event cache_check region=%s stage=initial found=false", normalizedRegion)
+	} else {
+		evaluation := evaluateCurrentEventRange(cached, nowMillis)
+		usecase.logf(
+			"current_event cache_check region=%s stage=initial found=true id=%s name=%q start_ms=%d start=%s end_ms=%d end=%s in_range=%t reason=%s raw_times=%s",
+			normalizedRegion,
+			currentEventRecordID(cached),
+			currentEventRecordName(cached),
+			evaluation.StartAt,
+			formatCurrentEventTimestamp(evaluation.StartAt),
+			evaluation.EndAt,
+			formatCurrentEventTimestamp(evaluation.EndAt),
+			evaluation.InRange,
+			evaluation.Reason,
+			currentEventRawTimes(cached),
+		)
+	}
 	if found && isEventInTimeRange(cached, nowMillis) {
+		usecase.logf("current_event cache_hit region=%s stage=initial id=%s", normalizedRegion, currentEventRecordID(cached))
 		return cached, true, nil
 	}
 
@@ -1052,13 +1072,50 @@ func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region s
 	if err != nil {
 		return nil, false, err
 	}
+	if !found {
+		usecase.logf("current_event cache_check region=%s stage=locked found=false", normalizedRegion)
+	} else {
+		evaluation := evaluateCurrentEventRange(cached, nowMillis)
+		usecase.logf(
+			"current_event cache_check region=%s stage=locked found=true id=%s name=%q start_ms=%d start=%s end_ms=%d end=%s in_range=%t reason=%s raw_times=%s",
+			normalizedRegion,
+			currentEventRecordID(cached),
+			currentEventRecordName(cached),
+			evaluation.StartAt,
+			formatCurrentEventTimestamp(evaluation.StartAt),
+			evaluation.EndAt,
+			formatCurrentEventTimestamp(evaluation.EndAt),
+			evaluation.InRange,
+			evaluation.Reason,
+			currentEventRawTimes(cached),
+		)
+	}
 	if found && isEventInTimeRange(cached, nowMillis) {
+		usecase.logf("current_event cache_hit region=%s stage=locked id=%s", normalizedRegion, currentEventRecordID(cached))
 		return cached, true, nil
 	}
 
 	current, found, err := usecase.findCurrentEvent(ctx, normalizedRegion, nowMillis)
 	if err != nil {
 		return nil, false, err
+	}
+	if found {
+		evaluation := evaluateCurrentEventRange(current, nowMillis)
+		usecase.logf(
+			"current_event refresh_result region=%s found=true id=%s name=%q start_ms=%d start=%s end_ms=%d end=%s in_range=%t reason=%s raw_times=%s",
+			normalizedRegion,
+			currentEventRecordID(current),
+			currentEventRecordName(current),
+			evaluation.StartAt,
+			formatCurrentEventTimestamp(evaluation.StartAt),
+			evaluation.EndAt,
+			formatCurrentEventTimestamp(evaluation.EndAt),
+			evaluation.InRange,
+			evaluation.Reason,
+			currentEventRawTimes(current),
+		)
+	} else {
+		usecase.logf("current_event refresh_result region=%s found=false", normalizedRegion)
 	}
 
 	payload := map[string]any{"currentEvents.json": []any{}}
@@ -1069,6 +1126,7 @@ func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region s
 	if err := usecase.cache.StoreRegion(ctx, normalizedRegion, payload); err != nil {
 		return nil, false, fmt.Errorf("store current event cache region %s: %w", normalizedRegion, err)
 	}
+	usecase.logf("current_event cache_write region=%s found=%t id=%s", normalizedRegion, found, currentEventRecordID(current))
 
 	if !found {
 		return nil, false, nil
@@ -1217,6 +1275,9 @@ func (usecase *MasterDataSyncUsecase) findCurrentEvent(ctx context.Context, regi
 	pageSize := 100
 	selectedStartAt := int64(0)
 	var selected map[string]any
+	scannedPages := 0
+	scannedRecords := 0
+	candidateCount := 0
 
 	for {
 		records, _, err := usecase.cache.ListByPage(ctx, region, "events", page, pageSize)
@@ -1226,6 +1287,8 @@ func (usecase *MasterDataSyncUsecase) findCurrentEvent(ctx context.Context, regi
 		if len(records) == 0 {
 			break
 		}
+		scannedPages++
+		scannedRecords += len(records)
 
 		for _, record := range records {
 			startAt, endAt, ok := resolveEventTimeRange(record)
@@ -1236,10 +1299,25 @@ func (usecase *MasterDataSyncUsecase) findCurrentEvent(ctx context.Context, regi
 			if nowMillis < startAt || nowMillis > endAt {
 				continue
 			}
+			candidateCount++
 
 			if selected == nil || startAt > selectedStartAt {
 				selected = record
 				selectedStartAt = startAt
+				usecase.logf(
+					"current_event scan_candidate region=%s page=%d id=%s name=%q start_ms=%d start=%s end_ms=%d end=%s scanned_records=%d candidates=%d raw_times=%s",
+					region,
+					page,
+					currentEventRecordID(record),
+					currentEventRecordName(record),
+					startAt,
+					formatCurrentEventTimestamp(startAt),
+					endAt,
+					formatCurrentEventTimestamp(endAt),
+					scannedRecords,
+					candidateCount,
+					currentEventRawTimes(record),
+				)
 			}
 		}
 
@@ -1247,33 +1325,58 @@ func (usecase *MasterDataSyncUsecase) findCurrentEvent(ctx context.Context, regi
 	}
 
 	if selected == nil {
+		usecase.logf(
+			"current_event scan_complete region=%s found=false pages=%d scanned_records=%d candidates=%d now_ms=%d now=%s",
+			region,
+			scannedPages,
+			scannedRecords,
+			candidateCount,
+			nowMillis,
+			formatCurrentEventTimestamp(nowMillis),
+		)
 		return nil, false, nil
 	}
+
+	_, selectedEndAt, _, _ := resolveEventTimeRangeDetails(selected)
+	usecase.logf(
+		"current_event scan_complete region=%s found=true pages=%d scanned_records=%d candidates=%d id=%s name=%q start_ms=%d start=%s end_ms=%d end=%s raw_times=%s",
+		region,
+		scannedPages,
+		scannedRecords,
+		candidateCount,
+		currentEventRecordID(selected),
+		currentEventRecordName(selected),
+		selectedStartAt,
+		formatCurrentEventTimestamp(selectedStartAt),
+		selectedEndAt,
+		formatCurrentEventTimestamp(selectedEndAt),
+		currentEventRawTimes(selected),
+	)
 
 	return selected, true, nil
 }
 
 func isEventInTimeRange(record map[string]any, nowMillis int64) bool {
-	startAt, endAt, ok := resolveEventTimeRange(record)
-	if !ok {
-		return false
-	}
-
-	return nowMillis >= startAt && nowMillis <= endAt
+	return evaluateCurrentEventRange(record, nowMillis).InRange
 }
 
 func resolveEventTimeRange(record map[string]any) (int64, int64, bool) {
+	startAt, endAt, ok, _ := resolveEventTimeRangeDetails(record)
+	return startAt, endAt, ok
+}
+
+func resolveEventTimeRangeDetails(record map[string]any) (int64, int64, bool, string) {
 	if record == nil {
-		return 0, 0, false
+		return 0, 0, false, "record_nil"
 	}
 
 	starts := collectPositiveTimestamps(record, "startAt", "eventOnlyComponentDisplayStartAt", "distributionStartAt")
 	if len(starts) == 0 {
-		return 0, 0, false
+		return 0, 0, false, "missing_start"
 	}
 	ends := collectPositiveTimestamps(record, "closedAt", "aggregateAt", "distributionEndAt", "eventOnlyComponentDisplayEndAt")
 	if len(ends) == 0 {
-		return 0, 0, false
+		return 0, 0, false, "missing_end"
 	}
 
 	startAt := starts[0]
@@ -1291,10 +1394,125 @@ func resolveEventTimeRange(record map[string]any) (int64, int64, bool) {
 	}
 
 	if endAt < startAt {
-		return 0, 0, false
+		return 0, 0, false, "end_before_start"
 	}
 
-	return startAt, endAt, true
+	return startAt, endAt, true, "ok"
+}
+
+type currentEventRangeEvaluation struct {
+	StartAt int64
+	EndAt   int64
+	InRange bool
+	Reason  string
+}
+
+func evaluateCurrentEventRange(record map[string]any, nowMillis int64) currentEventRangeEvaluation {
+	startAt, endAt, ok, reason := resolveEventTimeRangeDetails(record)
+	if !ok {
+		return currentEventRangeEvaluation{
+			StartAt: startAt,
+			EndAt:   endAt,
+			InRange: false,
+			Reason:  reason,
+		}
+	}
+
+	if nowMillis < startAt {
+		return currentEventRangeEvaluation{
+			StartAt: startAt,
+			EndAt:   endAt,
+			InRange: false,
+			Reason:  "before_start",
+		}
+	}
+	if nowMillis > endAt {
+		return currentEventRangeEvaluation{
+			StartAt: startAt,
+			EndAt:   endAt,
+			InRange: false,
+			Reason:  "after_end",
+		}
+	}
+
+	return currentEventRangeEvaluation{
+		StartAt: startAt,
+		EndAt:   endAt,
+		InRange: true,
+		Reason:  "in_range",
+	}
+}
+
+func currentEventRecordID(record map[string]any) string {
+	if record == nil {
+		return ""
+	}
+
+	value, ok := record["id"]
+	if !ok || value == nil {
+		return ""
+	}
+
+	id := strings.TrimSpace(fmt.Sprint(value))
+	if id == "<nil>" {
+		return ""
+	}
+
+	return id
+}
+
+func currentEventRecordName(record map[string]any) string {
+	if record == nil {
+		return ""
+	}
+
+	value, ok := record["name"]
+	if !ok || value == nil {
+		return ""
+	}
+
+	name := strings.TrimSpace(fmt.Sprint(value))
+	if name == "<nil>" {
+		return ""
+	}
+
+	return name
+}
+
+func formatCurrentEventTimestamp(timestampMillis int64) string {
+	if timestampMillis <= 0 {
+		return ""
+	}
+
+	return time.UnixMilli(timestampMillis).UTC().Format(time.RFC3339)
+}
+
+func currentEventRawTimes(record map[string]any) string {
+	if record == nil {
+		return ""
+	}
+
+	keys := []string{
+		"startAt",
+		"eventOnlyComponentDisplayStartAt",
+		"distributionStartAt",
+		"closedAt",
+		"aggregateAt",
+		"distributionEndAt",
+		"eventOnlyComponentDisplayEndAt",
+	}
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		value, ok := record[key]
+		if !ok || value == nil {
+			continue
+		}
+
+		parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+	}
+
+	return strings.Join(parts, ",")
 }
 
 func collectPositiveTimestamps(record map[string]any, keys ...string) []int64 {

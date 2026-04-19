@@ -19,7 +19,7 @@ func NewVersionsHandler(masterDataSync *usecase.MasterDataSyncUsecase) *Versions
 }
 
 // ByRegion godoc
-// @Summary Get cached version.json by region
+// @Summary Get cached versions.json by region
 // @Tags system
 // @Produce json
 // @Param region path string true "Region"

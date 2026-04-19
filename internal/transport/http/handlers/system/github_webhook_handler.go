@@ -224,7 +224,7 @@ func (payload gitHubPushWebhookPayload) hasVersionFileChange() bool {
 
 	for _, filePath := range changedFiles {
 		baseName := strings.ToLower(strings.TrimSpace(path.Base(filePath)))
-		if baseName == "versions.json" || baseName == "version.json" {
+		if baseName == "versions.json" {
 			return true
 		}
 	}

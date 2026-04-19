@@ -182,7 +182,7 @@ func TestGitHubWebhookAcceptsValidSignature(t *testing.T) {
 	body := `{
 		"ref":"refs/heads/main",
 		"repository":{"name":"sekai-master-data-jp","full_name":"Sekai-World/sekai-master-data-jp","owner":{"login":"Sekai-World"}},
-		"commits":[{"modified":["data/version.json"]}]
+		"commits":[{"modified":["data/versions.json"]}]
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "push")

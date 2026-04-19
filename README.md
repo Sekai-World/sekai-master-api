@@ -113,7 +113,7 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - `MASTER_DATA_REGION_FILE_CONCURRENCY` is retained for backward-compatible configuration, but archive-based sync no longer performs per-file GitHub fetches.
 - GitHub HTTP requests support retry via `MASTER_DATA_HTTP_RETRY_COUNT` (default `3`) and `MASTER_DATA_HTTP_RETRY_BACKOFF_MS` (default `300`).
 - GitHub push webhooks can trigger region-scoped sync through `POST /api/v1/internal/github/webhooks/master-data`.
-- Webhook matching uses configured region source `owner + repo + ref`; only `push` events with changed `versions.json` or `version.json` trigger sync.
+- Webhook matching uses configured region source `owner + repo + ref`; only `push` events with changed `versions.json` trigger sync.
 - Set `MASTER_DATA_GITHUB_WEBHOOK_SECRET` to validate `X-Hub-Signature-256`. If left empty, signature validation is skipped.
 - Each region can point to a different repository/ref/path.
 - Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
