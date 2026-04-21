@@ -294,6 +294,9 @@ Useful checks:
 Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `grafana`, `loki`, `tempo`, `prometheus`, `otel-collector`):
 
 - Makefile uses `docker compose` (fallback: `docker-compose`)
+- default compose project name is `sekai-master-api`, so OrbStack / Docker Desktop will group the local dev stack under that name
+- override with `COMPOSE_PROJECT_NAME=your-name make dev-env-up` if needed
+- if you already have a legacy local stack under the old default project name `compose`, bring it down once first to avoid port conflicts
 
 - `make dev-env-up`
 - `make dev-env-logs`
