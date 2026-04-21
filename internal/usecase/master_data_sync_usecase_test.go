@@ -306,6 +306,28 @@ type fakeSyncStatusStore struct {
 	stableByZone  map[string]masterdata.SyncStatus
 }
 
+type fakeSyncEventPublisher struct {
+	mu     sync.Mutex
+	events []masterdata.SyncUpdatedEvent
+}
+
+func (publisher *fakeSyncEventPublisher) PublishMasterDataUpdated(_ context.Context, event masterdata.SyncUpdatedEvent) error {
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+
+	publisher.events = append(publisher.events, event)
+	return nil
+}
+
+func (publisher *fakeSyncEventPublisher) listEvents() []masterdata.SyncUpdatedEvent {
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+
+	items := make([]masterdata.SyncUpdatedEvent, 0, len(publisher.events))
+	items = append(items, publisher.events...)
+	return items
+}
+
 func newFakeSyncStatusStore(seed []masterdata.SyncStatus) *fakeSyncStatusStore {
 	store := &fakeSyncStatusStore{
 		byZone:        make(map[string]masterdata.SyncStatus),
@@ -413,6 +435,29 @@ func (store *fakeSyncStatusStore) savedByRegion(region string) []masterdata.Sync
 	return items
 }
 
+func containsSyncProgressEvent(events []masterdata.SyncUpdatedEvent, region string, status string, phase string, message string) bool {
+	for _, event := range events {
+		if strings.TrimSpace(event.Event) != "master_data_sync_progress" {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(event.Region), strings.TrimSpace(region)) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(event.Status), strings.TrimSpace(status)) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(event.Phase), strings.TrimSpace(phase)) {
+			continue
+		}
+		if strings.TrimSpace(event.Message) != strings.TrimSpace(message) {
+			continue
+		}
+		return true
+	}
+
+	return false
+}
+
 func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
@@ -461,6 +506,52 @@ func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 	}
 	if latest.Status != "success" {
 		t.Fatalf("expected status to remain success, got %s", latest.Status)
+	}
+}
+
+func TestSyncAllLocalBackupRestoreOnCommitUnchangedPublishesIntermediateProgress(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    2,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "same-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "same-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
+			},
+		},
+	}
+	cache := &fakeSyncCache{rebuildFromRedisOK: false}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	publisher := &fakeSyncEventPublisher{}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "same-commit", map[string]any{
+		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+	usecase.backupStore = backupStore
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	events := publisher.listEvents()
+	if !containsSyncProgressEvent(events, "jp", "running", "cache", "restoring cache from local backup") {
+		t.Fatalf("expected running cache progress event for local backup restore")
+	}
+	if !containsSyncProgressEvent(events, "jp", "success", "compare", "commit unchanged, restored cache from local backup and skipped sync") {
+		t.Fatalf("expected success compare event for local backup restore")
 	}
 }
 
@@ -937,6 +1028,9 @@ func TestSyncAllRestoresFromLocalBackupWhenStatusMissingInDevelopment(t *testing
 		resolvedByZone: map[string]string{"jp": "remote-commit"},
 		payloadByZone: map[string]map[string]any{
 			"jp": {
+				"data/versions.json": map[string]any{
+					"dataVersion": "20260421",
+				},
 				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
 			},
 		},
@@ -951,6 +1045,9 @@ func TestSyncAllRestoresFromLocalBackupWhenStatusMissingInDevelopment(t *testing
 	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
 		"cards.json":  []any{map[string]any{"id": 99, "prefix": "from-local"}},
 		"skills.json": []any{map[string]any{"id": 100, "name": "from-local-skill"}},
+		"data/versions.json": map[string]any{
+			"dataVersion": "20260421",
+		},
 	}); err != nil {
 		t.Fatalf("save local backup: %v", err)
 	}
@@ -963,8 +1060,8 @@ func TestSyncAllRestoresFromLocalBackupWhenStatusMissingInDevelopment(t *testing
 	if loader.resolveCalls != 0 {
 		t.Fatalf("expected remote compare to be skipped, got resolveCalls=%d", loader.resolveCalls)
 	}
-	if loader.loadCalls != 0 {
-		t.Fatalf("expected remote load to be skipped, got loadCalls=%d", loader.loadCalls)
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected one remote versions compare load, got loadCalls=%d", loader.loadCalls)
 	}
 	if cache.storeCalls != 1 {
 		t.Fatalf("expected one cache store from local backup, got %d", cache.storeCalls)
@@ -980,8 +1077,108 @@ func TestSyncAllRestoresFromLocalBackupWhenStatusMissingInDevelopment(t *testing
 	if latest.SourceCommit != "local-commit" {
 		t.Fatalf("expected restored commit local-commit, got %s", latest.SourceCommit)
 	}
-	if latest.FileCount != 2 {
-		t.Fatalf("expected restored file_count=2, got %d", latest.FileCount)
+	if latest.FileCount != 3 {
+		t.Fatalf("expected restored file_count=3, got %d", latest.FileCount)
+	}
+}
+
+func TestSyncAllFallsBackToRemoteSyncWhenLocalBackupVersionsMismatchInDevelopment(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "remote-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"data/versions.json": map[string]any{
+					"dataVersion": "20260422",
+				},
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
+			},
+		},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore(nil)
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	usecase.EnableDevelopmentBackupBootstrap(true)
+
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
+		"data/versions.json": map[string]any{
+			"dataVersion": "20260421",
+		},
+		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+	usecase.backupStore = backupStore
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.resolveCalls != 1 {
+		t.Fatalf("expected remote compare to run after mismatch, got resolveCalls=%d", loader.resolveCalls)
+	}
+	if loader.loadCalls != 2 {
+		t.Fatalf("expected one versions compare load + one remote sync load, got loadCalls=%d", loader.loadCalls)
+	}
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected one cache store from remote payload, got %d", cache.storeCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected latest status for jp")
+	}
+	if latest.SourceCommit != "remote-commit" {
+		t.Fatalf("expected remote commit remote-commit, got %s", latest.SourceCommit)
+	}
+}
+
+func TestSyncAllBootstrapLocalBackupRestorePublishesIntermediateProgress(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "remote-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"data/versions.json": map[string]any{
+					"dataVersion": "20260421",
+				},
+			},
+		},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore(nil)
+	publisher := &fakeSyncEventPublisher{}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
+	usecase.EnableDevelopmentBackupBootstrap(true)
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
+		"data/versions.json": map[string]any{
+			"dataVersion": "20260421",
+		},
+		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+	usecase.backupStore = backupStore
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	events := publisher.listEvents()
+	if !containsSyncProgressEvent(events, "jp", "running", "bootstrap", "comparing local versions.json with remote") {
+		t.Fatalf("expected bootstrap compare progress event")
+	}
+	if !containsSyncProgressEvent(events, "jp", "running", "cache", "restoring cache from local backup") {
+		t.Fatalf("expected running cache progress event")
+	}
+	if !containsSyncProgressEvent(events, "jp", "success", "bootstrap", "database status missing, restored cache from local backup") {
+		t.Fatalf("expected bootstrap success event")
 	}
 }
 

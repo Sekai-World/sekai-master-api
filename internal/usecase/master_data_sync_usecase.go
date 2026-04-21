@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -456,6 +457,19 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 										UpdatedAt:   now,
 									})
 								} else if backupFound {
+									usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+										Event:          "master_data_sync_progress",
+										Status:         "running",
+										Region:         source.Region,
+										Phase:          "cache",
+										Message:        "restoring cache from local backup",
+										CurrentStep:    step,
+										TotalSteps:     totalSteps,
+										FileCount:      len(backupPayload),
+										ProcessedFiles: 0,
+										TotalFiles:     len(backupPayload),
+										UpdatedAt:      time.Now().UTC(),
+									})
 									if cacheErr := usecase.cache.StoreRegion(regionCtx, source.Region, backupPayload); cacheErr != nil {
 										usecase.logf("sync compare region=%s commit=%s local_backup=restore_failed error=%v", source.Region, resolvedCommit, cacheErr)
 										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
@@ -469,6 +483,19 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 											UpdatedAt:   now,
 										})
 									} else {
+										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+											Event:          "master_data_sync_progress",
+											Status:         "running",
+											Region:         source.Region,
+											Phase:          "cache",
+											Message:        "local backup cache restore completed",
+											CurrentStep:    step,
+											TotalSteps:     totalSteps,
+											FileCount:      len(backupPayload),
+											ProcessedFiles: len(backupPayload),
+											TotalFiles:     len(backupPayload),
+											UpdatedAt:      time.Now().UTC(),
+										})
 										usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s index=restored_from_local_backup", source.Region, resolvedCommit)
 										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 											Event:       "master_data_sync_progress",
@@ -1148,9 +1175,78 @@ func (usecase *MasterDataSyncUsecase) restoreRegionFromLatestLocalBackup(ctx con
 		return false, nil
 	}
 
+	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+		Event:       "master_data_sync_progress",
+		Status:      "running",
+		Region:      source.Region,
+		Phase:       "bootstrap",
+		Message:     "comparing local versions.json with remote",
+		CurrentStep: currentStep,
+		TotalSteps:  totalSteps,
+		UpdatedAt:   time.Now().UTC(),
+	})
+
+	canRestore, reason, compareErr := usecase.canRestoreFromLocalBackupByVersions(ctx, source, backupPayload)
+	if compareErr != nil {
+		usecase.logf("sync bootstrap local backup compare failed region=%s reason=%s error=%v", source.Region, reason, compareErr)
+		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+			Event:       "master_data_sync_progress",
+			Status:      "running",
+			Region:      source.Region,
+			Phase:       "bootstrap",
+			Message:     "local versions.json compare failed, fallback to remote sync",
+			CurrentStep: currentStep,
+			TotalSteps:  totalSteps,
+			UpdatedAt:   time.Now().UTC(),
+		})
+		return false, nil
+	}
+	if !canRestore {
+		usecase.logf("sync bootstrap local backup skipped region=%s reason=%s", source.Region, reason)
+		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+			Event:       "master_data_sync_progress",
+			Status:      "running",
+			Region:      source.Region,
+			Phase:       "bootstrap",
+			Message:     "local versions.json mismatch remote, fallback to remote sync",
+			CurrentStep: currentStep,
+			TotalSteps:  totalSteps,
+			UpdatedAt:   time.Now().UTC(),
+		})
+		return false, nil
+	}
+
+	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+		Event:          "master_data_sync_progress",
+		Status:         "running",
+		Region:         source.Region,
+		Phase:          "cache",
+		Message:        "restoring cache from local backup",
+		CurrentStep:    currentStep,
+		TotalSteps:     totalSteps,
+		FileCount:      len(backupPayload),
+		ProcessedFiles: 0,
+		TotalFiles:     len(backupPayload),
+		UpdatedAt:      time.Now().UTC(),
+	})
+
 	if err := usecase.cache.StoreRegion(ctx, source.Region, backupPayload); err != nil {
 		return false, fmt.Errorf("restore latest backup payload: %w", err)
 	}
+
+	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+		Event:          "master_data_sync_progress",
+		Status:         "running",
+		Region:         source.Region,
+		Phase:          "cache",
+		Message:        "local backup cache restore completed",
+		CurrentStep:    currentStep,
+		TotalSteps:     totalSteps,
+		FileCount:      len(backupPayload),
+		ProcessedFiles: len(backupPayload),
+		TotalFiles:     len(backupPayload),
+		UpdatedAt:      time.Now().UTC(),
+	})
 
 	if restoredAt.IsZero() {
 		restoredAt = time.Now().UTC()
@@ -1185,6 +1281,77 @@ func (usecase *MasterDataSyncUsecase) restoreRegionFromLatestLocalBackup(ctx con
 	})
 
 	return true, nil
+}
+
+func (usecase *MasterDataSyncUsecase) canRestoreFromLocalBackupByVersions(ctx context.Context, source masterdata.Source, backupPayload map[string]any) (bool, string, error) {
+	localVersion, localFound := versionPayloadFromBackup(source, backupPayload)
+	if !localFound {
+		return false, "local_versions_missing", nil
+	}
+
+	remoteVersion, remoteFound, err := usecase.loadRemoteVersionPayload(ctx, source)
+	if err != nil {
+		return false, "remote_versions_load_failed", err
+	}
+	if !remoteFound {
+		return false, "remote_versions_missing", nil
+	}
+
+	matched, err := jsonValuesEqual(localVersion, remoteVersion)
+	if err != nil {
+		return false, "versions_compare_failed", err
+	}
+	if !matched {
+		return false, "versions_mismatch", nil
+	}
+
+	return true, "versions_matched", nil
+}
+
+func (usecase *MasterDataSyncUsecase) loadRemoteVersionPayload(ctx context.Context, source masterdata.Source) (any, bool, error) {
+	if usecase.loader == nil {
+		return nil, false, errors.New("source loader is not configured")
+	}
+
+	versionSource := source
+	versionSource.Path = versionsSourcePath(source)
+	payload, err := usecase.loader.LoadRegion(ctx, versionSource)
+	if err != nil {
+		return nil, false, err
+	}
+
+	version, found := versionPayloadFromBackup(source, payload)
+	if !found {
+		return nil, false, nil
+	}
+
+	return version, true, nil
+}
+
+func versionsSourcePath(source masterdata.Source) string {
+	trimmedPath := strings.Trim(strings.TrimSpace(source.Path), "/")
+	if trimmedPath == "" {
+		return "versions.json"
+	}
+	if strings.EqualFold(path.Base(trimmedPath), "versions.json") {
+		return trimmedPath
+	}
+
+	return path.Join(trimmedPath, "versions.json")
+}
+
+func jsonValuesEqual(left any, right any) (bool, error) {
+	leftBytes, err := json.Marshal(left)
+	if err != nil {
+		return false, err
+	}
+
+	rightBytes, err := json.Marshal(right)
+	if err != nil {
+		return false, err
+	}
+
+	return bytes.Equal(leftBytes, rightBytes), nil
 }
 
 func (usecase *MasterDataSyncUsecase) fallbackToPreviousAvailableState(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, fallbackAt time.Time) error {
