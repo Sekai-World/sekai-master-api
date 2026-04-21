@@ -1,6 +1,7 @@
 APP_NAME=sekai-master-api
 COMPOSE_FILE=deploy/compose/dev-compose.yaml
 COMPOSE_FILE_ABS := $(abspath $(COMPOSE_FILE))
+COMPOSE_PROJECT_ARG = -p "$${COMPOSE_PROJECT_NAME:-$(APP_NAME)}"
 WORKSPACE_DIR := $(abspath .)
 APP_PORT ?= 8080
 KEYCLOAK_PORT ?= 18081
@@ -163,7 +164,7 @@ dev-env-up:
 	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build --remove-orphans
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) up -d --build --remove-orphans
 
 dev-env-down:
 	@set -a; \
@@ -173,7 +174,7 @@ dev-env-down:
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
 	$(MAKE) dev-down; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down --remove-orphans
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) down --remove-orphans
 
 dev-env-down-purge:
 	@set -a; \
@@ -183,7 +184,7 @@ dev-env-down-purge:
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
 	$(MAKE) dev-down; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) down -v --remove-orphans
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) down -v --remove-orphans
 
 dev-env-logs:
 	@set -a; \
@@ -192,7 +193,7 @@ dev-env-logs:
 	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) logs -f
 
 keycloak-up:
 	@set -a; \
@@ -201,7 +202,7 @@ keycloak-up:
 	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) up -d --build keycloak
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) up -d --build keycloak
 
 keycloak-down:
 	@set -a; \
@@ -210,8 +211,8 @@ keycloak-down:
 	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) stop keycloak; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) rm -f keycloak
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) stop keycloak; \
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) rm -f keycloak
 
 keycloak-logs:
 	@set -a; \
@@ -220,7 +221,7 @@ keycloak-logs:
 	if [ -f "./.env.local" ]; then . "./.env.local"; fi; \
 	if [ -f "./.env.development.local" ]; then . "./.env.development.local"; fi; \
 	set +a; \
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE_ABS) logs -f keycloak
+	$(COMPOSE_CMD) $(COMPOSE_PROJECT_ARG) -f $(COMPOSE_FILE_ABS) logs -f keycloak
 
 keycloak-token:
 	@set -a; \
