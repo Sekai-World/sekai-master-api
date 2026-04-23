@@ -84,7 +84,7 @@ func NewGitHubWebhookHandler(
 // @Param X-GitHub-Event header string true "GitHub event type"
 // @Param X-Hub-Signature-256 header string false "GitHub HMAC SHA-256 signature"
 // @Param payload body map[string]interface{} true "GitHub webhook payload"
-// @Success 202 {object} map[string]interface{}
+// @Success 202 {object} shared.GitHubWebhookResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 401 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse

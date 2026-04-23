@@ -84,7 +84,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 // @Tags cards
 // @Produce json
 // @Param id path string true "Card ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.RegionAvailabilityResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -116,7 +116,7 @@ func (handler *CardHandler) AvailableRegionsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} shared.CardObjectResponse
+// @Success 200 {object} shared.CardParamsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -157,7 +157,7 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} shared.CardListResponse
+// @Success 200 {object} shared.RecordItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse

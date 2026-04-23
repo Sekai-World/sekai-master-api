@@ -43,7 +43,7 @@ func NewMusicHandler(masterDataSync *usecase.MasterDataSyncUsecase) *MusicHandle
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Music ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.MusicObjectResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -83,7 +83,7 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 // @Tags musics
 // @Produce json
 // @Param id path string true "Music ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.RegionAvailabilityResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -122,7 +122,7 @@ func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param limit query int false "Max results"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.MusicListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -252,7 +252,7 @@ func (handler *MusicHandler) Search(c *gin.Context) {
 // @Param page_size query int false "Page size"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.MusicListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse

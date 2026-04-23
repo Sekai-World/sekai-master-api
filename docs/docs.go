@@ -296,8 +296,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.RegionAvailabilityResponse"
                         }
                     },
                     "400": {
@@ -562,7 +561,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.CardListResponse"
+                            "$ref": "#/definitions/shared.RecordItemsResponse"
                         }
                     },
                     "400": {
@@ -621,7 +620,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.CardObjectResponse"
+                            "$ref": "#/definitions/shared.CardParamsResponse"
                         }
                     },
                     "400": {
@@ -673,8 +672,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.RegionAvailabilityResponse"
                         }
                     },
                     "400": {
@@ -720,8 +718,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.EventObjectResponse"
                         }
                     },
                     "400": {
@@ -797,8 +794,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.EventListResponse"
                         }
                     },
                     "400": {
@@ -881,8 +877,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.EventListResponse"
                         }
                     },
                     "400": {
@@ -935,8 +930,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.EventObjectResponse"
                         }
                     },
                     "400": {
@@ -995,8 +989,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.EventBonusesResponse"
                         }
                     },
                     "400": {
@@ -1055,8 +1048,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.GenericObjectResponse"
                         }
                     },
                     "400": {
@@ -1115,8 +1107,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.RecordItemsResponse"
                         }
                     },
                     "400": {
@@ -1175,8 +1166,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.RecordItemsResponse"
                         }
                     },
                     "400": {
@@ -1235,8 +1225,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.GenericItemsResponse"
                         }
                     },
                     "400": {
@@ -1326,8 +1315,7 @@ const docTemplate = `{
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.GitHubWebhookResponse"
                         }
                     },
                     "400": {
@@ -1373,8 +1361,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.RegionAvailabilityResponse"
                         }
                     },
                     "400": {
@@ -1444,8 +1431,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.MusicListResponse"
                         }
                     },
                     "400": {
@@ -1539,8 +1525,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.MusicListResponse"
                         }
                     },
                     "400": {
@@ -1593,8 +1578,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.MusicObjectResponse"
                         }
                     },
                     "400": {
@@ -1698,8 +1682,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.RegionAvailabilityResponse"
                         }
                     },
                     "400": {
@@ -1769,8 +1752,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.VirtualLiveListResponse"
                         }
                     },
                     "400": {
@@ -1853,8 +1835,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.VirtualLiveListResponse"
                         }
                     },
                     "400": {
@@ -1907,8 +1888,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.VirtualLiveObjectResponse"
                         }
                     },
                     "400": {
@@ -1967,8 +1947,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.GenericItemsResponse"
                         }
                     },
                     "400": {
@@ -2027,8 +2006,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.GenericItemsResponse"
                         }
                     },
                     "400": {
@@ -2087,8 +2065,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.GenericItemsResponse"
                         }
                     },
                     "400": {
@@ -2247,6 +2224,16 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.CardParamsResponse": {
+            "type": "object",
+            "properties": {
+                "cardParameters": {},
+                "id": {},
+                "specialTrainingPower1BonusFixed": {},
+                "specialTrainingPower2BonusFixed": {},
+                "specialTrainingPower3BonusFixed": {}
+            }
+        },
         "shared.CardRarityResponse": {
             "type": "object",
             "additionalProperties": {}
@@ -2278,6 +2265,94 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.EventBonusesResponse": {
+            "type": "object",
+            "properties": {
+                "eventCardBonusLimits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "eventDeckBonuses": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "eventHonorBonuses": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "eventMysekaiFixtureGameCharacterPerformanceBonusLimits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "eventRarityBonusRates": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            }
+        },
+        "shared.EventListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventObjectResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.EventObjectResponse": {
+            "type": "object",
+            "additionalProperties": {}
+        },
+        "shared.GenericItemsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {}
+                }
+            }
+        },
+        "shared.GenericObjectResponse": {
+            "type": "object",
+            "additionalProperties": {}
+        },
+        "shared.GitHubWebhookResponse": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "example": "unsupported_event"
+                },
+                "region": {
+                    "type": "string",
+                    "example": "jp"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "accepted"
+                }
+            }
+        },
         "shared.HealthResponse": {
             "type": "object",
             "properties": {
@@ -2304,6 +2379,9 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "startup_ready": {
+                    "type": "boolean"
+                },
                 "status": {
                     "type": "string"
                 },
@@ -2327,6 +2405,9 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "startup_ready": {
+                    "type": "boolean"
+                },
                 "status": {
                     "type": "string"
                 },
@@ -2349,6 +2430,44 @@ const docTemplate = `{
                 "dataVersion": {
                     "type": "string",
                     "example": "20260423"
+                }
+            }
+        },
+        "shared.MusicListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicObjectResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MusicObjectResponse": {
+            "type": "object",
+            "additionalProperties": {}
+        },
+        "shared.PaginationResponse": {
+            "type": "object",
+            "properties": {
+                "has_next": {
+                    "type": "boolean"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
                 }
             }
         },
@@ -2400,7 +2519,48 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.RecordItemsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            }
+        },
+        "shared.RegionAvailabilityResponse": {
+            "type": "object",
+            "properties": {
+                "regions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "shared.SkillResponse": {
+            "type": "object",
+            "additionalProperties": {}
+        },
+        "shared.VirtualLiveListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveObjectResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.VirtualLiveObjectResponse": {
             "type": "object",
             "additionalProperties": {}
         }
