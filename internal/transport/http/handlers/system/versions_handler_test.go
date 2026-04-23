@@ -15,10 +15,15 @@ import (
 )
 
 type fakeVersionsBackupStore struct {
-	payload map[string]any
-	found   bool
-	err     error
-	source  masterdata.Source
+	payload                map[string]any
+	versionPayload         any
+	found                  bool
+	versionFound           bool
+	err                    error
+	versionErr             error
+	source                 masterdata.Source
+	loadLatestCalls        int
+	loadLatestVersionCalls int
 }
 
 func (store *fakeVersionsBackupStore) SaveRegionPayload(context.Context, masterdata.Source, string, map[string]any) error {
@@ -31,7 +36,14 @@ func (store *fakeVersionsBackupStore) LoadRegionPayload(context.Context, masterd
 
 func (store *fakeVersionsBackupStore) LoadLatestRegionPayload(_ context.Context, source masterdata.Source) (map[string]any, string, time.Time, bool, error) {
 	store.source = source
+	store.loadLatestCalls++
 	return store.payload, "commit", time.Now().UTC(), store.found, store.err
+}
+
+func (store *fakeVersionsBackupStore) LoadLatestRegionVersionPayload(_ context.Context, source masterdata.Source) (any, string, time.Time, bool, error) {
+	store.source = source
+	store.loadLatestVersionCalls++
+	return store.versionPayload, "commit", time.Now().UTC(), store.versionFound, store.versionErr
 }
 
 func TestVersionsByRegionReturnsCachedVersionPayload(t *testing.T) {
@@ -41,12 +53,10 @@ func TestVersionsByRegionReturnsCachedVersionPayload(t *testing.T) {
 		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
 	}, nil, nil, nil, nil, 1)
 	backupStore := &fakeVersionsBackupStore{
-		found: true,
-		payload: map[string]any{
-			"data/versions.json": map[string]any{
-				"appVersion":  "3.2.1",
-				"dataVersion": "20260419",
-			},
+		versionFound: true,
+		versionPayload: map[string]any{
+			"appVersion":  "3.2.1",
+			"dataVersion": "20260419",
 		},
 	}
 	syncUsecase.SetBackupStore(backupStore)
@@ -73,6 +83,12 @@ func TestVersionsByRegionReturnsCachedVersionPayload(t *testing.T) {
 	}
 	if backupStore.source.Region != "jp" {
 		t.Fatalf("expected source region jp, got %s", backupStore.source.Region)
+	}
+	if backupStore.loadLatestCalls != 0 {
+		t.Fatalf("expected no full payload load, got %d", backupStore.loadLatestCalls)
+	}
+	if backupStore.loadLatestVersionCalls != 1 {
+		t.Fatalf("expected one version-only load, got %d", backupStore.loadLatestVersionCalls)
 	}
 }
 

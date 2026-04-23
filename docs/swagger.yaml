@@ -146,6 +146,18 @@ definitions:
       sync_running:
         type: boolean
     type: object
+  shared.MasterDataVersionsResponse:
+    properties:
+      appVersion:
+        example: 3.2.1
+        type: string
+      assetVersion:
+        example: "20260423"
+        type: string
+      dataVersion:
+        example: "20260423"
+        type: string
+    type: object
   shared.ProfileAuthDebug:
     properties:
       admin_claim:
@@ -1255,8 +1267,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.MasterDataVersionsResponse'
         "400":
           description: Bad Request
           schema:

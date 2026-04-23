@@ -1646,8 +1646,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/shared.MasterDataVersionsResponse"
                         }
                     },
                     "400": {
@@ -2333,6 +2332,23 @@ const docTemplate = `{
                 },
                 "sync_running": {
                     "type": "boolean"
+                }
+            }
+        },
+        "shared.MasterDataVersionsResponse": {
+            "type": "object",
+            "properties": {
+                "appVersion": {
+                    "type": "string",
+                    "example": "3.2.1"
+                },
+                "assetVersion": {
+                    "type": "string",
+                    "example": "20260423"
+                },
+                "dataVersion": {
+                    "type": "string",
+                    "example": "20260423"
                 }
             }
         },

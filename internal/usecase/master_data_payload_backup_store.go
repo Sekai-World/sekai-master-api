@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -127,36 +128,43 @@ func (store *fileMasterDataPayloadBackupStore) LoadLatestRegionPayload(_ context
 	return payload, strings.TrimSpace(snapshot.Commit), snapshot.UpdatedAt, true, nil
 }
 
-func (store *fileMasterDataPayloadBackupStore) loadRegionPayload(source masterdata.Source, match func(snapshot backupSnapshot) bool) (map[string]any, backupSnapshot, bool, error) {
-	region := strings.TrimSpace(source.Region)
-	if region == "" {
-		return nil, backupSnapshot{}, false, nil
+func (store *fileMasterDataPayloadBackupStore) LoadLatestRegionVersionPayload(_ context.Context, source masterdata.Source) (any, string, time.Time, bool, error) {
+	snapshot, found, err := store.loadSnapshot(source, func(snapshot backupSnapshot) bool {
+		return true
+	})
+	if err != nil || !found {
+		return nil, "", time.Time{}, found, err
 	}
 
-	body, err := os.ReadFile(store.metaFilePath(region))
+	relPath, found := versionSnapshotPath(source, snapshot.Files)
+	if !found {
+		return nil, "", time.Time{}, false, nil
+	}
+
+	filePath := filepath.Join(store.regionDir(strings.TrimSpace(source.Region)), "latest", filepath.FromSlash(relPath))
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, backupSnapshot{}, false, nil
+			return nil, "", time.Time{}, false, nil
 		}
-		return nil, backupSnapshot{}, false, fmt.Errorf("read backup snapshot: %w", err)
+		return nil, "", time.Time{}, false, fmt.Errorf("read backup file %s: %w", relPath, err)
 	}
 
-	var snapshot backupSnapshot
-	if err := json.Unmarshal(body, &snapshot); err != nil {
-		return nil, backupSnapshot{}, false, fmt.Errorf("decode backup snapshot: %w", err)
+	var value any
+	if err := json.Unmarshal(content, &value); err != nil {
+		return nil, "", time.Time{}, false, fmt.Errorf("decode backup file %s: %w", relPath, err)
 	}
 
-	if !sameSource(snapshot.Source, source) {
-		return nil, backupSnapshot{}, false, nil
-	}
-	if match != nil && !match(snapshot) {
-		return nil, backupSnapshot{}, false, nil
-	}
-	if len(snapshot.Files) == 0 {
-		return nil, backupSnapshot{}, false, nil
+	return value, strings.TrimSpace(snapshot.Commit), snapshot.UpdatedAt, true, nil
+}
+
+func (store *fileMasterDataPayloadBackupStore) loadRegionPayload(source masterdata.Source, match func(snapshot backupSnapshot) bool) (map[string]any, backupSnapshot, bool, error) {
+	snapshot, found, err := store.loadSnapshot(source, match)
+	if err != nil || !found {
+		return nil, backupSnapshot{}, found, err
 	}
 
-	latestDir := filepath.Join(store.regionDir(region), "latest")
+	latestDir := filepath.Join(store.regionDir(strings.TrimSpace(source.Region)), "latest")
 	payload := make(map[string]any, len(snapshot.Files))
 	for _, relPath := range snapshot.Files {
 		if _, ok := normalizeJSONRelativePath(relPath); !ok {
@@ -185,6 +193,38 @@ func (store *fileMasterDataPayloadBackupStore) loadRegionPayload(source masterda
 	}
 
 	return payload, snapshot, true, nil
+}
+
+func (store *fileMasterDataPayloadBackupStore) loadSnapshot(source masterdata.Source, match func(snapshot backupSnapshot) bool) (backupSnapshot, bool, error) {
+	region := strings.TrimSpace(source.Region)
+	if region == "" {
+		return backupSnapshot{}, false, nil
+	}
+
+	body, err := os.ReadFile(store.metaFilePath(region))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return backupSnapshot{}, false, nil
+		}
+		return backupSnapshot{}, false, fmt.Errorf("read backup snapshot: %w", err)
+	}
+
+	var snapshot backupSnapshot
+	if err := json.Unmarshal(body, &snapshot); err != nil {
+		return backupSnapshot{}, false, fmt.Errorf("decode backup snapshot: %w", err)
+	}
+
+	if !sameSource(snapshot.Source, source) {
+		return backupSnapshot{}, false, nil
+	}
+	if match != nil && !match(snapshot) {
+		return backupSnapshot{}, false, nil
+	}
+	if len(snapshot.Files) == 0 {
+		return backupSnapshot{}, false, nil
+	}
+
+	return snapshot, true, nil
 }
 
 func (store *fileMasterDataPayloadBackupStore) regionDir(region string) string {
@@ -244,4 +284,31 @@ func sameSource(left masterdata.Source, right masterdata.Source) bool {
 		strings.TrimSpace(left.Repo) == strings.TrimSpace(right.Repo) &&
 		strings.TrimSpace(left.Ref) == strings.TrimSpace(right.Ref) &&
 		strings.TrimSpace(left.Path) == strings.TrimSpace(right.Path)
+}
+
+func versionSnapshotPath(source masterdata.Source, files []string) (string, bool) {
+	candidates := []string{"versions.json"}
+	if trimmedPath := strings.Trim(strings.TrimSpace(source.Path), "/"); trimmedPath != "" {
+		candidates = append([]string{path.Join(trimmedPath, "versions.json")}, candidates...)
+	}
+
+	for _, candidate := range candidates {
+		normalized, ok := normalizeJSONRelativePath(candidate)
+		if !ok {
+			continue
+		}
+		for _, file := range files {
+			if normalized == file {
+				return file, true
+			}
+		}
+	}
+
+	for _, file := range files {
+		if strings.EqualFold(path.Base(strings.TrimSpace(file)), "versions.json") {
+			return file, true
+		}
+	}
+
+	return "", false
 }

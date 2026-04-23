@@ -23,7 +23,7 @@ func NewVersionsHandler(masterDataSync *usecase.MasterDataSyncUsecase) *Versions
 // @Tags system
 // @Produce json
 // @Param region path string true "Region"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.MasterDataVersionsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
