@@ -70,6 +70,10 @@ type MasterDataPayloadBackupStore interface {
 	LoadLatestRegionPayload(ctx context.Context, source masterdata.Source) (map[string]any, string, time.Time, bool, error)
 }
 
+type MasterDataVersionBackupStore interface {
+	LoadLatestRegionVersionPayload(ctx context.Context, source masterdata.Source) (any, string, time.Time, bool, error)
+}
+
 type MasterDataSyncUsecase struct {
 	sources                             []masterdata.Source
 	loader                              MasterDataSourceLoader
@@ -891,6 +895,13 @@ func (usecase *MasterDataSyncUsecase) VersionByRegion(ctx context.Context, regio
 	source, found := usecase.sourceByRegion(region)
 	if !found {
 		return nil, false, nil
+	}
+
+	if versionStore, ok := usecase.backupStore.(MasterDataVersionBackupStore); ok {
+		version, _, _, versionFound, err := versionStore.LoadLatestRegionVersionPayload(ctx, source)
+		if err != nil || versionFound {
+			return version, versionFound, err
+		}
 	}
 
 	payload, _, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)

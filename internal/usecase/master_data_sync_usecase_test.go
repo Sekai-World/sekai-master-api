@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1498,6 +1500,50 @@ func TestSyncAllRateLimitWithoutPreviousStatusFails(t *testing.T) {
 	}
 	if !strings.EqualFold(latest.Status, "failed") {
 		t.Fatalf("expected failed status, got %s", latest.Status)
+	}
+}
+
+func TestVersionByRegionReadsVersionPayloadWithoutLoadingWholeBackup(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "commit-1", map[string]any{
+		"data/versions.json": map[string]any{
+			"appVersion":  "3.2.1",
+			"dataVersion": "20260423",
+		},
+		"cards.json": []any{map[string]any{"id": 1}},
+	}); err != nil {
+		t.Fatalf("save backup payload: %v", err)
+	}
+
+	store, ok := backupStore.(*fileMasterDataPayloadBackupStore)
+	if !ok {
+		t.Fatalf("expected file backup store")
+	}
+
+	corruptedPath := filepath.Join(store.regionDir(source.Region), "latest", "cards.json")
+	if err := os.WriteFile(corruptedPath, []byte("{"), 0o644); err != nil {
+		t.Fatalf("corrupt non-version backup file: %v", err)
+	}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, nil, nil, nil, 1)
+	usecase.SetBackupStore(backupStore)
+
+	version, found, err := usecase.VersionByRegion(context.Background(), "jp")
+	if err != nil {
+		t.Fatalf("expected version lookup success, got %v", err)
+	}
+	if !found {
+		t.Fatalf("expected version to be found")
+	}
+
+	versionMap, ok := version.(map[string]any)
+	if !ok {
+		t.Fatalf("expected version payload map, got %T", version)
+	}
+	if versionMap["appVersion"] != "3.2.1" {
+		t.Fatalf("expected appVersion 3.2.1, got %v", versionMap["appVersion"])
 	}
 }
 

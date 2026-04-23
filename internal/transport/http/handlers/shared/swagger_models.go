@@ -16,6 +16,12 @@ type HealthResponse struct {
 	Database string `json:"database"`
 }
 
+type MasterDataVersionsResponse struct {
+	AppVersion   string `json:"appVersion,omitempty" example:"3.2.1"`
+	DataVersion  string `json:"dataVersion,omitempty" example:"20260423"`
+	AssetVersion string `json:"assetVersion,omitempty" example:"20260423"`
+}
+
 type CardSupplyResponse map[string]any
 
 type SkillResponse map[string]any
