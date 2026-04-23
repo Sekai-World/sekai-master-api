@@ -40,7 +40,7 @@ func NewEventHandler(masterDataSync *usecase.MasterDataSyncUsecase) *EventHandle
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.EventObjectResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -80,7 +80,7 @@ func (handler *EventHandler) ByID(c *gin.Context) {
 // @Tags events
 // @Produce json
 // @Param id path string true "Event ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.RegionAvailabilityResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -111,7 +111,7 @@ func (handler *EventHandler) AvailableRegionsByID(c *gin.Context) {
 // @Tags events
 // @Produce json
 // @Param region path string true "Region"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.EventObjectResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -151,7 +151,7 @@ func (handler *EventHandler) Current(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.GenericObjectResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -211,7 +211,7 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param page_size query int false "Page size"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.EventListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -308,7 +308,7 @@ func (handler *EventHandler) List(c *gin.Context) {
 // @Param limit query int false "Max results"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.EventListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -441,7 +441,7 @@ func (handler *EventHandler) Search(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.GenericItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -492,7 +492,7 @@ func (handler *EventHandler) RewardsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.RecordItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -513,7 +513,7 @@ func (handler *EventHandler) MusicsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.RecordItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -534,7 +534,7 @@ func (handler *EventHandler) CardsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.EventBonusesResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse

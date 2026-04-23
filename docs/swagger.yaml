@@ -88,6 +88,14 @@ definitions:
       total_pages:
         type: integer
     type: object
+  shared.CardParamsResponse:
+    properties:
+      cardParameters: {}
+      id: {}
+      specialTrainingPower1BonusFixed: {}
+      specialTrainingPower2BonusFixed: {}
+      specialTrainingPower3BonusFixed: {}
+    type: object
   shared.CardRarityResponse:
     additionalProperties: {}
     type: object
@@ -109,6 +117,67 @@ definitions:
       error:
         $ref: '#/definitions/shared.ErrorBody'
     type: object
+  shared.EventBonusesResponse:
+    properties:
+      eventCardBonusLimits:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      eventDeckBonuses:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      eventHonorBonuses:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      eventMysekaiFixtureGameCharacterPerformanceBonusLimits:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      eventRarityBonusRates:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+    type: object
+  shared.EventListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.EventObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.EventObjectResponse:
+    additionalProperties: {}
+    type: object
+  shared.GenericItemsResponse:
+    properties:
+      items:
+        items: {}
+        type: array
+    type: object
+  shared.GenericObjectResponse:
+    additionalProperties: {}
+    type: object
+  shared.GitHubWebhookResponse:
+    properties:
+      reason:
+        example: unsupported_event
+        type: string
+      region:
+        example: jp
+        type: string
+      status:
+        example: accepted
+        type: string
+    type: object
   shared.HealthResponse:
     properties:
       database:
@@ -126,6 +195,8 @@ definitions:
         items:
           type: string
         type: array
+      startup_ready:
+        type: boolean
       status:
         type: string
       sync_running:
@@ -141,6 +212,8 @@ definitions:
         items:
           type: string
         type: array
+      startup_ready:
+        type: boolean
       status:
         type: string
       sync_running:
@@ -157,6 +230,31 @@ definitions:
       dataVersion:
         example: "20260423"
         type: string
+    type: object
+  shared.MusicListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MusicObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.MusicObjectResponse:
+    additionalProperties: {}
+    type: object
+  shared.PaginationResponse:
+    properties:
+      has_next:
+        type: boolean
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
     type: object
   shared.ProfileAuthDebug:
     properties:
@@ -189,7 +287,34 @@ definitions:
       username:
         type: string
     type: object
+  shared.RecordItemsResponse:
+    properties:
+      items:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+    type: object
+  shared.RegionAvailabilityResponse:
+    properties:
+      regions:
+        items:
+          type: string
+        type: array
+    type: object
   shared.SkillResponse:
+    additionalProperties: {}
+    type: object
+  shared.VirtualLiveListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.VirtualLiveObjectResponse:
     additionalProperties: {}
     type: object
 info:
@@ -416,7 +541,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.CardListResponse'
+            $ref: '#/definitions/shared.RecordItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -455,7 +580,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.CardObjectResponse'
+            $ref: '#/definitions/shared.CardParamsResponse'
         "400":
           description: Bad Request
           schema:
@@ -590,8 +715,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
         "400":
           description: Bad Request
           schema:
@@ -626,8 +750,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.EventObjectResponse'
         "400":
           description: Bad Request
           schema:
@@ -666,8 +789,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.EventBonusesResponse'
         "400":
           description: Bad Request
           schema:
@@ -706,8 +828,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.GenericObjectResponse'
         "400":
           description: Bad Request
           schema:
@@ -746,8 +867,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.RecordItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -786,8 +906,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.RecordItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -826,8 +945,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.GenericItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -861,8 +979,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.EventObjectResponse'
         "400":
           description: Bad Request
           schema:
@@ -912,8 +1029,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.EventListResponse'
         "400":
           description: Bad Request
           schema:
@@ -968,8 +1084,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.EventListResponse'
         "400":
           description: Bad Request
           schema:
@@ -999,8 +1114,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
         "400":
           description: Bad Request
           schema:
@@ -1055,8 +1169,7 @@ paths:
         "202":
           description: Accepted
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.GitHubWebhookResponse'
         "400":
           description: Bad Request
           schema:
@@ -1091,8 +1204,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.MusicObjectResponse'
         "400":
           description: Bad Request
           schema:
@@ -1142,8 +1254,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.MusicListResponse'
         "400":
           description: Bad Request
           schema:
@@ -1205,8 +1316,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.MusicListResponse'
         "400":
           description: Bad Request
           schema:
@@ -1236,8 +1346,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
         "400":
           description: Bad Request
           schema:
@@ -1306,8 +1415,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.VirtualLiveObjectResponse'
         "400":
           description: Bad Request
           schema:
@@ -1346,8 +1454,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.GenericItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -1386,8 +1493,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.GenericItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -1426,8 +1532,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.GenericItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -1477,8 +1582,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.VirtualLiveListResponse'
         "400":
           description: Bad Request
           schema:
@@ -1533,8 +1637,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.VirtualLiveListResponse'
         "400":
           description: Bad Request
           schema:
@@ -1564,8 +1667,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
         "400":
           description: Bad Request
           schema:

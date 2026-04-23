@@ -44,7 +44,7 @@ func NewVirtualLiveHandler(masterDataSync *usecase.MasterDataSyncUsecase) *Virtu
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.VirtualLiveObjectResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -85,7 +85,7 @@ func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.GenericItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -101,7 +101,7 @@ func (handler *VirtualLiveHandler) ItemsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.GenericItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -117,7 +117,7 @@ func (handler *VirtualLiveHandler) SchedulesByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.GenericItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -132,7 +132,7 @@ func (handler *VirtualLiveHandler) SetlistsByID(c *gin.Context) {
 // @Tags virtualLives
 // @Produce json
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.RegionAvailabilityResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -167,7 +167,7 @@ func (handler *VirtualLiveHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param page_size query int false "Page size"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.VirtualLiveListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
@@ -264,7 +264,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 // @Param limit query int false "Max results"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} shared.VirtualLiveListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Failure 500 {object} shared.ErrorResponse
