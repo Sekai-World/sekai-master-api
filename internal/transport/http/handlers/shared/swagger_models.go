@@ -121,12 +121,95 @@ type EventListResponse struct {
 	Pagination PaginationResponse    `json:"pagination"`
 }
 
+type ReleaseConditionResponse struct {
+	ID                   int    `json:"id,omitempty"`
+	ReleaseConditionType string `json:"releaseConditionType,omitempty"`
+	Sentence             string `json:"sentence,omitempty"`
+}
+
+type EventCardBonusLimitResponse struct {
+	EventID          int                       `json:"eventId,omitempty"`
+	MemberCountLimit int                       `json:"memberCountLimit,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type EventDeckBonusResponse struct {
+	EventID             int                       `json:"eventId,omitempty"`
+	GameCharacterUnitID int                       `json:"gameCharacterUnitId,omitempty"`
+	CardAttr            string                    `json:"cardAttr,omitempty"`
+	BonusRate           int                       `json:"bonusRate,omitempty"`
+	ReleaseCondition    *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type EventHonorBonusResponse struct {
+	EventID          int                       `json:"eventId,omitempty"`
+	HonorID          int                       `json:"honorId,omitempty"`
+	BonusRate        int                       `json:"bonusRate,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type EventMysekaiFixtureGameCharacterPerformanceBonusLimitResponse struct {
+	EventID          int                       `json:"eventId,omitempty"`
+	BonusRateLimit   int                       `json:"bonusRateLimit,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type EventRarityBonusRateResponse struct {
+	CardRarityType string `json:"cardRarityType,omitempty"`
+	MasterRank     int    `json:"masterRank,omitempty"`
+	BonusRate      int    `json:"bonusRate,omitempty"`
+}
+
+type EventRewardRangeResponse struct {
+	ID                  int                          `json:"id,omitempty"`
+	EventID             int                          `json:"eventId,omitempty"`
+	FromRank            int                          `json:"fromRank,omitempty"`
+	ToRank              int                          `json:"toRank,omitempty"`
+	IsToRankBorder      bool                         `json:"isToRankBorder,omitempty"`
+	EventRankingRewards []EventRankingRewardResponse `json:"eventRankingRewards,omitempty"`
+}
+
+type EventRankingRewardResponse struct {
+	ID                        int    `json:"id,omitempty"`
+	EventRankingRewardRangeID int    `json:"eventRankingRewardRangeId,omitempty"`
+	Seq                       int    `json:"seq,omitempty"`
+	ResourceBoxID             int    `json:"resourceBoxId,omitempty"`
+	RewardConditionType       string `json:"rewardConditionType,omitempty"`
+	ConditionValue            int    `json:"conditionValue,omitempty"`
+}
+
+type EventRewardsResponse struct {
+	Items []EventRewardRangeResponse `json:"items"`
+}
+
+type EventMusicResponse struct {
+	EventID          int                       `json:"eventId,omitempty"`
+	MusicID          int                       `json:"musicId,omitempty"`
+	Seq              int                       `json:"seq,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type EventMusicsResponse struct {
+	Items []EventMusicResponse `json:"items"`
+}
+
+type EventCardResponse struct {
+	EventID          int                       `json:"eventId,omitempty"`
+	CardID           int                       `json:"cardId,omitempty"`
+	BonusRate        int                       `json:"bonusRate,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type EventCardsResponse struct {
+	Items []EventCardResponse `json:"items"`
+}
+
 type EventBonusesResponse struct {
-	EventCardBonusLimits                                   []map[string]any `json:"eventCardBonusLimits"`
-	EventDeckBonuses                                       []map[string]any `json:"eventDeckBonuses"`
-	EventHonorBonuses                                      []map[string]any `json:"eventHonorBonuses"`
-	EventMysekaiFixtureGameCharacterPerformanceBonusLimits []map[string]any `json:"eventMysekaiFixtureGameCharacterPerformanceBonusLimits"`
-	EventRarityBonusRates                                  []map[string]any `json:"eventRarityBonusRates"`
+	EventCardBonusLimits                                   []EventCardBonusLimitResponse                                   `json:"eventCardBonusLimits"`
+	EventDeckBonuses                                       []EventDeckBonusResponse                                        `json:"eventDeckBonuses"`
+	EventHonorBonuses                                      []EventHonorBonusResponse                                       `json:"eventHonorBonuses"`
+	EventMysekaiFixtureGameCharacterPerformanceBonusLimits []EventMysekaiFixtureGameCharacterPerformanceBonusLimitResponse `json:"eventMysekaiFixtureGameCharacterPerformanceBonusLimits"`
+	EventRarityBonusRates                                  []EventRarityBonusRateResponse                                  `json:"eventRarityBonusRates"`
 }
 
 type VirtualLiveObjectResponse map[string]any

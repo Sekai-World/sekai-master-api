@@ -121,29 +121,75 @@ definitions:
     properties:
       eventCardBonusLimits:
         items:
-          additionalProperties: {}
-          type: object
+          $ref: '#/definitions/shared.EventCardBonusLimitResponse'
         type: array
       eventDeckBonuses:
         items:
-          additionalProperties: {}
-          type: object
+          $ref: '#/definitions/shared.EventDeckBonusResponse'
         type: array
       eventHonorBonuses:
         items:
-          additionalProperties: {}
-          type: object
+          $ref: '#/definitions/shared.EventHonorBonusResponse'
         type: array
       eventMysekaiFixtureGameCharacterPerformanceBonusLimits:
         items:
-          additionalProperties: {}
-          type: object
+          $ref: '#/definitions/shared.EventMysekaiFixtureGameCharacterPerformanceBonusLimitResponse'
         type: array
       eventRarityBonusRates:
         items:
-          additionalProperties: {}
-          type: object
+          $ref: '#/definitions/shared.EventRarityBonusRateResponse'
         type: array
+    type: object
+  shared.EventCardBonusLimitResponse:
+    properties:
+      eventId:
+        type: integer
+      memberCountLimit:
+        type: integer
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.EventCardResponse:
+    properties:
+      bonusRate:
+        type: integer
+      cardId:
+        type: integer
+      eventId:
+        type: integer
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.EventCardsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.EventCardResponse'
+        type: array
+    type: object
+  shared.EventDeckBonusResponse:
+    properties:
+      bonusRate:
+        type: integer
+      cardAttr:
+        type: string
+      eventId:
+        type: integer
+      gameCharacterUnitId:
+        type: integer
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.EventHonorBonusResponse:
+    properties:
+      bonusRate:
+        type: integer
+      eventId:
+        type: integer
+      honorId:
+        type: integer
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
     type: object
   shared.EventListResponse:
     properties:
@@ -154,8 +200,83 @@ definitions:
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
     type: object
+  shared.EventMusicResponse:
+    properties:
+      eventId:
+        type: integer
+      musicId:
+        type: integer
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+      seq:
+        type: integer
+    type: object
+  shared.EventMusicsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.EventMusicResponse'
+        type: array
+    type: object
+  shared.EventMysekaiFixtureGameCharacterPerformanceBonusLimitResponse:
+    properties:
+      bonusRateLimit:
+        type: integer
+      eventId:
+        type: integer
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
   shared.EventObjectResponse:
     additionalProperties: {}
+    type: object
+  shared.EventRankingRewardResponse:
+    properties:
+      conditionValue:
+        type: integer
+      eventRankingRewardRangeId:
+        type: integer
+      id:
+        type: integer
+      resourceBoxId:
+        type: integer
+      rewardConditionType:
+        type: string
+      seq:
+        type: integer
+    type: object
+  shared.EventRarityBonusRateResponse:
+    properties:
+      bonusRate:
+        type: integer
+      cardRarityType:
+        type: string
+      masterRank:
+        type: integer
+    type: object
+  shared.EventRewardRangeResponse:
+    properties:
+      eventId:
+        type: integer
+      eventRankingRewards:
+        items:
+          $ref: '#/definitions/shared.EventRankingRewardResponse'
+        type: array
+      fromRank:
+        type: integer
+      id:
+        type: integer
+      isToRankBorder:
+        type: boolean
+      toRank:
+        type: integer
+    type: object
+  shared.EventRewardsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.EventRewardRangeResponse'
+        type: array
     type: object
   shared.GenericItemsResponse:
     properties:
@@ -301,6 +422,15 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  shared.ReleaseConditionResponse:
+    properties:
+      id:
+        type: integer
+      releaseConditionType:
+        type: string
+      sentence:
+        type: string
     type: object
   shared.SkillResponse:
     additionalProperties: {}
@@ -867,7 +997,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.RecordItemsResponse'
+            $ref: '#/definitions/shared.EventCardsResponse'
         "400":
           description: Bad Request
           schema:
@@ -906,7 +1036,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.RecordItemsResponse'
+            $ref: '#/definitions/shared.EventMusicsResponse'
         "400":
           description: Bad Request
           schema:
@@ -945,7 +1075,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.GenericItemsResponse'
+            $ref: '#/definitions/shared.EventRewardsResponse'
         "400":
           description: Bad Request
           schema:
