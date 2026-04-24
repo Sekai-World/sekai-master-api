@@ -441,7 +441,7 @@ func (handler *EventHandler) Search(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} shared.GenericItemsResponse
+// @Success 200 {object} shared.EventRewardsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -492,7 +492,7 @@ func (handler *EventHandler) RewardsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} shared.RecordItemsResponse
+// @Success 200 {object} shared.EventMusicsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -513,7 +513,7 @@ func (handler *EventHandler) MusicsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Event ID"
-// @Success 200 {object} shared.RecordItemsResponse
+// @Success 200 {object} shared.EventCardsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse

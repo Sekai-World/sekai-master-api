@@ -1107,7 +1107,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.RecordItemsResponse"
+                            "$ref": "#/definitions/shared.EventCardsResponse"
                         }
                     },
                     "400": {
@@ -1166,7 +1166,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.RecordItemsResponse"
+                            "$ref": "#/definitions/shared.EventMusicsResponse"
                         }
                     },
                     "400": {
@@ -1225,7 +1225,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericItemsResponse"
+                            "$ref": "#/definitions/shared.EventRewardsResponse"
                         }
                     },
                     "400": {
@@ -2271,37 +2271,111 @@ const docTemplate = `{
                 "eventCardBonusLimits": {
                     "type": "array",
                     "items": {
-                        "type": "object",
-                        "additionalProperties": {}
+                        "$ref": "#/definitions/shared.EventCardBonusLimitResponse"
                     }
                 },
                 "eventDeckBonuses": {
                     "type": "array",
                     "items": {
-                        "type": "object",
-                        "additionalProperties": {}
+                        "$ref": "#/definitions/shared.EventDeckBonusResponse"
                     }
                 },
                 "eventHonorBonuses": {
                     "type": "array",
                     "items": {
-                        "type": "object",
-                        "additionalProperties": {}
+                        "$ref": "#/definitions/shared.EventHonorBonusResponse"
                     }
                 },
                 "eventMysekaiFixtureGameCharacterPerformanceBonusLimits": {
                     "type": "array",
                     "items": {
-                        "type": "object",
-                        "additionalProperties": {}
+                        "$ref": "#/definitions/shared.EventMysekaiFixtureGameCharacterPerformanceBonusLimitResponse"
                     }
                 },
                 "eventRarityBonusRates": {
                     "type": "array",
                     "items": {
-                        "type": "object",
-                        "additionalProperties": {}
+                        "$ref": "#/definitions/shared.EventRarityBonusRateResponse"
                     }
+                }
+            }
+        },
+        "shared.EventCardBonusLimitResponse": {
+            "type": "object",
+            "properties": {
+                "eventId": {
+                    "type": "integer"
+                },
+                "memberCountLimit": {
+                    "type": "integer"
+                },
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.EventCardResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRate": {
+                    "type": "integer"
+                },
+                "cardId": {
+                    "type": "integer"
+                },
+                "eventId": {
+                    "type": "integer"
+                },
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.EventCardsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventCardResponse"
+                    }
+                }
+            }
+        },
+        "shared.EventDeckBonusResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRate": {
+                    "type": "integer"
+                },
+                "cardAttr": {
+                    "type": "string"
+                },
+                "eventId": {
+                    "type": "integer"
+                },
+                "gameCharacterUnitId": {
+                    "type": "integer"
+                },
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.EventHonorBonusResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRate": {
+                    "type": "integer"
+                },
+                "eventId": {
+                    "type": "integer"
+                },
+                "honorId": {
+                    "type": "integer"
+                },
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
                 }
             }
         },
@@ -2319,9 +2393,125 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.EventMusicResponse": {
+            "type": "object",
+            "properties": {
+                "eventId": {
+                    "type": "integer"
+                },
+                "musicId": {
+                    "type": "integer"
+                },
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventMusicsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventMusicResponse"
+                    }
+                }
+            }
+        },
+        "shared.EventMysekaiFixtureGameCharacterPerformanceBonusLimitResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRateLimit": {
+                    "type": "integer"
+                },
+                "eventId": {
+                    "type": "integer"
+                },
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
         "shared.EventObjectResponse": {
             "type": "object",
             "additionalProperties": {}
+        },
+        "shared.EventRankingRewardResponse": {
+            "type": "object",
+            "properties": {
+                "conditionValue": {
+                    "type": "integer"
+                },
+                "eventRankingRewardRangeId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "rewardConditionType": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventRarityBonusRateResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRate": {
+                    "type": "integer"
+                },
+                "cardRarityType": {
+                    "type": "string"
+                },
+                "masterRank": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardRangeResponse": {
+            "type": "object",
+            "properties": {
+                "eventId": {
+                    "type": "integer"
+                },
+                "eventRankingRewards": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventRankingRewardResponse"
+                    }
+                },
+                "fromRank": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isToRankBorder": {
+                    "type": "boolean"
+                },
+                "toRank": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventRewardRangeResponse"
+                    }
+                }
+            }
         },
         "shared.GenericItemsResponse": {
             "type": "object",
@@ -2539,6 +2729,20 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "shared.ReleaseConditionResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "releaseConditionType": {
+                    "type": "string"
+                },
+                "sentence": {
+                    "type": "string"
                 }
             }
         },
