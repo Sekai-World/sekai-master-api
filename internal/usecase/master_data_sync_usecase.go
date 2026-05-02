@@ -14,9 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
+
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/logging"
+	"sekai-master-api/internal/tracing"
 )
 
 type MasterDataSourceLoader interface {
@@ -146,11 +149,17 @@ func (usecase *MasterDataSyncUsecase) SetRegionTimeout(timeout time.Duration) {
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
-	return usecase.sync(ctx, false, usecase.sources)
+	ctx, span := tracing.StartSpan(ctx, "master_data.sync_all", attribute.Int("region.count", len(usecase.sources)))
+	err := usecase.sync(ctx, false, usecase.sources)
+	tracing.EndSpan(span, err)
+	return err
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAllForce(ctx context.Context) error {
-	return usecase.sync(ctx, true, usecase.sources)
+	ctx, span := tracing.StartSpan(ctx, "master_data.sync_all", attribute.Bool("force", true), attribute.Int("region.count", len(usecase.sources)))
+	err := usecase.sync(ctx, true, usecase.sources)
+	tracing.EndSpan(span, err)
+	return err
 }
 
 func (usecase *MasterDataSyncUsecase) SyncRegion(ctx context.Context, region string) error {
@@ -171,7 +180,10 @@ func (usecase *MasterDataSyncUsecase) SyncRegion(ctx context.Context, region str
 		return ErrRegionNotFound
 	}
 
-	return usecase.sync(ctx, false, targetSources)
+	ctx, span := tracing.StartSpan(ctx, "master_data.sync_region", attribute.String("region", targetRegion))
+	err := usecase.sync(ctx, false, targetSources)
+	tracing.EndSpan(span, err)
+	return err
 }
 
 func (usecase *MasterDataSyncUsecase) SyncRegionForce(ctx context.Context, region string) error {
@@ -192,7 +204,10 @@ func (usecase *MasterDataSyncUsecase) SyncRegionForce(ctx context.Context, regio
 		return ErrRegionNotFound
 	}
 
-	return usecase.sync(ctx, true, targetSources)
+	ctx, span := tracing.StartSpan(ctx, "master_data.sync_region", attribute.String("region", targetRegion), attribute.Bool("force", true))
+	err := usecase.sync(ctx, true, targetSources)
+	tracing.EndSpan(span, err)
+	return err
 }
 
 func (usecase *MasterDataSyncUsecase) InterruptedRegions(ctx context.Context) ([]string, error) {
@@ -242,7 +257,15 @@ func (usecase *MasterDataSyncUsecase) InterruptedRegions(ctx context.Context) ([
 }
 
 func (usecase *MasterDataSyncUsecase) RecoverInterruptedSync(ctx context.Context) ([]string, error) {
-	regions, err := usecase.InterruptedRegions(ctx)
+	ctx, span := tracing.StartSpan(ctx, "master_data.recover_interrupted_sync")
+	var regions []string
+	var err error
+	defer func() {
+		span.SetAttributes(attribute.Int("region.count", len(regions)))
+		tracing.EndSpan(span, err)
+	}()
+
+	regions, err = usecase.InterruptedRegions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -267,12 +290,20 @@ func (usecase *MasterDataSyncUsecase) RecoverInterruptedSync(ctx context.Context
 		return []string{}, nil
 	}
 
-	return regions, usecase.sync(ctx, false, targetSources)
+	err = usecase.sync(ctx, false, targetSources)
+	return regions, err
 }
 
 func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sources []masterdata.Source) error {
+	ctx, span := tracing.StartSpan(ctx, "master_data.sync", attribute.Bool("force", force), attribute.Int("region.count", len(sources)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	if !usecase.syncRunning.CompareAndSwap(false, true) {
 		usecase.logf("sync skipped reason=already_running")
+		err = ErrSyncInProgress
 		return ErrSyncInProgress
 	}
 	defer usecase.syncRunning.Store(false)
@@ -765,7 +796,8 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 	)
 
 	if len(syncErrors) > 0 {
-		return errors.Join(syncErrors...)
+		err = errors.Join(syncErrors...)
+		return err
 	}
 
 	return nil
@@ -918,17 +950,26 @@ func (usecase *MasterDataSyncUsecase) VersionByRegion(ctx context.Context, regio
 }
 
 func (usecase *MasterDataSyncUsecase) WarmConfiguredRegionIndexes(ctx context.Context) ([]string, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.warm_region_indexes")
+	var warmed []string
+	var err error
+	defer func() {
+		span.SetAttributes(attribute.Int("region.count", len(warmed)))
+		tracing.EndSpan(span, err)
+	}()
+
 	loader, ok := usecase.cache.(MasterDataCacheIndexLoader)
 	if !ok {
 		return nil, nil
 	}
 
 	regions := usecase.ConfiguredRegions()
-	warmed := make([]string, 0, len(regions))
+	warmed = make([]string, 0, len(regions))
 	for _, region := range regions {
-		loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
-		if err != nil {
-			return warmed, fmt.Errorf("warm region index %s: %w", region, err)
+		loaded, loadErr := loader.LoadRegionIndexFromRedis(ctx, region)
+		if loadErr != nil {
+			err = fmt.Errorf("warm region index %s: %w", region, loadErr)
+			return warmed, err
 		}
 		if loaded {
 			warmed = append(warmed, region)
@@ -979,6 +1020,18 @@ func versionPayloadFromBackup(source masterdata.Source, payload map[string]any) 
 }
 
 func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.Context) ([]string, []string, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.ensure_region_indexes")
+	var loadedRegions []string
+	var rebuiltRegions []string
+	var err error
+	defer func() {
+		span.SetAttributes(
+			attribute.Int("region.loaded.count", len(loadedRegions)),
+			attribute.Int("region.rebuilt.count", len(rebuiltRegions)),
+		)
+		tracing.EndSpan(span, err)
+	}()
+
 	regions := usecase.ConfiguredRegions()
 	if len(regions) == 0 {
 		return nil, nil, nil
@@ -991,8 +1044,8 @@ func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.
 		return nil, nil, nil
 	}
 
-	loadedRegions := make([]string, 0, len(regions))
-	rebuiltRegions := make([]string, 0, len(regions))
+	loadedRegions = make([]string, 0, len(regions))
+	rebuiltRegions = make([]string, 0, len(regions))
 	for _, region := range regions {
 		if canInspect && inspector.HasRegionIndex(region) {
 			continue
@@ -1001,7 +1054,8 @@ func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.
 		if canLoad {
 			loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
 			if err != nil {
-				return loadedRegions, rebuiltRegions, fmt.Errorf("ensure region index %s load: %w", region, err)
+				err = fmt.Errorf("ensure region index %s load: %w", region, err)
+				return loadedRegions, rebuiltRegions, err
 			}
 			if loaded {
 				loadedRegions = append(loadedRegions, region)
@@ -1012,7 +1066,8 @@ func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.
 		if canRebuild {
 			rebuilt, err := rebuilder.RebuildRegionIndexFromRedis(ctx, region)
 			if err != nil {
-				return loadedRegions, rebuiltRegions, fmt.Errorf("ensure region index %s rebuild: %w", region, err)
+				err = fmt.Errorf("ensure region index %s rebuild: %w", region, err)
+				return loadedRegions, rebuiltRegions, err
 			}
 			if rebuilt {
 				rebuiltRegions = append(rebuiltRegions, region)
@@ -1028,35 +1083,67 @@ func (usecase *MasterDataSyncUsecase) IsSyncRunning() bool {
 }
 
 func (usecase *MasterDataSyncUsecase) GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.get_by_id", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	if usecase.cache == nil {
 		return nil, false, nil
 	}
 
-	return usecase.cache.GetByID(ctx, region, entity, id)
+	record, found, err := usecase.cache.GetByID(ctx, region, entity, id)
+	span.SetAttributes(attribute.Bool("cache.hit", found))
+	return record, found, err
 }
 
 func (usecase *MasterDataSyncUsecase) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.list_by_page", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))), attribute.Int("page.size", pageSize))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	if usecase.cache == nil {
 		return []map[string]any{}, 0, nil
 	}
 
-	return usecase.cache.ListByPage(ctx, region, entity, page, pageSize)
+	items, total, err := usecase.cache.ListByPage(ctx, region, entity, page, pageSize)
+	span.SetAttributes(attribute.Int("result.count", len(items)), attribute.Int("result.total", total))
+	return items, total, err
 }
 
 func (usecase *MasterDataSyncUsecase) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.list_all", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	if usecase.cache == nil {
 		return []map[string]any{}, nil
 	}
 
-	return usecase.cache.ListAll(ctx, region, entity)
+	items, err := usecase.cache.ListAll(ctx, region, entity)
+	span.SetAttributes(attribute.Int("result.count", len(items)))
+	return items, err
 }
 
 func (usecase *MasterDataSyncUsecase) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.search", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))), attribute.Int("search.field.count", len(fields)), attribute.Int("search.limit", limit))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	if usecase.cache == nil {
 		return []masterdata.SearchMatch{}, nil
 	}
 
-	return usecase.cache.Search(ctx, region, entity, query, fields, limit)
+	matches, err := usecase.cache.Search(ctx, region, entity, query, fields, limit)
+	span.SetAttributes(attribute.Int("result.count", len(matches)))
+	return matches, err
 }
 
 func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region string, now time.Time) (map[string]any, bool, error) {

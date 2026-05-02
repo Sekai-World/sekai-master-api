@@ -6,12 +6,12 @@ import (
 	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
+	"sekai-master-api/internal/logging"
 )
 
 func RecoveryLog() gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
-		zap.S().Errorw(
+		logging.FromContext(c.Request.Context()).Errorw(
 			"panic recovered",
 			"component", "gin-recovery",
 			"method", c.Request.Method,
