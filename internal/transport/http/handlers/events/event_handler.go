@@ -111,7 +111,7 @@ func (handler *EventHandler) AvailableRegionsByID(c *gin.Context) {
 // @Tags events
 // @Produce json
 // @Param region path string true "Region"
-// @Success 200 {object} shared.EventObjectResponse
+// @Success 200 {object} shared.CurrentEventResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse

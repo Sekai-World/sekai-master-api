@@ -114,7 +114,46 @@ type MusicListResponse struct {
 	Pagination PaginationResponse    `json:"pagination"`
 }
 
-type EventObjectResponse map[string]any
+type EventUnitResponse struct {
+	Unit      any `json:"unit,omitempty"`
+	UnitName  any `json:"unitName,omitempty"`
+	ColorCode any `json:"colorCode,omitempty"`
+}
+
+type EventVirtualLiveResponse struct {
+	AssetbundleName any `json:"assetbundleName,omitempty"`
+	EndAt           any `json:"endAt,omitempty"`
+	ID              any `json:"id,omitempty"`
+	Name            any `json:"name,omitempty"`
+	StartAt         any `json:"startAt,omitempty"`
+	VirtualLiveType any `json:"virtualLiveType,omitempty"`
+}
+
+type EventObjectResponse struct {
+	ID                 any                       `json:"id,omitempty"`
+	EventType          any                       `json:"eventType,omitempty"`
+	Name               any                       `json:"name,omitempty"`
+	AssetbundleName    any                       `json:"assetbundleName,omitempty"`
+	BgmAssetbundleName any                       `json:"bgmAssetbundleName,omitempty"`
+	Unit               *EventUnitResponse        `json:"unit,omitempty"`
+	StartAt            any                       `json:"startAt,omitempty"`
+	AggregateAt        any                       `json:"aggregateAt,omitempty"`
+	ClosedAt           any                       `json:"closedAt,omitempty"`
+	EventBreakTimeID   any                       `json:"eventBreakTimeId,omitempty"`
+	EventPointIcon     any                       `json:"eventPointIcon,omitempty"`
+	VirtualLive        *EventVirtualLiveResponse `json:"virtualLive,omitempty"`
+}
+
+type CurrentEventResponse struct {
+	ID              any `json:"id,omitempty"`
+	Name            any `json:"name,omitempty"`
+	StartAt         any `json:"startAt,omitempty"`
+	AggregateAt     any `json:"aggregateAt,omitempty"`
+	AssetbundleName any `json:"assetbundleName,omitempty"`
+	ClosedAt        any `json:"closedAt,omitempty"`
+	EventType       any `json:"eventType,omitempty"`
+	Unit            any `json:"unit,omitempty"`
+}
 
 type EventListResponse struct {
 	Items      []EventObjectResponse `json:"items"`

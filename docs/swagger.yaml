@@ -105,6 +105,17 @@ definitions:
   shared.CharacterResponse:
     additionalProperties: {}
     type: object
+  shared.CurrentEventResponse:
+    properties:
+      aggregateAt: {}
+      assetbundleName: {}
+      closedAt: {}
+      eventType: {}
+      id: {}
+      name: {}
+      startAt: {}
+      unit: {}
+    type: object
   shared.ErrorBody:
     properties:
       code:
@@ -228,7 +239,21 @@ definitions:
         $ref: '#/definitions/shared.ReleaseConditionResponse'
     type: object
   shared.EventObjectResponse:
-    additionalProperties: {}
+    properties:
+      aggregateAt: {}
+      assetbundleName: {}
+      bgmAssetbundleName: {}
+      closedAt: {}
+      eventBreakTimeId: {}
+      eventPointIcon: {}
+      eventType: {}
+      id: {}
+      name: {}
+      startAt: {}
+      unit:
+        $ref: '#/definitions/shared.EventUnitResponse'
+      virtualLive:
+        $ref: '#/definitions/shared.EventVirtualLiveResponse'
     type: object
   shared.EventRankingRewardResponse:
     properties:
@@ -277,6 +302,21 @@ definitions:
         items:
           $ref: '#/definitions/shared.EventRewardRangeResponse'
         type: array
+    type: object
+  shared.EventUnitResponse:
+    properties:
+      colorCode: {}
+      unit: {}
+      unitName: {}
+    type: object
+  shared.EventVirtualLiveResponse:
+    properties:
+      assetbundleName: {}
+      endAt: {}
+      id: {}
+      name: {}
+      startAt: {}
+      virtualLiveType: {}
     type: object
   shared.GenericItemsResponse:
     properties:
@@ -1109,7 +1149,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.EventObjectResponse'
+            $ref: '#/definitions/shared.CurrentEventResponse'
         "400":
           description: Bad Request
           schema:
