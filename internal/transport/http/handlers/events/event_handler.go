@@ -142,7 +142,7 @@ func (handler *EventHandler) Current(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, buildEventBase(record))
+	response.JSON(c, http.StatusOK, buildCurrentEventBase(record))
 }
 
 // BreakTimesByID godoc
@@ -696,6 +696,19 @@ func buildEventBase(record map[string]any) map[string]any {
 	}
 
 	return result
+}
+
+func buildCurrentEventBase(record map[string]any) map[string]any {
+	return pickFields(record, []string{
+		"id",
+		"name",
+		"startAt",
+		"aggregateAt",
+		"assetbundleName",
+		"closedAt",
+		"eventType",
+		"unit",
+	})
 }
 
 func (handler *EventHandler) buildEventList(ctx context.Context, region string, records []map[string]any) []map[string]any {
