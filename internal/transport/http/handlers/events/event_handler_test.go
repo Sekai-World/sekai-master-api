@@ -1007,10 +1007,15 @@ func TestCurrentEventEndpointWritesCacheOnMiss(t *testing.T) {
 			"jp": {
 				"events": {
 					"201": {
-						"id":       201,
-						"name":     "live-event",
-						"startAt":  nowMillis - 60_000,
-						"closedAt": nowMillis + 60_000,
+						"id":              201,
+						"name":            "live-event",
+						"startAt":         nowMillis - 60_000,
+						"aggregateAt":     nowMillis + 120_000,
+						"assetbundleName": "event_201",
+						"closedAt":        nowMillis + 60_000,
+						"eventType":       "marathon",
+						"unit":            "light_sound",
+						"virtualLiveId":   901,
 						"eventRankingRewardRanges": []any{
 							map[string]any{"fromRank": 1, "toRank": 100},
 						},
@@ -1022,10 +1027,15 @@ func TestCurrentEventEndpointWritesCacheOnMiss(t *testing.T) {
 			"jp": {
 				"events": {
 					{
-						"id":       201,
-						"name":     "live-event",
-						"startAt":  nowMillis - 60_000,
-						"closedAt": nowMillis + 60_000,
+						"id":              201,
+						"name":            "live-event",
+						"startAt":         nowMillis - 60_000,
+						"aggregateAt":     nowMillis + 120_000,
+						"assetbundleName": "event_201",
+						"closedAt":        nowMillis + 60_000,
+						"eventType":       "marathon",
+						"unit":            "light_sound",
+						"virtualLiveId":   901,
 						"eventRankingRewardRanges": []any{
 							map[string]any{"fromRank": 1, "toRank": 100},
 						},
@@ -1056,8 +1066,26 @@ func TestCurrentEventEndpointWritesCacheOnMiss(t *testing.T) {
 	if body["id"] != float64(201) {
 		t.Fatalf("expected id=201, got %v", body["id"])
 	}
-	if _, exists := body["eventRankingRewardRanges"]; exists {
-		t.Fatalf("expected eventRankingRewardRanges to be omitted from current response")
+	expectedKeys := map[string]bool{
+		"id":              true,
+		"name":            true,
+		"startAt":         true,
+		"aggregateAt":     true,
+		"assetbundleName": true,
+		"closedAt":        true,
+		"eventType":       true,
+		"unit":            true,
+	}
+	if len(body) != len(expectedKeys) {
+		t.Fatalf("expected only current event base fields, got keys %v", body)
+	}
+	for key := range expectedKeys {
+		if _, exists := body[key]; !exists {
+			t.Fatalf("expected current response to include %s", key)
+		}
+	}
+	if _, exists := body["virtualLiveId"]; exists {
+		t.Fatalf("expected virtualLiveId to be omitted from current response")
 	}
 	if cache.storeCallCount == 0 {
 		t.Fatalf("expected current event lookup to write cache on miss")
