@@ -43,7 +43,8 @@ For local development with PostgreSQL and the bundled support services, use `.en
 
 `make dev` now builds a dedicated app image with `docker buildx build --load`, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
 The image bakes in repository `.env*` files, and the container entrypoint writes a `.env.development.local` override so the app talks to `postgres`, `redis`, `otel-collector`, `loki`, and `keycloak` over the internal Docker network instead of `host.docker.internal`.
-The app container publishes `http://localhost:8080` by default and mounts a dedicated named volume at `/app/tmp` so SQLite files, master-data backups, and rebuilt caches can persist across restarts.
+The app container publishes `http://localhost:8080` by default, while compose dependency services stay internal to the `sekai-dev` network. With OrbStack, use the Compose project service domains if you need direct browser access, for example `http://grafana.sekai-master-api.orb.local` or `http://keycloak.sekai-master-api.orb.local`.
+The app container mounts a dedicated named volume at `/app/tmp` so SQLite files, master-data backups, and rebuilt caches can persist across restarts.
 To match the old `dev-watch` workflow, `make dev` defaults to `MASTER_DATA_AUTO_SYNC=false` and `MASTER_DATA_RECOVER_INTERRUPTED_SYNC=false`; if you do want startup sync/recovery, run `make dev DEV_MASTER_DATA_AUTO_SYNC=true DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC=true`.
 
 Useful local commands:
@@ -248,9 +249,9 @@ Optional admin RBAC:
 
 For local development, `.env.development` is preconfigured for the bundled Keycloak instance:
 
-- Keycloak URL: `http://localhost:18081`
-- OIDC issuer: `http://localhost:18081/realms/sekai`
-- OIDC internal issuer URL: `http://host.docker.internal:18081/realms/sekai`
+- Browser Keycloak URL on OrbStack: `http://keycloak.sekai-master-api.orb.local`
+- OIDC issuer: `http://localhost:18081/realms/sekai` when running the API on the host with explicitly published ports
+- OIDC internal issuer URL for `make dev`: `http://keycloak:8080/realms/sekai`
 - OIDC client ID / audience: `sekai-api`
 - OIDC redirect URI: `http://localhost:8080/api/v1/admin/login/callback`
 - Admin RBAC claim: `groups`
@@ -296,7 +297,7 @@ Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `
 - Makefile uses `docker compose` (fallback: `docker-compose`)
 - default compose project name is `sekai-master-api`, so OrbStack / Docker Desktop will group the local dev stack under that name
 - override with `COMPOSE_PROJECT_NAME=your-name make dev-env-up` if needed
-- if you already have a legacy local stack under the old default project name `compose`, bring it down once first to avoid port conflicts
+- if you already have a legacy local stack under the old default project name `compose`, bring it down once first to avoid duplicate containers
 
 - `make dev-env-up`
 - `make dev-env-logs`
@@ -307,15 +308,15 @@ If you need a full cleanup including volumes, use:
 
 - `make dev-env-down-purge`
 
-`make dev-env-up` also starts a local observability stack for the Go app, and `make dev` connects the app container to it automatically:
+`make dev-env-up` also starts a local observability stack for the Go app. Compose dependency services are not published to host ports; `make dev` connects the app container to them over the `sekai-dev` network automatically.
 
 
-- Grafana URL: `http://localhost:${GRAFANA_PORT}` (default `http://localhost:13000`)
+- Grafana URL on OrbStack: `http://grafana.sekai-master-api.orb.local`
 - Quick open: `make dev-logs-ui`
-- `make run` uses host-facing defaults such as `http://host.docker.internal:${LOKI_PORT}/loki/api/v1/push`; `make dev` rewrites the app container to use internal service URLs such as `http://loki:3100/loki/api/v1/push`
-- Prometheus URL: `http://localhost:${PROMETHEUS_PORT}` (default `http://localhost:9090`)
-- Tempo API URL: `http://localhost:${TEMPO_PORT}` (default `http://localhost:3200`)
-- `make run` uses `http://host.docker.internal:${OTEL_COLLECTOR_HTTP_PORT}` by default; `make dev` rewrites the app container to use `http://otel-collector:4318`
+- `make dev` rewrites the app container to use internal service URLs such as `http://loki:3100/loki/api/v1/push`
+- Prometheus URL on OrbStack: `http://prometheus.sekai-master-api.orb.local`
+- Tempo API URL on OrbStack: `http://tempo.sekai-master-api.orb.local`
+- `make dev` rewrites the app container to use `http://otel-collector:4318`
 - Grafana provisions Loki, Prometheus, Tempo datasources and three dashboards automatically: `Sekai / API & Network`, `Sekai / Memory & Runtime`, and `Sekai / Master Data`
 - `Sekai / API & Network` focuses on HTTP throughput, error rate, active requests, and route-level latency
 - `Sekai / Memory & Runtime` focuses on Go heap/runtime memory, stack usage, goroutines, GC pause, and Redis memory
