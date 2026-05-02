@@ -17,9 +17,11 @@ import (
 	"unicode"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
 
 	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/tracing"
 )
 
 type RedisMasterDataCache struct {
@@ -133,9 +135,16 @@ func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 }
 
 func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region string, payload map[string]any) error {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.store_region", attribute.String("region", normalizeKey(region)), attribute.Int("file.count", len(payload)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	regionName := normalizeKey(region)
 	if regionName == "" {
-		return errors.New("region is required")
+		err = errors.New("region is required")
+		return err
 	}
 
 	filePaths := make([]string, 0, len(payload))
@@ -556,6 +565,12 @@ func isValidEntitySearchIndex(index *entitySearchIndex) bool {
 }
 
 func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.list_by_page", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)), attribute.Int("page.size", pageSize))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	if page <= 0 {
 		page = 1
 	}
@@ -625,10 +640,17 @@ func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string
 		items = append(items, record)
 	}
 
+	span.SetAttributes(attribute.Int("result.count", len(items)), attribute.Int64("result.total", total))
 	return items, int(total), nil
 }
 
 func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.list_all", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
 	if regionName == "" || entityName == "" {
@@ -670,7 +692,9 @@ func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, e
 		return nil, fmt.Errorf("lrange order ids region %s entity %s: %w", regionName, entityName, err)
 	}
 
-	return cache.getEntityRecordsByIDs(ctx, regionName, entityName, ids)
+	items, err := cache.getEntityRecordsByIDs(ctx, regionName, entityName, ids)
+	span.SetAttributes(attribute.Int("result.count", len(items)))
+	return items, err
 }
 
 func (cache *RedisMasterDataCache) getEntityRecordsByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
@@ -776,6 +800,12 @@ func (cache *RedisMasterDataCache) rebuildEntityOrderFromByID(ctx context.Contex
 }
 
 func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.get_by_id", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
 	recordIDValue := strings.TrimSpace(id)
@@ -786,6 +816,7 @@ func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, e
 	body, err := cache.client.HGet(ctx, cache.redisEntityKey(regionName, entityName), recordIDValue).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
+			span.SetAttributes(attribute.Bool("cache.hit", false))
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("hget region %s entity %s id %s: %w", regionName, entityName, recordIDValue, err)
@@ -796,10 +827,17 @@ func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, e
 		return nil, false, fmt.Errorf("unmarshal record region %s entity %s id %s: %w", regionName, entityName, recordIDValue, err)
 	}
 
+	span.SetAttributes(attribute.Bool("cache.hit", true))
 	return record, true, nil
 }
 
 func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.search", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)), attribute.Int("search.field.count", len(fields)), attribute.Int("search.limit", limit))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	if limit <= 0 {
 		limit = 20
 	}
@@ -920,10 +958,17 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 		})
 	}
 
+	span.SetAttributes(attribute.Int("result.count", len(results)))
 	return results, nil
 }
 
 func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context, region string) (bool, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.load_region_index", attribute.String("region", normalizeKey(region)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	regionName := normalizeKey(region)
 	if regionName == "" {
 		return false, nil
@@ -934,6 +979,7 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 		return false, fmt.Errorf("list persisted search index entities region %s: %w", regionName, err)
 	}
 	if len(entities) == 0 {
+		span.SetAttributes(attribute.Bool("index.loaded", false))
 		return false, nil
 	}
 
@@ -952,6 +998,7 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 	}
 
 	if !loaded {
+		span.SetAttributes(attribute.Bool("index.loaded", false))
 		return false, nil
 	}
 
@@ -959,6 +1006,7 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 	cache.index[regionName] = nextIndex
 	cache.mu.Unlock()
 
+	span.SetAttributes(attribute.Bool("index.loaded", true), attribute.Int("entity.count", len(nextIndex)))
 	return true, nil
 }
 

@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/logging"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
@@ -142,7 +142,7 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
 		return
 	}
 
-	go handler.triggerRegionSync(region, owner, repo, ref)
+	go handler.triggerRegionSync(logging.DetachedTraceContext(c.Request.Context()), region, owner, repo, ref)
 
 	response.JSON(c, http.StatusAccepted, gin.H{
 		"status": "accepted",
@@ -150,27 +150,27 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
 	})
 }
 
-func (handler *GitHubWebhookHandler) triggerRegionSync(region string, owner string, repo string, ref string) {
-	ctx := context.Background()
+func (handler *GitHubWebhookHandler) triggerRegionSync(ctx context.Context, region string, owner string, repo string, ref string) {
 	cancel := func() {}
 	if handler.syncTimeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, handler.syncTimeout)
 	}
 	defer cancel()
 
-	zap.S().Infow("github webhook triggered master data sync", "region", region, "owner", owner, "repo", repo, "ref", ref)
+	logger := logging.FromContext(ctx)
+	logger.Infow("github webhook triggered master data sync", "region", region, "owner", owner, "repo", repo, "ref", ref)
 
 	if err := handler.syncer.SyncRegion(ctx, region); err != nil {
 		if err == usecase.ErrSyncInProgress {
-			zap.S().Infow("github webhook skipped because master data sync already running", "region", region)
+			logger.Infow("github webhook skipped because master data sync already running", "region", region)
 			return
 		}
 
-		zap.S().Warnw("github webhook master data sync failed", "region", region, "error", err)
+		logger.Warnw("github webhook master data sync failed", "region", region, "error", err)
 		return
 	}
 
-	zap.S().Infow("github webhook master data sync completed", "region", region)
+	logger.Infow("github webhook master data sync completed", "region", region)
 }
 
 func (handler *GitHubWebhookHandler) matchRegion(owner string, repo string, ref string) (string, bool) {

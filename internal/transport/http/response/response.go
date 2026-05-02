@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
+	"sekai-master-api/internal/logging"
 )
 
 func JSON(c *gin.Context, status int, payload any) {
@@ -17,7 +17,7 @@ func Error(c *gin.Context, status int, code string, message string) {
 		requestID = "missing"
 	}
 
-	zap.S().Warnw(
+	logging.FromContext(c.Request.Context()).Warnw(
 		"request failed",
 		"request_id", requestID,
 		"method", c.Request.Method,

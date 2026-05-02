@@ -18,9 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/logging"
 	"sekai-master-api/internal/observability"
+	"sekai-master-api/internal/tracing"
 )
 
 type GitHubMasterDataRepository struct {
@@ -71,15 +74,23 @@ func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConc
 }
 
 func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, source masterdata.Source) (map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "github.master_data.load_region", attribute.String("region", strings.ToLower(strings.TrimSpace(source.Region))), attribute.String("github.owner", source.Owner), attribute.String("github.repo", source.Repo))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	archiveURL := repository.tarballURL(source)
 	workspaceDir := repository.resumeDir(source)
 	archivePath := filepath.Join(workspaceDir, "source.tar.gz")
 
-	if err := os.RemoveAll(workspaceDir); err != nil {
-		return nil, fmt.Errorf("clear archive workspace for region %s: %w", source.Region, err)
+	if removeErr := os.RemoveAll(workspaceDir); removeErr != nil {
+		err = fmt.Errorf("clear archive workspace for region %s: %w", source.Region, removeErr)
+		return nil, err
 	}
-	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create archive workspace for region %s: %w", source.Region, err)
+	if mkdirErr := os.MkdirAll(workspaceDir, 0o755); mkdirErr != nil {
+		err = fmt.Errorf("create archive workspace for region %s: %w", source.Region, mkdirErr)
+		return nil, err
 	}
 	defer func() {
 		if err := os.RemoveAll(workspaceDir); err != nil {
@@ -96,8 +107,9 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 		UpdatedAt: time.Now().UTC(),
 	})
 
-	if err := repository.downloadArchiveToFile(ctx, archiveURL, archivePath); err != nil {
-		return nil, fmt.Errorf("download archive for region %s: %w", source.Region, err)
+	if downloadErr := repository.downloadArchiveToFile(ctx, archiveURL, archivePath); downloadErr != nil {
+		err = fmt.Errorf("download archive for region %s: %w", source.Region, downloadErr)
+		return nil, err
 	}
 
 	repository.reportProgress(ctx, masterdata.SyncUpdatedEvent{
@@ -109,10 +121,12 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 		UpdatedAt: time.Now().UTC(),
 	})
 
-	files, err := repository.extractArchivePayload(archivePath, source)
+	files, err := repository.extractArchivePayload(ctx, archivePath, source)
 	if err != nil {
-		return nil, fmt.Errorf("extract archive for region %s: %w", source.Region, err)
+		err = fmt.Errorf("extract archive for region %s: %w", source.Region, err)
+		return nil, err
 	}
+	span.SetAttributes(attribute.Int("file.count", len(files)))
 
 	logging.InfoKV("master-data-loader", fmt.Sprintf("region=%s phase=load status=success files=%d", source.Region, len(files)))
 	repository.reportProgress(ctx, masterdata.SyncUpdatedEvent{
@@ -130,6 +144,12 @@ func (repository *GitHubMasterDataRepository) LoadRegion(ctx context.Context, so
 }
 
 func (repository *GitHubMasterDataRepository) ResolveRegionVersion(ctx context.Context, source masterdata.Source) (string, error) {
+	ctx, span := tracing.StartSpan(ctx, "github.master_data.resolve_region_version", attribute.String("region", strings.ToLower(strings.TrimSpace(source.Region))), attribute.String("github.owner", source.Owner), attribute.String("github.repo", source.Repo))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	commitURL := fmt.Sprintf(
 		"%s/repos/%s/%s/commits/%s",
 		strings.TrimRight(repository.apiBaseURL, "/"),
@@ -139,8 +159,9 @@ func (repository *GitHubMasterDataRepository) ResolveRegionVersion(ctx context.C
 	)
 
 	var commitResp gitCommitResponse
-	if err := repository.getJSON(ctx, commitURL, &commitResp); err != nil {
-		return "", fmt.Errorf("resolve commit for region %s: %w", source.Region, err)
+	if getErr := repository.getJSON(ctx, commitURL, &commitResp); getErr != nil {
+		err = fmt.Errorf("resolve commit for region %s: %w", source.Region, getErr)
+		return "", err
 	}
 
 	return strings.TrimSpace(commitResp.SHA), nil
@@ -183,8 +204,15 @@ func (repository *GitHubMasterDataRepository) resumeDir(source masterdata.Source
 }
 
 func (repository *GitHubMasterDataRepository) downloadArchiveToFile(ctx context.Context, archiveURL string, targetPath string) error {
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return fmt.Errorf("create archive directory: %w", err)
+	ctx, span := tracing.StartSpan(ctx, "github.master_data.download_archive")
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	if mkdirErr := os.MkdirAll(filepath.Dir(targetPath), 0o755); mkdirErr != nil {
+		err = fmt.Errorf("create archive directory: %w", mkdirErr)
+		return err
 	}
 
 	var lastErr error
@@ -204,10 +232,17 @@ func (repository *GitHubMasterDataRepository) downloadArchiveToFile(ctx context.
 		}
 	}
 
-	return lastErr
+	err = lastErr
+	return err
 }
 
-func (repository *GitHubMasterDataRepository) extractArchivePayload(archivePath string, source masterdata.Source) (map[string]any, error) {
+func (repository *GitHubMasterDataRepository) extractArchivePayload(ctx context.Context, archivePath string, source masterdata.Source) (map[string]any, error) {
+	_, span := tracing.StartSpan(ctx, "github.master_data.extract_archive", attribute.String("region", strings.ToLower(strings.TrimSpace(source.Region))))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return nil, fmt.Errorf("open archive file: %w", err)
@@ -256,6 +291,7 @@ func (repository *GitHubMasterDataRepository) extractArchivePayload(archivePath 
 		files[relativePath] = parsed
 	}
 
+	span.SetAttributes(attribute.Int("file.count", len(files)))
 	return files, nil
 }
 
