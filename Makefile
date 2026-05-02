@@ -25,6 +25,7 @@ DEV_APP_CONTAINER ?= $(APP_NAME)-dev
 DEV_APP_VOLUME ?= $(APP_NAME)-dev-data
 DEV_APP_NETWORK ?= sekai-dev
 DEV_APP_INTERNAL_PORT ?= 8080
+DEV_GRAFANA_URL ?= http://grafana.sekai-master-api.orb.local
 DEV_MASTER_DATA_AUTO_SYNC ?= false
 DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC ?= false
 DOCKER ?= docker
@@ -239,4 +240,4 @@ admin-open:
 	"$$BROWSER" http://localhost:$(APP_PORT)/admin/login
 
 dev-logs-ui:
-	"$$BROWSER" http://localhost:$(GRAFANA_PORT)
+	"$$BROWSER" "$(DEV_GRAFANA_URL)"
