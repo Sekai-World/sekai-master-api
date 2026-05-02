@@ -718,7 +718,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.EventObjectResponse"
+                            "$ref": "#/definitions/shared.CurrentEventResponse"
                         }
                     },
                     "400": {
@@ -2246,6 +2246,19 @@ const docTemplate = `{
             "type": "object",
             "additionalProperties": {}
         },
+        "shared.CurrentEventResponse": {
+            "type": "object",
+            "properties": {
+                "aggregateAt": {},
+                "assetbundleName": {},
+                "closedAt": {},
+                "eventType": {},
+                "id": {},
+                "name": {},
+                "startAt": {},
+                "unit": {}
+            }
+        },
         "shared.ErrorBody": {
             "type": "object",
             "properties": {
@@ -2437,7 +2450,24 @@ const docTemplate = `{
         },
         "shared.EventObjectResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "aggregateAt": {},
+                "assetbundleName": {},
+                "bgmAssetbundleName": {},
+                "closedAt": {},
+                "eventBreakTimeId": {},
+                "eventPointIcon": {},
+                "eventType": {},
+                "id": {},
+                "name": {},
+                "startAt": {},
+                "unit": {
+                    "$ref": "#/definitions/shared.EventUnitResponse"
+                },
+                "virtualLive": {
+                    "$ref": "#/definitions/shared.EventVirtualLiveResponse"
+                }
+            }
         },
         "shared.EventRankingRewardResponse": {
             "type": "object",
@@ -2511,6 +2541,25 @@ const docTemplate = `{
                         "$ref": "#/definitions/shared.EventRewardRangeResponse"
                     }
                 }
+            }
+        },
+        "shared.EventUnitResponse": {
+            "type": "object",
+            "properties": {
+                "colorCode": {},
+                "unit": {},
+                "unitName": {}
+            }
+        },
+        "shared.EventVirtualLiveResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {},
+                "endAt": {},
+                "id": {},
+                "name": {},
+                "startAt": {},
+                "virtualLiveType": {}
             }
         },
         "shared.GenericItemsResponse": {
