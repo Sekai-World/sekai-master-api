@@ -6,8 +6,8 @@ services:
       POSTGRES_DB: sekai
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d sekai"]
       interval: 5s
@@ -21,8 +21,8 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,8 +36,8 @@ services:
     restart: unless-stopped
     command:
       - -config.file=/etc/loki/local-config.yaml
-    ports:
-      - "${LOKI_PORT:-3100}:3100"
+    expose:
+      - "3100"
     healthcheck:
       test:
         - CMD
@@ -59,8 +59,8 @@ services:
     restart: unless-stopped
     command:
       - -config.file=/etc/tempo/tempo.yaml
-    ports:
-      - "${TEMPO_PORT:-3200}:3200"
+    expose:
+      - "3200"
     volumes:
       - tempo-data:/var/tempo
     networks:
@@ -74,9 +74,9 @@ services:
     restart: unless-stopped
     command:
       - --config=/etc/otelcol-contrib/config.yaml
-    ports:
-      - "${OTEL_COLLECTOR_GRPC_PORT:-4317}:4317"
-      - "${OTEL_COLLECTOR_HTTP_PORT:-4318}:4318"
+    expose:
+      - "4317"
+      - "4318"
     depends_on:
       tempo:
         condition: service_started
@@ -93,8 +93,8 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
-    ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+    expose:
+      - "9090"
     volumes:
       - prometheus-data:/prometheus
     depends_on:
@@ -115,10 +115,10 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-18081}
+      KC_HOSTNAME: ${KEYCLOAK_BASE_URL:-http://keycloak.sekai-master-api.orb.local}
       KC_HOSTNAME_STRICT: "false"
-    ports:
-      - "${KEYCLOAK_PORT:-18081}:8080"
+    expose:
+      - "8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,8 +135,8 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
-    ports:
-      - "${GRAFANA_PORT:-13000}:3000"
+    expose:
+      - "3000"
     depends_on:
       loki:
         condition: service_healthy
