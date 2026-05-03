@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+if command -v go >/dev/null 2>&1; then
+  go test -buildvcs=false ./...
+else
+  echo "[test] local go not found, using docker with cached go module/build volumes"
+  mise run --skip-tools test-docker
+fi

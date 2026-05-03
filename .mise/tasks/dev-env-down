@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+. ./.mise/lib/tasks.sh
+load_development_env
+mise run --skip-tools dev-down
+cmd="$(compose_cmd)"
+set -- $(compose_project_args)
+$cmd "$@" -f "$(compose_file_abs)" down --remove-orphans

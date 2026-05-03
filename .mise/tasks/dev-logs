@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+. ./.mise/lib/tasks.sh
+load_defaults
+
+"${DOCKER}" logs -f "${DEV_APP_CONTAINER}"

@@ -1,0 +1,38 @@
+[tools]
+go = "1.26.2"
+
+[tasks.run]
+description = "Run the API on the host"
+run = "go run -buildvcs=false ./cmd/api"
+
+[tasks.tidy]
+description = "Tidy Go modules"
+run = "go mod tidy"
+
+[tasks.format]
+description = "Format Go files"
+run = "gofmt -w $(find . -type f -name '*.go' -not -path './vendor/*')"
+
+[tasks.lint]
+description = "Check gofmt and go vet"
+run = '''
+UNFORMATTED="$(gofmt -l $(find . -type f -name '*.go' -not -path './vendor/*'))"
+if [ -n "$UNFORMATTED" ]; then
+  echo "The following files are not gofmt-formatted:"
+  echo "$UNFORMATTED"
+  exit 1
+fi
+go vet ./...
+'''
+
+[tasks.swagger]
+description = "Regenerate Swagger docs"
+run = "go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handlers/admin,internal/transport/http/handlers/cards,internal/transport/http/handlers/events,internal/transport/http/handlers/musics,internal/transport/http/handlers/shared,internal/transport/http/handlers/system,internal/transport/http/handlers/virtuallives,internal/domain/masterdata -o docs"
+
+[tasks.admin-open]
+description = "Open the local admin login page"
+run = '"$BROWSER" "http://localhost:${APP_PORT:-8080}/admin/login"'
+
+[tasks.dev-logs-ui]
+description = "Open the local Grafana UI"
+run = '"$BROWSER" "${DEV_GRAFANA_URL:-http://grafana.sekai-master-api.orb.local}"'

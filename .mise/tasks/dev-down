@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+. ./.mise/lib/tasks.sh
+load_defaults
+
+"${DOCKER}" rm -f "${DEV_APP_CONTAINER}" >/dev/null 2>&1 || true

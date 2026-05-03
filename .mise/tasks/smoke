@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+. ./.mise/lib/tasks.sh
+load_defaults
+
+APP_PORT="${APP_PORT}" sh ./scripts/smoke.sh
