@@ -66,21 +66,21 @@ go test ./...
 If migrations are changed, also validate migration command path for the target env:
 
 ```bash
-make migrate-up
+mise run migrate-up
 ```
 
 If compose/dev environment is affected, also validate commands:
 
 ```bash
-make dev-env-up
-make dev-env-down
+mise run dev-env-up
+mise run dev-env-down
 ```
 
 ## Environment Notes (macOS OrbStack + Windows Docker Desktop)
 
 - Use host Docker CLI with Compose/buildx support.
 - Keep `DOCKER_HOST`/socket usage configurable (do not hardcode host-specific paths in app code).
-- Prefer reproducible commands in `Makefile` over ad-hoc shell snippets.
+- Prefer reproducible local commands in mise tasks over ad-hoc shell snippets.
 
 ## Documentation Requirements
 

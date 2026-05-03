@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+
+. ./.mise/lib/tasks.sh
+load_development_env
+KEYCLOAK_PORT="${KEYCLOAK_PORT}" sh ./scripts/get-keycloak-token.sh

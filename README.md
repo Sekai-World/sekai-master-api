@@ -24,9 +24,11 @@ Go RESTful API template (Gin + OIDC + environment-based database).
    - The app auto-loads dotenv files in precedence order (highest precedence first): `.env.<APP_ENV>.local`, `.env.local`, `.env.<APP_ENV>`, then `.env` (for example: `.env.development.local`, `.env.development`).
    - Later files do not override variables already set by earlier files. Effective precedence is: shell env > `.env.<APP_ENV>.local` > `.env.local` > `.env.<APP_ENV>` > `.env` > built-in defaults.
 2. Install dependencies:
-   - `go mod tidy`
+   - `mise trust`
+   - `mise install`
+   - `mise run tidy`
 3. Start API:
-   - `make run`
+   - `mise run run`
 
 ### Test Env File
 
@@ -34,30 +36,30 @@ This repo provides `.env.test` for connecting to the deployed test environment. 
 
 For local development with PostgreSQL and the bundled support services, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local` if needed, then run:
 
-- `make dev-env-up`
-- `make dev`
-- `make format`
-- `make swagger`
+- `mise run dev-env-up`
+- `mise run dev`
+- `mise run format`
+- `mise run swagger`
 
-`make dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector. Compose health checks are configured for PostgreSQL, Redis, Loki, and Grafana, and the local Keycloak realm/client/user are pre-imported in the Keycloak image.
+`mise run dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector. Compose health checks are configured for PostgreSQL, Redis, Loki, and Grafana, and the local Keycloak realm/client/user are pre-imported in the Keycloak image.
 
-`make dev` now builds a dedicated app image with `docker buildx build --load`, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
+`mise run dev` builds a dedicated app image with `docker buildx build --load`, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
 The image bakes in repository `.env*` files, and the container entrypoint writes a `.env.development.local` override so the app talks to `postgres`, `redis`, `otel-collector`, `loki`, and `keycloak` over the internal Docker network instead of `host.docker.internal`.
 The app container publishes `http://localhost:8080` by default, while compose dependency services stay internal to the `sekai-dev` network. With OrbStack, use the Compose project service domains if you need direct browser access, for example `http://grafana.sekai-master-api.orb.local` or `http://keycloak.sekai-master-api.orb.local`.
 The app container mounts a dedicated named volume at `/app/tmp` so SQLite files, master-data backups, and rebuilt caches can persist across restarts.
-To match the old `dev-watch` workflow, `make dev` defaults to `MASTER_DATA_AUTO_SYNC=false` and `MASTER_DATA_RECOVER_INTERRUPTED_SYNC=false`; if you do want startup sync/recovery, run `make dev DEV_MASTER_DATA_AUTO_SYNC=true DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC=true`.
+To match the old `dev-watch` workflow, `mise run dev` defaults to `MASTER_DATA_AUTO_SYNC=false` and `MASTER_DATA_RECOVER_INTERRUPTED_SYNC=false`; if you do want startup sync/recovery, run `DEV_MASTER_DATA_AUTO_SYNC=true DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC=true mise run dev`.
 
 Useful local commands:
 
-- `make dev`
-- `make dev-logs`
-- `make dev-down`
+- `mise run dev`
+- `mise run dev-logs`
+- `mise run dev-down`
 
 The Go logger pushes app logs to Loki in-process (no external log-push script required), Gin access/error logs follow the same Zap pipeline, and the API exports traces and metrics through OTLP/HTTP to the local OpenTelemetry Collector for Prometheus and Tempo backed Grafana dashboards.
-`make format` applies `gofmt` to all Go files.
-`make swagger` regenerates Swagger docs from Go annotations.
+`mise run format` applies `gofmt` to all Go files.
+`mise run swagger` regenerates Swagger docs from Go annotations.
 
-GitHub Actions CI runs `gofmt` check, `go vet ./...`, and `go test ./...` on every push and pull request.
+GitHub Actions CI still uses Makefile commands where configured; development commands are exposed through mise.
 
 Logging level can be configured by env var `LOG_LEVEL` (for example: `debug`, `info`, `warn`, `error`).
 If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` for production.
@@ -141,10 +143,10 @@ Startup sync runs in background after the API listener is up, so HTTP endpoints 
 - Migrations are executed automatically on API startup via Goose.
 - Migration files are located in `internal/storage/migrations`.
 - Local helper commands:
-   - `make migrate-up`
-   - `make migrate-down`
-- `make migrate-*` auto-resolves DB connection using `APP_ENV` + dotenv files (`.env`, `.env.<APP_ENV>`, `.env.local`, `.env.<APP_ENV>.local`), with later files overriding earlier ones.
-- Example: `APP_ENV=test make migrate-up`
+   - `mise run migrate-up`
+   - `mise run migrate-down`
+- `mise run migrate-*` auto-resolves DB connection using `APP_ENV` + dotenv files (`.env`, `.env.<APP_ENV>`, `.env.local`, `.env.<APP_ENV>.local`), with later files overriding earlier ones.
+- Example: `APP_ENV=test mise run migrate-up`
   This will target whatever remote test database is configured in `.env.test` / `.env.test.local`.
 
 ### Required env setup pattern
@@ -203,7 +205,7 @@ Set `MASTER_DATA_GITHUB_TOKEN` if you need higher GitHub API rate limit.
 
 - `GET /admin/login` (dashboard login page)
 - `GET /admin` (dashboard home)
-- Open login page quickly: `make admin-open` (default `APP_PORT=8080`)
+- Open login page quickly: `mise run admin-open` (default `APP_PORT=8080`)
 
 Login flow:
 
@@ -251,13 +253,13 @@ For local development, `.env.development` is preconfigured for the bundled Keycl
 
 - Browser Keycloak URL on OrbStack: `http://keycloak.sekai-master-api.orb.local`
 - OIDC issuer: `http://localhost:18081/realms/sekai` when running the API on the host with explicitly published ports
-- OIDC internal issuer URL for `make dev`: `http://keycloak:8080/realms/sekai`
+- OIDC internal issuer URL for `mise run dev`: `http://keycloak:8080/realms/sekai`
 - OIDC client ID / audience: `sekai-api`
 - OIDC redirect URI: `http://localhost:8080/api/v1/admin/login/callback`
 - Admin RBAC claim: `groups`
 - Required admin value: `sekai-admin`
 
-`make dev-env-up` also starts Keycloak with a pre-imported local realm, client, admin group, and test login user:
+`mise run dev-env-up` also starts Keycloak with a pre-imported local realm, client, admin group, and test login user:
 
 - Test login user: `alice`
 - Test login password: `alice123!`
@@ -266,11 +268,11 @@ For local development, `.env.development` is preconfigured for the bundled Keycl
 
 To fetch a local access token without going through the browser login flow, you can run:
 
-- `make keycloak-token`
+- `mise run keycloak-token`
 
 If you need a different local setup, override the `KEYCLOAK_*` and `OIDC_*` values in `.env.development.local`.
 
-For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your OIDC test environment. `make smoke` no longer starts local dependencies.
+For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your OIDC test environment. `mise run smoke` no longer starts local dependencies.
 
 ## Database by Environment
 
@@ -292,31 +294,31 @@ Useful checks:
 
 ## Test environment
 
-Use compose commands through Makefile (`postgres:18-alpine`, `redis:8-alpine`, `grafana`, `loki`, `tempo`, `prometheus`, `otel-collector`):
+Use compose commands through mise (`postgres:18-alpine`, `redis:8-alpine`, `grafana`, `loki`, `tempo`, `prometheus`, `otel-collector`):
 
-- Makefile uses `docker compose` (fallback: `docker-compose`)
+- mise tasks use `docker compose` (fallback: `docker-compose`)
 - default compose project name is `sekai-master-api`, so OrbStack / Docker Desktop will group the local dev stack under that name
-- override with `COMPOSE_PROJECT_NAME=your-name make dev-env-up` if needed
+- override with `COMPOSE_PROJECT_NAME=your-name mise run dev-env-up` if needed
 - if you already have a legacy local stack under the old default project name `compose`, bring it down once first to avoid duplicate containers
 
-- `make dev-env-up`
-- `make dev-env-logs`
-- `make dev-env-down`
+- `mise run dev-env-up`
+- `mise run dev-env-logs`
+- `mise run dev-env-down`
 
-`make dev-env-down` now preserves named volumes by default.
+`mise run dev-env-down` preserves named volumes by default.
 If you need a full cleanup including volumes, use:
 
-- `make dev-env-down-purge`
+- `mise run dev-env-down-purge`
 
-`make dev-env-up` also starts a local observability stack for the Go app. Compose dependency services are not published to host ports; `make dev` connects the app container to them over the `sekai-dev` network automatically.
+`mise run dev-env-up` also starts a local observability stack for the Go app. Compose dependency services are not published to host ports; `mise run dev` connects the app container to them over the `sekai-dev` network automatically.
 
 
 - Grafana URL on OrbStack: `http://grafana.sekai-master-api.orb.local`
-- Quick open: `make dev-logs-ui`
-- `make dev` rewrites the app container to use internal service URLs such as `http://loki:3100/loki/api/v1/push`
+- Quick open: `mise run dev-logs-ui`
+- `mise run dev` rewrites the app container to use internal service URLs such as `http://loki:3100/loki/api/v1/push`
 - Prometheus URL on OrbStack: `http://prometheus.sekai-master-api.orb.local`
 - Tempo API URL on OrbStack: `http://tempo.sekai-master-api.orb.local`
-- `make dev` rewrites the app container to use `http://otel-collector:4318`
+- `mise run dev` rewrites the app container to use `http://otel-collector:4318`
 - Grafana provisions Loki, Prometheus, Tempo datasources and three dashboards automatically: `Sekai / API & Network`, `Sekai / Memory & Runtime`, and `Sekai / Master Data`
 - `Sekai / API & Network` focuses on HTTP throughput, error rate, active requests, and route-level latency
 - `Sekai / Memory & Runtime` focuses on Go heap/runtime memory, stack usage, goroutines, GC pause, and Redis memory
@@ -324,6 +326,6 @@ If you need a full cleanup including volumes, use:
 
 End-to-end local smoke check:
 
-- `make smoke`
+- `mise run smoke`
 
-`make smoke` requires `ADMIN_BEARER_TOKEN` to already be set in the shell and only validates the API process you start locally against the configured external services.
+`mise run smoke` requires `ADMIN_BEARER_TOKEN` to already be set in the shell and only validates the API process you start locally against the configured external services.

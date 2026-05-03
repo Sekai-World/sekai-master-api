@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+set -eu
+
+. ./.mise/lib/tasks.sh
+load_app_env
+
+app_env="${APP_ENV}"
+driver="${DATABASE_DRIVER:-}"
+if [ -z "$driver" ]; then
+  if [ "$app_env" = "development" ] || [ "$app_env" = "dev" ]; then
+    driver="sqlite"
+  else
+    driver="pgx"
+  fi
+fi
+
+if [ "$driver" = "sqlite" ]; then
+  dialect="sqlite3"
+  dsn="${SQLITE_PATH:-./tmp/dev.db}"
+else
+  dialect="postgres"
+  dsn="${DATABASE_URL:-postgres://sekai:sekai@${COMPOSE_HOST}:5432/sekai?sslmode=disable}"
+fi
+
+echo "[migrate-up] APP_ENV=${app_env} DRIVER=${driver} DIALECT=${dialect}"
+go run -buildvcs=false github.com/pressly/goose/v3/cmd/goose@latest -dir internal/storage/migrations "$dialect" "$dsn" up
