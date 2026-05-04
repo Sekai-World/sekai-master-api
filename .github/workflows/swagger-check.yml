@@ -20,8 +20,8 @@ jobs:
 
       - name: Verify generated docs are committed
         run: |
-          git diff --quiet -- docs || {
+          git diff --quiet -- internal/transport/http/swaggerdocs || {
             echo "Swagger docs are out of date. Run 'mise run swagger' and commit updated files.";
-            git --no-pager diff -- docs;
+            git --no-pager diff -- internal/transport/http/swaggerdocs;
             exit 1;
           }
