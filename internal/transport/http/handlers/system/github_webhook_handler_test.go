@@ -39,7 +39,7 @@ func TestGitHubWebhookPushWithVersionFileTriggersRegionSync(t *testing.T) {
 	}
 	handler := NewGitHubWebhookHandler(map[string]config.MasterDataSource{
 		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
-	}, syncer, 5*time.Second, "")
+	}, syncer, 5*time.Second, "top-secret")
 
 	router := gin.New()
 	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
@@ -51,6 +51,7 @@ func TestGitHubWebhookPushWithVersionFileTriggersRegionSync(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", signGitHubWebhookBody("top-secret", body))
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -81,7 +82,7 @@ func TestGitHubWebhookIgnoresPushWithoutVersionFile(t *testing.T) {
 	}
 	handler := NewGitHubWebhookHandler(map[string]config.MasterDataSource{
 		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
-	}, syncer, 0, "")
+	}, syncer, 0, "top-secret")
 
 	router := gin.New()
 	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
@@ -93,6 +94,7 @@ func TestGitHubWebhookIgnoresPushWithoutVersionFile(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", signGitHubWebhookBody("top-secret", body))
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -114,19 +116,56 @@ func TestGitHubWebhookIgnoresNonPushEvent(t *testing.T) {
 	syncer := &fakeWebhookSyncer{
 		calls: make(chan string, 1),
 	}
-	handler := NewGitHubWebhookHandler(nil, syncer, 0, "")
+	handler := NewGitHubWebhookHandler(nil, syncer, 0, "top-secret")
 
 	router := gin.New()
 	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(`{"zen":"keep it logically awesome"}`))
+	body := `{"zen":"keep it logically awesome"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "ping")
+	req.Header.Set("X-Hub-Signature-256", signGitHubWebhookBody("top-secret", body))
 
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d", resp.Code)
+	}
+
+	select {
+	case region := <-syncer.calls:
+		t.Fatalf("expected no sync call, got region %s", region)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestGitHubWebhookRejectsMissingSecret(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	syncer := &fakeWebhookSyncer{
+		calls: make(chan string, 1),
+	}
+	handler := NewGitHubWebhookHandler(map[string]config.MasterDataSource{
+		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
+	}, syncer, 0, "")
+
+	router := gin.New()
+	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
+
+	body := `{
+		"ref":"refs/heads/main",
+		"repository":{"name":"sekai-master-data-jp","full_name":"Sekai-World/sekai-master-data-jp","owner":{"login":"Sekai-World"}},
+		"commits":[{"modified":["data/versions.json"]}]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "push")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", resp.Code)
 	}
 
 	select {

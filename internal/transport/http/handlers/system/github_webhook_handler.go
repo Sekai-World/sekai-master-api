@@ -95,6 +95,11 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
 		return
 	}
 
+	if handler.secret == "" {
+		response.Error(c, http.StatusServiceUnavailable, "GITHUB_WEBHOOK_DISABLED", "github webhook secret is not configured")
+		return
+	}
+
 	body, err := c.GetRawData()
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "failed to read webhook payload")
@@ -200,7 +205,7 @@ func (handler *GitHubWebhookHandler) matchRegion(owner string, repo string, ref 
 
 func (handler *GitHubWebhookHandler) verifySignature(body []byte, signature string) bool {
 	if handler == nil || handler.secret == "" {
-		return true
+		return false
 	}
 
 	mac := hmac.New(sha256.New, []byte(handler.secret))

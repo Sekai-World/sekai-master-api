@@ -54,4 +54,4 @@ Use an empty payload for all configured regions.
 
 - `POST /api/v1/internal/github/webhooks/master-data`
 
-This endpoint matches configured GitHub source `owner`, `repo`, and `ref`, and only push events with changed `versions.json` trigger sync.
+This endpoint requires `MASTER_DATA_GITHUB_WEBHOOK_SECRET` and a valid `X-Hub-Signature-256` header. It matches configured GitHub source `owner`, `repo`, and `ref`, and only push events with changed `versions.json` trigger sync.
