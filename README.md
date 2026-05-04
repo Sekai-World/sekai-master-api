@@ -1,5 +1,8 @@
 # sekai-master-api
 
+[![CI](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml)
+[![Swagger Check](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml)
+
 Go RESTful API template (Gin + OIDC + environment-based database).
 
 ## Features
