@@ -12,22 +12,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
+      - name: Set up mise
+        uses: jdx/mise-action@v4
 
-      - name: Check formatting (gofmt)
-        run: |
-          UNFORMATTED=$(gofmt -l $(find . -type f -name '*.go' -not -path './vendor/*'))
-          if [ -n "$UNFORMATTED" ]; then
-            echo "The following files are not gofmt-formatted:"
-            echo "$UNFORMATTED"
-            exit 1
-          fi
-
-      - name: Run go vet
-        run: go vet ./...
+      - name: Run lint
+        run: mise run lint
 
   test:
     name: Go Test
@@ -38,10 +27,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
+      - name: Set up mise
+        uses: jdx/mise-action@v4
 
       - name: Run tests
-        run: go test ./...
+        run: mise run test
