@@ -11,7 +11,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
-	_ "sekai-master-api/docs"
+	_ "sekai-master-api/internal/transport/http/swaggerdocs"
 
 	"sekai-master-api/internal/auth"
 	"sekai-master-api/internal/config"
