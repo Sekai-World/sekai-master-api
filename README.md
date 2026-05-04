@@ -3,332 +3,60 @@
 [![CI](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml)
 [![Swagger Check](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml)
 
-Go RESTful API template (Gin + OIDC + environment-based database).
+Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token validation, Goose migrations, Redis cache, and environment-based database selection.
 
 ## Features
 
-- Gin-based REST API (`/api/v1`)
-- OIDC access-token validation for protected API endpoints
-- Environment-specific database strategy:
-  - development: sqlite
-  - test/production: postgresql
-  - optional override via `DATABASE_DRIVER` (`sqlite`/`pgx`)
-- Compose-based development environment commands for PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector
-- Third-party logging with Zap (configurable log level)
-- Built-in modern admin dashboard with dedicated login page
-- Master data sync from GitHub JSON repositories (multi-region)
-- Master data query cache: Redis for by-id lookup, in-memory index for fuzzy name search (CJK supported)
-- Sync status persisted in database (`master_data_sync_status`)
-- Database schema migrations powered by Goose (`internal/storage/migrations`)
+- Public master-data GET APIs under `/api/v1`
+- OIDC-protected admin APIs and dashboard
+- SQLite for development; PostgreSQL for test and production
+- Redis-backed master-data cache with specialized card/music/event/virtual-live queries
+- Multi-region GitHub master-data sync
+- Local Docker Compose stack for PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and OpenTelemetry Collector
+- Swagger UI in development and test environments
 
 ## Quick Start
 
-1. Copy `.env.example` to `.env` and adjust values.
-   - The app auto-loads dotenv files in precedence order (highest precedence first): `.env.<APP_ENV>.local`, `.env.local`, `.env.<APP_ENV>`, then `.env` (for example: `.env.development.local`, `.env.development`).
-   - Later files do not override variables already set by earlier files. Effective precedence is: shell env > `.env.<APP_ENV>.local` > `.env.local` > `.env.<APP_ENV>` > `.env` > built-in defaults.
-2. Install dependencies:
-   - `mise trust`
-   - `mise install`
-   - `mise run tidy`
-3. Start API:
-   - `mise run run`
+```sh
+cp .env.example .env
+mise trust
+mise install
+mise run tidy
+mise run run
+```
 
-### Test Env File
+For the full local dependency stack:
 
-This repo provides `.env.test` for connecting to the deployed test environment. You can keep machine-specific overrides in `.env.local` or `.env.test.local`. `APP_ENV=test` is expected to connect directly to your remote test PostgreSQL and OIDC endpoints; it does not start local compose services.
+```sh
+mise run dev-env-up
+mise run dev
+```
 
-For local development with PostgreSQL and the bundled support services, use `.env.development` with `DATABASE_DRIVER=pgx`. Put machine-specific overrides in `.env.development.local` if needed, then run:
+## Common Commands
 
-- `mise run dev-env-up`
-- `mise run dev`
-- `mise run format`
-- `mise run swagger`
+- `mise run run`: run the API on the host
+- `mise run test`: run tests
+- `mise run lint`: run formatting check and `go vet`
+- `mise run format`: format Go files
+- `mise run swagger`: regenerate Swagger docs
+- `mise run dev-env-up`: start local dependencies
+- `mise run dev-env-down`: stop local dependencies
+- `mise run migrate-up`: run migrations up
+- `mise run migrate-down`: run migrations down
 
-`mise run dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector. Compose health checks are configured for PostgreSQL, Redis, Loki, and Grafana, and the local Keycloak realm/client/user are pre-imported in the Keycloak image.
+## Documentation
 
-`mise run dev` builds a dedicated app image with `docker buildx build --load`, ensures the dev dependency stack is up, and runs the API as its own container on the same `sekai-dev` Docker network.
-The image bakes in repository `.env*` files, and the container entrypoint writes a `.env.development.local` override so the app talks to `postgres`, `redis`, `otel-collector`, `loki`, and `keycloak` over the internal Docker network instead of `host.docker.internal`.
-The app container publishes `http://localhost:8080` by default, while compose dependency services stay internal to the `sekai-dev` network. With OrbStack, use the Compose project service domains if you need direct browser access, for example `http://grafana.sekai-master-api.orb.local` or `http://keycloak.sekai-master-api.orb.local`.
-The app container mounts a dedicated named volume at `/app/tmp` so SQLite files, master-data backups, and rebuilt caches can persist across restarts.
-To match the old `dev-watch` workflow, `mise run dev` defaults to `MASTER_DATA_AUTO_SYNC=false` and `MASTER_DATA_RECOVER_INTERRUPTED_SYNC=false`; if you do want startup sync/recovery, run `DEV_MASTER_DATA_AUTO_SYNC=true DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC=true mise run dev`.
+- [Development](docs/development.md)
+- [API Reference](docs/api.md)
+- [Master Data](docs/master-data.md)
+- [Auth and Admin](docs/auth-admin.md)
+- [Production Observability on K3s](docs/production-observability-k3s.md)
 
-Useful local commands:
+## Swagger
 
-- `mise run dev`
-- `mise run dev-logs`
-- `mise run dev-down`
+Swagger UI is exposed only in `development` and `test`:
 
-The Go logger pushes app logs to Loki in-process (no external log-push script required), Gin access/error logs follow the same Zap pipeline, and the API exports traces and metrics through OTLP/HTTP to the local OpenTelemetry Collector for Prometheus and Tempo backed Grafana dashboards.
-`mise run format` applies `gofmt` to all Go files.
-`mise run swagger` regenerates Swagger docs from Go annotations.
-
-GitHub Actions CI still uses Makefile commands where configured; development commands are exposed through mise.
-
-Logging level can be configured by env var `LOG_LEVEL` (for example: `debug`, `info`, `warn`, `error`).
-If `LOG_LEVEL` is empty, default is `debug` for non-production envs and `info` for production.
-
-## API Endpoints
-
-- `GET /docs`
 - `GET /docs/index.html`
 - `GET /docs/doc.json`
-- `GET /api/v1/health`
-- `GET /api/v1/cards/:region/list?page=1&page_size=20`
-- `GET /api/v1/cards/:region/search?q=<keyword>&field=name|skill&page=1&limit=20`
-- `GET /api/v1/cards/:region/:id`
-- `GET /api/v1/cards/:region/:id/params`
-- `GET /api/v1/cards/:region/:id/episodes`
-- `GET /api/v1/musics/:region/list?page=1&page_size=20`
-- `GET /api/v1/musics/:region/search?title=<kw>&lyricist=<kw>&composer=<kw>&arranger=<kw>&page=1&limit=20`
-  - provide at least one of `title/lyricist/composer/arranger`; when multiple are provided they are matched together
-- `GET /api/v1/musics/:region/:id`
-- `GET /api/v1/events/:region/current`
-- `GET /api/v1/events/:region/:id`
-- `GET /api/v1/events/:region/:id/rewards`
-- `GET /api/v1/virtualLives/:region/list?page=1&page_size=20`
-- `GET /api/v1/virtualLives/:region/search?q=<keyword>&field=name|type|assetbundle&page=1&limit=20`
-- `GET /api/v1/virtualLives/:region/:id`
-- `GET /api/v1/virtualLives/:region/:id/items`
-- `GET /api/v1/virtualLives/:region/:id/schedules`
-- `GET /api/v1/virtualLives/:region/:id/setlists`
-- `GET /api/v1/admin/profile` (Bearer token from configured OIDC provider required)
-- `GET /api/v1/admin/master-data/events` (Bearer token from configured OIDC provider required; dashboard SSE uses `access_token` query param)
-- `GET /api/v1/admin/master-data/status` (Bearer token from configured OIDC provider required)
-- `POST /api/v1/admin/master-data/sync` (Bearer token from configured OIDC provider required)
-- `POST /api/v1/admin/master-data/sync/force` (Bearer token from configured OIDC provider required)
-- `POST /api/v1/internal/github/webhooks/master-data` (internal GitHub webhook endpoint; matches configured region by owner/repo/ref)
 
-`POST /api/v1/admin/master-data/sync` and `POST /api/v1/admin/master-data/sync/force` support optional JSON payload:
-
-- `{ "region": "jp" }` for region-scoped sync
-- empty payload for full-region sync
-
-All non-admin `GET` API endpoints are public (no auth middleware).
-
-Swagger UI is exposed at `GET /docs/index.html`, and OpenAPI JSON is exposed at `GET /docs/doc.json` only when `APP_ENV` is `development` or `test`.
-
-## Master Data Sync
-
-At startup, the API can sync parsed game database JSON files from one or more GitHub repositories into cache.
-
-Startup sync runs in background after the API listener is up, so HTTP endpoints are available immediately.
-
-- Region source repos are configured by env vars.
-- `MASTER_DATA_RECOVER_INTERRUPTED_SYNC` controls whether startup should detect stale `running` / `pending` latest statuses and retry only those interrupted regions.
-- Startup sync parallelism is controlled by `MASTER_DATA_SYNC_CONCURRENCY` (default `3`).
-- `MASTER_DATA_REGION_FILE_CONCURRENCY` is retained for backward-compatible configuration, but archive-based sync no longer performs per-file GitHub fetches.
-- GitHub HTTP requests support retry via `MASTER_DATA_HTTP_RETRY_COUNT` (default `3`) and `MASTER_DATA_HTTP_RETRY_BACKOFF_MS` (default `300`).
-- GitHub push webhooks can trigger region-scoped sync through `POST /api/v1/internal/github/webhooks/master-data`.
-- Webhook matching uses configured region source `owner + repo + ref`; only `push` events with changed `versions.json` trigger sync.
-- Set `MASTER_DATA_GITHUB_WEBHOOK_SECRET` to validate `X-Hub-Signature-256`. If left empty, signature validation is skipped.
-- Each region can point to a different repository/ref/path.
-- Sync result (success/failed, file count, last sync time, source info) is persisted in database table `master_data_sync_status`.
-- Sync status storage model uses append-only history rows in `master_data_sync_status`; `created_at` is generated automatically by database default timestamp on insert. Latest status query uses database view `master_data_sync_status_latest` (one row per region) and exposes `last_updated_at` from that creation timestamp.
-- Startup sync compares the region source commit against the most recent successful sync record per region (from history); if unchanged, it skips reload for that region.
-- At sync start, if in-memory search index for a region is missing, region status is set to `pending` before sync proceeds.
-- For changed regions, cache writes are applied incrementally (upsert changed records and remove deleted records), not full key flush.
-- For changed regions, the loader downloads a single GitHub tarball archive for the resolved commit and extracts only JSON files under the configured path, which reduces request count and avoids per-file raw fetch rate limits.
-- Temporary archive workspace is created under `tmp/master-data-sync-resume/` during sync and removed after the region load completes.
-- Successful sync payloads are temporarily backed up by region under `tmp/master-data-backup/<region>/latest/`, preserving all synced JSON files as directory snapshots.
-- If commit is unchanged and previous sync status is success: API first tries rebuilding in-memory index from Redis; if Redis data is missing but local backup exists, it restores cache from local backup; otherwise it falls back to full sync.
-- In development, if local backup files exist for a configured region but sync status is missing from the database, startup can restore cache and rebuild indexes directly from the latest local backup before any remote sync runs.
-- If the process restarts while a region is still marked `running` or `pending`, startup recovery can automatically retry only those interrupted regions.
-- Interrupted sync recovery reuses the normal sync path, so unchanged regions can still be restored from Redis or local backup instead of forcing a full refetch.
-- Sync status includes per-region sync duration (`sync_duration_ms`) for dashboard display.
-- Sync status also includes `source_commit` for change tracking and skip decisions.
-- Admin dashboard reads a region-scoped status view from `GET /api/v1/admin/master-data/status`, including configured regions and current sync-running state.
-- Sync progress and completion events are exposed only via `GET /api/v1/admin/master-data/events`.
-- You can trigger manual sync from dashboard or call `POST /api/v1/admin/master-data/sync`.
-- If you need to ignore commit comparison and force a full refresh, call `POST /api/v1/admin/master-data/sync/force`.
-
-## Database Migrations
-
-- Migrations are executed automatically on API startup via Goose.
-- Migration files are located in `internal/storage/migrations`.
-- Local helper commands:
-   - `mise run migrate-up`
-   - `mise run migrate-down`
-- `mise run migrate-*` auto-resolves DB connection using `APP_ENV` + dotenv files (`.env`, `.env.<APP_ENV>`, `.env.local`, `.env.<APP_ENV>.local`), with later files overriding earlier ones.
-- Example: `APP_ENV=test mise run migrate-up`
-  This will target whatever remote test database is configured in `.env.test` / `.env.test.local`.
-
-### Required env setup pattern
-
-1. Set region list:
-   - `MASTER_DATA_REGIONS=jp,global`
-2. Configure each region source:
-   - `MASTER_DATA_GITHUB_OWNER_<REGION>`
-   - `MASTER_DATA_GITHUB_REPO_<REGION>`
-   - `MASTER_DATA_GITHUB_REF_<REGION>`
-   - `MASTER_DATA_GITHUB_PATH_<REGION>`
-
-`<REGION>` uses uppercase, non-alphanumeric chars replaced by `_`.
-
-Example for `jp`:
-
-- `MASTER_DATA_GITHUB_OWNER_JP=Sekai-World`
-- `MASTER_DATA_GITHUB_REPO_JP=sekai-master-data-jp`
-- `MASTER_DATA_GITHUB_REF_JP=main`
-- `MASTER_DATA_GITHUB_PATH_JP=data`
-
-### Query cache strategy
-
-- card by-id query reads from Redis hash cache (`region + cards + id`)
-- card params query reuses the same cached card record and only returns params-related fields
-- card search supports `field=name|skill`: `name` maps to `prefix`, `skill` maps to `cardSkillName`
-- music search uses field keyword params: `title`, `lyricist`, `composer`, `arranger` (at least one required)
-- music multi-field search matches records that satisfy all provided field keywords
-- music response maps `creatorArtistId` → `creatorArtist` (lookup from `musicArtists.json` by `id`) and removes `creatorArtistId` from response
-- music response maps `liveStageId` → `liveStage` (lookup from `liveStages.json` by `id`) and removes `liveStageId` from response
-- card response maps `cardSupplyId` → `cardSupply`, `skillId` → `skill`, `characterId` → `character`, `cardRarityType` → `cardRarity`
-- `character` is loaded from `gameCharacters.json` and excludes `live2dHeightAdjustment`, `figure`, `breastSize`, `modelName`
-- card query endpoints return `503` with `REGION_DATA_NOT_READY` when region sync status is not `success`
-- card search response includes `pagination` (`page`, `page_size`, `total`, `total_pages`, `has_next`) same as list
-- card list pagination follows real `cards.json` array order (data index), not id continuity
-- card list pagination response includes `total_pages` and `has_next`
-- event by-id endpoint omits `eventRankingRewardRanges` from the main payload
-- current event endpoint (`GET /api/v1/events/:region/current`) reads from Redis cache first, validates event time window, and refreshes cache from `events.json` when cached event is expired/missing
-- event rewards endpoint returns `eventRankingRewardRanges` via `GET /api/v1/events/:region/:id/rewards`
-- virtual live search supports `field=name|type|assetbundle`: `name` maps to `name`, `type` maps to `virtualLiveType`, `assetbundle` maps to `assetbundleName`
-- virtual live base response omits `virtualItems`, `virtualLiveSchedules`, `virtualLiveSetlists`; use the dedicated `items` / `schedules` / `setlists` endpoints
-- `GET /api/v1/admin/master-data/events` can notify frontend after sync finishes (`master_data_updated`)
-
-Redis settings:
-
-- `REDIS_ADDR`
-- `REDIS_PASSWORD`
-- `REDIS_DB`
-- `MASTER_DATA_REDIS_KEY_PREFIX`
-
-### Optional GitHub token
-
-Set `MASTER_DATA_GITHUB_TOKEN` if you need higher GitHub API rate limit.
-
-## Admin Dashboard
-
-- `GET /admin/login` (dashboard login page)
-- `GET /admin` (dashboard home)
-- Open login page quickly: `mise run admin-open` (default `APP_PORT=8080`)
-
-Login flow:
-
-1. Open `/admin/login`.
-2. Dashboard redirects the browser to the configured OIDC authorization endpoint.
-3. After the OIDC provider redirects back to `/api/v1/admin/login/callback`, the backend exchanges the authorization code with PKCE. If `OIDC_PRIVATE_KEY_PATH` is configured it also sends `private_key_jwt`; otherwise it behaves as a public client.
-4. On success, the callback page stores the access token in session storage, redirects to `/admin`, and the dashboard calls `GET /api/v1/admin/profile`.
-
-Master Data sync panel supports selecting target region (or all regions) and can run both normal sync and force sync per selected scope.
-
-## OIDC Integration
-
-The API validates bearer tokens with OIDC issuer metadata. The admin login flow always uses authorization code plus PKCE, and can optionally add `private_key_jwt` client authentication when a private key is configured.
-
-Required env vars:
-
-- `OIDC_ISSUER_URL`
-- `OIDC_AUDIENCE`
-- `OIDC_CLIENT_ID`
-- `OIDC_REDIRECT_URL`
-- `OIDC_SCOPES`
-
-Optional flags for local troubleshooting:
-
-- `OIDC_AUTH_URL`
-- `OIDC_TOKEN_URL`
-- `OIDC_SKIP_ISSUER_CHECK`
-- `OIDC_SKIP_AUDIENCE_CHECK`
-- `OIDC_PRIVATE_KEY_PATH`
-- `OIDC_PRIVATE_KEY_ID`
-- `OIDC_ADMIN_CLAIM`
-- `OIDC_ADMIN_CLAIM_VALUES`
-
-`OIDC_SCOPES` should include the standard OpenID scopes required by your provider and any API audience/resource scopes required by your deployment.
-
-Optional admin RBAC:
-
-- If `OIDC_ADMIN_CLAIM` and `OIDC_ADMIN_CLAIM_VALUES` are both set, `/api/v1/admin/*` requires the validated token to contain at least one matching claim value.
-- Claim lookup supports top-level or dotted paths such as `groups`, `roles`, or `realm_access.roles`.
-- Claim values can be arrays (`["sekai-admin"]`) or strings. `scope` / `scp` string claims are split on whitespace and commas.
-- If these env vars are left empty, admin authorization falls back to authenticated-user-only behavior.
-- The admin profile endpoint and dashboard only expose matched-claim debug details in `development` / `test`; production hides them even when RBAC is enabled.
-
-For local development, `.env.development` is preconfigured for the bundled Keycloak instance:
-
-- Browser Keycloak URL on OrbStack: `http://keycloak.sekai-master-api.orb.local`
-- OIDC issuer: `http://localhost:18081/realms/sekai` when running the API on the host with explicitly published ports
-- OIDC internal issuer URL for `mise run dev`: `http://keycloak:8080/realms/sekai`
-- OIDC client ID / audience: `sekai-api`
-- OIDC redirect URI: `http://localhost:8080/api/v1/admin/login/callback`
-- Admin RBAC claim: `groups`
-- Required admin value: `sekai-admin`
-
-`mise run dev-env-up` also starts Keycloak with a pre-imported local realm, client, admin group, and test login user:
-
-- Test login user: `alice`
-- Test login password: `alice123!`
-- Keycloak bootstrap admin: `admin`
-- Keycloak bootstrap admin password: `admin`
-
-To fetch a local access token without going through the browser login flow, you can run:
-
-- `mise run keycloak-token`
-
-If you need a different local setup, override the `KEYCLOAK_*` and `OIDC_*` values in `.env.development.local`.
-
-For smoke checks against protected endpoints, provide a valid `ADMIN_BEARER_TOKEN` from your OIDC test environment. `mise run smoke` no longer starts local dependencies.
-
-## Database by Environment
-
-- `APP_ENV=development` uses sqlite at `SQLITE_PATH`.
-- `APP_ENV=test` or `APP_ENV=production` uses postgresql via `DATABASE_URL`.
-- `DATABASE_DRIVER` can override this behavior (`sqlite` or `pgx`).
-
-Health endpoint returns both application and database status.
-
-## Local Docker
-
-Local development assumes a host Docker engine with both `docker compose` semantics and `docker buildx`.
-
-Useful checks:
-
-- `docker version`
-- `docker compose version`
-- `docker buildx version`
-
-## Test environment
-
-Use compose commands through mise (`postgres:18-alpine`, `redis:8-alpine`, `grafana`, `loki`, `tempo`, `prometheus`, `otel-collector`):
-
-- mise tasks use `docker compose` (fallback: `docker-compose`)
-- default compose project name is `sekai-master-api`, so OrbStack / Docker Desktop will group the local dev stack under that name
-- override with `COMPOSE_PROJECT_NAME=your-name mise run dev-env-up` if needed
-- if you already have a legacy local stack under the old default project name `compose`, bring it down once first to avoid duplicate containers
-
-- `mise run dev-env-up`
-- `mise run dev-env-logs`
-- `mise run dev-env-down`
-
-`mise run dev-env-down` preserves named volumes by default.
-If you need a full cleanup including volumes, use:
-
-- `mise run dev-env-down-purge`
-
-`mise run dev-env-up` also starts a local observability stack for the Go app. Compose dependency services are not published to host ports; `mise run dev` connects the app container to them over the `sekai-dev` network automatically.
-
-
-- Grafana URL on OrbStack: `http://grafana.sekai-master-api.orb.local`
-- Quick open: `mise run dev-logs-ui`
-- `mise run dev` rewrites the app container to use internal service URLs such as `http://loki:3100/loki/api/v1/push`
-- Prometheus URL on OrbStack: `http://prometheus.sekai-master-api.orb.local`
-- Tempo API URL on OrbStack: `http://tempo.sekai-master-api.orb.local`
-- `mise run dev` rewrites the app container to use `http://otel-collector:4318`
-- Grafana provisions Loki, Prometheus, Tempo datasources and three dashboards automatically: `Sekai / API & Network`, `Sekai / Memory & Runtime`, and `Sekai / Master Data`
-- `Sekai / API & Network` focuses on HTTP throughput, error rate, active requests, and route-level latency
-- `Sekai / Memory & Runtime` focuses on Go heap/runtime memory, stack usage, goroutines, GC pause, and Redis memory
-- `Sekai / Master Data` focuses on region sync state, synced file counts, and search index size/count metrics
-
-End-to-end local smoke check:
-
-- `mise run smoke`
-
-`mise run smoke` requires `ADMIN_BEARER_TOKEN` to already be set in the shell and only validates the API process you start locally against the configured external services.
+Generated Swagger files live in `internal/transport/http/swaggerdocs`; root `docs/` is reserved for project documents.
