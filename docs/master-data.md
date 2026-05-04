@@ -35,6 +35,7 @@ Set `MASTER_DATA_GITHUB_TOKEN` if higher GitHub API rate limits are needed.
 - Sync status is persisted in `master_data_sync_status`; latest status is exposed through `master_data_sync_status_latest`.
 - Sync status includes region, state, file count, source info, source commit, sync duration, and timestamps.
 - Sync events are exposed through `GET /api/v1/admin/master-data/events`.
+- GitHub webhooks require `MASTER_DATA_GITHUB_WEBHOOK_SECRET` and a valid `X-Hub-Signature-256` header. If the secret is empty, the webhook endpoint returns `503 GITHUB_WEBHOOK_DISABLED`.
 
 Useful settings:
 
