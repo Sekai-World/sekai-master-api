@@ -1,46 +1,102 @@
 # Production Observability on k3s
 
-The compose observability stack is for local development. In k3s / production, keep the same signal flow but run it as cluster infrastructure.
+The compose observability stack is for local development. In k3s, the deployed Grafana Alloy instance can satisfy the collector role if it receives app OTLP traffic and forwards every required signal to the right backend.
 
 ## Signal Flow
 
 ```text
-App -> OpenTelemetry Collector -> Tempo
-App -> OpenTelemetry Collector -> metrics backend
-App -> Loki
-Grafana -> Tempo / Loki / metrics backend
+App -> Alloy OTLP receiver -> Tempo
+App -> Alloy OTLP receiver -> Prometheus OTLP endpoint
+Pod stdout/stderr -> Alloy Kubernetes log source -> Loki
+Kubernetes events -> Alloy Kubernetes event source -> Loki
+Grafana -> Tempo / Loki / Prometheus
 ```
 
-## OpenTelemetry Collector
+## Alloy Requirements
 
-- Run an in-cluster Collector service for app OTLP ingest, for example `http://otel-collector:4318`.
-- Keep Collector ingestion ports cluster-private.
-- Use resource requests/limits and monitor dropped spans, refused spans, queue pressure, memory usage, and exporter failures.
-- Add HPA or multiple replicas if production traffic needs it.
-- Use tail sampling:
-  - keep error traces
-  - keep slow traces
-  - keep a small baseline sample for normal requests
-- Tune sampling thresholds and percentages from real traffic.
+Alloy must provide:
 
-## Tempo
+- OTLP gRPC on `4317` and OTLP HTTP on `4318`.
+- Metrics forwarding to Prometheus through `/api/v1/otlp`.
+- Trace forwarding to Tempo.
+- Pod log forwarding to Loki.
+- Kubernetes event forwarding to Loki.
+- Cluster-private ingestion ports.
+- Resource requests/limits and monitoring for dropped data, refused data, queue pressure, memory usage, and exporter failures.
 
-- Use durable object storage for traces.
-- Configure explicit retention.
-- Keep Tempo ingestion/query ports private unless protected by internal networking and auth.
-- Expose traces through Grafana, not directly to the public internet.
+The current deployed Alloy config already covers pod logs, Kubernetes events, OTLP ingest, and metric export. It still needs Tempo export if traces currently point only to `otelcol.exporter.debug`.
 
-## Loki
+## Trace Export
 
-- Keep labels low-cardinality only: `service`, `env`, `level`, `component`.
-- Do not use `trace_id`, `span_id`, request IDs, user IDs, paths, entity IDs, or raw errors as labels.
-- Keep `trace_id` and `span_id` inside the structured log body.
+Do not leave production traces on the debug exporter only:
 
-## Grafana
+```hcl
+output {
+  metrics = [otelcol.exporter.otlphttp.prometheus.input]
+  traces  = [otelcol.exporter.debug.default.input]
+}
+```
 
-- Configure the Loki datasource with a derived field that extracts `trace_id` and links to Tempo.
-- Expose Grafana through authenticated ingress only.
-- Provision Tempo, Loki, and metrics datasources through infra manifests.
+Add a Tempo exporter and route traces to it:
+
+```hcl
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo.monitoring.svc.cluster.local:4317"
+
+    tls {
+      insecure = true
+    }
+  }
+}
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.exporter.otlphttp.prometheus.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+```
+
+Keep `otelcol.exporter.debug` only for temporary troubleshooting.
+
+## Metrics Export
+
+The deployed metrics exporter is acceptable if Prometheus has OTLP receive enabled:
+
+```hcl
+otelcol.exporter.otlphttp "prometheus" {
+  client {
+    endpoint = "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp"
+
+    tls {
+      insecure = true
+    }
+  }
+}
+```
+
+Confirm Prometheus is configured to accept OTLP writes. Otherwise, app metrics will be accepted by Alloy but rejected by Prometheus.
+
+## Logs
+
+If Alloy collects pod stdout/stderr and forwards to Loki, keep the app's direct Loki push disabled to avoid duplicate logs:
+
+```env
+LOKI_PUSH_URL=
+```
+
+Keep Loki labels low-cardinality. Labels such as `cluster`, `namespace`, `pod`, `container`, `node`, `app`, and `job` are acceptable for Kubernetes logs. Do not promote `trace_id`, `span_id`, request IDs, user IDs, paths, entity IDs, or raw errors into labels.
+
+The app writes structured logs with `trace_id` and `span_id` in the log body, which supports Grafana derived fields without making them labels.
 
 ## App Configuration
 
@@ -52,18 +108,28 @@ LOG_LEVEL=info
 OTEL_ENABLED=true
 OTEL_SERVICE_NAME=sekai-master-api
 OTEL_SERVICE_VERSION=<image-or-git-version>
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.monitoring.svc.cluster.local:4318
 OTEL_EXPORTER_OTLP_INSECURE=true
-LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
+LOKI_PUSH_URL=
 ```
 
-If TLS is terminated at the Collector or gateway:
+If TLS is terminated at Alloy or an OTLP gateway:
 
 ```env
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.internal
 OTEL_EXPORTER_OTLP_INSECURE=false
 ```
 
-## Optional Node-Level Collection
+## Tempo
 
-Use Grafana Alloy, Grafana Agent, or OpenTelemetry Collector as a DaemonSet only if node-level logs, host metrics, or Kubernetes events are needed. The API app itself only needs the Collector service endpoint and Loki push endpoint.
+- Use durable object storage for traces.
+- Configure explicit retention.
+- Keep Tempo ingestion/query ports private unless protected by internal networking and auth.
+- Expose traces through Grafana, not directly to the public internet.
+
+## Grafana
+
+- Configure Prometheus, Loki, and Tempo datasources.
+- Configure the Loki datasource with a derived field that extracts `trace_id` and links to Tempo.
+- Expose Grafana through authenticated ingress only.
+- Provision datasources and dashboards through infra manifests.
