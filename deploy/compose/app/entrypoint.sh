@@ -73,7 +73,7 @@ mkdir -p /app/tmp
   printf 'MASTER_DATA_RECOVER_INTERRUPTED_SYNC=%s\n' "${MASTER_DATA_RECOVER_INTERRUPTED_SYNC_OVERRIDE}"
   printf 'REDIS_ADDR=redis:6379\n'
   printf 'LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push\n'
-  printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318\n'
+  printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318\n'
   printf 'OTEL_EXPORTER_OTLP_INSECURE=true\n'
   printf 'OIDC_INTERNAL_URL=http://keycloak:8080%s\n' "${issuer_path}"
   printf 'OIDC_REDIRECT_URL=http://localhost:%s/api/v1/admin/login/callback\n' "${HOST_APP_PORT}"

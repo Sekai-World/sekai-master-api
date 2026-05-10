@@ -83,7 +83,7 @@ Migration files live in `internal/storage/migrations`.
 
 Logging uses Zap. Configure level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`). If empty, the default is `debug` outside production and `info` in production.
 
-The local stack includes Grafana, Loki, Prometheus, Tempo, and OTEL Collector. With OrbStack, common URLs are:
+The local stack includes Grafana, Loki, Prometheus, Tempo, and Alloy. With OrbStack, common URLs are:
 
 - Grafana: `http://grafana.sekai-master-api.orb.local`
 - Prometheus: `http://prometheus.sekai-master-api.orb.local`

@@ -66,20 +66,26 @@ services:
     networks:
       - dev
 
-  otel-collector:
+  alloy:
     build:
       context: ../..
-      dockerfile: deploy/compose/otel-collector/Dockerfile
-    image: sekai/otel-collector-dev:0.141.0
+      dockerfile: deploy/compose/alloy/Dockerfile
+    image: sekai/alloy-dev:1.12.1
     restart: unless-stopped
     command:
-      - --config=/etc/otelcol-contrib/config.yaml
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
     expose:
       - "4317"
       - "4318"
     depends_on:
+      prometheus:
+        condition: service_started
       tempo:
         condition: service_started
+    volumes:
+      - alloy-data:/var/lib/alloy/data
     networks:
       - dev
 
@@ -93,13 +99,11 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
     expose:
       - "9090"
     volumes:
       - prometheus-data:/prometheus
-    depends_on:
-      otel-collector:
-        condition: service_started
     networks:
       - dev
 
@@ -163,6 +167,7 @@ volumes:
   pg-data:
   prometheus-data:
   tempo-data:
+  alloy-data:
 
 networks:
   dev:
