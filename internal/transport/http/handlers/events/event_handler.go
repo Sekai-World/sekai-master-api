@@ -20,14 +20,7 @@ type EventHandler struct {
 
 var sortableEventFields = []string{
 	"id",
-	"eventType",
-	"name",
-	"assetbundleName",
-	"bgmAssetbundleName",
-	"unit",
 	"startAt",
-	"aggregateAt",
-	"closedAt",
 }
 
 func NewEventHandler(masterDataSync *usecase.MasterDataSyncUsecase) *EventHandler {
@@ -209,7 +202,11 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
-// @Param sort_by query string false "Sort field"
+// @Param id query string false "Event ID"
+// @Param name query string false "Event name"
+// @Param unit query string false "Event unit"
+// @Param event_type query string false "Event type"
+// @Param sort_by query string false "Sort field (id|startAt)"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.EventListResponse
 // @Failure 400 {object} shared.ErrorResponse
@@ -256,16 +253,20 @@ func (handler *EventHandler) List(c *gin.Context) {
 		return
 	}
 
-	if sortOptions.Enabled {
+	filterOptions := parseEventFilterOptions(c)
+	if filterOptions.Enabled || sortOptions.Enabled {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "events")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
 			return
 		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
-			return
+		records = filterEvents(records, filterOptions)
+		if sortOptions.Enabled {
+			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
+				return
+			}
+			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
@@ -290,144 +291,6 @@ func (handler *EventHandler) List(c *gin.Context) {
 		"pagination": gin.H{
 			"page":        page,
 			"page_size":   pageSize,
-			"total":       total,
-			"total_pages": totalPages,
-			"has_next":    page < totalPages,
-		},
-	})
-}
-
-// Search godoc
-// @Summary Search events
-// @Tags events
-// @Produce json
-// @Param region path string true "Region"
-// @Param q query string true "Search query"
-// @Param field query string false "Search field (name|unit), default=name"
-// @Param page query int false "Page number"
-// @Param limit query int false "Max results"
-// @Param sort_by query string false "Sort field"
-// @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} shared.EventListResponse
-// @Failure 400 {object} shared.ErrorResponse
-// @Failure 503 {object} shared.ErrorResponse
-// @Failure 500 {object} shared.ErrorResponse
-// @Router /events/{region}/search [get]
-func (handler *EventHandler) Search(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	query := strings.TrimSpace(c.Query("q"))
-	if region == "" || query == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and q are required")
-		return
-	}
-	if !handler.ensureRegionReady(c, region) {
-		return
-	}
-
-	field := strings.ToLower(strings.TrimSpace(c.Query("field")))
-	if field == "" {
-		field = "name"
-	}
-
-	searchFields := []string{"name"}
-	switch field {
-	case "name":
-		searchFields = []string{"name"}
-	case "unit":
-		searchFields = []string{"unit"}
-	default:
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "field must be one of: name, unit")
-		return
-	}
-
-	page := 1
-	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
-		parsedPage, err := strconv.Atoi(rawPage)
-		if err != nil || parsedPage <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page must be a positive integer")
-			return
-		}
-		page = parsedPage
-	}
-
-	limit := 20
-	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
-		parsedLimit, err := strconv.Atoi(rawLimit)
-		if err != nil || parsedLimit <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "limit must be a positive integer")
-			return
-		}
-		limit = parsedLimit
-	}
-
-	sortOptions, ok := shared.ParseListSortOptions(c)
-	if !ok {
-		return
-	}
-
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "events", query, searchFields, 1000000)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to search events")
-		return
-	}
-
-	if sortOptions.Enabled {
-		records := make([]map[string]any, 0, len(matches))
-		for _, match := range matches {
-			records = append(records, match.Item)
-		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
-			return
-		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := shared.PaginateItems(records, page, limit)
-		response.JSON(c, http.StatusOK, gin.H{
-			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
-			"pagination": pagination,
-		})
-		return
-	}
-
-	total := len(matches)
-	start := (page - 1) * limit
-	if start >= total {
-		_, pagination := shared.PaginateItems([]map[string]any{}, page, limit)
-		pagination["total"] = total
-		if limit > 0 {
-			pagination["total_pages"] = (total + limit - 1) / limit
-		}
-		response.JSON(c, http.StatusOK, gin.H{
-			"items":      []map[string]any{},
-			"pagination": pagination,
-		})
-		return
-	}
-
-	end := start + limit
-	if end > total {
-		end = total
-	}
-
-	items := make([]map[string]any, 0, end-start)
-	for _, match := range matches[start:end] {
-		items = append(items, handler.buildEventDetail(c.Request.Context(), region, match.Item))
-	}
-
-	totalPages := 0
-	if limit > 0 {
-		totalPages = (total + limit - 1) / limit
-	}
-
-	response.JSON(c, http.StatusOK, gin.H{
-		"items": items,
-		"pagination": gin.H{
-			"page":        page,
-			"page_size":   limit,
 			"total":       total,
 			"total_pages": totalPages,
 			"has_next":    page < totalPages,
@@ -767,4 +630,70 @@ func pickFields(record map[string]any, keys []string) map[string]any {
 	}
 
 	return result
+}
+
+type eventFilterOptions struct {
+	Enabled bool
+	Fields  map[string]string
+}
+
+func parseEventFilterOptions(c *gin.Context) eventFilterOptions {
+	fields := map[string]string{}
+	for _, queryField := range []string{"id", "name", "unit", "event_type"} {
+		if value := strings.TrimSpace(c.Query(queryField)); value != "" {
+			fields[eventQueryFieldToRecordField(queryField)] = value
+		}
+	}
+
+	return eventFilterOptions{
+		Enabled: len(fields) > 0,
+		Fields:  fields,
+	}
+}
+
+func eventQueryFieldToRecordField(field string) string {
+	switch field {
+	case "event_type":
+		return "eventType"
+	default:
+		return field
+	}
+}
+
+func filterEvents(records []map[string]any, options eventFilterOptions) []map[string]any {
+	if !options.Enabled || len(options.Fields) == 0 {
+		return records
+	}
+
+	filtered := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if eventMatchesFilters(record, options.Fields) {
+			filtered = append(filtered, record)
+		}
+	}
+
+	return filtered
+}
+
+func eventMatchesFilters(record map[string]any, fields map[string]string) bool {
+	for field, value := range fields {
+		if !eventFieldMatches(record[field], value, field == "id") {
+			return false
+		}
+	}
+
+	return true
+}
+
+func eventFieldMatches(recordValue any, query string, exact bool) bool {
+	recordText := shared.NormalizeComparableText(recordValue)
+	queryText := shared.NormalizeComparableText(query)
+	if queryText == "" {
+		return true
+	}
+	if exact {
+		return recordText == queryText
+	}
+
+	return strings.Contains(recordText, queryText)
 }

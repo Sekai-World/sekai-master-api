@@ -574,165 +574,6 @@ func TestCardListSortingBuildsOnlyCurrentPage(t *testing.T) {
 	}
 }
 
-func TestCardSearchEndpointMapsCardSupply(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeCardHandlerCache{
-		byID: map[string]map[string]map[string]map[string]any{
-			"jp": {
-				"gamecharacters": {
-					"30": {
-						"id":                     30,
-						"firstName":              "Miku",
-						"live2dHeightAdjustment": 1,
-						"figure":                 "x",
-						"breastSize":             "y",
-						"modelName":              "z",
-					},
-				},
-				"skills": {
-					"20": {
-						"id":   20,
-						"name": "score up",
-					},
-				},
-				"cardsupplies": {
-					"10": {
-						"id":   10,
-						"name": "limited",
-					},
-				},
-			},
-		},
-		searchMatches: []masterdata.SearchMatch{
-			{
-				Item: map[string]any{
-					"id":             1001,
-					"cardRarityType": "rarity_4",
-					"characterId":    30,
-					"prefix":         "test-prefix",
-					"cardSupplyId":   10,
-					"skillId":        20,
-				},
-				MatchScore:   80,
-				MatchType:    "prefix",
-				MatchedField: "prefix",
-			},
-		},
-	}
-	cache.rarityMatches = []masterdata.SearchMatch{
-		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
-	}
-
-	cardHandler := newReadyCardHandler(cache)
-
-	router := gin.New()
-	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=test&page=1&limit=20", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-
-	assertFirstItemHasMappedCardSupply(t, body)
-}
-
-func TestCardSearchEndpointSupportsSorting(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeCardHandlerCache{
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"id": 1, "prefix": "alpha", "seq": 1}, MatchScore: 100},
-			{Item: map[string]any{"id": 2, "prefix": "bravo", "seq": 2}, MatchScore: 90},
-		},
-	}
-
-	cardHandler := newReadyCardHandler(cache)
-
-	router := gin.New()
-	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=test&page=1&limit=20&sort_by=prefix&sort_order=desc", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-
-	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2, 1})
-}
-
-func TestCardSearchFieldNameMapsToPrefix(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeCardHandlerCache{}
-	cardHandler := newReadyCardHandler(cache)
-
-	router := gin.New()
-	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=test&field=name&page=1&limit=20", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-
-	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "prefix" {
-		t.Fatalf("expected search fields [prefix], got %v", cache.lastSearch.fields)
-	}
-}
-
-func TestCardSearchFieldSkillMapsToCardSkillName(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeCardHandlerCache{}
-	cardHandler := newReadyCardHandler(cache)
-
-	router := gin.New()
-	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=test&field=skill&page=1&limit=20", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-
-	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "cardSkillName" {
-		t.Fatalf("expected search fields [cardSkillName], got %v", cache.lastSearch.fields)
-	}
-}
-
-func TestCardSearchFieldInvalidReturnsBadRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeCardHandlerCache{}
-	cardHandler := newReadyCardHandler(cache)
-
-	router := gin.New()
-	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=test&field=unknown&page=1&limit=20", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d", resp.Code)
-	}
-}
-
 func TestCardListSortOrderWithoutSortByReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -941,14 +782,12 @@ func TestCardEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
 	router.GET("/api/v1/cards/:region/:id/params", cardHandler.ParamsByID)
 	router.GET("/api/v1/cards/:region/:id/episodes", cardHandler.EpisodesByID)
 	router.GET("/api/v1/cards/:region/list", cardHandler.List)
-	router.GET("/api/v1/cards/:region/search", cardHandler.SearchByPrefix)
 
 	testCases := []string{
 		"/api/v1/cards/jp/1001",
 		"/api/v1/cards/jp/1001/params",
 		"/api/v1/cards/jp/1001/episodes",
 		"/api/v1/cards/jp/list?page=1&page_size=20",
-		"/api/v1/cards/jp/search?q=test&page=1&limit=20",
 	}
 
 	for _, path := range testCases {
