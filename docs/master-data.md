@@ -63,9 +63,7 @@ Query behavior:
 
 - Card by-id reads from Redis hash cache.
 - Card list pagination follows real `cards.json` array order, not contiguous IDs.
-- Card search supports `field=name|skill`; `name` maps to `prefix`, `skill` maps to `cardSkillName`.
 - Card params reuses the cached card record and returns params-related fields only.
-- Music search supports `title`, `lyricist`, `composer`, and `arranger`.
 - Music responses expand `creatorArtistId` and `liveStageId` and hide the raw ids.
 - Card responses expand `cardSupplyId`, `skillId`, `characterId`, and `cardRarityType`.
 - Event current lookup uses Redis first and refreshes from `events.json` when stale or missing.

@@ -390,89 +390,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/cards/{region}/search": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "cards"
-                ],
-                "summary": "Search cards by prefix",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Region",
-                        "name": "region",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Prefix query",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Search field (name|skill), default=name",
-                        "name": "field",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max results",
-                        "name": "limit",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort field",
-                        "name": "sort_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort order (asc|desc)",
-                        "name": "sort_order",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/shared.CardListResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/cards/{region}/{id}": {
             "get": {
                 "produces": [
@@ -779,90 +696,31 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Sort field",
-                        "name": "sort_by",
+                        "description": "Event ID",
+                        "name": "id",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Sort order (asc|desc)",
-                        "name": "sort_order",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/shared.EventListResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/events/{region}/search": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "events"
-                ],
-                "summary": "Search events",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Region",
-                        "name": "region",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Search query",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Search field (name|unit), default=name",
-                        "name": "field",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max results",
-                        "name": "limit",
+                        "description": "Event name",
+                        "name": "name",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Sort field",
+                        "description": "Event unit",
+                        "name": "unit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event type",
+                        "name": "event_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id|startAt)",
                         "name": "sort_by",
                         "in": "query"
                     },
@@ -1455,100 +1313,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/musics/{region}/search": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "musics"
-                ],
-                "summary": "Search musics",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Region",
-                        "name": "region",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Keyword for title field",
-                        "name": "title",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Keyword for lyricist field",
-                        "name": "lyricist",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Keyword for composer field",
-                        "name": "composer",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Keyword for arranger field",
-                        "name": "arranger",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max results",
-                        "name": "limit",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort field",
-                        "name": "sort_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort order (asc|desc)",
-                        "name": "sort_order",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/shared.MusicListResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/musics/{region}/{id}": {
             "get": {
                 "produces": [
@@ -1733,89 +1497,6 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort field",
-                        "name": "sort_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Sort order (asc|desc)",
-                        "name": "sort_order",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/shared.VirtualLiveListResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/shared.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/virtualLives/{region}/search": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "virtualLives"
-                ],
-                "summary": "Search virtual lives",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Region",
-                        "name": "region",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Search query",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Search field (name|type|assetbundle), default=name",
-                        "name": "field",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max results",
-                        "name": "limit",
                         "in": "query"
                     },
                     {
