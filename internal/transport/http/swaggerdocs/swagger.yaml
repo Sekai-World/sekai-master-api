@@ -1206,7 +1206,7 @@ paths:
         in: query
         name: name
         type: string
-      - description: Event unit
+      - description: Event unit (matched against eventStoryUnits.unit)
         in: query
         name: unit
         type: string

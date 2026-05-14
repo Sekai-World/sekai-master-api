@@ -650,15 +650,23 @@ func TestEventListEndpointSupportsSorting(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
 }
 
-func TestEventListEndpointFiltersByNameUnitAndEventType(t *testing.T) {
+func TestEventListEndpointFiltersByNameUnitAndEventTypeUsingEventStoryUnits(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
 		listByEntity: map[string]map[string][]map[string]any{
 			"jp": {
 				"events": {
-					{"id": 101, "name": "Cheerful Carnival", "unit": "idol", "eventType": "cheerful_carnival"},
-					{"id": 102, "name": "Another Event", "unit": "street", "eventType": "marathon"},
+					{"id": 101, "name": "Cheerful Carnival", "unit": "street", "eventType": "cheerful_carnival"},
+					{"id": 102, "name": "Another Event", "unit": "idol", "eventType": "marathon"},
+				},
+				"eventstories": {
+					{"id": 7001, "eventId": 101},
+					{"id": 7002, "eventId": 102},
+				},
+				"eventstoryunits": {
+					{"id": 8001, "eventStoryId": 7001, "unit": "idol"},
+					{"id": 8002, "eventStoryId": 7002, "unit": "street"},
 				},
 			},
 		},
@@ -677,6 +685,21 @@ func TestEventListEndpointFiltersByNameUnitAndEventType(t *testing.T) {
 	}
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
+
+	if len(cache.searchCalls) == 0 {
+		t.Fatalf("expected event story search calls to be recorded")
+	}
+
+	foundEventStoryUnitsSearch := false
+	for _, call := range cache.searchCalls {
+		if call.entity == "eventstoryunits" {
+			foundEventStoryUnitsSearch = true
+			break
+		}
+	}
+	if !foundEventStoryUnitsSearch {
+		t.Fatalf("expected unit filter to search eventstoryunits")
+	}
 }
 
 func TestEventListEndpointFiltersByID(t *testing.T) {

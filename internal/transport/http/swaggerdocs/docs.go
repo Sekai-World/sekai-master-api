@@ -708,7 +708,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Event unit",
+                        "description": "Event unit (matched against eventStoryUnits.unit)",
                         "name": "unit",
                         "in": "query"
                     },
