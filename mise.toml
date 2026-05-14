@@ -31,8 +31,34 @@ run = "go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g ma
 
 [tasks.admin-open]
 description = "Open the local admin login page"
-run = '"$BROWSER" "http://localhost:${APP_PORT:-8080}/admin/login"'
+run = '''
+url="http://localhost:${APP_PORT:-8080}/admin/login"
+browser_cmd="${BROWSER:-}"
+if [ -n "$browser_cmd" ]; then
+  "$browser_cmd" "$url"
+elif command -v open >/dev/null 2>&1; then
+  open "$url"
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$url"
+else
+  echo "No browser launcher found. Set BROWSER to your browser command." >&2
+  exit 1
+fi
+'''
 
 [tasks.dev-logs-ui]
 description = "Open the local Grafana UI"
-run = '"$BROWSER" "${DEV_GRAFANA_URL:-http://grafana.sekai-master-api.orb.local}"'
+run = '''
+url="${DEV_GRAFANA_URL:-http://grafana.sekai-master-api.orb.local}"
+browser_cmd="${BROWSER:-}"
+if [ -n "$browser_cmd" ]; then
+  "$browser_cmd" "$url"
+elif command -v open >/dev/null 2>&1; then
+  open "$url"
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$url"
+else
+  echo "No browser launcher found. Set BROWSER to your browser command." >&2
+  exit 1
+fi
+'''
