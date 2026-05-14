@@ -3,6 +3,12 @@ set -eu
 
 . ./.mise/lib/tasks.sh
 load_development_env
+
+if compose_services_running postgres redis keycloak; then
+	echo "[dev-env-up] compose services already running, skipping startup"
+	exit 0
+fi
+
 cmd="$(compose_cmd)"
 set -- $(compose_project_args)
 $cmd "$@" -f "$(compose_file_abs)" up -d --build --remove-orphans postgres redis keycloak

@@ -69,3 +69,20 @@ compose_file_abs() {
   root="$(repo_root)"
   printf '%s/%s' "$root" "${COMPOSE_FILE}"
 }
+
+compose_running_services() {
+  cmd="$(compose_cmd)"
+  set -- $(compose_project_args)
+  $cmd "$@" -f "$(compose_file_abs)" ps --services --status running 2>/dev/null || true
+}
+
+compose_services_running() {
+  running_services="$(compose_running_services)"
+  [ -n "$running_services" ] || return 1
+
+  for service in "$@"; do
+    printf '%s\n' "$running_services" | grep -Fx -- "$service" >/dev/null 2>&1 || return 1
+  done
+
+  return 0
+}
