@@ -5,6 +5,7 @@ import (
 
 	cardhandlers "sekai-master-api/internal/transport/http/handlers/cards"
 	eventhandlers "sekai-master-api/internal/transport/http/handlers/events"
+	lookuphandlers "sekai-master-api/internal/transport/http/handlers/lookups"
 	musichandlers "sekai-master-api/internal/transport/http/handlers/musics"
 	systemhandlers "sekai-master-api/internal/transport/http/handlers/system"
 	virtuallivehandlers "sekai-master-api/internal/transport/http/handlers/virtuallives"
@@ -17,10 +18,21 @@ func registerPublicRoutes(
 	cardHandler *cardhandlers.CardHandler,
 	musicHandler *musichandlers.MusicHandler,
 	eventHandler *eventhandlers.EventHandler,
+	lookupHandler *lookuphandlers.LookupHandler,
 	virtualLiveHandler *virtuallivehandlers.VirtualLiveHandler,
 ) {
 	v1.GET("/health", healthHandler.Check)
+	v1.GET("/versions", versionsHandler.AllRegions)
 	v1.GET("/versions/:region", versionsHandler.ByRegion)
+	v1.GET("/unitProfiles/regions/:unit/availability", lookupHandler.UnitProfilesAvailableRegionsByUnit)
+	v1.GET("/unitProfiles/:region/list", lookupHandler.UnitProfilesList)
+	v1.GET("/unitProfiles/:region/:unit", lookupHandler.UnitProfilesByUnit)
+	v1.GET("/gameCharacterUnits/regions/:id/availability", lookupHandler.GameCharacterUnitsAvailableRegionsByID)
+	v1.GET("/gameCharacterUnits/:region/list", lookupHandler.GameCharacterUnitsList)
+	v1.GET("/gameCharacterUnits/:region/:id", lookupHandler.GameCharacterUnitsByID)
+	v1.GET("/gameCharacters/regions/:id/availability", lookupHandler.GameCharactersAvailableRegionsByID)
+	v1.GET("/gameCharacters/:region/list", lookupHandler.GameCharactersList)
+	v1.GET("/gameCharacters/:region/:id", lookupHandler.GameCharactersByID)
 	v1.GET("/cards/regions/:id/availability", cardHandler.AvailableRegionsByID)
 	v1.GET("/cards/:region/list", cardHandler.List)
 	v1.GET("/cards/:region/:id", cardHandler.ByID)

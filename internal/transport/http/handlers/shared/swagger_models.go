@@ -22,9 +22,12 @@ type RegionAvailabilityResponse struct {
 
 type MasterDataVersionsResponse struct {
 	AppVersion   string `json:"appVersion,omitempty" example:"3.2.1"`
-	DataVersion  string `json:"dataVersion,omitempty" example:"20260423"`
-	AssetVersion string `json:"assetVersion,omitempty" example:"20260423"`
+	DataVersion  string `json:"dataVersion,omitempty" example:"3.2.1.10"`
+	AssetVersion string `json:"assetVersion,omitempty" example:"3.2.1.10"`
+	CdnVersion   *int   `json:"cdnVersion,omitempty" example:"2"`
 }
+
+type MasterDataVersionsByRegionResponse map[string]MasterDataVersionsResponse
 
 type GitHubWebhookResponse struct {
 	Status string `json:"status" example:"accepted"`
@@ -114,6 +117,44 @@ type MusicListResponse struct {
 	Pagination PaginationResponse    `json:"pagination"`
 }
 
+type UnitProfileObjectResponse struct {
+	ID        any `json:"id,omitempty"`
+	Unit      any `json:"unit,omitempty"`
+	UnitName  any `json:"unitName,omitempty"`
+	ColorCode any `json:"colorCode,omitempty"`
+}
+
+type UnitProfileListResponse struct {
+	Items      []UnitProfileObjectResponse `json:"items"`
+	Pagination PaginationResponse          `json:"pagination"`
+}
+
+type GameCharacterUnitObjectResponse struct {
+	ID              any `json:"id,omitempty"`
+	GameCharacterID any `json:"gameCharacterId,omitempty"`
+	Unit            any `json:"unit,omitempty"`
+	ColorCode       any `json:"colorCode,omitempty"`
+}
+
+type GameCharacterUnitListResponse struct {
+	Items      []GameCharacterUnitObjectResponse `json:"items"`
+	Pagination PaginationResponse                `json:"pagination"`
+}
+
+type GameCharacterObjectResponse struct {
+	ID        any `json:"id,omitempty"`
+	Seq       any `json:"seq,omitempty"`
+	FirstName any `json:"firstName,omitempty"`
+	GivenName any `json:"givenName,omitempty"`
+	Unit      any `json:"unit,omitempty"`
+	Height    any `json:"height,omitempty"`
+}
+
+type GameCharacterListResponse struct {
+	Items      []GameCharacterObjectResponse `json:"items"`
+	Pagination PaginationResponse            `json:"pagination"`
+}
+
 type EventUnitResponse struct {
 	Unit      any `json:"unit,omitempty"`
 	UnitName  any `json:"unitName,omitempty"`
@@ -129,19 +170,29 @@ type EventVirtualLiveResponse struct {
 	VirtualLiveType any `json:"virtualLiveType,omitempty"`
 }
 
+type EventBannerGameCharacterResponse struct {
+	GameCharacterUnitID any `json:"gameCharacterUnitId,omitempty"`
+	GameCharacterID     any `json:"gameCharacterId,omitempty"`
+	Unit                any `json:"unit,omitempty"`
+	ColorCode           any `json:"colorCode,omitempty"`
+	FirstName           any `json:"firstName,omitempty"`
+	GivenName           any `json:"givenName,omitempty"`
+}
+
 type EventObjectResponse struct {
-	ID                 any                       `json:"id,omitempty"`
-	EventType          any                       `json:"eventType,omitempty"`
-	Name               any                       `json:"name,omitempty"`
-	AssetbundleName    any                       `json:"assetbundleName,omitempty"`
-	BgmAssetbundleName any                       `json:"bgmAssetbundleName,omitempty"`
-	Unit               *EventUnitResponse        `json:"unit,omitempty"`
-	StartAt            any                       `json:"startAt,omitempty"`
-	AggregateAt        any                       `json:"aggregateAt,omitempty"`
-	ClosedAt           any                       `json:"closedAt,omitempty"`
-	EventBreakTimeID   any                       `json:"eventBreakTimeId,omitempty"`
-	EventPointIcon     any                       `json:"eventPointIcon,omitempty"`
-	VirtualLive        *EventVirtualLiveResponse `json:"virtualLive,omitempty"`
+	ID                  any                               `json:"id,omitempty"`
+	EventType           any                               `json:"eventType,omitempty"`
+	Name                any                               `json:"name,omitempty"`
+	AssetbundleName     any                               `json:"assetbundleName,omitempty"`
+	BgmAssetbundleName  any                               `json:"bgmAssetbundleName,omitempty"`
+	Unit                *EventUnitResponse                `json:"unit,omitempty"`
+	BannerGameCharacter *EventBannerGameCharacterResponse `json:"bannerGameCharacter,omitempty"`
+	StartAt             any                               `json:"startAt,omitempty"`
+	AggregateAt         any                               `json:"aggregateAt,omitempty"`
+	ClosedAt            any                               `json:"closedAt,omitempty"`
+	EventBreakTimeID    any                               `json:"eventBreakTimeId,omitempty"`
+	EventPointIcon      any                               `json:"eventPointIcon,omitempty"`
+	VirtualLive         *EventVirtualLiveResponse         `json:"virtualLive,omitempty"`
 }
 
 type CurrentEventResponse struct {

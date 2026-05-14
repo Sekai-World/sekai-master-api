@@ -10,6 +10,17 @@ Swagger UI is available only in `development` and `test`:
 ## Public Endpoints
 
 - `GET /api/v1/health`
+- `GET /api/v1/versions`
+- `GET /api/v1/versions/:region`
+- `GET /api/v1/unitProfiles/regions/:unit/availability`
+- `GET /api/v1/unitProfiles/:region/list?page=1&page_size=20`
+- `GET /api/v1/unitProfiles/:region/:unit`
+- `GET /api/v1/gameCharacterUnits/regions/:id/availability`
+- `GET /api/v1/gameCharacterUnits/:region/list?page=1&page_size=20`
+- `GET /api/v1/gameCharacterUnits/:region/:id`
+- `GET /api/v1/gameCharacters/regions/:id/availability`
+- `GET /api/v1/gameCharacters/:region/list?page=1&page_size=20`
+- `GET /api/v1/gameCharacters/:region/:id`
 - `GET /api/v1/cards/:region/list?page=1&page_size=20`
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
