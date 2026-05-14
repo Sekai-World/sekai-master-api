@@ -2640,13 +2640,28 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.EventListItemResponse": {
+            "type": "object",
+            "properties": {
+                "aggregateAt": {},
+                "assetbundleName": {},
+                "bannerGameCharacterId": {},
+                "closedAt": {},
+                "eventType": {},
+                "id": {},
+                "isCountLeaderCharacterPlay": {},
+                "name": {},
+                "startAt": {},
+                "unit": {}
+            }
+        },
         "shared.EventListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/shared.EventObjectResponse"
+                        "$ref": "#/definitions/shared.EventListItemResponse"
                     }
                 },
                 "pagination": {

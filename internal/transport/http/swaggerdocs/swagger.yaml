@@ -211,11 +211,24 @@ definitions:
       releaseCondition:
         $ref: '#/definitions/shared.ReleaseConditionResponse'
     type: object
+  shared.EventListItemResponse:
+    properties:
+      aggregateAt: {}
+      assetbundleName: {}
+      bannerGameCharacterId: {}
+      closedAt: {}
+      eventType: {}
+      id: {}
+      isCountLeaderCharacterPlay: {}
+      name: {}
+      startAt: {}
+      unit: {}
+    type: object
   shared.EventListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/shared.EventObjectResponse'
+          $ref: '#/definitions/shared.EventListItemResponse'
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
