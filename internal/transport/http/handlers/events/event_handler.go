@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
@@ -589,13 +590,14 @@ func (handler *EventHandler) buildEventDetail(ctx context.Context, region string
 		return result
 	}
 
-	if rawUnit, hasUnit := record["unit"]; hasUnit {
-		unitLookup := shared.NormalizeComparableText(rawUnit)
-		if unitLookup != "" {
-			if matches, err := handler.masterDataSync.Search(ctx, region, "unitprofiles", unitLookup, []string{"unit"}, 1); err == nil && len(matches) > 0 {
-				result["unit"] = pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
-			}
-		}
+	eventStory := handler.findEventStoryByEventID(ctx, region, shared.NormalizeAnyID(record["id"]))
+
+	if unit := handler.resolveEventUnit(ctx, region, record, eventStory); unit != nil {
+		result["unit"] = unit
+	}
+
+	if bannerGameCharacter := handler.resolveBannerGameCharacter(ctx, region, eventStory); bannerGameCharacter != nil {
+		result["bannerGameCharacter"] = bannerGameCharacter
 	}
 
 	if rawVirtualLiveID, hasVirtualLiveID := record["virtualLiveId"]; hasVirtualLiveID {
@@ -612,6 +614,105 @@ func (handler *EventHandler) buildEventDetail(ctx context.Context, region string
 				result["virtualLive"] = pickFields(virtualLive, []string{"assetbundleName", "endAt", "id", "name", "startAt", "virtualLiveType"})
 			}
 		}
+	}
+
+	return result
+}
+
+func (handler *EventHandler) findEventStoryByEventID(ctx context.Context, region string, eventID string) map[string]any {
+	if eventID == "" {
+		return nil
+	}
+
+	matches, err := handler.masterDataSync.Search(ctx, region, "eventstories", eventID, []string{"eventId"}, 10)
+	if err != nil {
+		return nil
+	}
+
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["eventId"]) == eventID {
+			return match.Item
+		}
+	}
+
+	return nil
+}
+
+func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string, record map[string]any, eventStory map[string]any) map[string]any {
+	unitLookup := ""
+	if eventStory != nil {
+		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
+		if eventStoryID != "" {
+			matches, err := handler.masterDataSync.Search(ctx, region, "eventstoryunits", eventStoryID, []string{"eventStoryId"}, 20)
+			if err == nil {
+				unitLookup = pickPrimaryEventStoryUnit(matches)
+			}
+		}
+	}
+
+	if unitLookup == "" {
+		unitLookup = shared.NormalizeComparableText(record["unit"])
+	}
+	if unitLookup == "" {
+		return nil
+	}
+
+	matches, err := handler.masterDataSync.Search(ctx, region, "unitprofiles", unitLookup, []string{"unit"}, 1)
+	if err != nil || len(matches) == 0 {
+		return nil
+	}
+
+	return pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
+}
+
+func pickPrimaryEventStoryUnit(matches []masterdata.SearchMatch) string {
+	var fallback string
+	for _, match := range matches {
+		unit := shared.NormalizeComparableText(match.Item["unit"])
+		if unit == "" {
+			continue
+		}
+		if fallback == "" {
+			fallback = unit
+		}
+		if shared.NormalizeComparableText(match.Item["eventStoryUnitRelation"]) == "main" {
+			return unit
+		}
+	}
+
+	return fallback
+}
+
+func (handler *EventHandler) resolveBannerGameCharacter(ctx context.Context, region string, eventStory map[string]any) map[string]any {
+	if eventStory == nil {
+		return nil
+	}
+
+	bannerGameCharacterUnitID := shared.NormalizeAnyID(eventStory["bannerGameCharacterUnitId"])
+	if bannerGameCharacterUnitID == "" {
+		return nil
+	}
+
+	gameCharacterUnit, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacterunits", bannerGameCharacterUnitID)
+	if err != nil || !found {
+		return nil
+	}
+
+	result := pickFields(gameCharacterUnit, []string{"gameCharacterId", "unit", "colorCode"})
+	result["gameCharacterUnitId"] = gameCharacterUnit["id"]
+
+	gameCharacterID := shared.NormalizeAnyID(gameCharacterUnit["gameCharacterId"])
+	if gameCharacterID == "" {
+		return result
+	}
+
+	gameCharacter, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacters", gameCharacterID)
+	if err != nil || !found {
+		return result
+	}
+
+	for key, value := range pickFields(gameCharacter, []string{"firstName", "givenName"}) {
+		result[key] = value
 	}
 
 	return result

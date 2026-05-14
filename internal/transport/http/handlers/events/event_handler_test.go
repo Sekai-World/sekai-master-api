@@ -332,8 +332,23 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 					"101": {
 						"id":            101,
 						"name":          "test-event",
-						"unit":          "idol",
+						"unit":          "light_sound",
 						"virtualLiveId": 501,
+					},
+				},
+				"gamecharacters": {
+					"6": {
+						"id":        6,
+						"firstName": "Kiritani",
+						"givenName": "Haruka",
+					},
+				},
+				"gamecharacterunits": {
+					"18": {
+						"id":              18,
+						"gameCharacterId": 6,
+						"unit":            "idol",
+						"colorCode":       "#99ccff",
 					},
 				},
 				"virtuallives": {
@@ -351,6 +366,27 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 		},
 		listByEntity: map[string]map[string][]map[string]any{
 			"jp": {
+				"eventstories": {
+					{
+						"id":                        7001,
+						"eventId":                   101,
+						"bannerGameCharacterUnitId": 18,
+					},
+				},
+				"eventstoryunits": {
+					{
+						"id":                     1,
+						"eventStoryId":           7001,
+						"eventStoryUnitRelation": "sub",
+						"unit":                   "light_sound",
+					},
+					{
+						"id":                     2,
+						"eventStoryId":           7001,
+						"eventStoryUnitRelation": "main",
+						"unit":                   "idol",
+					},
+				},
 				"unitprofiles": {
 					{
 						"unit":            "idol",
@@ -399,6 +435,29 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 
 	if _, exists := body["virtualLiveId"]; exists {
 		t.Fatalf("expected virtualLiveId to be removed from by-id response")
+	}
+
+	bannerGameCharacter, ok := body["bannerGameCharacter"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected bannerGameCharacter object, got %T", body["bannerGameCharacter"])
+	}
+	if bannerGameCharacter["gameCharacterUnitId"] != float64(18) {
+		t.Fatalf("expected bannerGameCharacter.gameCharacterUnitId=18, got %v", bannerGameCharacter["gameCharacterUnitId"])
+	}
+	if bannerGameCharacter["gameCharacterId"] != float64(6) {
+		t.Fatalf("expected bannerGameCharacter.gameCharacterId=6, got %v", bannerGameCharacter["gameCharacterId"])
+	}
+	if bannerGameCharacter["unit"] != "idol" {
+		t.Fatalf("expected bannerGameCharacter.unit=idol, got %v", bannerGameCharacter["unit"])
+	}
+	if bannerGameCharacter["colorCode"] != "#99ccff" {
+		t.Fatalf("expected bannerGameCharacter.colorCode=#99ccff, got %v", bannerGameCharacter["colorCode"])
+	}
+	if bannerGameCharacter["firstName"] != "Kiritani" {
+		t.Fatalf("expected bannerGameCharacter.firstName=Kiritani, got %v", bannerGameCharacter["firstName"])
+	}
+	if bannerGameCharacter["givenName"] != "Haruka" {
+		t.Fatalf("expected bannerGameCharacter.givenName=Haruka, got %v", bannerGameCharacter["givenName"])
 	}
 
 	virtualLive, ok := body["virtualLive"].(map[string]any)
