@@ -551,14 +551,12 @@ func TestEventListEndpointReturnsItems(t *testing.T) {
 	cache := &fakeEventHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
-				"virtuallives": {
-					"501": {
-						"id":              501,
-						"name":            "after live",
-						"assetbundleName": "vl_501",
-						"startAt":         1000,
-						"endAt":           2000,
-						"virtualLiveType": "normal",
+				"gamecharacterunits": {
+					"18": {
+						"id":              18,
+						"gameCharacterId": 6,
+						"unit":            "idol",
+						"colorCode":       "#99ccff",
 					},
 				},
 			},
@@ -567,10 +565,35 @@ func TestEventListEndpointReturnsItems(t *testing.T) {
 			"jp": {
 				"events": {
 					{
-						"id":            101,
-						"name":          "test-event",
-						"unit":          "idol",
-						"virtualLiveId": 501,
+						"id":                         101,
+						"name":                       "test-event",
+						"eventType":                  "marathon",
+						"assetbundleName":            "event_101",
+						"unit":                       "street",
+						"startAt":                    1000,
+						"aggregateAt":                2000,
+						"closedAt":                   3000,
+						"isCountLeaderCharacterPlay": true,
+						"virtualLiveId":              501,
+						"eventBreakTimeId":           9,
+						"eventRankingRewardRanges": []any{
+							map[string]any{"fromRank": 1, "toRank": 100},
+						},
+					},
+				},
+				"eventstories": {
+					{
+						"id":                        7001,
+						"eventId":                   101,
+						"bannerGameCharacterUnitId": 18,
+					},
+				},
+				"eventstoryunits": {
+					{
+						"id":                     1,
+						"eventStoryId":           7001,
+						"eventStoryUnitRelation": "main",
+						"unit":                   "idol",
 					},
 				},
 				"unitprofiles": {
@@ -610,14 +633,20 @@ func TestEventListEndpointReturnsItems(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected first item object, got %T", items[0])
 	}
-	if _, exists := first["virtualLiveId"]; exists {
-		t.Fatalf("expected virtualLiveId removed from list response")
+	expected := map[string]any{
+		"id":                         float64(101),
+		"name":                       "test-event",
+		"eventType":                  "marathon",
+		"assetbundleName":            "event_101",
+		"unit":                       "idol",
+		"bannerGameCharacterId":      float64(6),
+		"startAt":                    float64(1000),
+		"aggregateAt":                float64(2000),
+		"closedAt":                   float64(3000),
+		"isCountLeaderCharacterPlay": true,
 	}
-	if _, exists := first["eventRankingRewardRanges"]; exists {
-		t.Fatalf("expected eventRankingRewardRanges removed from list response")
-	}
-	if _, ok := first["unit"].(map[string]any); !ok {
-		t.Fatalf("expected expanded unit object, got %T", first["unit"])
+	if !reflect.DeepEqual(first, expected) {
+		t.Fatalf("expected simplified list item %#v, got %#v", expected, first)
 	}
 }
 

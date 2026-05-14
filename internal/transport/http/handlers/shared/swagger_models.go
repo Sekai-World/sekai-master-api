@@ -206,9 +206,22 @@ type CurrentEventResponse struct {
 	Unit            any `json:"unit,omitempty"`
 }
 
+type EventListItemResponse struct {
+	ID                         any `json:"id,omitempty"`
+	EventType                  any `json:"eventType,omitempty"`
+	Name                       any `json:"name,omitempty"`
+	AssetbundleName            any `json:"assetbundleName,omitempty"`
+	Unit                       any `json:"unit,omitempty"`
+	BannerGameCharacterID      any `json:"bannerGameCharacterId,omitempty"`
+	StartAt                    any `json:"startAt,omitempty"`
+	AggregateAt                any `json:"aggregateAt,omitempty"`
+	ClosedAt                   any `json:"closedAt,omitempty"`
+	IsCountLeaderCharacterPlay any `json:"isCountLeaderCharacterPlay,omitempty"`
+}
+
 type EventListResponse struct {
-	Items      []EventObjectResponse `json:"items"`
-	Pagination PaginationResponse    `json:"pagination"`
+	Items      []EventListItemResponse `json:"items"`
+	Pagination PaginationResponse      `json:"pagination"`
 }
 
 type ReleaseConditionResponse struct {

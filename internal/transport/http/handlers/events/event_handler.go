@@ -578,10 +578,36 @@ func buildCurrentEventBase(record map[string]any) map[string]any {
 func (handler *EventHandler) buildEventList(ctx context.Context, region string, records []map[string]any) []map[string]any {
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, handler.buildEventDetail(ctx, region, record))
+		items = append(items, handler.buildEventListItem(ctx, region, record))
 	}
 
 	return items
+}
+
+func (handler *EventHandler) buildEventListItem(ctx context.Context, region string, record map[string]any) map[string]any {
+	result := pickFields(record, []string{
+		"id",
+		"name",
+		"eventType",
+		"assetbundleName",
+		"startAt",
+		"aggregateAt",
+		"closedAt",
+		"isCountLeaderCharacterPlay",
+	})
+	if record == nil || handler == nil || handler.masterDataSync == nil {
+		return result
+	}
+
+	eventStory := handler.findEventStoryByEventID(ctx, region, shared.NormalizeAnyID(record["id"]))
+	if unit := handler.resolveEventUnitCode(ctx, region, record, eventStory); unit != "" {
+		result["unit"] = unit
+	}
+	if bannerGameCharacterID := handler.resolveBannerGameCharacterID(ctx, region, eventStory); bannerGameCharacterID != nil {
+		result["bannerGameCharacterId"] = bannerGameCharacterID
+	}
+
+	return result
 }
 
 func (handler *EventHandler) buildEventDetail(ctx context.Context, region string, record map[string]any) map[string]any {
@@ -665,6 +691,14 @@ func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string
 	return pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
 }
 
+func (handler *EventHandler) resolveEventUnitCode(ctx context.Context, region string, record map[string]any, eventStory map[string]any) string {
+	if unit := handler.resolveEventUnit(ctx, region, record, eventStory); unit != nil {
+		return shared.NormalizeComparableText(unit["unit"])
+	}
+
+	return shared.NormalizeComparableText(record["unit"])
+}
+
 func pickPrimaryEventStoryUnit(matches []masterdata.SearchMatch) string {
 	var fallback string
 	for _, match := range matches {
@@ -716,6 +750,15 @@ func (handler *EventHandler) resolveBannerGameCharacter(ctx context.Context, reg
 	}
 
 	return result
+}
+
+func (handler *EventHandler) resolveBannerGameCharacterID(ctx context.Context, region string, eventStory map[string]any) any {
+	bannerGameCharacter := handler.resolveBannerGameCharacter(ctx, region, eventStory)
+	if bannerGameCharacter == nil {
+		return nil
+	}
+
+	return bannerGameCharacter["gameCharacterId"]
 }
 
 func pickFields(record map[string]any, keys []string) map[string]any {
