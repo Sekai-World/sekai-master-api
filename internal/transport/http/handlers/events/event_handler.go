@@ -205,8 +205,8 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param page_size query int false "Page size"
 // @Param id query string false "Event ID"
 // @Param name query string false "Event name"
-// @Param unit query string false "Event unit (matched against eventStoryUnits.unit)"
-// @Param event_type query string false "Event type"
+// @Param unit query []string false "Event unit (matched against eventStoryUnits.unit)"
+// @Param event_type query []string false "Event type"
 // @Param sort_by query string false "Sort field (id|startAt)"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.EventListResponse
@@ -778,25 +778,39 @@ func pickFields(record map[string]any, keys []string) map[string]any {
 
 type eventFilterOptions struct {
 	Enabled bool
-	Fields  map[string]string
-	Unit    string
+	Fields  map[string][]string
+	Units   []string
 }
 
 func parseEventFilterOptions(c *gin.Context) eventFilterOptions {
-	fields := map[string]string{}
+	fields := map[string][]string{}
 	for _, queryField := range []string{"id", "name", "event_type"} {
-		if value := strings.TrimSpace(c.Query(queryField)); value != "" {
-			fields[eventQueryFieldToRecordField(queryField)] = value
+		if values := parseQueryValues(c, queryField); len(values) > 0 {
+			fields[eventQueryFieldToRecordField(queryField)] = values
 		}
 	}
 
-	unit := strings.TrimSpace(c.Query("unit"))
+	units := parseQueryValues(c, "unit")
 
 	return eventFilterOptions{
-		Enabled: len(fields) > 0 || unit != "",
+		Enabled: len(fields) > 0 || len(units) > 0,
 		Fields:  fields,
-		Unit:    unit,
+		Units:   units,
 	}
+}
+
+func parseQueryValues(c *gin.Context, key string) []string {
+	rawValues := c.QueryArray(key)
+	values := make([]string, 0, len(rawValues))
+	for _, rawValue := range rawValues {
+		for _, value := range strings.Split(rawValue, ",") {
+			trimmed := strings.TrimSpace(value)
+			if trimmed != "" {
+				values = append(values, trimmed)
+			}
+		}
+	}
+	return values
 }
 
 func eventQueryFieldToRecordField(field string) string {
@@ -815,7 +829,7 @@ func (handler *EventHandler) filterEvents(ctx context.Context, region string, re
 
 	filtered := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		if eventMatchesFilters(record, options.Fields) && handler.eventMatchesUnitFilter(ctx, region, record, options.Unit) {
+		if eventMatchesFilters(record, options.Fields) && handler.eventMatchesUnitFilter(ctx, region, record, options.Units) {
 			filtered = append(filtered, record)
 		}
 	}
@@ -823,9 +837,9 @@ func (handler *EventHandler) filterEvents(ctx context.Context, region string, re
 	return filtered
 }
 
-func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region string, record map[string]any, unitQuery string) bool {
-	queryText := shared.NormalizeComparableText(unitQuery)
-	if queryText == "" {
+func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region string, record map[string]any, unitQueries []string) bool {
+	queryTexts := normalizeQueryValues(unitQueries)
+	if len(queryTexts) == 0 {
 		return true
 	}
 
@@ -853,7 +867,8 @@ func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region 
 		if shared.NormalizeAnyID(match.Item["eventStoryId"]) != eventStoryID {
 			continue
 		}
-		if strings.Contains(shared.NormalizeComparableText(match.Item["unit"]), queryText) {
+		unitText := shared.NormalizeComparableText(match.Item["unit"])
+		if anyQueryMatches(unitText, queryTexts) {
 			return true
 		}
 	}
@@ -861,9 +876,9 @@ func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region 
 	return false
 }
 
-func eventMatchesFilters(record map[string]any, fields map[string]string) bool {
-	for field, value := range fields {
-		if !eventFieldMatches(record[field], value, field == "id") {
+func eventMatchesFilters(record map[string]any, fields map[string][]string) bool {
+	for field, values := range fields {
+		if !eventFieldMatches(record[field], values, field == "id") {
 			return false
 		}
 	}
@@ -871,15 +886,40 @@ func eventMatchesFilters(record map[string]any, fields map[string]string) bool {
 	return true
 }
 
-func eventFieldMatches(recordValue any, query string, exact bool) bool {
+func eventFieldMatches(recordValue any, queries []string, exact bool) bool {
 	recordText := shared.NormalizeComparableText(recordValue)
-	queryText := shared.NormalizeComparableText(query)
-	if queryText == "" {
+	queryTexts := normalizeQueryValues(queries)
+	if len(queryTexts) == 0 {
 		return true
 	}
 	if exact {
-		return recordText == queryText
+		for _, queryText := range queryTexts {
+			if recordText == queryText {
+				return true
+			}
+		}
+		return false
 	}
 
-	return strings.Contains(recordText, queryText)
+	return anyQueryMatches(recordText, queryTexts)
+}
+
+func normalizeQueryValues(queries []string) []string {
+	normalized := make([]string, 0, len(queries))
+	for _, query := range queries {
+		queryText := shared.NormalizeComparableText(query)
+		if queryText != "" {
+			normalized = append(normalized, queryText)
+		}
+	}
+	return normalized
+}
+
+func anyQueryMatches(recordText string, queryTexts []string) bool {
+	for _, queryText := range queryTexts {
+		if strings.Contains(recordText, queryText) {
+			return true
+		}
+	}
+	return false
 }

@@ -1219,14 +1219,20 @@ paths:
         in: query
         name: name
         type: string
-      - description: Event unit (matched against eventStoryUnits.unit)
+      - collectionFormat: csv
+        description: Event unit (matched against eventStoryUnits.unit)
         in: query
+        items:
+          type: string
         name: unit
-        type: string
-      - description: Event type
+        type: array
+      - collectionFormat: csv
+        description: Event type
         in: query
+        items:
+          type: string
         name: event_type
-        type: string
+        type: array
       - description: Sort field (id|startAt)
         in: query
         name: sort_by
