@@ -59,6 +59,6 @@ mise run dev
 Swagger UI is exposed only in `development` and `test`:
 
 - `GET /docs/index.html`
-- `GET /docs/doc.json`
+- `GET /docs/openapi.json`
 
 Generated Swagger files live in `internal/transport/http/swaggerdocs`; root `docs/` is reserved for project documents.

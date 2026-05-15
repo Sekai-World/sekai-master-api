@@ -5,7 +5,7 @@ All public API routes use the `/api/v1` prefix. Non-admin GET APIs are public by
 Swagger UI is available only in `development` and `test`:
 
 - `GET /docs/index.html`
-- `GET /docs/doc.json`
+- `GET /docs/openapi.json`
 
 ## Public Endpoints
 

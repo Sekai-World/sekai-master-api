@@ -71,7 +71,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	masterDataAdminHandler := adminhandlers.NewMasterDataAdminHandler(masterDataSync, startupState)
 
 	if isSwaggerEnabledEnv(cfg.AppEnv) {
-		router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		router.GET("/docs/*any", swaggerHandler())
 	}
 
 	v1 := router.Group("/api/v1")
@@ -96,4 +96,28 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 func isSwaggerEnabledEnv(appEnv string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(appEnv))
 	return normalized == "development" || normalized == "dev" || normalized == "test"
+}
+
+func swaggerHandler() gin.HandlerFunc {
+	handler := ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("/docs/openapi.json"))
+
+	return func(ctx *gin.Context) {
+		if ctx.Request.URL.Path == "/docs/doc.json" {
+			ctx.String(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+			return
+		}
+
+		if ctx.Request.URL.Path == "/docs/openapi.json" {
+			originalPath := ctx.Request.URL.Path
+			originalRequestURI := ctx.Request.RequestURI
+			ctx.Request.URL.Path = "/docs/doc.json"
+			ctx.Request.RequestURI = strings.Replace(originalRequestURI, "/docs/openapi.json", "/docs/doc.json", 1)
+			defer func() {
+				ctx.Request.URL.Path = originalPath
+				ctx.Request.RequestURI = originalRequestURI
+			}()
+		}
+
+		handler(ctx)
+	}
 }

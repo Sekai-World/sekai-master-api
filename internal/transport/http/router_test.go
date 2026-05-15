@@ -149,13 +149,26 @@ func TestDocsPage(t *testing.T) {
 func TestDocsJSON(t *testing.T) {
 	router := setupRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/docs/doc.json", nil)
+	req := httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+}
+
+func TestDocsLegacyJSONNotFound(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/docs/doc.json", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.Code)
 	}
 }
 
