@@ -64,7 +64,7 @@ The dashboard can view sync status and trigger normal or force sync for one regi
 - Host-mode issuer: `http://localhost:18081/realms/sekai`
 - Container-mode issuer for `mise run dev`: `http://keycloak:8080/realms/sekai`
 - Client ID / audience: `sekai-api`
-- Redirect URI: `http://localhost:8080/api/v1/admin/login/callback`
+- Redirect URI: `http://localhost:18080/api/v1/admin/login/callback`
 - Admin RBAC claim: `groups`
 - Required admin value: `sekai-admin`
 

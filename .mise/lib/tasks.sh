@@ -9,7 +9,7 @@ repo_root() {
 load_defaults() {
   APP_NAME="${APP_NAME:-sekai-master-api}"
   COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose/dev-compose.yaml}"
-  APP_PORT="${APP_PORT:-8080}"
+  APP_PORT="${APP_PORT:-18080}"
   KEYCLOAK_PORT="${KEYCLOAK_PORT:-18081}"
   LOKI_PORT="${LOKI_PORT:-3100}"
   COMPOSE_HOST="${COMPOSE_HOST:-host.docker.internal}"
