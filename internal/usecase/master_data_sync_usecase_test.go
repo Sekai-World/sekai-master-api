@@ -618,6 +618,113 @@ func TestDashboardStatusKeepsRunningWhileSyncActive(t *testing.T) {
 	}
 }
 
+func TestDashboardStatusMarksSuccessfulStatusPendingWhenRedisCacheMissing(t *testing.T) {
+	now := time.Now().UTC()
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{
+			Region:       "jp",
+			Status:       "success",
+			FileCount:    12,
+			LastSyncedAt: now.Add(-time.Minute),
+			UpdatedAt:    now.Add(-time.Minute),
+		},
+	})
+	cache := &fakeSyncCache{
+		hasRegionIndexSet: true,
+		hasRegionIndex:    false,
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+
+	statuses, err := usecase.DashboardStatus(context.Background())
+	if err != nil {
+		t.Fatalf("expected dashboard status success, got %v", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("expected one status item, got %d", len(statuses))
+	}
+	if statuses[0].Status != "pending" {
+		t.Fatalf("expected stale success to be reported as pending, got %s", statuses[0].Status)
+	}
+	if statuses[0].ErrorMessage == "" {
+		t.Fatalf("expected stale success to include cache readiness message")
+	}
+}
+
+func TestReadyRegionsSkipsSuccessfulStatusWhenRedisCacheMissing(t *testing.T) {
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
+	})
+	cache := &fakeSyncCache{
+		hasRegionIndexSet: true,
+		hasRegionIndex:    false,
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+
+	regions, err := usecase.ReadyRegions(context.Background())
+	if err != nil {
+		t.Fatalf("expected ready regions success, got %v", err)
+	}
+	if len(regions) != 0 {
+		t.Fatalf("expected no ready regions when redis cache is missing, got %v", regions)
+	}
+	if cache.loadCalls == 0 {
+		t.Fatalf("expected redis index load to be attempted")
+	}
+	if cache.rebuildCalls == 0 {
+		t.Fatalf("expected redis index rebuild to be attempted")
+	}
+}
+
+func TestReadyRegionsIncludesSuccessfulStatusWhenRedisIndexCanLoad(t *testing.T) {
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
+	})
+	cache := &fakeSyncCache{
+		hasRegionIndexSet: true,
+		hasRegionIndex:    false,
+		loadFromRedisOK:   true,
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+
+	regions, err := usecase.ReadyRegions(context.Background())
+	if err != nil {
+		t.Fatalf("expected ready regions success, got %v", err)
+	}
+	if len(regions) != 1 || regions[0] != "jp" {
+		t.Fatalf("expected jp ready after redis index load, got %v", regions)
+	}
+	if cache.loadCalls == 0 {
+		t.Fatalf("expected redis index load to be attempted")
+	}
+}
+
+func TestReadyRegionsIncludesSuccessfulStatusWhenRedisIndexCanRebuild(t *testing.T) {
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
+	})
+	cache := &fakeSyncCache{
+		hasRegionIndexSet:  true,
+		hasRegionIndex:     false,
+		rebuildFromRedisOK: true,
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+
+	regions, err := usecase.ReadyRegions(context.Background())
+	if err != nil {
+		t.Fatalf("expected ready regions success, got %v", err)
+	}
+	if len(regions) != 1 || regions[0] != "jp" {
+		t.Fatalf("expected jp ready after redis index rebuild, got %v", regions)
+	}
+	if cache.rebuildCalls == 0 {
+		t.Fatalf("expected redis index rebuild to be attempted")
+	}
+}
+
 func TestInterruptedRegionsReturnsConfiguredRunningAndPendingRegions(t *testing.T) {
 	now := time.Now().UTC()
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{

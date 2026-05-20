@@ -848,6 +848,43 @@ func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.
 	return usecase.statusStore.List(ctx)
 }
 
+func (usecase *MasterDataSyncUsecase) ReadyRegions(ctx context.Context) ([]string, error) {
+	statuses, err := usecase.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(statuses))
+	regions := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		if !strings.EqualFold(strings.TrimSpace(status.Status), "success") {
+			continue
+		}
+
+		region := strings.ToLower(strings.TrimSpace(status.Region))
+		if region == "" {
+			continue
+		}
+		if _, exists := seen[region]; exists {
+			continue
+		}
+
+		cacheReady, err := usecase.regionCacheReady(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+		if !cacheReady {
+			continue
+		}
+
+		seen[region] = struct{}{}
+		regions = append(regions, region)
+	}
+
+	sort.Strings(regions)
+	return regions, nil
+}
+
 func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]masterdata.SyncStatus, error) {
 	statuses, err := usecase.Status(ctx)
 	if err != nil {
@@ -865,21 +902,21 @@ func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]ma
 		}
 	}
 	if !hasRunningStatus {
-		return statuses, nil
+		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
 	}
 
 	stableStore, ok := usecase.statusStore.(MasterDataSyncLatestStableStore)
 	if !ok {
-		return statuses, nil
+		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
 	}
 
 	stableStatuses, err := stableStore.ListLatestStable(ctx)
 	if err != nil {
 		usecase.logf("dashboard status fallback skipped error=%v", err)
-		return statuses, nil
+		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
 	}
 	if len(stableStatuses) == 0 {
-		return statuses, nil
+		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
 	}
 
 	stableByRegion := make(map[string]masterdata.SyncStatus, len(stableStatuses))
@@ -902,7 +939,81 @@ func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]ma
 		merged = append(merged, status)
 	}
 
-	return merged, nil
+	return usecase.statusesWithRuntimeCacheReadiness(ctx, merged)
+}
+
+func (usecase *MasterDataSyncUsecase) statusesWithRuntimeCacheReadiness(ctx context.Context, statuses []masterdata.SyncStatus) ([]masterdata.SyncStatus, error) {
+	if len(statuses) == 0 {
+		return statuses, nil
+	}
+
+	annotated := make([]masterdata.SyncStatus, 0, len(statuses))
+	for _, status := range statuses {
+		if !strings.EqualFold(strings.TrimSpace(status.Status), "success") {
+			annotated = append(annotated, status)
+			continue
+		}
+
+		cacheReady, err := usecase.regionCacheReady(ctx, status.Region)
+		if err != nil {
+			return nil, err
+		}
+		if cacheReady {
+			annotated = append(annotated, status)
+			continue
+		}
+
+		status.Status = "pending"
+		status.ErrorMessage = "redis cache is not ready; run master data sync"
+		status.UpdatedAt = time.Now().UTC()
+		annotated = append(annotated, status)
+	}
+
+	return annotated, nil
+}
+
+func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, region string) (bool, error) {
+	if usecase == nil || usecase.cache == nil {
+		return true, nil
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		return false, nil
+	}
+
+	if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok && inspector.HasRegionIndex(region) {
+		return true, nil
+	}
+
+	if loader, ok := usecase.cache.(MasterDataCacheIndexLoader); ok {
+		loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
+		if err != nil {
+			return false, fmt.Errorf("load region index %s: %w", region, err)
+		}
+		if loaded {
+			return true, nil
+		}
+	}
+
+	if rebuilder, ok := usecase.cache.(MasterDataCacheIndexRebuilder); ok {
+		rebuilt, err := rebuilder.RebuildRegionIndexFromRedis(ctx, region)
+		if err != nil {
+			return false, fmt.Errorf("rebuild region index %s: %w", region, err)
+		}
+		if rebuilt {
+			return true, nil
+		}
+	}
+
+	_, canInspect := usecase.cache.(MasterDataCacheIndexInspector)
+	_, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
+	_, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
+	if !canInspect && !canLoad && !canRebuild {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
