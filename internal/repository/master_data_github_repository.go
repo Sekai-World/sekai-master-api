@@ -16,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -257,6 +258,23 @@ func (repository *GitHubMasterDataRepository) extractArchivePayload(ctx context.
 
 	tarReader := tar.NewReader(gzipReader)
 	files := make(map[string]any)
+	resultMu := sync.Mutex{}
+	var wg sync.WaitGroup
+	decodeConcurrency := repository.fileConcurrency
+	if decodeConcurrency <= 0 {
+		decodeConcurrency = 1
+	}
+	semaphore := make(chan struct{}, decodeConcurrency)
+	var decodeErr error
+
+	recordDecodeErr := func(err error) {
+		resultMu.Lock()
+		if decodeErr == nil {
+			decodeErr = err
+		}
+		resultMu.Unlock()
+	}
+
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -278,17 +296,36 @@ func (repository *GitHubMasterDataRepository) extractArchivePayload(ctx context.
 		if header.Size < 0 {
 			return nil, fmt.Errorf("invalid archive file size for %s", relativePath)
 		}
-		var parsed any
 		if header.Size > maxArchiveJSONFileSize {
 			return nil, fmt.Errorf("archive file %s exceeds size limit", relativePath)
 		}
 
-		decoder := json.NewDecoder(io.LimitReader(tarReader, header.Size))
-		if err := decoder.Decode(&parsed); err != nil {
-			return nil, fmt.Errorf("decode archive file %s: %w", relativePath, err)
+		body, err := io.ReadAll(io.LimitReader(tarReader, header.Size))
+		if err != nil {
+			return nil, fmt.Errorf("read archive file %s: %w", relativePath, err)
 		}
 
-		files[relativePath] = parsed
+		semaphore <- struct{}{}
+		wg.Go(func() {
+			defer func() {
+				<-semaphore
+			}()
+
+			var parsed any
+			if err := json.Unmarshal(body, &parsed); err != nil {
+				recordDecodeErr(fmt.Errorf("decode archive file %s: %w", relativePath, err))
+				return
+			}
+
+			resultMu.Lock()
+			files[relativePath] = parsed
+			resultMu.Unlock()
+		})
+	}
+	wg.Wait()
+
+	if decodeErr != nil {
+		return nil, decodeErr
 	}
 
 	span.SetAttributes(attribute.Int("file.count", len(files)))
