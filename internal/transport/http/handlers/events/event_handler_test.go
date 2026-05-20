@@ -705,7 +705,7 @@ func TestEventListEndpointFiltersByNameUnitAndEventTypeUsingEventStoryUnits(t *t
 	router := gin.New()
 	router.GET("/api/v1/events/:region/list", handler.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?name=carnival&unit=idol&event_type=cheerful&page=1&page_size=20", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?name=carnival&unit=idol&event_type=cheerful_carnival&page=1&page_size=20", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -729,6 +729,101 @@ func TestEventListEndpointFiltersByNameUnitAndEventTypeUsingEventStoryUnits(t *t
 	if !foundEventStoryUnitsSearch {
 		t.Fatalf("expected unit filter to search eventstoryunits")
 	}
+}
+
+func TestEventListEndpointUnitFilterRequiresExactUnitCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "Exact Idol", "unit": "idol", "eventType": "marathon"},
+					{"id": 102, "name": "Contains Idol", "unit": "virtual_singer_idol", "eventType": "marathon"},
+				},
+				"eventstories": {
+					{"id": 7001, "eventId": 101},
+					{"id": 7002, "eventId": 102},
+				},
+				"eventstoryunits": {
+					{"id": 8001, "eventStoryId": 7001, "unit": "idol"},
+					{"id": 8002, "eventStoryId": 7002, "unit": "virtual_singer_idol"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?unit=idol&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
+}
+
+func TestEventListEndpointEventTypeFilterRequiresExactEventType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "Exact Type", "unit": "idol", "eventType": "marathon"},
+					{"id": 102, "name": "Contains Type", "unit": "idol", "eventType": "marathon_extra"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?event_type=marathon&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
+}
+
+func TestEventListEndpointNameFilterKeepsFuzzyMatching(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "Cheerful Carnival", "unit": "idol", "eventType": "marathon"},
+					{"id": 102, "name": "Quiet Evening", "unit": "idol", "eventType": "marathon"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?name=carnival&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
 }
 
 func TestEventListEndpointFiltersByMultipleUnitsAndEventTypes(t *testing.T) {
@@ -858,6 +953,47 @@ func TestEventListEndpointFiltersByMultipleBannerGameCharacterUnits(t *testing.T
 	}
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101, 103})
+}
+
+func TestEventListEndpointBannerGameCharacterUnitFilterRequiresExactUnitCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gamecharacterunits": {
+					"18": {"id": 18, "gameCharacterId": 6, "unit": "idol"},
+					"19": {"id": 19, "gameCharacterId": 7, "unit": "virtual_singer_idol"},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "Exact Banner", "eventType": "marathon"},
+					{"id": 102, "name": "Contains Banner", "eventType": "marathon"},
+				},
+				"eventstories": {
+					{"id": 7001, "eventId": 101, "bannerGameCharacterUnitId": 18},
+					{"id": 7002, "eventId": 102, "bannerGameCharacterUnitId": 19},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?banner_game_character_unit=idol&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
 }
 
 func TestEventListEndpointFiltersByCommaSeparatedBannerGameCharacterUnits(t *testing.T) {

@@ -874,7 +874,7 @@ func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region 
 			continue
 		}
 		unitText := shared.NormalizeComparableText(match.Item["unit"])
-		if anyQueryMatches(unitText, queryTexts) {
+		if anyQueryExactlyMatches(unitText, queryTexts) {
 			return true
 		}
 	}
@@ -904,17 +904,21 @@ func (handler *EventHandler) eventMatchesBannerGameCharacterUnitFilter(ctx conte
 	}
 
 	unitText := shared.NormalizeComparableText(bannerGameCharacter["unit"])
-	return anyQueryMatches(unitText, queryTexts)
+	return anyQueryExactlyMatches(unitText, queryTexts)
 }
 
 func eventMatchesFilters(record map[string]any, fields map[string][]string) bool {
 	for field, values := range fields {
-		if !eventFieldMatches(record[field], values, field == "id") {
+		if !eventFieldMatches(record[field], values, eventFieldRequiresExactMatch(field)) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func eventFieldRequiresExactMatch(field string) bool {
+	return field == "id" || field == "eventType"
 }
 
 func eventFieldMatches(recordValue any, queries []string, exact bool) bool {
@@ -924,12 +928,7 @@ func eventFieldMatches(recordValue any, queries []string, exact bool) bool {
 		return true
 	}
 	if exact {
-		for _, queryText := range queryTexts {
-			if recordText == queryText {
-				return true
-			}
-		}
-		return false
+		return anyQueryExactlyMatches(recordText, queryTexts)
 	}
 
 	return anyQueryMatches(recordText, queryTexts)
@@ -949,6 +948,15 @@ func normalizeQueryValues(queries []string) []string {
 func anyQueryMatches(recordText string, queryTexts []string) bool {
 	for _, queryText := range queryTexts {
 		if strings.Contains(recordText, queryText) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyQueryExactlyMatches(recordText string, queryTexts []string) bool {
+	for _, queryText := range queryTexts {
+		if recordText == queryText {
 			return true
 		}
 	}
