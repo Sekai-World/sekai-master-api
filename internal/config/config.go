@@ -67,7 +67,7 @@ type MasterDataSource struct {
 func Load() Config {
 	loadEnvFiles()
 	appEnv := getEnv("APP_ENV", "development")
-	port := getEnv("APP_PORT", "8080")
+	port := getEnv("APP_PORT", defaultAppPort(appEnv))
 	logLevel := resolveLogLevel(strings.TrimSpace(getEnv("LOG_LEVEL", "")), appEnv)
 	otelEnabled := getEnvBool("OTEL_ENABLED", strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev"))
 
@@ -116,6 +116,14 @@ func Load() Config {
 		OIDCAdminClaim:                strings.TrimSpace(getEnv("OIDC_ADMIN_CLAIM", "")),
 		OIDCAdminClaimValues:          getEnvList("OIDC_ADMIN_CLAIM_VALUES"),
 	}
+}
+
+func defaultAppPort(appEnv string) string {
+	if strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev") {
+		return "18080"
+	}
+
+	return "8080"
 }
 
 func loadEnvFiles() {

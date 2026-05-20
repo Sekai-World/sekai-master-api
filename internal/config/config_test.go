@@ -54,6 +54,31 @@ func TestLoadKeepsShellEnvHighestPrecedence(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsDevelopmentPortAwayFromCommonConflicts(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "APP_PORT")
+
+	tmpDir := t.TempDir()
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.Port != "18080" {
+		t.Fatalf("expected development APP_PORT default to avoid 8080, got %q", cfg.Port)
+	}
+}
+
+func TestLoadDefaultsProductionPortToInternalContainerPort(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "APP_PORT")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=production\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.Port != "8080" {
+		t.Fatalf("expected production APP_PORT default to remain 8080, got %q", cfg.Port)
+	}
+}
+
 func TestDetectAppEnvPrefersDotenvLocalOverDotenv(t *testing.T) {
 	restoreEnv(t, "APP_ENV")
 

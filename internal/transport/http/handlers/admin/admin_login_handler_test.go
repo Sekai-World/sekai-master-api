@@ -52,7 +52,7 @@ func TestAdminLoginCallbackFallsBackToPublicTokenEndpoint(t *testing.T) {
 	handler := &AdminLoginHandler{
 		tokenEndpoint: tokenServer.URL + "/application/o/token/",
 		clientID:      "sekai-admin-web",
-		redirectURL:   "http://localhost:8080/api/v1/admin/login/callback",
+		redirectURL:   "http://localhost:18080/api/v1/admin/login/callback",
 		scopes:        []string{"openid", "profile", "email"},
 		httpClient:    primaryClient,
 		publicClient:  auth.NewPublicOIDCHTTPClient(time.Second),
