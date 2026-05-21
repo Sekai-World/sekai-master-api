@@ -722,16 +722,6 @@ const docTemplate = `{
                             "type": "string"
                         },
                         "collectionFormat": "csv",
-                        "description": "Banner game character unit",
-                        "name": "banner_game_character_unit",
-                        "in": "query"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "collectionFormat": "csv",
                         "description": "Event type",
                         "name": "event_type",
                         "in": "query"
