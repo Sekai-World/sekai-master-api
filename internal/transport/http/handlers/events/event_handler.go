@@ -206,7 +206,6 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param id query string false "Event ID"
 // @Param name query string false "Event name"
 // @Param unit query []string false "Event unit (matched against eventStoryUnits.unit)"
-// @Param banner_game_character_unit query []string false "Banner game character unit"
 // @Param event_type query []string false "Event type"
 // @Param sort_by query string false "Sort field (id|startAt)"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -789,7 +788,6 @@ type eventFilterOptions struct {
 	Enabled                  bool
 	Fields                   map[string][]string
 	Units                    []string
-	BannerGameCharacterUnits []string
 }
 
 func parseEventFilterOptions(c *gin.Context) eventFilterOptions {
@@ -801,13 +799,11 @@ func parseEventFilterOptions(c *gin.Context) eventFilterOptions {
 	}
 
 	units := parseQueryValues(c, "unit")
-	bannerGameCharacterUnits := parseQueryValues(c, "banner_game_character_unit")
 
 	return eventFilterOptions{
-		Enabled:                  len(fields) > 0 || len(units) > 0 || len(bannerGameCharacterUnits) > 0,
-		Fields:                   fields,
-		Units:                    units,
-		BannerGameCharacterUnits: bannerGameCharacterUnits,
+		Enabled: len(fields) > 0 || len(units) > 0,
+		Fields:  fields,
+		Units:   units,
 	}
 }
 
@@ -842,8 +838,7 @@ func (handler *EventHandler) filterEvents(ctx context.Context, region string, re
 	filtered := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		if eventMatchesFilters(record, options.Fields) &&
-			handler.eventMatchesUnitFilter(ctx, region, record, options.Units) &&
-			handler.eventMatchesBannerGameCharacterUnitFilter(ctx, region, record, options.BannerGameCharacterUnits) {
+			handler.eventMatchesUnitFilter(ctx, region, record, options.Units) {
 			filtered = append(filtered, record)
 		}
 	}
@@ -868,31 +863,6 @@ func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region 
 	}
 
 	unitText := handler.resolveEventUnitCode(ctx, region, record, eventStory)
-	return anyQueryExactlyMatches(unitText, queryTexts)
-}
-
-func (handler *EventHandler) eventMatchesBannerGameCharacterUnitFilter(ctx context.Context, region string, record map[string]any, unitQueries []string) bool {
-	queryTexts := normalizeQueryValues(unitQueries)
-	if len(queryTexts) == 0 {
-		return true
-	}
-
-	eventID := shared.NormalizeAnyID(record["id"])
-	if eventID == "" {
-		return false
-	}
-
-	eventStory := handler.findEventStoryByEventID(ctx, region, eventID)
-	if eventStory == nil {
-		return false
-	}
-
-	bannerGameCharacter := handler.resolveBannerGameCharacter(ctx, region, eventStory)
-	if bannerGameCharacter == nil {
-		return false
-	}
-
-	unitText := shared.NormalizeComparableText(bannerGameCharacter["unit"])
 	return anyQueryExactlyMatches(unitText, queryTexts)
 }
 
