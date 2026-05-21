@@ -768,6 +768,48 @@ func TestEventListEndpointUnitFilterRequiresExactUnitCode(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
 }
 
+func TestEventListEndpointUnitFilterMatchesDisplayedPrimaryUnit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "Mixed Story Units", "unit": "idol", "eventType": "marathon"},
+					{"id": 102, "name": "Idol Main", "unit": "idol", "eventType": "marathon"},
+				},
+				"eventstories": {
+					{"id": 7001, "eventId": 101},
+					{"id": 7002, "eventId": 102},
+				},
+				"eventstoryunits": {
+					{"id": 8001, "eventStoryId": 7001, "unit": "idol", "eventStoryUnitRelation": "sub"},
+					{"id": 8002, "eventStoryId": 7001, "unit": "street", "eventStoryUnitRelation": "main"},
+					{"id": 8003, "eventStoryId": 7002, "unit": "idol", "eventStoryUnitRelation": "main"},
+				},
+				"unitprofiles": {
+					{"id": 9001, "unit": "idol", "unitName": "MORE MORE JUMP！"},
+					{"id": 9002, "unit": "street", "unitName": "Vivid BAD SQUAD"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?unit=idol&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{102})
+}
+
 func TestEventListEndpointEventTypeFilterRequiresExactEventType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

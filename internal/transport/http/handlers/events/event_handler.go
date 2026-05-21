@@ -693,8 +693,16 @@ func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string
 }
 
 func (handler *EventHandler) resolveEventUnitCode(ctx context.Context, region string, record map[string]any, eventStory map[string]any) string {
-	if unit := handler.resolveEventUnit(ctx, region, record, eventStory); unit != nil {
-		return shared.NormalizeComparableText(unit["unit"])
+	if eventStory != nil {
+		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
+		if eventStoryID != "" {
+			matches, err := handler.masterDataSync.Search(ctx, region, "eventstoryunits", eventStoryID, []string{"eventStoryId"}, 20)
+			if err == nil {
+				if unit := pickPrimaryEventStoryUnit(matches); unit != "" {
+					return unit
+				}
+			}
+		}
 	}
 
 	return shared.NormalizeComparableText(record["unit"])
@@ -859,27 +867,8 @@ func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region 
 		return false
 	}
 
-	eventStoryID := shared.NormalizeAnyID(eventStory["id"])
-	if eventStoryID == "" {
-		return false
-	}
-
-	matches, err := handler.masterDataSync.Search(ctx, region, "eventstoryunits", eventStoryID, []string{"eventStoryId"}, 20)
-	if err != nil {
-		return false
-	}
-
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["eventStoryId"]) != eventStoryID {
-			continue
-		}
-		unitText := shared.NormalizeComparableText(match.Item["unit"])
-		if anyQueryExactlyMatches(unitText, queryTexts) {
-			return true
-		}
-	}
-
-	return false
+	unitText := handler.resolveEventUnitCode(ctx, region, record, eventStory)
+	return anyQueryExactlyMatches(unitText, queryTexts)
 }
 
 func (handler *EventHandler) eventMatchesBannerGameCharacterUnitFilter(ctx context.Context, region string, record map[string]any, unitQueries []string) bool {
