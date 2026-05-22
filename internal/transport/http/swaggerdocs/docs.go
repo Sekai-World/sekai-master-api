@@ -707,22 +707,14 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "collectionFormat": "csv",
-                        "description": "Event unit (matched against eventStoryUnits.unit)",
+                        "type": "string",
+                        "description": "Event unit filter (comma-separated values)",
                         "name": "unit",
                         "in": "query"
                     },
                     {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "collectionFormat": "csv",
-                        "description": "Event type",
+                        "type": "string",
+                        "description": "Event type filter (comma-separated values)",
                         "name": "event_type",
                         "in": "query"
                     },
