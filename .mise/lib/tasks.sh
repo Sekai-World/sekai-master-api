@@ -9,7 +9,7 @@ repo_root() {
 load_defaults() {
   APP_NAME="${APP_NAME:-sekai-master-api}"
   COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose/dev-compose.yaml}"
-  APP_PORT="${APP_PORT:-8080}"
+  APP_PORT="${APP_PORT:-18080}"
   KEYCLOAK_PORT="${KEYCLOAK_PORT:-18081}"
   LOKI_PORT="${LOKI_PORT:-3100}"
   COMPOSE_HOST="${COMPOSE_HOST:-host.docker.internal}"
@@ -68,4 +68,21 @@ compose_project_args() {
 compose_file_abs() {
   root="$(repo_root)"
   printf '%s/%s' "$root" "${COMPOSE_FILE}"
+}
+
+compose_running_services() {
+  cmd="$(compose_cmd)"
+  set -- $(compose_project_args)
+  $cmd "$@" -f "$(compose_file_abs)" ps --services --status running 2>/dev/null || true
+}
+
+compose_services_running() {
+  running_services="$(compose_running_services)"
+  [ -n "$running_services" ] || return 1
+
+  for service in "$@"; do
+    printf '%s\n' "$running_services" | grep -Fx -- "$service" >/dev/null 2>&1 || return 1
+  done
+
+  return 0
 }

@@ -2,7 +2,7 @@
 
 set -eu
 
-APP_PORT="${APP_PORT:-8080}"
+APP_PORT="${APP_PORT:-18080}"
 APP_ENV="${APP_ENV:-test}"
 DATABASE_URL="${DATABASE_URL:-postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable}"
 OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-https://auth.example.com}"

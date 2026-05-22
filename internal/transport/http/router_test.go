@@ -54,7 +54,7 @@ func setupRouterWithEnvAndStartupReady(t *testing.T, appEnv string, ready bool) 
 		OIDCClientID:       "web-client",
 		OIDCAuthURL:        "https://auth.example.com/application/o/authorize/",
 		OIDCTokenURL:       "https://auth.example.com/application/o/token/",
-		OIDCRedirectURL:    "http://localhost:8080/api/v1/admin/login/callback",
+		OIDCRedirectURL:    "http://localhost:18080/api/v1/admin/login/callback",
 		OIDCScopes:         []string{"openid", "profile", "email"},
 		OIDCPrivateKeyPath: "/tmp/oidc-test-key.pem",
 	}
@@ -89,7 +89,7 @@ func setupRouterWithEnvAndAdminClaim(t *testing.T, appEnv string, claim string, 
 		OIDCClientID:         "web-client",
 		OIDCAuthURL:          "https://auth.example.com/application/o/authorize/",
 		OIDCTokenURL:         "https://auth.example.com/application/o/token/",
-		OIDCRedirectURL:      "http://localhost:8080/api/v1/admin/login/callback",
+		OIDCRedirectURL:      "http://localhost:18080/api/v1/admin/login/callback",
 		OIDCScopes:           []string{"openid", "profile", "email"},
 		OIDCPrivateKeyPath:   "/tmp/oidc-test-key.pem",
 		OIDCAdminClaim:       claim,
@@ -149,13 +149,26 @@ func TestDocsPage(t *testing.T) {
 func TestDocsJSON(t *testing.T) {
 	router := setupRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/docs/doc.json", nil)
+	req := httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+}
+
+func TestDocsLegacyJSONNotFound(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/docs/doc.json", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.Code)
 	}
 }
 
@@ -293,18 +306,6 @@ func TestCardEpisodesUnavailable(t *testing.T) {
 	}
 }
 
-func TestCardSearchUnavailable(t *testing.T) {
-	router := setupRouter(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/search?q=クール", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on card search when service unavailable, got %d", resp.Code)
-	}
-}
-
 func TestCardListUnavailable(t *testing.T) {
 	router := setupRouter(t)
 
@@ -338,18 +339,6 @@ func TestMusicByIDUnavailable(t *testing.T) {
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 on music by id when service unavailable, got %d", resp.Code)
-	}
-}
-
-func TestMusicSearchUnavailable(t *testing.T) {
-	router := setupRouter(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/search?title=hello", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on music search when service unavailable, got %d", resp.Code)
 	}
 }
 
@@ -422,18 +411,6 @@ func TestEventListUnavailable(t *testing.T) {
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 on event list when service unavailable, got %d", resp.Code)
-	}
-}
-
-func TestEventSearchUnavailable(t *testing.T) {
-	router := setupRouter(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/search?q=test", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on event search when service unavailable, got %d", resp.Code)
 	}
 }
 
@@ -544,18 +521,6 @@ func TestVirtualLiveSetlistsUnavailable(t *testing.T) {
 		t.Fatalf("expected 503 on virtual live setlists when service unavailable, got %d", resp.Code)
 	}
 }
-func TestVirtualLiveSearchUnavailable(t *testing.T) {
-	router := setupRouter(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/search?q=after", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on virtual live search when service unavailable, got %d", resp.Code)
-	}
-}
-
 func TestVirtualLiveListUnavailable(t *testing.T) {
 	router := setupRouter(t)
 

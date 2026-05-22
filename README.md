@@ -8,6 +8,8 @@ Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token vali
 ## Features
 
 - Public master-data GET APIs under `/api/v1`
+- Public versions endpoints: `GET /api/v1/versions` and `GET /api/v1/versions/:region`
+- Public lookup endpoints: `GET /api/v1/unitProfiles/:region/:unit`, `GET /api/v1/gameCharacterUnits/:region/:id`, and `GET /api/v1/gameCharacters/:region/:id`
 - OIDC-protected admin APIs and dashboard
 - SQLite for development; PostgreSQL for test and production
 - Redis-backed master-data cache with specialized card/music/event/virtual-live queries
@@ -57,6 +59,6 @@ mise run dev
 Swagger UI is exposed only in `development` and `test`:
 
 - `GET /docs/index.html`
-- `GET /docs/doc.json`
+- `GET /docs/openapi.json`
 
 Generated Swagger files live in `internal/transport/http/swaggerdocs`; root `docs/` is reserved for project documents.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
@@ -20,14 +21,7 @@ type EventHandler struct {
 
 var sortableEventFields = []string{
 	"id",
-	"eventType",
-	"name",
-	"assetbundleName",
-	"bgmAssetbundleName",
-	"unit",
 	"startAt",
-	"aggregateAt",
-	"closedAt",
 }
 
 func NewEventHandler(masterDataSync *usecase.MasterDataSyncUsecase) *EventHandler {
@@ -209,7 +203,11 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
-// @Param sort_by query string false "Sort field"
+// @Param id query string false "Event ID"
+// @Param name query string false "Event name"
+// @Param unit query string false "Event unit filter (comma-separated values)"
+// @Param event_type query string false "Event type filter (comma-separated values)"
+// @Param sort_by query string false "Sort field (id|startAt)"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.EventListResponse
 // @Failure 400 {object} shared.ErrorResponse
@@ -256,16 +254,20 @@ func (handler *EventHandler) List(c *gin.Context) {
 		return
 	}
 
-	if sortOptions.Enabled {
+	filterOptions := parseEventFilterOptions(c)
+	if filterOptions.Enabled || sortOptions.Enabled {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "events")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
 			return
 		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
-			return
+		records = handler.filterEvents(c.Request.Context(), region, records, filterOptions)
+		if sortOptions.Enabled {
+			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
+				return
+			}
+			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
@@ -290,144 +292,6 @@ func (handler *EventHandler) List(c *gin.Context) {
 		"pagination": gin.H{
 			"page":        page,
 			"page_size":   pageSize,
-			"total":       total,
-			"total_pages": totalPages,
-			"has_next":    page < totalPages,
-		},
-	})
-}
-
-// Search godoc
-// @Summary Search events
-// @Tags events
-// @Produce json
-// @Param region path string true "Region"
-// @Param q query string true "Search query"
-// @Param field query string false "Search field (name|unit), default=name"
-// @Param page query int false "Page number"
-// @Param limit query int false "Max results"
-// @Param sort_by query string false "Sort field"
-// @Param sort_order query string false "Sort order (asc|desc)"
-// @Success 200 {object} shared.EventListResponse
-// @Failure 400 {object} shared.ErrorResponse
-// @Failure 503 {object} shared.ErrorResponse
-// @Failure 500 {object} shared.ErrorResponse
-// @Router /events/{region}/search [get]
-func (handler *EventHandler) Search(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	query := strings.TrimSpace(c.Query("q"))
-	if region == "" || query == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and q are required")
-		return
-	}
-	if !handler.ensureRegionReady(c, region) {
-		return
-	}
-
-	field := strings.ToLower(strings.TrimSpace(c.Query("field")))
-	if field == "" {
-		field = "name"
-	}
-
-	searchFields := []string{"name"}
-	switch field {
-	case "name":
-		searchFields = []string{"name"}
-	case "unit":
-		searchFields = []string{"unit"}
-	default:
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "field must be one of: name, unit")
-		return
-	}
-
-	page := 1
-	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
-		parsedPage, err := strconv.Atoi(rawPage)
-		if err != nil || parsedPage <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page must be a positive integer")
-			return
-		}
-		page = parsedPage
-	}
-
-	limit := 20
-	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
-		parsedLimit, err := strconv.Atoi(rawLimit)
-		if err != nil || parsedLimit <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "limit must be a positive integer")
-			return
-		}
-		limit = parsedLimit
-	}
-
-	sortOptions, ok := shared.ParseListSortOptions(c)
-	if !ok {
-		return
-	}
-
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "events", query, searchFields, 1000000)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to search events")
-		return
-	}
-
-	if sortOptions.Enabled {
-		records := make([]map[string]any, 0, len(matches))
-		for _, match := range matches {
-			records = append(records, match.Item)
-		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
-			return
-		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		pagedRecords, pagination := shared.PaginateItems(records, page, limit)
-		response.JSON(c, http.StatusOK, gin.H{
-			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
-			"pagination": pagination,
-		})
-		return
-	}
-
-	total := len(matches)
-	start := (page - 1) * limit
-	if start >= total {
-		_, pagination := shared.PaginateItems([]map[string]any{}, page, limit)
-		pagination["total"] = total
-		if limit > 0 {
-			pagination["total_pages"] = (total + limit - 1) / limit
-		}
-		response.JSON(c, http.StatusOK, gin.H{
-			"items":      []map[string]any{},
-			"pagination": pagination,
-		})
-		return
-	}
-
-	end := start + limit
-	if end > total {
-		end = total
-	}
-
-	items := make([]map[string]any, 0, end-start)
-	for _, match := range matches[start:end] {
-		items = append(items, handler.buildEventDetail(c.Request.Context(), region, match.Item))
-	}
-
-	totalPages := 0
-	if limit > 0 {
-		totalPages = (total + limit - 1) / limit
-	}
-
-	response.JSON(c, http.StatusOK, gin.H{
-		"items": items,
-		"pagination": gin.H{
-			"page":        page,
-			"page_size":   limit,
 			"total":       total,
 			"total_pages": totalPages,
 			"has_next":    page < totalPages,
@@ -714,10 +578,36 @@ func buildCurrentEventBase(record map[string]any) map[string]any {
 func (handler *EventHandler) buildEventList(ctx context.Context, region string, records []map[string]any) []map[string]any {
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, handler.buildEventDetail(ctx, region, record))
+		items = append(items, handler.buildEventListItem(ctx, region, record))
 	}
 
 	return items
+}
+
+func (handler *EventHandler) buildEventListItem(ctx context.Context, region string, record map[string]any) map[string]any {
+	result := pickFields(record, []string{
+		"id",
+		"name",
+		"eventType",
+		"assetbundleName",
+		"startAt",
+		"aggregateAt",
+		"closedAt",
+		"isCountLeaderCharacterPlay",
+	})
+	if record == nil || handler == nil || handler.masterDataSync == nil {
+		return result
+	}
+
+	eventStory := handler.findEventStoryByEventID(ctx, region, shared.NormalizeAnyID(record["id"]))
+	if unit := handler.resolveEventUnitCode(ctx, region, record, eventStory); unit != "" {
+		result["unit"] = unit
+	}
+	if bannerGameCharacterID := handler.resolveBannerGameCharacterID(ctx, region, eventStory); bannerGameCharacterID != nil {
+		result["bannerGameCharacterId"] = bannerGameCharacterID
+	}
+
+	return result
 }
 
 func (handler *EventHandler) buildEventDetail(ctx context.Context, region string, record map[string]any) map[string]any {
@@ -726,13 +616,14 @@ func (handler *EventHandler) buildEventDetail(ctx context.Context, region string
 		return result
 	}
 
-	if rawUnit, hasUnit := record["unit"]; hasUnit {
-		unitLookup := shared.NormalizeComparableText(rawUnit)
-		if unitLookup != "" {
-			if matches, err := handler.masterDataSync.Search(ctx, region, "unitprofiles", unitLookup, []string{"unit"}, 1); err == nil && len(matches) > 0 {
-				result["unit"] = pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
-			}
-		}
+	eventStory := handler.findEventStoryByEventID(ctx, region, shared.NormalizeAnyID(record["id"]))
+
+	if unit := handler.resolveEventUnit(ctx, region, record, eventStory); unit != nil {
+		result["unit"] = unit
+	}
+
+	if bannerGameCharacter := handler.resolveBannerGameCharacter(ctx, region, eventStory); bannerGameCharacter != nil {
+		result["bannerGameCharacter"] = bannerGameCharacter
 	}
 
 	if rawVirtualLiveID, hasVirtualLiveID := record["virtualLiveId"]; hasVirtualLiveID {
@@ -754,6 +645,130 @@ func (handler *EventHandler) buildEventDetail(ctx context.Context, region string
 	return result
 }
 
+func (handler *EventHandler) findEventStoryByEventID(ctx context.Context, region string, eventID string) map[string]any {
+	if eventID == "" {
+		return nil
+	}
+
+	matches, err := handler.masterDataSync.Search(ctx, region, "eventstories", eventID, []string{"eventId"}, 10)
+	if err != nil {
+		return nil
+	}
+
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["eventId"]) == eventID {
+			return match.Item
+		}
+	}
+
+	return nil
+}
+
+func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string, record map[string]any, eventStory map[string]any) map[string]any {
+	unitLookup := ""
+	if eventStory != nil {
+		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
+		if eventStoryID != "" {
+			matches, err := handler.masterDataSync.Search(ctx, region, "eventstoryunits", eventStoryID, []string{"eventStoryId"}, 20)
+			if err == nil {
+				unitLookup = pickPrimaryEventStoryUnit(matches)
+			}
+		}
+	}
+
+	if unitLookup == "" {
+		unitLookup = shared.NormalizeComparableText(record["unit"])
+	}
+	if unitLookup == "" {
+		return nil
+	}
+
+	matches, err := handler.masterDataSync.Search(ctx, region, "unitprofiles", unitLookup, []string{"unit"}, 1)
+	if err != nil || len(matches) == 0 {
+		return nil
+	}
+
+	return pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
+}
+
+func (handler *EventHandler) resolveEventUnitCode(ctx context.Context, region string, record map[string]any, eventStory map[string]any) string {
+	if eventStory != nil {
+		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
+		if eventStoryID != "" {
+			matches, err := handler.masterDataSync.Search(ctx, region, "eventstoryunits", eventStoryID, []string{"eventStoryId"}, 20)
+			if err == nil {
+				if unit := pickPrimaryEventStoryUnit(matches); unit != "" {
+					return unit
+				}
+			}
+		}
+	}
+
+	return shared.NormalizeComparableText(record["unit"])
+}
+
+func pickPrimaryEventStoryUnit(matches []masterdata.SearchMatch) string {
+	var fallback string
+	for _, match := range matches {
+		unit := shared.NormalizeComparableText(match.Item["unit"])
+		if unit == "" {
+			continue
+		}
+		if fallback == "" {
+			fallback = unit
+		}
+		if shared.NormalizeComparableText(match.Item["eventStoryUnitRelation"]) == "main" {
+			return unit
+		}
+	}
+
+	return fallback
+}
+
+func (handler *EventHandler) resolveBannerGameCharacter(ctx context.Context, region string, eventStory map[string]any) map[string]any {
+	if eventStory == nil {
+		return nil
+	}
+
+	bannerGameCharacterUnitID := shared.NormalizeAnyID(eventStory["bannerGameCharacterUnitId"])
+	if bannerGameCharacterUnitID == "" {
+		return nil
+	}
+
+	gameCharacterUnit, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacterunits", bannerGameCharacterUnitID)
+	if err != nil || !found {
+		return nil
+	}
+
+	result := pickFields(gameCharacterUnit, []string{"gameCharacterId", "unit", "colorCode"})
+	result["gameCharacterUnitId"] = gameCharacterUnit["id"]
+
+	gameCharacterID := shared.NormalizeAnyID(gameCharacterUnit["gameCharacterId"])
+	if gameCharacterID == "" {
+		return result
+	}
+
+	gameCharacter, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacters", gameCharacterID)
+	if err != nil || !found {
+		return result
+	}
+
+	for key, value := range pickFields(gameCharacter, []string{"firstName", "givenName"}) {
+		result[key] = value
+	}
+
+	return result
+}
+
+func (handler *EventHandler) resolveBannerGameCharacterID(ctx context.Context, region string, eventStory map[string]any) any {
+	bannerGameCharacter := handler.resolveBannerGameCharacter(ctx, region, eventStory)
+	if bannerGameCharacter == nil {
+		return nil
+	}
+
+	return bannerGameCharacter["gameCharacterId"]
+}
+
 func pickFields(record map[string]any, keys []string) map[string]any {
 	if record == nil {
 		return map[string]any{}
@@ -767,4 +782,142 @@ func pickFields(record map[string]any, keys []string) map[string]any {
 	}
 
 	return result
+}
+
+type eventFilterOptions struct {
+	Enabled bool
+	Fields  map[string][]string
+	Units   []string
+}
+
+func parseEventFilterOptions(c *gin.Context) eventFilterOptions {
+	fields := map[string][]string{}
+	for _, queryField := range []string{"id", "name", "event_type"} {
+		if values := parseQueryValues(c, queryField); len(values) > 0 {
+			fields[eventQueryFieldToRecordField(queryField)] = values
+		}
+	}
+
+	units := parseQueryValues(c, "unit")
+
+	return eventFilterOptions{
+		Enabled: len(fields) > 0 || len(units) > 0,
+		Fields:  fields,
+		Units:   units,
+	}
+}
+
+func parseQueryValues(c *gin.Context, key string) []string {
+	rawValues := c.QueryArray(key)
+	values := make([]string, 0, len(rawValues))
+	for _, rawValue := range rawValues {
+		for _, value := range strings.Split(rawValue, ",") {
+			trimmed := strings.TrimSpace(value)
+			if trimmed != "" {
+				values = append(values, trimmed)
+			}
+		}
+	}
+	return values
+}
+
+func eventQueryFieldToRecordField(field string) string {
+	switch field {
+	case "event_type":
+		return "eventType"
+	default:
+		return field
+	}
+}
+
+func (handler *EventHandler) filterEvents(ctx context.Context, region string, records []map[string]any, options eventFilterOptions) []map[string]any {
+	if !options.Enabled {
+		return records
+	}
+
+	filtered := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if eventMatchesFilters(record, options.Fields) &&
+			handler.eventMatchesUnitFilter(ctx, region, record, options.Units) {
+			filtered = append(filtered, record)
+		}
+	}
+
+	return filtered
+}
+
+func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region string, record map[string]any, unitQueries []string) bool {
+	queryTexts := normalizeQueryValues(unitQueries)
+	if len(queryTexts) == 0 {
+		return true
+	}
+
+	eventID := shared.NormalizeAnyID(record["id"])
+	if eventID == "" {
+		return false
+	}
+
+	eventStory := handler.findEventStoryByEventID(ctx, region, eventID)
+	if eventStory == nil {
+		return false
+	}
+
+	unitText := handler.resolveEventUnitCode(ctx, region, record, eventStory)
+	return anyQueryExactlyMatches(unitText, queryTexts)
+}
+
+func eventMatchesFilters(record map[string]any, fields map[string][]string) bool {
+	for field, values := range fields {
+		if !eventFieldMatches(record[field], values, eventFieldRequiresExactMatch(field)) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func eventFieldRequiresExactMatch(field string) bool {
+	return field == "id" || field == "eventType"
+}
+
+func eventFieldMatches(recordValue any, queries []string, exact bool) bool {
+	recordText := shared.NormalizeComparableText(recordValue)
+	queryTexts := normalizeQueryValues(queries)
+	if len(queryTexts) == 0 {
+		return true
+	}
+	if exact {
+		return anyQueryExactlyMatches(recordText, queryTexts)
+	}
+
+	return anyQueryMatches(recordText, queryTexts)
+}
+
+func normalizeQueryValues(queries []string) []string {
+	normalized := make([]string, 0, len(queries))
+	for _, query := range queries {
+		queryText := shared.NormalizeComparableText(query)
+		if queryText != "" {
+			normalized = append(normalized, queryText)
+		}
+	}
+	return normalized
+}
+
+func anyQueryMatches(recordText string, queryTexts []string) bool {
+	for _, queryText := range queryTexts {
+		if strings.Contains(recordText, queryText) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyQueryExactlyMatches(recordText string, queryTexts []string) bool {
+	for _, queryText := range queryTexts {
+		if recordText == queryText {
+			return true
+		}
+	}
+	return false
 }
