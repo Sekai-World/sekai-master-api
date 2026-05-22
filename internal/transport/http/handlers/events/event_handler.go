@@ -785,9 +785,9 @@ func pickFields(record map[string]any, keys []string) map[string]any {
 }
 
 type eventFilterOptions struct {
-	Enabled                  bool
-	Fields                   map[string][]string
-	Units                    []string
+	Enabled bool
+	Fields  map[string][]string
+	Units   []string
 }
 
 func parseEventFilterOptions(c *gin.Context) eventFilterOptions {
