@@ -350,6 +350,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
@@ -716,6 +722,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Event type filter (comma-separated values)",
                         "name": "event_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {
@@ -1189,6 +1201,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
@@ -1361,6 +1379,12 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {
@@ -1623,6 +1647,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
@@ -1795,6 +1825,12 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {
@@ -2053,6 +2089,12 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {

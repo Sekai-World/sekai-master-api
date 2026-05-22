@@ -867,6 +867,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1227,6 +1231,10 @@ paths:
         in: query
         name: event_type
         type: string
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field (id|startAt)
         in: query
         name: sort_by
@@ -1342,6 +1350,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1457,6 +1469,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1627,6 +1643,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1742,6 +1762,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -2028,6 +2052,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
