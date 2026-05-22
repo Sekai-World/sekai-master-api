@@ -205,8 +205,8 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param page_size query int false "Page size"
 // @Param id query string false "Event ID"
 // @Param name query string false "Event name"
-// @Param unit query []string false "Event unit (matched against eventStoryUnits.unit)"
-// @Param event_type query []string false "Event type"
+// @Param unit query string false "Event unit filter (comma-separated values)"
+// @Param event_type query string false "Event type filter (comma-separated values)"
 // @Param sort_by query string false "Sort field (id|startAt)"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.EventListResponse

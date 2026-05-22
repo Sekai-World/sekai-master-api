@@ -37,7 +37,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/virtualLives/:region/:id/schedules`
 - `GET /api/v1/virtualLives/:region/:id/setlists`
 
-Event list filters are optional and matched together. `id` is an exact match; `name`, `unit`, and `event_type` are case-insensitive partial matches. The `unit` filter is matched against `eventStoryUnits.unit`.
+Event list filters are optional and matched together. `id` is an exact match; `name`, `unit`, and `event_type` are case-insensitive partial matches. `unit` and `event_type` accept comma-separated multiple values, and `unit` is matched against `eventStoryUnits.unit`.
 
 ## Admin Endpoints
 
