@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -144,6 +145,7 @@ func (handler *LookupHandler) UnitProfilesAvailableRegionsByUnit(c *gin.Context)
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.UnitProfileListResponse
@@ -192,6 +194,7 @@ func (handler *LookupHandler) GameCharacterUnitsAvailableRegionsByID(c *gin.Cont
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.GameCharacterUnitListResponse
@@ -240,6 +243,7 @@ func (handler *LookupHandler) GameCharactersAvailableRegionsByID(c *gin.Context)
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.GameCharacterListResponse
@@ -341,16 +345,26 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 		return
 	}
 
-	if sortOptions.Enabled {
+	includeSpoilers, ok := shared.ParseSpoilerOption(c)
+	if !ok {
+		return
+	}
+
+	if !includeSpoilers || sortOptions.Enabled {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, config.entity)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, config.queryErrorCode, "failed to list "+config.resourceLabel+"s")
 			return
 		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, config.sortableFields) {
-			return
+		if !includeSpoilers {
+			records = shared.FilterSpoilerItems(records, time.Now().UTC())
 		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		if sortOptions.Enabled {
+			if !shared.ValidateSortField(c, sortOptions.Field, records, config.sortableFields) {
+				return
+			}
+			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      pagedRecords,

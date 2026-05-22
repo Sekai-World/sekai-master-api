@@ -207,6 +207,7 @@ func (handler *EventHandler) BreakTimesByID(c *gin.Context) {
 // @Param name query string false "Event name"
 // @Param unit query string false "Event unit filter (comma-separated values)"
 // @Param event_type query string false "Event type filter (comma-separated values)"
+// @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field (id|startAt)"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.EventListResponse
@@ -255,13 +256,21 @@ func (handler *EventHandler) List(c *gin.Context) {
 	}
 
 	filterOptions := parseEventFilterOptions(c)
-	if filterOptions.Enabled || sortOptions.Enabled {
+	includeSpoilers, ok := shared.ParseSpoilerOption(c)
+	if !ok {
+		return
+	}
+
+	if !includeSpoilers || filterOptions.Enabled || sortOptions.Enabled {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "events")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
 			return
 		}
 		records = handler.filterEvents(c.Request.Context(), region, records, filterOptions)
+		if !includeSpoilers {
+			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+		}
 		if sortOptions.Enabled {
 			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
 				return

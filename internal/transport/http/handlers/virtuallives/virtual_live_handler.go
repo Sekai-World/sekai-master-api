@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -165,6 +166,7 @@ func (handler *VirtualLiveHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.VirtualLiveListResponse
@@ -212,16 +214,26 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 		return
 	}
 
-	if sortOptions.Enabled {
+	includeSpoilers, ok := shared.ParseSpoilerOption(c)
+	if !ok {
+		return
+	}
+
+	if !includeSpoilers || sortOptions.Enabled {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "virtuallives")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to list virtual lives")
 			return
 		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
-			return
+		if !includeSpoilers {
+			records = shared.FilterSpoilerItems(records, time.Now().UTC())
 		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		if sortOptions.Enabled {
+			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
+				return
+			}
+			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),

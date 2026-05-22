@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -115,6 +116,7 @@ func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.MusicListResponse
@@ -162,16 +164,26 @@ func (handler *MusicHandler) List(c *gin.Context) {
 		return
 	}
 
-	if sortOptions.Enabled {
+	includeSpoilers, ok := shared.ParseSpoilerOption(c)
+	if !ok {
+		return
+	}
+
+	if !includeSpoilers || sortOptions.Enabled {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "musics")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to list musics")
 			return
 		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
-			return
+		if !includeSpoilers {
+			records = shared.FilterSpoilerItems(records, time.Now().UTC())
 		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		if sortOptions.Enabled {
+			if !shared.ValidateSortField(c, sortOptions.Field, records, defaultSortableMusicFields) {
+				return
+			}
+			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		items := handler.buildMusicList(c.Request.Context(), region, pagedRecords)
 		response.JSON(c, http.StatusOK, gin.H{

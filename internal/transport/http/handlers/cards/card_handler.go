@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -216,6 +217,7 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.CardListResponse
@@ -263,16 +265,26 @@ func (handler *CardHandler) List(c *gin.Context) {
 		return
 	}
 
-	if sortOptions.Enabled {
+	includeSpoilers, ok := shared.ParseSpoilerOption(c)
+	if !ok {
+		return
+	}
+
+	if !includeSpoilers || sortOptions.Enabled {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "cards")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to list cards")
 			return
 		}
-		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableCardFields) {
-			return
+		if !includeSpoilers {
+			records = shared.FilterSpoilerItems(records, time.Now().UTC())
 		}
-		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		if sortOptions.Enabled {
+			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableCardFields) {
+				return
+			}
+			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		items := make([]map[string]any, 0, len(pagedRecords))
 		for _, record := range pagedRecords {
