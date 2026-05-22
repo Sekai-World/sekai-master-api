@@ -25,8 +25,9 @@ import (
 )
 
 type RedisMasterDataCache struct {
-	client    *redis.Client
-	keyPrefix string
+	client          *redis.Client
+	keyPrefix       string
+	fileConcurrency int
 
 	mu    sync.RWMutex
 	index map[string]map[string]*entitySearchIndex
@@ -126,11 +127,16 @@ func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("ping redis: %w", err)
 	}
+	fileConcurrency := cfg.MasterDataFileConcurrency
+	if fileConcurrency <= 0 {
+		fileConcurrency = 8
+	}
 
 	return &RedisMasterDataCache{
-		client:    client,
-		keyPrefix: cfg.MasterDataRedisKeyPrefix,
-		index:     make(map[string]map[string]*entitySearchIndex),
+		client:          client,
+		keyPrefix:       cfg.MasterDataRedisKeyPrefix,
+		fileConcurrency: fileConcurrency,
+		index:           make(map[string]map[string]*entitySearchIndex),
 	}, nil
 }
 
@@ -158,21 +164,51 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 
 	nextIndex := make(map[string]*entitySearchIndex)
 	touchedEntities := make(map[string]struct{})
+	entityLocks := make(map[string]*sync.Mutex)
 	for _, filePath := range filePaths {
+		if entity := entityNameFromPath(filePath); entity != "" {
+			if _, exists := entityLocks[entity]; !exists {
+				entityLocks[entity] = &sync.Mutex{}
+			}
+		}
+	}
+
+	progressMu := sync.Mutex{}
+	reportProgress := func(filePath string) {
+		progressMu.Lock()
+		processedFiles++
+		currentProcessedFiles := processedFiles
+		reportCacheWriteProgress(progressReporter, region, filePath, currentProcessedFiles, totalFiles)
+		progressMu.Unlock()
+	}
+
+	resultMu := sync.Mutex{}
+	var firstErr error
+	recordErr := func(err error) {
+		resultMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		resultMu.Unlock()
+	}
+
+	processFile := func(filePath string) error {
 		value := payload[filePath]
 		entity := entityNameFromPath(filePath)
 		if entity == "" {
-			processedFiles++
-			reportCacheWriteProgress(progressReporter, region, filePath, processedFiles, totalFiles)
-			continue
+			reportProgress(filePath)
+			return nil
 		}
 
 		records, ok := value.([]any)
 		if !ok {
-			processedFiles++
-			reportCacheWriteProgress(progressReporter, region, filePath, processedFiles, totalFiles)
-			continue
+			reportProgress(filePath)
+			return nil
 		}
+
+		entityLock := entityLocks[entity]
+		entityLock.Lock()
+		defer entityLock.Unlock()
 
 		key := cache.redisEntityKey(regionName, entity)
 		orderKey := cache.redisEntityOrderKey(regionName, entity)
@@ -216,9 +252,11 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 		orderChanged := !equalStringSlices(existingOrder, orderedIDs)
 		entityChanged := recordsChanged || orderChanged
 		persistIndexChanged := entityChanged
+		touchedEntity := false
+		var updatedIndex *entitySearchIndex
 		if entityChanged {
-			touchedEntities[entity] = struct{}{}
-			nextIndex[entity] = buildEntitySearchIndex(recordMaps)
+			touchedEntity = true
+			updatedIndex = buildEntitySearchIndex(recordMaps)
 		} else {
 			cache.mu.RLock()
 			regionIndex := cache.index[regionName]
@@ -230,11 +268,11 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 					return fmt.Errorf("load persisted search index region %s entity %s: %w", regionName, entity, err)
 				}
 
-				touchedEntities[entity] = struct{}{}
+				touchedEntity = true
 				if found {
-					nextIndex[entity] = fields
+					updatedIndex = fields
 				} else {
-					nextIndex[entity] = buildEntitySearchIndex(recordMaps)
+					updatedIndex = buildEntitySearchIndex(recordMaps)
 					persistIndexChanged = true
 				}
 			}
@@ -277,14 +315,49 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 			}
 		}
 		if persistIndexChanged {
-			cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, nextIndex[entity])
+			cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, updatedIndex)
 		}
 		if _, err := pipe.Exec(ctx); err != nil {
 			return fmt.Errorf("incremental update region %s entity %s: %w", regionName, entity, err)
 		}
 
-		processedFiles++
-		reportCacheWriteProgress(progressReporter, region, filePath, processedFiles, totalFiles)
+		if touchedEntity {
+			resultMu.Lock()
+			touchedEntities[entity] = struct{}{}
+			nextIndex[entity] = updatedIndex
+			resultMu.Unlock()
+		}
+		reportProgress(filePath)
+		return nil
+	}
+
+	effectiveConcurrency := cache.fileConcurrency
+	if effectiveConcurrency <= 0 {
+		effectiveConcurrency = 1
+	}
+	if effectiveConcurrency > totalFiles && totalFiles > 0 {
+		effectiveConcurrency = totalFiles
+	}
+
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, effectiveConcurrency)
+	for _, filePath := range filePaths {
+		semaphore <- struct{}{}
+		filePath := filePath
+		wg.Go(func() {
+			defer func() {
+				<-semaphore
+			}()
+
+			if err := processFile(filePath); err != nil {
+				recordErr(err)
+			}
+		})
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		return firstErr
 	}
 
 	cache.mu.Lock()

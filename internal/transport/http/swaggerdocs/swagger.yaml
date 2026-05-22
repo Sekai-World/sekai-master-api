@@ -128,6 +128,15 @@ definitions:
       error:
         $ref: '#/definitions/shared.ErrorBody'
     type: object
+  shared.EventBannerGameCharacterResponse:
+    properties:
+      colorCode: {}
+      firstName: {}
+      gameCharacterId: {}
+      gameCharacterUnitId: {}
+      givenName: {}
+      unit: {}
+    type: object
   shared.EventBonusesResponse:
     properties:
       eventCardBonusLimits:
@@ -202,11 +211,24 @@ definitions:
       releaseCondition:
         $ref: '#/definitions/shared.ReleaseConditionResponse'
     type: object
+  shared.EventListItemResponse:
+    properties:
+      aggregateAt: {}
+      assetbundleName: {}
+      bannerGameCharacterId: {}
+      closedAt: {}
+      eventType: {}
+      id: {}
+      isCountLeaderCharacterPlay: {}
+      name: {}
+      startAt: {}
+      unit: {}
+    type: object
   shared.EventListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/shared.EventObjectResponse'
+          $ref: '#/definitions/shared.EventListItemResponse'
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
@@ -242,6 +264,8 @@ definitions:
     properties:
       aggregateAt: {}
       assetbundleName: {}
+      bannerGameCharacter:
+        $ref: '#/definitions/shared.EventBannerGameCharacterResponse'
       bgmAssetbundleName: {}
       closedAt: {}
       eventBreakTimeId: {}
@@ -318,6 +342,40 @@ definitions:
       startAt: {}
       virtualLiveType: {}
     type: object
+  shared.GameCharacterListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.GameCharacterObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.GameCharacterObjectResponse:
+    properties:
+      firstName: {}
+      givenName: {}
+      height: {}
+      id: {}
+      seq: {}
+      unit: {}
+    type: object
+  shared.GameCharacterUnitListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.GameCharacterUnitObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.GameCharacterUnitObjectResponse:
+    properties:
+      colorCode: {}
+      gameCharacterId: {}
+      id: {}
+      unit: {}
+    type: object
   shared.GenericItemsResponse:
     properties:
       items:
@@ -380,16 +438,23 @@ definitions:
       sync_running:
         type: boolean
     type: object
+  shared.MasterDataVersionsByRegionResponse:
+    additionalProperties:
+      $ref: '#/definitions/shared.MasterDataVersionsResponse'
+    type: object
   shared.MasterDataVersionsResponse:
     properties:
       appVersion:
         example: 3.2.1
         type: string
       assetVersion:
-        example: "20260423"
+        example: 3.2.1.10
         type: string
+      cdnVersion:
+        example: 2
+        type: integer
       dataVersion:
-        example: "20260423"
+        example: 3.2.1.10
         type: string
     type: object
   shared.MusicListResponse:
@@ -474,6 +539,22 @@ definitions:
     type: object
   shared.SkillResponse:
     additionalProperties: {}
+    type: object
+  shared.UnitProfileListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.UnitProfileObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.UnitProfileObjectResponse:
+    properties:
+      colorCode: {}
+      id: {}
+      unit: {}
+      unitName: {}
     type: object
   shared.VirtualLiveListResponse:
     properties:
@@ -816,61 +897,6 @@ paths:
       summary: List cards by page
       tags:
       - cards
-  /cards/{region}/search:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      - description: Prefix query
-        in: query
-        name: q
-        required: true
-        type: string
-      - description: Search field (name|skill), default=name
-        in: query
-        name: field
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Max results
-        in: query
-        name: limit
-        type: integer
-      - description: Sort field
-        in: query
-        name: sort_by
-        type: string
-      - description: Sort order (asc|desc)
-        in: query
-        name: sort_order
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/shared.CardListResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-      summary: Search cards by prefix
-      tags:
-      - cards
   /cards/regions/{id}/availability:
     get:
       parameters:
@@ -1185,7 +1211,23 @@ paths:
         in: query
         name: page_size
         type: integer
-      - description: Sort field
+      - description: Event ID
+        in: query
+        name: id
+        type: string
+      - description: Event name
+        in: query
+        name: name
+        type: string
+      - description: Event unit filter (comma-separated values)
+        in: query
+        name: unit
+        type: string
+      - description: Event type filter (comma-separated values)
+        in: query
+        name: event_type
+        type: string
+      - description: Sort field (id|startAt)
         in: query
         name: sort_by
         type: string
@@ -1213,61 +1255,6 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: List events by page
-      tags:
-      - events
-  /events/{region}/search:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      - description: Search query
-        in: query
-        name: q
-        required: true
-        type: string
-      - description: Search field (name|unit), default=name
-        in: query
-        name: field
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Max results
-        in: query
-        name: limit
-        type: integer
-      - description: Sort field
-        in: query
-        name: sort_by
-        type: string
-      - description: Sort order (asc|desc)
-        in: query
-        name: sort_order
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/shared.EventListResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-      summary: Search events
       tags:
       - events
   /events/regions/{id}/availability:
@@ -1300,6 +1287,236 @@ paths:
       summary: Get available regions for an event id
       tags:
       - events
+  /gameCharacterUnits/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Game Character Unit ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GameCharacterUnitObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get game character unit by id
+      tags:
+      - gameCharacterUnits
+  /gameCharacterUnits/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GameCharacterUnitListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List game character units by page
+      tags:
+      - gameCharacterUnits
+  /gameCharacterUnits/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Game Character Unit ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get available regions for a game character unit id
+      tags:
+      - gameCharacterUnits
+  /gameCharacters/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Game Character ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GameCharacterObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get game character by id
+      tags:
+      - gameCharacters
+  /gameCharacters/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GameCharacterListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List game characters by page
+      tags:
+      - gameCharacters
+  /gameCharacters/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Game Character ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get available regions for a game character id
+      tags:
+      - gameCharacters
   /health:
     get:
       produces:
@@ -1440,68 +1657,6 @@ paths:
       summary: List musics by page
       tags:
       - musics
-  /musics/{region}/search:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      - description: Keyword for title field
-        in: query
-        name: title
-        type: string
-      - description: Keyword for lyricist field
-        in: query
-        name: lyricist
-        type: string
-      - description: Keyword for composer field
-        in: query
-        name: composer
-        type: string
-      - description: Keyword for arranger field
-        in: query
-        name: arranger
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Max results
-        in: query
-        name: limit
-        type: integer
-      - description: Sort field
-        in: query
-        name: sort_by
-        type: string
-      - description: Sort order (asc|desc)
-        in: query
-        name: sort_order
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/shared.MusicListResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-      summary: Search musics
-      tags:
-      - musics
   /musics/regions/{id}/availability:
     get:
       parameters:
@@ -1532,6 +1687,141 @@ paths:
       summary: Get available regions for a music id
       tags:
       - musics
+  /unitProfiles/{region}/{unit}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Unit
+        in: path
+        name: unit
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.UnitProfileObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get unit profile by unit
+      tags:
+      - unitProfiles
+  /unitProfiles/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.UnitProfileListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List unit profiles by page
+      tags:
+      - unitProfiles
+  /unitProfiles/regions/{unit}/availability:
+    get:
+      parameters:
+      - description: Unit
+        in: path
+        name: unit
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get available regions for a unit profile unit
+      tags:
+      - unitProfiles
+  /versions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MasterDataVersionsByRegionResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get cached versions.json for all configured regions
+      tags:
+      - system
   /versions/{region}:
     get:
       parameters:
@@ -1766,61 +2056,6 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: List virtual lives by page
-      tags:
-      - virtualLives
-  /virtualLives/{region}/search:
-    get:
-      parameters:
-      - description: Region
-        in: path
-        name: region
-        required: true
-        type: string
-      - description: Search query
-        in: query
-        name: q
-        required: true
-        type: string
-      - description: Search field (name|type|assetbundle), default=name
-        in: query
-        name: field
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Max results
-        in: query
-        name: limit
-        type: integer
-      - description: Sort field
-        in: query
-        name: sort_by
-        type: string
-      - description: Sort order (asc|desc)
-        in: query
-        name: sort_order
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/shared.VirtualLiveListResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/shared.ErrorResponse'
-      summary: Search virtual lives
       tags:
       - virtualLives
   /virtualLives/regions/{id}/availability:

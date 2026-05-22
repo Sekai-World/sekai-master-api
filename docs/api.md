@@ -5,30 +5,39 @@ All public API routes use the `/api/v1` prefix. Non-admin GET APIs are public by
 Swagger UI is available only in `development` and `test`:
 
 - `GET /docs/index.html`
-- `GET /docs/doc.json`
+- `GET /docs/openapi.json`
 
 ## Public Endpoints
 
 - `GET /api/v1/health`
+- `GET /api/v1/versions`
+- `GET /api/v1/versions/:region`
+- `GET /api/v1/unitProfiles/regions/:unit/availability`
+- `GET /api/v1/unitProfiles/:region/list?page=1&page_size=20`
+- `GET /api/v1/unitProfiles/:region/:unit`
+- `GET /api/v1/gameCharacterUnits/regions/:id/availability`
+- `GET /api/v1/gameCharacterUnits/:region/list?page=1&page_size=20`
+- `GET /api/v1/gameCharacterUnits/:region/:id`
+- `GET /api/v1/gameCharacters/regions/:id/availability`
+- `GET /api/v1/gameCharacters/:region/list?page=1&page_size=20`
+- `GET /api/v1/gameCharacters/:region/:id`
 - `GET /api/v1/cards/:region/list?page=1&page_size=20`
-- `GET /api/v1/cards/:region/search?q=<keyword>&field=name|skill&page=1&limit=20`
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/cards/:region/:id/episodes`
 - `GET /api/v1/musics/:region/list?page=1&page_size=20`
-- `GET /api/v1/musics/:region/search?title=<kw>&lyricist=<kw>&composer=<kw>&arranger=<kw>&page=1&limit=20`
 - `GET /api/v1/musics/:region/:id`
 - `GET /api/v1/events/:region/current`
+- `GET /api/v1/events/:region/list?page=1&page_size=20&id=<id>&name=<kw>&unit=<kw>&event_type=<kw>&sort_by=id|startAt&sort_order=asc|desc`
 - `GET /api/v1/events/:region/:id`
 - `GET /api/v1/events/:region/:id/rewards`
 - `GET /api/v1/virtualLives/:region/list?page=1&page_size=20`
-- `GET /api/v1/virtualLives/:region/search?q=<keyword>&field=name|type|assetbundle&page=1&limit=20`
 - `GET /api/v1/virtualLives/:region/:id`
 - `GET /api/v1/virtualLives/:region/:id/items`
 - `GET /api/v1/virtualLives/:region/:id/schedules`
 - `GET /api/v1/virtualLives/:region/:id/setlists`
 
-Music search requires at least one of `title`, `lyricist`, `composer`, or `arranger`. Multiple fields are matched together.
+Event list filters are optional and matched together. `id` is an exact match; `name`, `unit`, and `event_type` are case-insensitive partial matches. `unit` and `event_type` accept comma-separated multiple values, and `unit` is matched against `eventStoryUnits.unit`.
 
 ## Admin Endpoints
 

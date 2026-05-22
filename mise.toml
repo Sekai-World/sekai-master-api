@@ -27,12 +27,38 @@ go vet ./...
 
 [tasks.swagger]
 description = "Regenerate Swagger docs"
-run = "go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handlers/admin,internal/transport/http/handlers/cards,internal/transport/http/handlers/events,internal/transport/http/handlers/musics,internal/transport/http/handlers/shared,internal/transport/http/handlers/system,internal/transport/http/handlers/virtuallives,internal/domain/masterdata -o internal/transport/http/swaggerdocs"
+run = "go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handlers/admin,internal/transport/http/handlers/cards,internal/transport/http/handlers/events,internal/transport/http/handlers/lookups,internal/transport/http/handlers/musics,internal/transport/http/handlers/shared,internal/transport/http/handlers/system,internal/transport/http/handlers/virtuallives,internal/domain/masterdata -o internal/transport/http/swaggerdocs"
 
 [tasks.admin-open]
 description = "Open the local admin login page"
-run = '"$BROWSER" "http://localhost:${APP_PORT:-8080}/admin/login"'
+run = '''
+url="http://localhost:${APP_PORT:-18080}/admin/login"
+browser_cmd="${BROWSER:-}"
+if [ -n "$browser_cmd" ]; then
+  "$browser_cmd" "$url"
+elif command -v open >/dev/null 2>&1; then
+  open "$url"
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$url"
+else
+  echo "No browser launcher found. Set BROWSER to your browser command." >&2
+  exit 1
+fi
+'''
 
 [tasks.dev-logs-ui]
 description = "Open the local Grafana UI"
-run = '"$BROWSER" "${DEV_GRAFANA_URL:-http://grafana.sekai-master-api.orb.local}"'
+run = '''
+url="${DEV_GRAFANA_URL:-http://grafana.sekai-master-api.orb.local}"
+browser_cmd="${BROWSER:-}"
+if [ -n "$browser_cmd" ]; then
+  "$browser_cmd" "$url"
+elif command -v open >/dev/null 2>&1; then
+  open "$url"
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$url"
+else
+  echo "No browser launcher found. Set BROWSER to your browser command." >&2
+  exit 1
+fi
+'''

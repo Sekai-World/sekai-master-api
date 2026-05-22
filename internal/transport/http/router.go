@@ -19,6 +19,7 @@ import (
 	adminhandlers "sekai-master-api/internal/transport/http/handlers/admin"
 	cardhandlers "sekai-master-api/internal/transport/http/handlers/cards"
 	eventhandlers "sekai-master-api/internal/transport/http/handlers/events"
+	lookuphandlers "sekai-master-api/internal/transport/http/handlers/lookups"
 	musichandlers "sekai-master-api/internal/transport/http/handlers/musics"
 	systemhandlers "sekai-master-api/internal/transport/http/handlers/system"
 	virtuallivehandlers "sekai-master-api/internal/transport/http/handlers/virtuallives"
@@ -65,15 +66,16 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	cardHandler := cardhandlers.NewCardHandler(masterDataSync)
 	musicHandler := musichandlers.NewMusicHandler(masterDataSync)
 	eventHandler := eventhandlers.NewEventHandler(masterDataSync)
+	lookupHandler := lookuphandlers.NewLookupHandler(masterDataSync)
 	virtualLiveHandler := virtuallivehandlers.NewVirtualLiveHandler(masterDataSync)
 	masterDataAdminHandler := adminhandlers.NewMasterDataAdminHandler(masterDataSync, startupState)
 
 	if isSwaggerEnabledEnv(cfg.AppEnv) {
-		router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		router.GET("/docs/*any", swaggerHandler())
 	}
 
 	v1 := router.Group("/api/v1")
-	registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, virtualLiveHandler)
+	registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, lookupHandler, virtualLiveHandler)
 	registerInternalRoutes(v1, gitHubWebhookHandler)
 
 	registerAdminRoutes(
@@ -94,4 +96,28 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 func isSwaggerEnabledEnv(appEnv string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(appEnv))
 	return normalized == "development" || normalized == "dev" || normalized == "test"
+}
+
+func swaggerHandler() gin.HandlerFunc {
+	handler := ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("/docs/openapi.json"))
+
+	return func(ctx *gin.Context) {
+		if ctx.Request.URL.Path == "/docs/doc.json" {
+			ctx.String(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+			return
+		}
+
+		if ctx.Request.URL.Path == "/docs/openapi.json" {
+			originalPath := ctx.Request.URL.Path
+			originalRequestURI := ctx.Request.RequestURI
+			ctx.Request.URL.Path = "/docs/doc.json"
+			ctx.Request.RequestURI = strings.Replace(originalRequestURI, "/docs/openapi.json", "/docs/doc.json", 1)
+			defer func() {
+				ctx.Request.URL.Path = originalPath
+				ctx.Request.RequestURI = originalRequestURI
+			}()
+		}
+
+		handler(ctx)
+	}
 }

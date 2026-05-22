@@ -63,13 +63,11 @@ Query behavior:
 
 - Card by-id reads from Redis hash cache.
 - Card list pagination follows real `cards.json` array order, not contiguous IDs.
-- Card search supports `field=name|skill`; `name` maps to `prefix`, `skill` maps to `cardSkillName`.
 - Card params reuses the cached card record and returns params-related fields only.
-- Music search supports `title`, `lyricist`, `composer`, and `arranger`.
 - Music responses expand `creatorArtistId` and `liveStageId` and hide the raw ids.
 - Card responses expand `cardSupplyId`, `skillId`, `characterId`, and `cardRarityType`.
 - Event current lookup uses Redis first and refreshes from `events.json` when stale or missing.
 - Event by-id omits `eventRankingRewardRanges`; use the rewards endpoint.
 - Virtual live base response omits items, schedules, and setlists; use dedicated endpoints.
 - If a top-level `releaseConditionId` exists, the response expands `releaseCondition` and hides `releaseConditionId`.
-- Region data endpoints return `503 REGION_DATA_NOT_READY` until region sync status is `success`.
+- Region data endpoints return `503 REGION_DATA_NOT_READY` until region sync status is `success` and Redis has usable cache/index data for that region.
