@@ -53,7 +53,10 @@ definitions:
       archivePublishedAt: {}
       assetbundleName: {}
       attr: {}
-      cardParameters: {}
+      cardParameters:
+        items:
+          $ref: '#/definitions/shared.CardParameterResponse'
+        type: array
       cardRarity:
         $ref: '#/definitions/shared.CardRarityResponse'
       cardSkillName: {}
@@ -88,22 +91,80 @@ definitions:
       total_pages:
         type: integer
     type: object
+  shared.CardParameterResponse:
+    properties:
+      cardId:
+        type: integer
+      cardLevel:
+        type: integer
+      cardParameterType:
+        type: string
+      id:
+        type: integer
+      power:
+        type: integer
+    type: object
   shared.CardParamsResponse:
     properties:
-      cardParameters: {}
+      cardParameters:
+        items:
+          $ref: '#/definitions/shared.CardParameterResponse'
+        type: array
       id: {}
       specialTrainingPower1BonusFixed: {}
       specialTrainingPower2BonusFixed: {}
       specialTrainingPower3BonusFixed: {}
     type: object
   shared.CardRarityResponse:
-    additionalProperties: {}
+    properties:
+      cardRarityType:
+        type: string
+      maxLevel:
+        type: integer
+      maxSkillLevel:
+        type: integer
+      seq:
+        type: integer
+      trainingMaxLevel:
+        type: integer
     type: object
   shared.CardSupplyResponse:
-    additionalProperties: {}
+    properties:
+      assetbundleName:
+        type: string
+      cardSupplyType:
+        type: string
+      id:
+        type: integer
     type: object
   shared.CharacterResponse:
-    additionalProperties: {}
+    properties:
+      firstName:
+        type: string
+      firstNameEnglish:
+        type: string
+      firstNameRuby:
+        type: string
+      gender:
+        type: string
+      givenName:
+        type: string
+      givenNameEnglish:
+        type: string
+      givenNameRuby:
+        type: string
+      height:
+        type: number
+      id:
+        type: integer
+      resourceId:
+        type: integer
+      seq:
+        type: integer
+      supportUnitType:
+        type: string
+      unit:
+        type: string
     type: object
   shared.CurrentEventResponse:
     properties:
@@ -537,8 +598,82 @@ definitions:
       sentence:
         type: string
     type: object
+  shared.SkillEffectDetailResponse:
+    properties:
+      activateEffectDuration:
+        type: number
+      activateEffectValue:
+        type: integer
+      activateEffectValue2:
+        type: integer
+      activateEffectValueType:
+        type: string
+      id:
+        type: integer
+      level:
+        type: integer
+    type: object
+  shared.SkillEffectResponse:
+    properties:
+      activateCharacterRank:
+        type: integer
+      activateLife:
+        type: integer
+      activateNotesJudgmentType:
+        type: string
+      activateUnitCount:
+        type: integer
+      conditionType:
+        type: string
+      id:
+        type: integer
+      skillEffectDetails:
+        items:
+          $ref: '#/definitions/shared.SkillEffectDetailResponse'
+        type: array
+      skillEffectType:
+        type: string
+      skillEnhance:
+        $ref: '#/definitions/shared.SkillEnhanceResponse'
+    type: object
+  shared.SkillEnhanceConditionResponse:
+    properties:
+      id:
+        type: integer
+      seq:
+        type: integer
+      unit:
+        type: string
+    type: object
+  shared.SkillEnhanceResponse:
+    properties:
+      activateEffectValue:
+        type: integer
+      activateEffectValueType:
+        type: string
+      id:
+        type: integer
+      skillEnhanceCondition:
+        $ref: '#/definitions/shared.SkillEnhanceConditionResponse'
+      skillEnhanceType:
+        type: string
+    type: object
   shared.SkillResponse:
-    additionalProperties: {}
+    properties:
+      description:
+        type: string
+      descriptionSpriteName:
+        type: string
+      id:
+        type: integer
+      shortDescription:
+        type: string
+      skillEffects:
+        items:
+          $ref: '#/definitions/shared.SkillEffectResponse'
+        type: array
+      skillFilterId:
+        type: integer
     type: object
   shared.UnitProfileListResponse:
     properties:

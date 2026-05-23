@@ -53,13 +53,87 @@ type PaginationResponse struct {
 	HasNext    bool `json:"has_next"`
 }
 
-type CardSupplyResponse map[string]any
+type CardSupplyResponse struct {
+	ID              int    `json:"id,omitempty"`
+	CardSupplyType  string `json:"cardSupplyType,omitempty"`
+	AssetbundleName string `json:"assetbundleName,omitempty"`
+}
 
-type SkillResponse map[string]any
+type SkillEffectDetailResponse struct {
+	ID                      int     `json:"id,omitempty"`
+	Level                   int     `json:"level,omitempty"`
+	ActivateEffectDuration  float64 `json:"activateEffectDuration,omitempty"`
+	ActivateEffectValueType string  `json:"activateEffectValueType,omitempty"`
+	ActivateEffectValue     int     `json:"activateEffectValue,omitempty"`
+	ActivateEffectValue2    int     `json:"activateEffectValue2,omitempty"`
+}
 
-type CharacterResponse map[string]any
+type SkillEnhanceConditionResponse struct {
+	ID   int    `json:"id,omitempty"`
+	Seq  int    `json:"seq,omitempty"`
+	Unit string `json:"unit,omitempty"`
+}
 
-type CardRarityResponse map[string]any
+type SkillEnhanceResponse struct {
+	ID                      int                            `json:"id,omitempty"`
+	SkillEnhanceType        string                         `json:"skillEnhanceType,omitempty"`
+	ActivateEffectValueType string                         `json:"activateEffectValueType,omitempty"`
+	ActivateEffectValue     int                            `json:"activateEffectValue,omitempty"`
+	SkillEnhanceCondition   *SkillEnhanceConditionResponse `json:"skillEnhanceCondition,omitempty"`
+}
+
+type SkillEffectResponse struct {
+	ID                        int                         `json:"id,omitempty"`
+	SkillEffectType           string                      `json:"skillEffectType,omitempty"`
+	ActivateNotesJudgmentType string                      `json:"activateNotesJudgmentType,omitempty"`
+	ActivateLife              int                         `json:"activateLife,omitempty"`
+	ActivateUnitCount         int                         `json:"activateUnitCount,omitempty"`
+	ActivateCharacterRank     int                         `json:"activateCharacterRank,omitempty"`
+	ConditionType             string                      `json:"conditionType,omitempty"`
+	SkillEnhance              *SkillEnhanceResponse       `json:"skillEnhance,omitempty"`
+	SkillEffectDetails        []SkillEffectDetailResponse `json:"skillEffectDetails,omitempty"`
+}
+
+type SkillResponse struct {
+	ID                    int                   `json:"id,omitempty"`
+	ShortDescription      string                `json:"shortDescription,omitempty"`
+	Description           string                `json:"description,omitempty"`
+	DescriptionSpriteName string                `json:"descriptionSpriteName,omitempty"`
+	SkillFilterID         int                   `json:"skillFilterId,omitempty"`
+	SkillEffects          []SkillEffectResponse `json:"skillEffects,omitempty"`
+}
+
+type CharacterResponse struct {
+	ID               int     `json:"id,omitempty"`
+	Seq              int     `json:"seq,omitempty"`
+	ResourceID       int     `json:"resourceId,omitempty"`
+	FirstName        string  `json:"firstName,omitempty"`
+	GivenName        string  `json:"givenName,omitempty"`
+	FirstNameRuby    string  `json:"firstNameRuby,omitempty"`
+	GivenNameRuby    string  `json:"givenNameRuby,omitempty"`
+	FirstNameEnglish string  `json:"firstNameEnglish,omitempty"`
+	GivenNameEnglish string  `json:"givenNameEnglish,omitempty"`
+	Gender           string  `json:"gender,omitempty"`
+	Height           float64 `json:"height,omitempty"`
+	Unit             string  `json:"unit,omitempty"`
+	SupportUnitType  string  `json:"supportUnitType,omitempty"`
+}
+
+type CardRarityResponse struct {
+	CardRarityType   string `json:"cardRarityType,omitempty"`
+	Seq              int    `json:"seq,omitempty"`
+	MaxLevel         int    `json:"maxLevel,omitempty"`
+	TrainingMaxLevel int    `json:"trainingMaxLevel,omitempty"`
+	MaxSkillLevel    int    `json:"maxSkillLevel,omitempty"`
+}
+
+type CardParameterResponse struct {
+	ID                int    `json:"id,omitempty"`
+	CardID            int    `json:"cardId,omitempty"`
+	CardLevel         int    `json:"cardLevel,omitempty"`
+	CardParameterType string `json:"cardParameterType,omitempty"`
+	Power             int    `json:"power,omitempty"`
+}
 
 type CardObjectResponse struct {
 	ID                           any                `json:"id,omitempty"`
@@ -79,10 +153,10 @@ type CardObjectResponse struct {
 	Character                    CharacterResponse  `json:"character,omitempty"`
 	CardRarity                   CardRarityResponse `json:"cardRarity,omitempty"`
 
-	SpecialTrainingPower1BonusFixed any `json:"specialTrainingPower1BonusFixed,omitempty"`
-	SpecialTrainingPower2BonusFixed any `json:"specialTrainingPower2BonusFixed,omitempty"`
-	SpecialTrainingPower3BonusFixed any `json:"specialTrainingPower3BonusFixed,omitempty"`
-	CardParameters                  any `json:"cardParameters,omitempty"`
+	SpecialTrainingPower1BonusFixed any                     `json:"specialTrainingPower1BonusFixed,omitempty"`
+	SpecialTrainingPower2BonusFixed any                     `json:"specialTrainingPower2BonusFixed,omitempty"`
+	SpecialTrainingPower3BonusFixed any                     `json:"specialTrainingPower3BonusFixed,omitempty"`
+	CardParameters                  []CardParameterResponse `json:"cardParameters,omitempty"`
 }
 
 type CardItemsResponse struct {
@@ -90,11 +164,11 @@ type CardItemsResponse struct {
 }
 
 type CardParamsResponse struct {
-	ID                              any `json:"id,omitempty"`
-	SpecialTrainingPower1BonusFixed any `json:"specialTrainingPower1BonusFixed,omitempty"`
-	SpecialTrainingPower2BonusFixed any `json:"specialTrainingPower2BonusFixed,omitempty"`
-	SpecialTrainingPower3BonusFixed any `json:"specialTrainingPower3BonusFixed,omitempty"`
-	CardParameters                  any `json:"cardParameters,omitempty"`
+	ID                              any                     `json:"id,omitempty"`
+	SpecialTrainingPower1BonusFixed any                     `json:"specialTrainingPower1BonusFixed,omitempty"`
+	SpecialTrainingPower2BonusFixed any                     `json:"specialTrainingPower2BonusFixed,omitempty"`
+	SpecialTrainingPower3BonusFixed any                     `json:"specialTrainingPower3BonusFixed,omitempty"`
+	CardParameters                  []CardParameterResponse `json:"cardParameters,omitempty"`
 }
 
 type CardPagination struct {

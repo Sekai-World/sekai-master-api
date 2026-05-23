@@ -2456,7 +2456,12 @@ const docTemplate = `{
                 "archivePublishedAt": {},
                 "assetbundleName": {},
                 "attr": {},
-                "cardParameters": {},
+                "cardParameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CardParameterResponse"
+                    }
+                },
                 "cardRarity": {
                     "$ref": "#/definitions/shared.CardRarityResponse"
                 },
@@ -2503,10 +2508,35 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.CardParameterResponse": {
+            "type": "object",
+            "properties": {
+                "cardId": {
+                    "type": "integer"
+                },
+                "cardLevel": {
+                    "type": "integer"
+                },
+                "cardParameterType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "power": {
+                    "type": "integer"
+                }
+            }
+        },
         "shared.CardParamsResponse": {
             "type": "object",
             "properties": {
-                "cardParameters": {},
+                "cardParameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CardParameterResponse"
+                    }
+                },
                 "id": {},
                 "specialTrainingPower1BonusFixed": {},
                 "specialTrainingPower2BonusFixed": {},
@@ -2515,15 +2545,81 @@ const docTemplate = `{
         },
         "shared.CardRarityResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "cardRarityType": {
+                    "type": "string"
+                },
+                "maxLevel": {
+                    "type": "integer"
+                },
+                "maxSkillLevel": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "trainingMaxLevel": {
+                    "type": "integer"
+                }
+            }
         },
         "shared.CardSupplyResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "cardSupplyType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                }
+            }
         },
         "shared.CharacterResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "firstName": {
+                    "type": "string"
+                },
+                "firstNameEnglish": {
+                    "type": "string"
+                },
+                "firstNameRuby": {
+                    "type": "string"
+                },
+                "gender": {
+                    "type": "string"
+                },
+                "givenName": {
+                    "type": "string"
+                },
+                "givenNameEnglish": {
+                    "type": "string"
+                },
+                "givenNameRuby": {
+                    "type": "string"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "supportUnitType": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
         },
         "shared.CurrentEventResponse": {
             "type": "object",
@@ -3161,9 +3257,123 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.SkillEffectDetailResponse": {
+            "type": "object",
+            "properties": {
+                "activateEffectDuration": {
+                    "type": "number"
+                },
+                "activateEffectValue": {
+                    "type": "integer"
+                },
+                "activateEffectValue2": {
+                    "type": "integer"
+                },
+                "activateEffectValueType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "level": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.SkillEffectResponse": {
+            "type": "object",
+            "properties": {
+                "activateCharacterRank": {
+                    "type": "integer"
+                },
+                "activateLife": {
+                    "type": "integer"
+                },
+                "activateNotesJudgmentType": {
+                    "type": "string"
+                },
+                "activateUnitCount": {
+                    "type": "integer"
+                },
+                "conditionType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "skillEffectDetails": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.SkillEffectDetailResponse"
+                    }
+                },
+                "skillEffectType": {
+                    "type": "string"
+                },
+                "skillEnhance": {
+                    "$ref": "#/definitions/shared.SkillEnhanceResponse"
+                }
+            }
+        },
+        "shared.SkillEnhanceConditionResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.SkillEnhanceResponse": {
+            "type": "object",
+            "properties": {
+                "activateEffectValue": {
+                    "type": "integer"
+                },
+                "activateEffectValueType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "skillEnhanceCondition": {
+                    "$ref": "#/definitions/shared.SkillEnhanceConditionResponse"
+                },
+                "skillEnhanceType": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.SkillResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "descriptionSpriteName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "shortDescription": {
+                    "type": "string"
+                },
+                "skillEffects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.SkillEffectResponse"
+                    }
+                },
+                "skillFilterId": {
+                    "type": "integer"
+                }
+            }
         },
         "shared.UnitProfileListResponse": {
             "type": "object",
