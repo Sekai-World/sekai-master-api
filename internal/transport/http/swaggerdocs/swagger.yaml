@@ -1006,6 +1006,38 @@ paths:
         in: query
         name: spoiler
         type: boolean
+      - description: Comma-separated character units
+        in: query
+        name: unit
+        type: string
+      - description: Comma-separated character IDs
+        in: query
+        name: character
+        type: string
+      - description: Comma-separated skill descriptionSpriteName values
+        in: query
+        name: skill
+        type: string
+      - description: Comma-separated card supply IDs or card supply types
+        in: query
+        name: type
+        type: string
+      - description: Comma-separated card attributes
+        in: query
+        name: attr
+        type: string
+      - description: Comma-separated card rarity types
+        in: query
+        name: rarity
+        type: string
+      - description: Comma-separated support units
+        in: query
+        name: supportUnit
+        type: string
+      - description: Include cards that have another3dmvCutIns entries
+        in: query
+        name: has3dmvCutIn
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by

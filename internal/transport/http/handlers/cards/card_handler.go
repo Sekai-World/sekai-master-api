@@ -218,6 +218,14 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
 // @Param spoiler query bool false "Include spoiler content"
+// @Param unit query string false "Comma-separated character units"
+// @Param character query string false "Comma-separated character IDs"
+// @Param skill query string false "Comma-separated skill descriptionSpriteName values"
+// @Param type query string false "Comma-separated card supply IDs or card supply types"
+// @Param attr query string false "Comma-separated card attributes"
+// @Param rarity query string false "Comma-separated card rarity types"
+// @Param supportUnit query string false "Comma-separated support units"
+// @Param has3dmvCutIn query bool false "Include cards that have another3dmvCutIns entries"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.CardListResponse
@@ -270,7 +278,12 @@ func (handler *CardHandler) List(c *gin.Context) {
 		return
 	}
 
-	if !includeSpoilers || sortOptions.Enabled {
+	filterOptions, ok := parseCardListFilterOptions(c)
+	if !ok {
+		return
+	}
+
+	if !includeSpoilers || sortOptions.Enabled || filterOptions.Enabled() {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "cards")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to list cards")
@@ -278,6 +291,13 @@ func (handler *CardHandler) List(c *gin.Context) {
 		}
 		if !includeSpoilers {
 			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+		}
+		if filterOptions.Enabled() {
+			records, err = handler.filterCards(c.Request.Context(), region, records, filterOptions)
+			if err != nil {
+				response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to filter cards")
+				return
+			}
 		}
 		if sortOptions.Enabled {
 			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableCardFields) {
@@ -324,6 +344,267 @@ func (handler *CardHandler) List(c *gin.Context) {
 			"has_next":    hasNext,
 		},
 	})
+}
+
+type cardListFilterOptions struct {
+	Units        map[string]struct{}
+	Characters   map[string]struct{}
+	Skills       map[string]struct{}
+	Types        map[string]struct{}
+	Attrs        map[string]struct{}
+	Rarities     map[string]struct{}
+	SupportUnits map[string]struct{}
+	Has3dmvCutIn bool
+}
+
+func (options cardListFilterOptions) Enabled() bool {
+	return len(options.Units) > 0 ||
+		len(options.Characters) > 0 ||
+		len(options.Skills) > 0 ||
+		len(options.Types) > 0 ||
+		len(options.Attrs) > 0 ||
+		len(options.Rarities) > 0 ||
+		len(options.SupportUnits) > 0 ||
+		options.Has3dmvCutIn
+}
+
+func parseCardListFilterOptions(c *gin.Context) (cardListFilterOptions, bool) {
+	options := cardListFilterOptions{
+		Units:        parseCardListQuerySet(c, "unit"),
+		Characters:   parseCardListQuerySet(c, "character"),
+		Skills:       parseCardListQuerySet(c, "skill"),
+		Types:        parseCardListQuerySet(c, "type"),
+		Attrs:        parseCardListQuerySet(c, "attr"),
+		Rarities:     parseCardListQuerySet(c, "rarity"),
+		SupportUnits: parseCardListQuerySet(c, "supportUnit"),
+	}
+
+	has3dmvCutIn, ok := parseCardListBool(c, "has3dmvCutIn")
+	if !ok {
+		return cardListFilterOptions{}, false
+	}
+
+	options.Has3dmvCutIn = has3dmvCutIn
+	return options, true
+}
+
+func parseCardListQuerySet(c *gin.Context, key string) map[string]struct{} {
+	values := c.QueryArray(key)
+	if len(values) == 0 {
+		return nil
+	}
+
+	result := map[string]struct{}{}
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			normalized := shared.NormalizeComparableText(part)
+			if normalized == "" {
+				continue
+			}
+			result[normalized] = struct{}{}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+
+	return result
+}
+
+func parseCardListBool(c *gin.Context, key string) (bool, bool) {
+	rawValue := strings.TrimSpace(c.Query(key))
+	if rawValue == "" {
+		return false, true
+	}
+
+	parsed, err := strconv.ParseBool(rawValue)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", key+" must be a boolean")
+		return false, false
+	}
+
+	return parsed, true
+}
+
+func (handler *CardHandler) filterCards(ctx context.Context, region string, records []map[string]any, options cardListFilterOptions) ([]map[string]any, error) {
+	if len(records) == 0 || !options.Enabled() {
+		return records, nil
+	}
+
+	var characterUnits map[string]string
+	if len(options.Units) > 0 {
+		var err error
+		characterUnits, err = handler.loadCharacterUnits(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var skillTypes map[string]string
+	if len(options.Skills) > 0 {
+		var err error
+		skillTypes, err = handler.loadSkillTypes(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var cardSupplyTypes map[string]string
+	if len(options.Types) > 0 {
+		var err error
+		cardSupplyTypes, err = handler.loadCardSupplyTypes(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var cutInCardIDs map[string]struct{}
+	if options.Has3dmvCutIn {
+		var err error
+		cutInCardIDs, err = handler.load3dmvCutInCardIDs(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	filtered := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if !cardMatchesFilterOptions(record, options, characterUnits, skillTypes, cardSupplyTypes, cutInCardIDs) {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+
+	return filtered, nil
+}
+
+func (handler *CardHandler) loadCharacterUnits(ctx context.Context, region string) (map[string]string, error) {
+	characters, err := handler.masterDataSync.ListAll(ctx, region, "gamecharacters")
+	if err != nil {
+		return nil, err
+	}
+
+	units := make(map[string]string, len(characters))
+	for _, character := range characters {
+		id := shared.NormalizeAnyID(character["id"])
+		if id == "" {
+			continue
+		}
+		units[id] = shared.NormalizeComparableText(character["unit"])
+	}
+
+	return units, nil
+}
+
+func (handler *CardHandler) loadSkillTypes(ctx context.Context, region string) (map[string]string, error) {
+	skills, err := handler.masterDataSync.ListAll(ctx, region, "skills")
+	if err != nil {
+		return nil, err
+	}
+
+	types := make(map[string]string, len(skills))
+	for _, skill := range skills {
+		id := shared.NormalizeAnyID(skill["id"])
+		if id == "" {
+			continue
+		}
+		types[id] = shared.NormalizeComparableText(skill["descriptionSpriteName"])
+	}
+
+	return types, nil
+}
+
+func (handler *CardHandler) loadCardSupplyTypes(ctx context.Context, region string) (map[string]string, error) {
+	cardSupplies, err := handler.masterDataSync.ListAll(ctx, region, "cardsupplies")
+	if err != nil {
+		return nil, err
+	}
+
+	types := make(map[string]string, len(cardSupplies))
+	for _, cardSupply := range cardSupplies {
+		id := shared.NormalizeAnyID(cardSupply["id"])
+		if id == "" {
+			continue
+		}
+		types[id] = shared.NormalizeComparableText(cardSupply["cardSupplyType"])
+	}
+
+	return types, nil
+}
+
+func (handler *CardHandler) load3dmvCutInCardIDs(ctx context.Context, region string) (map[string]struct{}, error) {
+	cutIns, err := handler.masterDataSync.ListAll(ctx, region, "another3dmvcutins")
+	if err != nil {
+		return nil, err
+	}
+
+	cardIDs := make(map[string]struct{}, len(cutIns))
+	for _, cutIn := range cutIns {
+		cardID := shared.NormalizeAnyID(cutIn["cardId"])
+		if cardID == "" {
+			continue
+		}
+		cardIDs[cardID] = struct{}{}
+	}
+
+	return cardIDs, nil
+}
+
+func cardMatchesFilterOptions(record map[string]any, options cardListFilterOptions, characterUnits map[string]string, skillTypes map[string]string, cardSupplyTypes map[string]string, cutInCardIDs map[string]struct{}) bool {
+	characterID := shared.NormalizeComparableText(record["characterId"])
+	if len(options.Characters) > 0 && !setContains(options.Characters, characterID) {
+		return false
+	}
+
+	if len(options.Units) > 0 && !setContains(options.Units, characterUnits[shared.NormalizeAnyID(record["characterId"])]) {
+		return false
+	}
+
+	if len(options.Attrs) > 0 && !setContains(options.Attrs, shared.NormalizeComparableText(record["attr"])) {
+		return false
+	}
+
+	if len(options.Rarities) > 0 {
+		rarityType := shared.NormalizeComparableText(record["cardRarityType"])
+		rarityNumber := strings.TrimPrefix(rarityType, "rarity_")
+		if !setContains(options.Rarities, rarityType) && !setContains(options.Rarities, rarityNumber) {
+			return false
+		}
+	}
+
+	if len(options.SupportUnits) > 0 && !setContains(options.SupportUnits, shared.NormalizeComparableText(record["supportUnit"])) {
+		return false
+	}
+
+	if len(options.Skills) > 0 {
+		skillID := shared.NormalizeAnyID(record["skillId"])
+		if !setContains(options.Skills, skillTypes[skillID]) {
+			return false
+		}
+	}
+
+	if len(options.Types) > 0 {
+		cardSupplyID := shared.NormalizeAnyID(record["cardSupplyId"])
+		if !setContains(options.Types, shared.NormalizeComparableText(cardSupplyID)) && !setContains(options.Types, cardSupplyTypes[cardSupplyID]) {
+			return false
+		}
+	}
+
+	if options.Has3dmvCutIn {
+		if _, ok := cutInCardIDs[shared.NormalizeAnyID(record["id"])]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+func setContains(set map[string]struct{}, value string) bool {
+	if value == "" {
+		return false
+	}
+	_, ok := set[value]
+	return ok
 }
 
 func (handler *CardHandler) buildCardBase(ctx context.Context, region string, record map[string]any) map[string]any {

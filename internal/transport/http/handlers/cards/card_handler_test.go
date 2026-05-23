@@ -16,6 +16,7 @@ import (
 
 type fakeCardHandlerCache struct {
 	byID          map[string]map[string]map[string]map[string]any
+	listByEntity  map[string][]map[string]any
 	listItems     []map[string]any
 	listTotal     int
 	searchMatches []masterdata.SearchMatch
@@ -81,16 +82,26 @@ func (cache *fakeCardHandlerCache) GetByID(_ context.Context, region string, ent
 	return record, true, nil
 }
 
-func (cache *fakeCardHandlerCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
-	items := make([]map[string]any, 0, len(cache.listItems))
-	for _, item := range cache.listItems {
+func (cache *fakeCardHandlerCache) ListAll(_ context.Context, _ string, entity string) ([]map[string]any, error) {
+	if cache.listByEntity != nil {
+		if entityItems, ok := cache.listByEntity[entity]; ok {
+			return copyCardTestItems(entityItems), nil
+		}
+	}
+
+	return copyCardTestItems(cache.listItems), nil
+}
+
+func copyCardTestItems(source []map[string]any) []map[string]any {
+	items := make([]map[string]any, 0, len(source))
+	for _, item := range source {
 		copied := make(map[string]any, len(item))
 		for key, value := range item {
 			copied[key] = value
 		}
 		items = append(items, copied)
 	}
-	return items, nil
+	return items
 }
 
 func (cache *fakeCardHandlerCache) ListByPage(_ context.Context, _, _ string, _, _ int) ([]map[string]any, int, error) {
@@ -574,6 +585,161 @@ func TestCardListSortingBuildsOnlyCurrentPage(t *testing.T) {
 	}
 }
 
+func TestCardListEndpointSupportsFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listByEntity: map[string][]map[string]any{
+			"cards": {
+				{
+					"id":             1001,
+					"characterId":    1,
+					"skillId":        10,
+					"cardSupplyId":   5,
+					"attr":           "cool",
+					"cardRarityType": "rarity_4",
+					"supportUnit":    "none",
+				},
+				{
+					"id":             1002,
+					"characterId":    2,
+					"skillId":        11,
+					"cardSupplyId":   6,
+					"attr":           "cute",
+					"cardRarityType": "rarity_3",
+					"supportUnit":    "idol",
+				},
+				{
+					"id":             1003,
+					"characterId":    3,
+					"skillId":        12,
+					"cardSupplyId":   7,
+					"attr":           "cool",
+					"cardRarityType": "rarity_4",
+					"supportUnit":    "street",
+				},
+			},
+			"gamecharacters": {
+				{"id": 1, "unit": "light_sound"},
+				{"id": 2, "unit": "idol"},
+				{"id": 3, "unit": "street"},
+			},
+			"skills": {
+				{
+					"id":                    10,
+					"descriptionSpriteName": "score_up",
+					"skillEffects": []any{
+						map[string]any{"activateNotesJudgmentType": "perfect", "skillEffectType": "score_up"},
+					},
+				},
+				{
+					"id":                    11,
+					"descriptionSpriteName": "score_up",
+					"skillEffects": []any{
+						map[string]any{"activateNotesJudgmentType": "good", "skillEffectType": "score_up_condition_life"},
+					},
+				},
+				{
+					"id":                    12,
+					"descriptionSpriteName": "life_recovery",
+					"skillEffects": []any{
+						map[string]any{"activateNotesJudgmentType": "good", "skillEffectType": "life_recovery"},
+					},
+				},
+			},
+			"cardsupplies": {
+				{"id": 5, "cardSupplyType": "limited"},
+				{"id": 6, "cardSupplyType": "normal"},
+				{"id": 7, "cardSupplyType": "birthday"},
+			},
+			"another3dmvcutins": {
+				{"id": 6001, "cardId": 1001, "musicId": 60, "cutInNo": 1},
+			},
+		},
+		listTotal: 3,
+	}
+	cache.listItems = cache.listByEntity["cards"]
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&unit=light_sound&character=1&skill=score_up&type=limited&attr=cool&rarity=4&supportUnit=none&has3dmvCutIn=true", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
+	assertResponsePaginationTotal(t, resp.Body.Bytes(), 1)
+}
+
+func TestCardListEndpointSupportsCommaSeparatedFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1001, "characterId": 1, "attr": "cool", "cardRarityType": "rarity_4", "supportUnit": "none"},
+			{"id": 1002, "characterId": 2, "attr": "cute", "cardRarityType": "rarity_3", "supportUnit": "idol"},
+			{"id": 1003, "characterId": 3, "attr": "mysterious", "cardRarityType": "rarity_2", "supportUnit": "street"},
+		},
+		listTotal: 3,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&character=1,2&attr=cool,cute", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001, 1002})
+	assertResponsePaginationTotal(t, resp.Body.Bytes(), 2)
+}
+
+func TestCardListEndpointFiltersBy3dmvCutIn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listByEntity: map[string][]map[string]any{
+			"cards": {
+				{"id": 1001, "prefix": "alpha"},
+				{"id": 1002, "prefix": "bravo"},
+			},
+			"another3dmvcutins": {
+				{"id": 6001, "cardId": 1002, "musicId": 60, "cutInNo": 1},
+			},
+		},
+		listTotal: 2,
+	}
+	cache.listItems = cache.listByEntity["cards"]
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&has3dmvCutIn=true", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1002})
+	assertResponsePaginationTotal(t, resp.Body.Bytes(), 1)
+}
+
 func TestCardListSortOrderWithoutSortByReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -998,5 +1164,26 @@ func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64)
 		if item["id"] != want {
 			t.Fatalf("expected item %d id=%v, got %v", index, want, item["id"])
 		}
+	}
+}
+
+func assertResponsePaginationTotal(t *testing.T, bodyBytes []byte, expected float64) {
+	t.Helper()
+
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	paginationRaw, ok := body["pagination"]
+	if !ok {
+		t.Fatalf("expected pagination in response")
+	}
+	pagination, ok := paginationRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected pagination object, got %T", paginationRaw)
+	}
+	if pagination["total"] != expected {
+		t.Fatalf("expected pagination.total=%v, got %v", expected, pagination["total"])
 	}
 }

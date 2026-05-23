@@ -349,6 +349,54 @@
                     },
                     {
                         "type": "string",
+                        "description": "Comma-separated character units",
+                        "name": "unit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated character IDs",
+                        "name": "character",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated skill descriptionSpriteName values",
+                        "name": "skill",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated card supply IDs or card supply types",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated card attributes",
+                        "name": "attr",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated card rarity types",
+                        "name": "rarity",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated support units",
+                        "name": "supportUnit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include cards that have another3dmvCutIns entries",
+                        "name": "has3dmvCutIn",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
                         "in": "query"
