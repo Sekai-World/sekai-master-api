@@ -17,6 +17,7 @@ import (
 type fakeMusicHandlerCache struct {
 	byID          map[string]map[string]map[string]map[string]any
 	listItems     []map[string]any
+	listByEntity  map[string][]map[string]any
 	listTotal     int
 	searchMatches []masterdata.SearchMatch
 	searchCalls   []fakeMusicSearchCall
@@ -92,9 +93,16 @@ func (cache *fakeMusicHandlerCache) GetByID(_ context.Context, region string, en
 	return record, true, nil
 }
 
-func (cache *fakeMusicHandlerCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
-	items := make([]map[string]any, 0, len(cache.listItems))
-	for _, item := range cache.listItems {
+func (cache *fakeMusicHandlerCache) ListAll(_ context.Context, _, entity string) ([]map[string]any, error) {
+	source := cache.listItems
+	if cache.listByEntity != nil {
+		if entityItems, ok := cache.listByEntity[entity]; ok {
+			source = entityItems
+		}
+	}
+
+	items := make([]map[string]any, 0, len(source))
+	for _, item := range source {
 		copied := make(map[string]any, len(item))
 		for key, value := range item {
 			copied[key] = value
@@ -415,6 +423,213 @@ func TestMusicListEndpointSupportsSorting(t *testing.T) {
 	}
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestMusicListEndpointSupportsSearchFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{
+				"id":         1,
+				"title":      "Tell Your World",
+				"categories": []any{"mv", "original"},
+				"composer":   "kz",
+				"arranger":   "kz",
+				"lyricist":   "kz",
+			},
+			{
+				"id":         2,
+				"title":      "Melt",
+				"categories": []any{"mv", "cover"},
+				"composer":   "ryo",
+				"arranger":   "ryo",
+				"lyricist":   "ryo",
+			},
+			{
+				"id":         3,
+				"title":      "World Is Mine",
+				"categories": []any{"image"},
+				"composer":   "ryo",
+				"arranger":   "ryo",
+				"lyricist":   "ryo",
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?name=world&category=mv&composer=kz", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
+}
+
+func TestMusicListEndpointSupportsRepeatedAndCommaSeparatedFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha", "category": "image", "arranger": "Alice Arrangement", "lyricist": "Carol"},
+			{"id": 2, "title": "bravo", "category": "mv", "arranger": "Bob", "lyricist": "Dana Lyrics"},
+			{"id": 3, "title": "charlie", "category": "mv", "arranger": "Eve", "lyricist": "Frank"},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?category=image,mv&arranger=arrange&lyricist=carol", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
+}
+
+func TestMusicListEndpointSupportsPlayLevelExactFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 25},
+				{"musicId": 2, "playLevel": 26},
+				{"musicId": 2, "playLevel": 30},
+				{"musicId": 3, "playLevel": 29},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=30", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+}
+
+func TestMusicListEndpointSupportsPlayLevelRangeFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 25},
+				{"musicId": 2, "playLevel": 27},
+				{"musicId": 3, "playLevel": 30},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=26-29", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+}
+
+func TestMusicListEndpointSupportsPlayLevelComparisonFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 26},
+				{"musicId": 2, "playLevel": 28},
+				{"musicId": 3, "playLevel": 30},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=%3E=28,%3C30", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+}
+
+func TestMusicListEndpointInvalidPlayLevelReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+		},
+		listTotal: 1,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=hard", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
 }
 
 func TestMusicListSortingBuildsOnlyCurrentPage(t *testing.T) {
