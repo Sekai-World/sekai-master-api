@@ -1814,6 +1814,31 @@ paths:
         in: query
         name: spoiler
         type: boolean
+      - description: Fuzzy music name
+        in: query
+        name: name
+        type: string
+      - description: Comma-separated music categories
+        in: query
+        name: category
+        type: string
+      - description: Comma-separated composer names
+        in: query
+        name: composer
+        type: string
+      - description: Comma-separated arranger names
+        in: query
+        name: arranger
+        type: string
+      - description: Comma-separated lyricist names
+        in: query
+        name: lyricist
+        type: string
+      - description: Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30,
+          or 26-30
+        in: query
+        name: playLevel
+        type: string
       - description: Sort field
         in: query
         name: sort_by

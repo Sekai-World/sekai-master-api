@@ -1702,6 +1702,42 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Fuzzy music name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated music categories",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated composer names",
+                        "name": "composer",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated arranger names",
+                        "name": "arranger",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated lyricist names",
+                        "name": "lyricist",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Music difficulty playLevel. Supports 30, \u003e30, \u003e=30, \u003c30, \u003c=30, or 26-30",
+                        "name": "playLevel",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
                         "in": "query"
