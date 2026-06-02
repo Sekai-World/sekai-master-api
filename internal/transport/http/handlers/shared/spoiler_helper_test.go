@@ -5,14 +5,15 @@ import (
 	"time"
 )
 
-func TestFilterSpoilerItemsRemovesFutureReleaseAndStartTimes(t *testing.T) {
+func TestFilterSpoilerItemsRemovesFutureContentTimes(t *testing.T) {
 	now := time.UnixMilli(1_700_000_000_000).UTC()
 	items := []map[string]any{
 		{"id": 1, "releaseAt": now.Add(-time.Hour).UnixMilli()},
 		{"id": 2, "releaseAt": now.Add(time.Hour).UnixMilli()},
 		{"id": 3, "startAt": now.Add(time.Hour).UnixMilli()},
 		{"id": 4, "releastAt": now.Add(time.Hour).UnixMilli()},
-		{"id": 5},
+		{"id": 5, "publishedAt": now.Add(time.Hour).UnixMilli()},
+		{"id": 6},
 	}
 
 	filtered := FilterSpoilerItems(items, now)
@@ -20,8 +21,8 @@ func TestFilterSpoilerItemsRemovesFutureReleaseAndStartTimes(t *testing.T) {
 	if len(filtered) != 2 {
 		t.Fatalf("expected two non-spoiler items, got %d", len(filtered))
 	}
-	if filtered[0]["id"] != 1 || filtered[1]["id"] != 5 {
-		t.Fatalf("expected non-spoiler ids [1 5], got %v", filtered)
+	if filtered[0]["id"] != 1 || filtered[1]["id"] != 6 {
+		t.Fatalf("expected non-spoiler ids [1 6], got %v", filtered)
 	}
 }
 

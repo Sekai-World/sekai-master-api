@@ -547,6 +547,59 @@ func TestCardListEndpointSupportsSorting(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
 }
 
+func TestCardListEndpointSupportsSpoilerOption(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "prefix": "released", "releaseAt": 946684800000},
+			{"id": 2, "prefix": "future", "releaseAt": 4102444800000},
+		},
+		listTotal: 2,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?spoiler=false", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?spoiler=true", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestCardListInvalidSpoilerReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{}
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?spoiler=maybe", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
 func TestCardListSortingBuildsOnlyCurrentPage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

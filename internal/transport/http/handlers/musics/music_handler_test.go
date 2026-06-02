@@ -425,6 +425,59 @@ func TestMusicListEndpointSupportsSorting(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
 }
 
+func TestMusicListEndpointSupportsSpoilerOption(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "released", "publishedAt": 946684800000},
+			{"id": 2, "title": "future", "publishedAt": 4102444800000},
+		},
+		listTotal: 2,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?spoiler=false", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?spoiler=true", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestMusicListInvalidSpoilerReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{}
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?spoiler=maybe", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
 func TestMusicListEndpointSupportsSearchFilters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

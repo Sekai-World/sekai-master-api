@@ -49,7 +49,7 @@ func IsSpoilerItem(item map[string]any, nowMillis int64) bool {
 		return false
 	}
 
-	for _, key := range []string{"releaseAt", "releastAt", "startAt"} {
+	for _, key := range []string{"releaseAt", "releastAt", "publishedAt", "startAt"} {
 		value, exists := item[key]
 		if !exists {
 			continue
