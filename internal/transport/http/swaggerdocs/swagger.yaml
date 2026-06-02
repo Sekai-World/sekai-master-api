@@ -1834,6 +1834,10 @@ paths:
         in: query
         name: lyricist
         type: string
+      - description: Comma-separated music tags
+        in: query
+        name: tag
+        type: string
       - description: Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30,
           or 26-30
         in: query

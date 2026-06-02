@@ -123,6 +123,7 @@ func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param composer query string false "Comma-separated composer names"
 // @Param arranger query string false "Comma-separated arranger names"
 // @Param lyricist query string false "Comma-separated lyricist names"
+// @Param tag query string false "Comma-separated music tags"
 // @Param playLevel query string false "Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30, or 26-30"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -242,6 +243,7 @@ type musicListFilterOptions struct {
 	Composer  map[string]struct{}
 	Arranger  map[string]struct{}
 	Lyricist  map[string]struct{}
+	Tags      map[string]struct{}
 	PlayLevel musicPlayLevelFilter
 }
 
@@ -251,6 +253,7 @@ func (options musicListFilterOptions) Enabled() bool {
 		len(options.Composer) > 0 ||
 		len(options.Arranger) > 0 ||
 		len(options.Lyricist) > 0 ||
+		len(options.Tags) > 0 ||
 		options.PlayLevel.Enabled()
 }
 
@@ -266,6 +269,7 @@ func parseMusicListFilterOptions(c *gin.Context) (musicListFilterOptions, bool) 
 		Composer:  parseMusicListQuerySet(c, "composer"),
 		Arranger:  parseMusicListQuerySet(c, "arranger"),
 		Lyricist:  parseMusicListQuerySet(c, "lyricist"),
+		Tags:      parseMusicListQuerySet(c, "tag"),
 		PlayLevel: playLevelFilter,
 	}, true
 }
@@ -422,9 +426,18 @@ func (handler *MusicHandler) filterMusicRecords(ctx context.Context, region stri
 		}
 	}
 
+	var tags map[string]map[string]struct{}
+	if len(options.Tags) > 0 {
+		var err error
+		tags, err = handler.loadMusicTags(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	filtered := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		if !musicMatchesFilterOptions(record, options, playLevels) {
+		if !musicMatchesFilterOptions(record, options, playLevels, tags) {
 			continue
 		}
 		filtered = append(filtered, record)
@@ -455,7 +468,29 @@ func (handler *MusicHandler) loadMusicPlayLevels(ctx context.Context, region str
 	return playLevels, nil
 }
 
-func musicMatchesFilterOptions(record map[string]any, options musicListFilterOptions, playLevels map[string][]float64) bool {
+func (handler *MusicHandler) loadMusicTags(ctx context.Context, region string) (map[string]map[string]struct{}, error) {
+	tagRecords, err := handler.masterDataSync.ListAll(ctx, region, "musictags")
+	if err != nil {
+		return nil, err
+	}
+
+	tags := make(map[string]map[string]struct{}, len(tagRecords))
+	for _, tagRecord := range tagRecords {
+		musicID := shared.NormalizeAnyID(tagRecord["musicId"])
+		musicTag := shared.NormalizeComparableText(tagRecord["musicTag"])
+		if musicID == "" || musicTag == "" {
+			continue
+		}
+		if tags[musicID] == nil {
+			tags[musicID] = map[string]struct{}{}
+		}
+		tags[musicID][musicTag] = struct{}{}
+	}
+
+	return tags, nil
+}
+
+func musicMatchesFilterOptions(record map[string]any, options musicListFilterOptions, playLevels map[string][]float64, tags map[string]map[string]struct{}) bool {
 	if options.Name != "" &&
 		!musicValueContains(record["title"], options.Name) &&
 		!musicValueContains(record["pronunciation"], options.Name) {
@@ -478,11 +513,24 @@ func musicMatchesFilterOptions(record map[string]any, options musicListFilterOpt
 	if len(options.Lyricist) > 0 && !musicValueContainsAny(record["lyricist"], options.Lyricist) {
 		return false
 	}
+	if len(options.Tags) > 0 && !musicTagsMatchAny(tags[shared.NormalizeAnyID(record["id"])], options.Tags) {
+		return false
+	}
 	if options.PlayLevel.Enabled() && !musicMatchesPlayLevelFilter(playLevels[shared.NormalizeAnyID(record["id"])], options.PlayLevel) {
 		return false
 	}
 
 	return true
+}
+
+func musicTagsMatchAny(tags map[string]struct{}, queries map[string]struct{}) bool {
+	for query := range queries {
+		if _, ok := tags[query]; ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 func musicMatchesPlayLevelFilter(playLevels []float64, filter musicPlayLevelFilter) bool {

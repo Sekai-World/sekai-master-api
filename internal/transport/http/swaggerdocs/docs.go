@@ -1732,6 +1732,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Comma-separated music tags",
+                        "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Music difficulty playLevel. Supports 30, \u003e30, \u003e=30, \u003c30, \u003c=30, or 26-30",
                         "name": "playLevel",
                         "in": "query"

@@ -502,6 +502,41 @@ func TestMusicListEndpointSupportsRepeatedAndCommaSeparatedFilters(t *testing.T)
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
 }
 
+func TestMusicListEndpointSupportsTagFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musictags": {
+				{"musicId": 1, "musicTag": "vocaloid", "seq": 1},
+				{"musicId": 2, "musicTag": "street", "seq": 3},
+				{"musicId": 3, "musicTag": "idol", "seq": 4},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?tag=street,idol", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2, 3})
+}
+
 func TestMusicListEndpointSupportsPlayLevelExactFilter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
