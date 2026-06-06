@@ -1743,6 +1743,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Filter musics by whether they have append difficulty",
+                        "name": "hasAppend",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",

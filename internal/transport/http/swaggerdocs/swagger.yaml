@@ -1843,6 +1843,10 @@ paths:
         in: query
         name: playLevel
         type: string
+      - description: Filter musics by whether they have append difficulty
+        in: query
+        name: hasAppend
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
