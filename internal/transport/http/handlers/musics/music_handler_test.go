@@ -590,6 +590,69 @@ func TestMusicListEndpointSupportsTagFilter(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2, 3})
 }
 
+func TestMusicListEndpointSupportsHasAppendFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "musicDifficulty": "hard", "playLevel": 25},
+				{"musicId": 2, "musicDifficulty": "append", "playLevel": 34},
+				{"musicId": 3, "musicDifficulty": "master", "playLevel": 30},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?hasAppend=true", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?hasAppend=false", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 3})
+}
+
+func TestMusicListInvalidHasAppendReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{}
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?hasAppend=maybe", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
 func TestMusicListEndpointSupportsPlayLevelExactFilter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

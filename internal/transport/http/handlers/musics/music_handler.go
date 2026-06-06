@@ -125,6 +125,7 @@ func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param lyricist query string false "Comma-separated lyricist names"
 // @Param tag query string false "Comma-separated music tags"
 // @Param playLevel query string false "Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30, or 26-30"
+// @Param hasAppend query bool false "Filter musics by whether they have append difficulty"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.MusicListResponse
@@ -245,6 +246,8 @@ type musicListFilterOptions struct {
 	Lyricist  map[string]struct{}
 	Tags      map[string]struct{}
 	PlayLevel musicPlayLevelFilter
+	HasAppend bool
+	UseAppend bool
 }
 
 func (options musicListFilterOptions) Enabled() bool {
@@ -254,11 +257,16 @@ func (options musicListFilterOptions) Enabled() bool {
 		len(options.Arranger) > 0 ||
 		len(options.Lyricist) > 0 ||
 		len(options.Tags) > 0 ||
-		options.PlayLevel.Enabled()
+		options.PlayLevel.Enabled() ||
+		options.UseAppend
 }
 
 func parseMusicListFilterOptions(c *gin.Context) (musicListFilterOptions, bool) {
 	playLevelFilter, ok := parseMusicPlayLevelFilter(c)
+	if !ok {
+		return musicListFilterOptions{}, false
+	}
+	hasAppend, useAppend, ok := parseMusicListBool(c, "hasAppend")
 	if !ok {
 		return musicListFilterOptions{}, false
 	}
@@ -271,6 +279,8 @@ func parseMusicListFilterOptions(c *gin.Context) (musicListFilterOptions, bool) 
 		Lyricist:  parseMusicListQuerySet(c, "lyricist"),
 		Tags:      parseMusicListQuerySet(c, "tag"),
 		PlayLevel: playLevelFilter,
+		HasAppend: hasAppend,
+		UseAppend: useAppend,
 	}, true
 }
 
@@ -295,6 +305,21 @@ func parseMusicListQuerySet(c *gin.Context, key string) map[string]struct{} {
 	}
 
 	return result
+}
+
+func parseMusicListBool(c *gin.Context, key string) (bool, bool, bool) {
+	rawValue := strings.TrimSpace(c.Query(key))
+	if rawValue == "" {
+		return false, false, true
+	}
+
+	parsed, err := strconv.ParseBool(rawValue)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", key+" must be a boolean")
+		return false, false, false
+	}
+
+	return parsed, true, true
 }
 
 type musicPlayLevelFilter struct {
@@ -435,9 +460,18 @@ func (handler *MusicHandler) filterMusicRecords(ctx context.Context, region stri
 		}
 	}
 
+	var appendMusicIDs map[string]struct{}
+	if options.UseAppend {
+		var err error
+		appendMusicIDs, err = handler.loadAppendMusicIDs(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	filtered := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		if !musicMatchesFilterOptions(record, options, playLevels, tags) {
+		if !musicMatchesFilterOptions(record, options, playLevels, tags, appendMusicIDs) {
 			continue
 		}
 		filtered = append(filtered, record)
@@ -490,7 +524,26 @@ func (handler *MusicHandler) loadMusicTags(ctx context.Context, region string) (
 	return tags, nil
 }
 
-func musicMatchesFilterOptions(record map[string]any, options musicListFilterOptions, playLevels map[string][]float64, tags map[string]map[string]struct{}) bool {
+func (handler *MusicHandler) loadAppendMusicIDs(ctx context.Context, region string) (map[string]struct{}, error) {
+	difficulties, err := handler.masterDataSync.ListAll(ctx, region, "musicdifficulties")
+	if err != nil {
+		return nil, err
+	}
+
+	appendMusicIDs := map[string]struct{}{}
+	for _, difficulty := range difficulties {
+		musicID := shared.NormalizeAnyID(difficulty["musicId"])
+		difficultyType := shared.NormalizeComparableText(difficulty["musicDifficulty"])
+		if musicID == "" || difficultyType != "append" {
+			continue
+		}
+		appendMusicIDs[musicID] = struct{}{}
+	}
+
+	return appendMusicIDs, nil
+}
+
+func musicMatchesFilterOptions(record map[string]any, options musicListFilterOptions, playLevels map[string][]float64, tags map[string]map[string]struct{}, appendMusicIDs map[string]struct{}) bool {
 	if options.Name != "" &&
 		!musicValueContains(record["title"], options.Name) &&
 		!musicValueContains(record["pronunciation"], options.Name) {
@@ -516,6 +569,9 @@ func musicMatchesFilterOptions(record map[string]any, options musicListFilterOpt
 	if len(options.Tags) > 0 && !musicTagsMatchAny(tags[shared.NormalizeAnyID(record["id"])], options.Tags) {
 		return false
 	}
+	if options.UseAppend && musicHasAppend(appendMusicIDs, shared.NormalizeAnyID(record["id"])) != options.HasAppend {
+		return false
+	}
 	if options.PlayLevel.Enabled() && !musicMatchesPlayLevelFilter(playLevels[shared.NormalizeAnyID(record["id"])], options.PlayLevel) {
 		return false
 	}
@@ -531,6 +587,14 @@ func musicTagsMatchAny(tags map[string]struct{}, queries map[string]struct{}) bo
 	}
 
 	return false
+}
+
+func musicHasAppend(appendMusicIDs map[string]struct{}, musicID string) bool {
+	if musicID == "" {
+		return false
+	}
+	_, ok := appendMusicIDs[musicID]
+	return ok
 }
 
 func musicMatchesPlayLevelFilter(playLevels []float64, filter musicPlayLevelFilter) bool {
