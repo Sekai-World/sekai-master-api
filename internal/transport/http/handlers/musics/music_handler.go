@@ -169,7 +169,7 @@ func (handler *MusicHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param arranger query string false "Comma-separated arranger names"
 // @Param lyricist query string false "Comma-separated lyricist names"
 // @Param tag query string false "Comma-separated music tags"
-// @Param playLevel query string false "Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30, or 26-30"
+// @Param playLevel query string false "Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30, or 26-30. Aliases: play_level, level"
 // @Param hasAppend query bool false "Filter musics by whether they have append difficulty"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -384,10 +384,12 @@ func (filter musicPlayLevelFilter) Enabled() bool {
 func parseMusicPlayLevelFilter(c *gin.Context) (musicPlayLevelFilter, bool) {
 	filter := musicPlayLevelFilter{}
 
-	for _, rawValue := range c.QueryArray("playLevel") {
-		for _, part := range strings.Split(rawValue, ",") {
-			if !parseMusicPlayLevelExpression(c, strings.TrimSpace(part), &filter) {
-				return musicPlayLevelFilter{}, false
+	for _, key := range []string{"playLevel", "play_level", "level"} {
+		for _, rawValue := range c.QueryArray(key) {
+			for _, part := range strings.Split(rawValue, ",") {
+				if !parseMusicPlayLevelExpression(c, strings.TrimSpace(part), &filter) {
+					return musicPlayLevelFilter{}, false
+				}
 			}
 		}
 	}

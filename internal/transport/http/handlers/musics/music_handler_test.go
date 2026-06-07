@@ -774,6 +774,62 @@ func TestMusicListEndpointSupportsPlayLevelExactFilter(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
 }
 
+func TestMusicListEndpointSupportsPlayLevelAliasFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 25},
+				{"musicId": 2, "playLevel": 30},
+				{"musicId": 3, "playLevel": 32},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	testCases := []struct {
+		name     string
+		path     string
+		expected []float64
+	}{
+		{
+			name:     "snake case",
+			path:     "/api/v1/musics/jp/list?play_level=30",
+			expected: []float64{2},
+		},
+		{
+			name:     "short level",
+			path:     "/api/v1/musics/jp/list?level=%3E30",
+			expected: []float64{3},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", resp.Code)
+			}
+
+			assertResponseItemOrder(t, resp.Body.Bytes(), testCase.expected)
+		})
+	}
+}
+
 func TestMusicListEndpointSupportsPlayLevelRangeFilter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
