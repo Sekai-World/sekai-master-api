@@ -1958,8 +1958,8 @@ paths:
         in: query
         name: tag
         type: string
-      - description: Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30,
-          or 26-30
+      - description: 'Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30,
+          or 26-30. Aliases: play_level, level'
         in: query
         name: playLevel
         type: string

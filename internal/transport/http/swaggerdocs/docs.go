@@ -1738,7 +1738,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Music difficulty playLevel. Supports 30, \u003e30, \u003e=30, \u003c30, \u003c=30, or 26-30",
+                        "description": "Music difficulty playLevel. Supports 30, \u003e30, \u003e=30, \u003c30, \u003c=30, or 26-30. Aliases: play_level, level",
                         "name": "playLevel",
                         "in": "query"
                     },
