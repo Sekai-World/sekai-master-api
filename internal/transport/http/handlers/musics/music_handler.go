@@ -79,6 +79,51 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 	response.JSON(c, http.StatusOK, handler.buildMusic(c.Request.Context(), region, record))
 }
 
+// DifficultiesByID godoc
+// @Summary Get music difficulties by music id
+// @Tags musics
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Music ID"
+// @Success 200 {object} shared.MusicDifficultiesResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /musics/{region}/{id}/difficulties [get]
+func (handler *MusicHandler) DifficultiesByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	if _, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "musics", id); err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music")
+		return
+	} else if !found {
+		response.Error(c, http.StatusNotFound, "MUSIC_NOT_FOUND", "music not found")
+		return
+	}
+
+	difficulties, err := handler.loadMusicDifficultiesByMusicID(c.Request.Context(), region, id, false)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music difficulties")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{"items": difficulties})
+}
+
 // AvailableRegionsByID godoc
 // @Summary Get available regions for a music id
 // @Tags musics
@@ -716,12 +761,97 @@ func (handler *MusicHandler) ensureRegionReady(c *gin.Context, region string) bo
 }
 
 func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, records []map[string]any) []map[string]any {
+	difficulties := handler.loadMusicDifficultyRecords(ctx, region)
+	tags := handler.loadMusicTagRecords(ctx, region)
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, handler.buildMusic(ctx, region, record))
+		musicID := shared.NormalizeAnyID(record["id"])
+		item := handler.buildMusic(ctx, region, record)
+		item["difficulties"] = difficulties[musicID]
+		if item["difficulties"] == nil {
+			item["difficulties"] = []map[string]any{}
+		}
+		item["tags"] = tags[musicID]
+		if item["tags"] == nil {
+			item["tags"] = []string{}
+		}
+		items = append(items, item)
 	}
 
 	return items
+}
+
+func (handler *MusicHandler) loadMusicDifficultyRecords(ctx context.Context, region string) map[string][]map[string]any {
+	if handler == nil || handler.masterDataSync == nil {
+		return map[string][]map[string]any{}
+	}
+
+	difficultyRecords, err := handler.masterDataSync.ListAll(ctx, region, "musicdifficulties")
+	if err != nil {
+		return map[string][]map[string]any{}
+	}
+
+	difficulties := make(map[string][]map[string]any, len(difficultyRecords))
+	for _, difficulty := range difficultyRecords {
+		musicID := shared.NormalizeAnyID(difficulty["musicId"])
+		if musicID == "" {
+			continue
+		}
+		difficulties[musicID] = append(difficulties[musicID], handler.buildMusicDifficulty(ctx, region, difficulty, true))
+	}
+
+	return difficulties
+}
+
+func (handler *MusicHandler) loadMusicTagRecords(ctx context.Context, region string) map[string][]string {
+	if handler == nil || handler.masterDataSync == nil {
+		return map[string][]string{}
+	}
+
+	tagRecords, err := handler.masterDataSync.ListAll(ctx, region, "musictags")
+	if err != nil {
+		return map[string][]string{}
+	}
+
+	tags := make(map[string][]string, len(tagRecords))
+	for _, tagRecord := range tagRecords {
+		musicID := shared.NormalizeAnyID(tagRecord["musicId"])
+		musicTag := strings.TrimSpace(fmt.Sprintf("%v", tagRecord["musicTag"]))
+		if musicID == "" || musicTag == "" {
+			continue
+		}
+		tags[musicID] = append(tags[musicID], musicTag)
+	}
+
+	return tags
+}
+
+func (handler *MusicHandler) loadMusicDifficultiesByMusicID(ctx context.Context, region string, musicID string, compact bool) ([]map[string]any, error) {
+	difficultyRecords, err := handler.masterDataSync.ListAll(ctx, region, "musicdifficulties")
+	if err != nil {
+		return nil, err
+	}
+
+	targetMusicID := shared.NormalizeAnyID(musicID)
+	difficulties := make([]map[string]any, 0)
+	for _, difficulty := range difficultyRecords {
+		if shared.NormalizeAnyID(difficulty["musicId"]) != targetMusicID {
+			continue
+		}
+		difficulties = append(difficulties, handler.buildMusicDifficulty(ctx, region, difficulty, compact))
+	}
+
+	return difficulties, nil
+}
+
+func (handler *MusicHandler) buildMusicDifficulty(ctx context.Context, region string, difficulty map[string]any, compact bool) map[string]any {
+	result := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, difficulty)
+	if compact {
+		delete(result, "id")
+		delete(result, "musicId")
+		delete(result, "totalNoteCount")
+	}
+	return result
 }
 
 func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any) map[string]any {

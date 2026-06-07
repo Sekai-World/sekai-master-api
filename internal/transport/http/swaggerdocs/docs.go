@@ -1848,6 +1848,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/musics/{region}/{id}/difficulties": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "musics"
+                ],
+                "summary": "Get music difficulties by music id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Music ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MusicDifficultiesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/unitProfiles/regions/{unit}/availability": {
             "get": {
                 "produces": [
@@ -3151,6 +3210,13 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.LiveStageResponse": {
+            "type": "object",
+            "properties": {
+                "id": {},
+                "name": {}
+            }
+        },
         "shared.MasterDataAdminStatusResponse": {
             "type": "object",
             "properties": {
@@ -3230,13 +3296,92 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.MusicArtistResponse": {
+            "type": "object",
+            "properties": {
+                "id": {},
+                "name": {}
+            }
+        },
+        "shared.MusicDifficultiesResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicDifficultyDetailResponse"
+                    }
+                }
+            }
+        },
+        "shared.MusicDifficultyDetailResponse": {
+            "type": "object",
+            "properties": {
+                "id": {},
+                "musicDifficulty": {},
+                "musicId": {},
+                "playLevel": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "totalNoteCount": {}
+            }
+        },
+        "shared.MusicDifficultyResponse": {
+            "type": "object",
+            "properties": {
+                "musicDifficulty": {},
+                "playLevel": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.MusicListItemResponse": {
+            "type": "object",
+            "properties": {
+                "arranger": {},
+                "assetbundleName": {},
+                "composer": {},
+                "creatorArtist": {
+                    "$ref": "#/definitions/shared.MusicArtistResponse"
+                },
+                "dancerCount": {},
+                "difficulties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicDifficultyResponse"
+                    }
+                },
+                "fillerSec": {},
+                "id": {},
+                "liveStage": {
+                    "$ref": "#/definitions/shared.LiveStageResponse"
+                },
+                "lyricist": {},
+                "pronunciation": {},
+                "publishedAt": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "selfDancerPosition": {},
+                "seq": {},
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "title": {}
+            }
+        },
         "shared.MusicListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/shared.MusicObjectResponse"
+                        "$ref": "#/definitions/shared.MusicListItemResponse"
                     }
                 },
                 "pagination": {
@@ -3246,7 +3391,29 @@ const docTemplate = `{
         },
         "shared.MusicObjectResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "arranger": {},
+                "assetbundleName": {},
+                "composer": {},
+                "creatorArtist": {
+                    "$ref": "#/definitions/shared.MusicArtistResponse"
+                },
+                "dancerCount": {},
+                "fillerSec": {},
+                "id": {},
+                "liveStage": {
+                    "$ref": "#/definitions/shared.LiveStageResponse"
+                },
+                "lyricist": {},
+                "pronunciation": {},
+                "publishedAt": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "selfDancerPosition": {},
+                "seq": {},
+                "title": {}
+            }
         },
         "shared.PaginationResponse": {
             "type": "object",

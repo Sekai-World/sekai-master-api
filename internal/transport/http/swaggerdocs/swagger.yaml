@@ -465,6 +465,11 @@ definitions:
       status:
         type: string
     type: object
+  shared.LiveStageResponse:
+    properties:
+      id: {}
+      name: {}
+    type: object
   shared.MasterDataAdminStatusResponse:
     properties:
       items:
@@ -518,17 +523,93 @@ definitions:
         example: 3.2.1.10
         type: string
     type: object
+  shared.MusicArtistResponse:
+    properties:
+      id: {}
+      name: {}
+    type: object
+  shared.MusicDifficultiesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MusicDifficultyDetailResponse'
+        type: array
+    type: object
+  shared.MusicDifficultyDetailResponse:
+    properties:
+      id: {}
+      musicDifficulty: {}
+      musicId: {}
+      playLevel: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+      totalNoteCount: {}
+    type: object
+  shared.MusicDifficultyResponse:
+    properties:
+      musicDifficulty: {}
+      playLevel: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.MusicListItemResponse:
+    properties:
+      arranger: {}
+      assetbundleName: {}
+      composer: {}
+      creatorArtist:
+        $ref: '#/definitions/shared.MusicArtistResponse'
+      dancerCount: {}
+      difficulties:
+        items:
+          $ref: '#/definitions/shared.MusicDifficultyResponse'
+        type: array
+      fillerSec: {}
+      id: {}
+      liveStage:
+        $ref: '#/definitions/shared.LiveStageResponse'
+      lyricist: {}
+      pronunciation: {}
+      publishedAt: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+      selfDancerPosition: {}
+      seq: {}
+      tags:
+        items:
+          type: string
+        type: array
+      title: {}
+    type: object
   shared.MusicListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/shared.MusicObjectResponse'
+          $ref: '#/definitions/shared.MusicListItemResponse'
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
     type: object
   shared.MusicObjectResponse:
-    additionalProperties: {}
+    properties:
+      arranger: {}
+      assetbundleName: {}
+      composer: {}
+      creatorArtist:
+        $ref: '#/definitions/shared.MusicArtistResponse'
+      dancerCount: {}
+      fillerSec: {}
+      id: {}
+      liveStage:
+        $ref: '#/definitions/shared.LiveStageResponse'
+      lyricist: {}
+      pronunciation: {}
+      publishedAt: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+      selfDancerPosition: {}
+      seq: {}
+      title: {}
     type: object
   shared.PaginationResponse:
     properties:
@@ -1792,6 +1873,45 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get music by id
+      tags:
+      - musics
+  /musics/{region}/{id}/difficulties:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Music ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MusicDifficultiesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get music difficulties by music id
       tags:
       - musics
   /musics/{region}/list:

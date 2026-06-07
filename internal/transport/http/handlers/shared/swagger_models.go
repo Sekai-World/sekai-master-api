@@ -184,11 +184,76 @@ type CardListResponse struct {
 	Pagination CardPagination       `json:"pagination"`
 }
 
-type MusicObjectResponse map[string]any
+type MusicArtistResponse struct {
+	ID   any `json:"id,omitempty"`
+	Name any `json:"name,omitempty"`
+}
+
+type LiveStageResponse struct {
+	ID   any `json:"id,omitempty"`
+	Name any `json:"name,omitempty"`
+}
+
+type MusicDifficultyResponse struct {
+	MusicDifficulty  any                       `json:"musicDifficulty,omitempty"`
+	PlayLevel        any                       `json:"playLevel,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type MusicDifficultyDetailResponse struct {
+	ID               any                       `json:"id,omitempty"`
+	MusicID          any                       `json:"musicId,omitempty"`
+	MusicDifficulty  any                       `json:"musicDifficulty,omitempty"`
+	PlayLevel        any                       `json:"playLevel,omitempty"`
+	TotalNoteCount   any                       `json:"totalNoteCount,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type MusicDifficultiesResponse struct {
+	Items []MusicDifficultyDetailResponse `json:"items"`
+}
+
+type MusicObjectResponse struct {
+	ID                 any                       `json:"id,omitempty"`
+	Seq                any                       `json:"seq,omitempty"`
+	Title              any                       `json:"title,omitempty"`
+	Pronunciation      any                       `json:"pronunciation,omitempty"`
+	Lyricist           any                       `json:"lyricist,omitempty"`
+	Composer           any                       `json:"composer,omitempty"`
+	Arranger           any                       `json:"arranger,omitempty"`
+	AssetbundleName    any                       `json:"assetbundleName,omitempty"`
+	PublishedAt        any                       `json:"publishedAt,omitempty"`
+	FillerSec          any                       `json:"fillerSec,omitempty"`
+	DancerCount        any                       `json:"dancerCount,omitempty"`
+	SelfDancerPosition any                       `json:"selfDancerPosition,omitempty"`
+	CreatorArtist      *MusicArtistResponse      `json:"creatorArtist,omitempty"`
+	LiveStage          *LiveStageResponse        `json:"liveStage,omitempty"`
+	ReleaseCondition   *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type MusicListItemResponse struct {
+	ID                 any                       `json:"id,omitempty"`
+	Seq                any                       `json:"seq,omitempty"`
+	Title              any                       `json:"title,omitempty"`
+	Pronunciation      any                       `json:"pronunciation,omitempty"`
+	Lyricist           any                       `json:"lyricist,omitempty"`
+	Composer           any                       `json:"composer,omitempty"`
+	Arranger           any                       `json:"arranger,omitempty"`
+	AssetbundleName    any                       `json:"assetbundleName,omitempty"`
+	PublishedAt        any                       `json:"publishedAt,omitempty"`
+	FillerSec          any                       `json:"fillerSec,omitempty"`
+	DancerCount        any                       `json:"dancerCount,omitempty"`
+	SelfDancerPosition any                       `json:"selfDancerPosition,omitempty"`
+	CreatorArtist      *MusicArtistResponse      `json:"creatorArtist,omitempty"`
+	LiveStage          *LiveStageResponse        `json:"liveStage,omitempty"`
+	ReleaseCondition   *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+	Difficulties       []MusicDifficultyResponse `json:"difficulties,omitempty"`
+	Tags               []string                  `json:"tags,omitempty"`
+}
 
 type MusicListResponse struct {
-	Items      []MusicObjectResponse `json:"items"`
-	Pagination PaginationResponse    `json:"pagination"`
+	Items      []MusicListItemResponse `json:"items"`
+	Pagination PaginationResponse      `json:"pagination"`
 }
 
 type UnitProfileObjectResponse struct {

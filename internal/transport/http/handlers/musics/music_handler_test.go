@@ -268,6 +268,18 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 	if _, exists := body["releaseConditionId"]; exists {
 		t.Fatalf("expected releaseConditionId removed from response")
 	}
+	if _, exists := body["musicDifficulties"]; exists {
+		t.Fatalf("expected musicDifficulties to be absent from by-id response")
+	}
+	if _, exists := body["musicTags"]; exists {
+		t.Fatalf("expected musicTags to be absent from by-id response")
+	}
+	if _, exists := body["difficulties"]; exists {
+		t.Fatalf("expected difficulties to be absent from by-id response")
+	}
+	if _, exists := body["tags"]; exists {
+		t.Fatalf("expected tags to be absent from by-id response")
+	}
 }
 
 func TestMusicAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
@@ -357,6 +369,18 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 				"liveStageId":     66,
 			},
 		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"id": 1, "musicId": 1001, "musicDifficulty": "expert", "playLevel": 25, "totalNoteCount": 500},
+				{"id": 2, "musicId": 1001, "musicDifficulty": "master", "playLevel": 30, "totalNoteCount": 800},
+				{"id": 3, "musicId": 1002, "musicDifficulty": "append", "playLevel": 34, "totalNoteCount": 1200},
+			},
+			"musictags": {
+				{"id": 1, "musicId": 1001, "musicTag": "vocaloid", "seq": 1},
+				{"id": 2, "musicId": 1001, "musicTag": "street", "seq": 3},
+				{"id": 3, "musicId": 1002, "musicTag": "idol", "seq": 4},
+			},
+		},
 		listTotal: 1,
 	}
 
@@ -396,6 +420,67 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 	}
 	assertMusicHasMappedCreatorArtist(t, firstItem, 77)
 	assertMusicHasMappedLiveStage(t, firstItem, 66)
+	assertMusicHasDifficulties(t, firstItem, []string{"expert", "master"})
+	assertMusicHasTags(t, firstItem, []string{"vocaloid", "street"})
+}
+
+func TestMusicDifficultiesByIDEndpointReturnsFullDifficulties(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musics": {
+					"1001": {"id": 1001, "title": "Test Song"},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"id": 1, "musicId": 1001, "musicDifficulty": "expert", "playLevel": 25, "totalNoteCount": 500},
+				{"id": 2, "musicId": 1001, "musicDifficulty": "master", "playLevel": 30, "totalNoteCount": 800},
+				{"id": 3, "musicId": 1002, "musicDifficulty": "append", "playLevel": 34, "totalNoteCount": 1200},
+			},
+		},
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id/difficulties", musicHandler.DifficultiesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/1001/difficulties", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 difficulties, got %d", len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first difficulty object, got %T", items[0])
+	}
+	if first["id"] != float64(1) || first["musicId"] != float64(1001) || first["totalNoteCount"] != float64(500) {
+		t.Fatalf("expected full first difficulty fields, got %v", first)
+	}
 }
 
 func TestMusicListEndpointSupportsSorting(t *testing.T) {
@@ -937,5 +1022,64 @@ func assertMusicHasMappedLiveStage(t *testing.T, item map[string]any, expectedLi
 	}
 	if _, exists := item["liveStageId"]; exists {
 		t.Fatalf("expected liveStageId removed from item")
+	}
+}
+
+func assertMusicHasDifficulties(t *testing.T, item map[string]any, expected []string) {
+	t.Helper()
+
+	difficultiesRaw, ok := item["difficulties"]
+	if !ok {
+		t.Fatalf("expected difficulties in item")
+	}
+
+	difficulties, ok := difficultiesRaw.([]any)
+	if !ok {
+		t.Fatalf("expected difficulties array, got %T", difficultiesRaw)
+	}
+	if len(difficulties) != len(expected) {
+		t.Fatalf("expected %d difficulties, got %d", len(expected), len(difficulties))
+	}
+
+	for index, expectedDifficulty := range expected {
+		difficulty, ok := difficulties[index].(map[string]any)
+		if !ok {
+			t.Fatalf("expected difficulties[%d] object, got %T", index, difficulties[index])
+		}
+		if difficulty["musicDifficulty"] != expectedDifficulty {
+			t.Fatalf("expected difficulties[%d].musicDifficulty=%s, got %v", index, expectedDifficulty, difficulty["musicDifficulty"])
+		}
+		for _, hiddenField := range []string{"id", "musicId", "totalNoteCount"} {
+			if _, exists := difficulty[hiddenField]; exists {
+				t.Fatalf("expected difficulties[%d].%s to be omitted", index, hiddenField)
+			}
+		}
+	}
+}
+
+func assertMusicHasTags(t *testing.T, item map[string]any, expected []string) {
+	t.Helper()
+
+	tagsRaw, ok := item["tags"]
+	if !ok {
+		t.Fatalf("expected tags in item")
+	}
+
+	tags, ok := tagsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected tags array, got %T", tagsRaw)
+	}
+	if len(tags) != len(expected) {
+		t.Fatalf("expected %d tags, got %d", len(expected), len(tags))
+	}
+
+	for index, expectedTag := range expected {
+		tag, ok := tags[index].(string)
+		if !ok {
+			t.Fatalf("expected tags[%d] string, got %T", index, tags[index])
+		}
+		if tag != expectedTag {
+			t.Fatalf("expected tags[%d]=%s, got %s", index, expectedTag, tag)
+		}
 	}
 }
