@@ -17,6 +17,7 @@ import (
 type fakeMusicHandlerCache struct {
 	byID          map[string]map[string]map[string]map[string]any
 	listItems     []map[string]any
+	listByEntity  map[string][]map[string]any
 	listTotal     int
 	searchMatches []masterdata.SearchMatch
 	searchCalls   []fakeMusicSearchCall
@@ -92,9 +93,16 @@ func (cache *fakeMusicHandlerCache) GetByID(_ context.Context, region string, en
 	return record, true, nil
 }
 
-func (cache *fakeMusicHandlerCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
-	items := make([]map[string]any, 0, len(cache.listItems))
-	for _, item := range cache.listItems {
+func (cache *fakeMusicHandlerCache) ListAll(_ context.Context, _, entity string) ([]map[string]any, error) {
+	source := cache.listItems
+	if cache.listByEntity != nil {
+		if entityItems, ok := cache.listByEntity[entity]; ok {
+			source = entityItems
+		}
+	}
+
+	items := make([]map[string]any, 0, len(source))
+	for _, item := range source {
 		copied := make(map[string]any, len(item))
 		for key, value := range item {
 			copied[key] = value
@@ -260,6 +268,18 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 	if _, exists := body["releaseConditionId"]; exists {
 		t.Fatalf("expected releaseConditionId removed from response")
 	}
+	if _, exists := body["musicDifficulties"]; exists {
+		t.Fatalf("expected musicDifficulties to be absent from by-id response")
+	}
+	if _, exists := body["musicTags"]; exists {
+		t.Fatalf("expected musicTags to be absent from by-id response")
+	}
+	if _, exists := body["difficulties"]; exists {
+		t.Fatalf("expected difficulties to be absent from by-id response")
+	}
+	if _, exists := body["tags"]; exists {
+		t.Fatalf("expected tags to be absent from by-id response")
+	}
 }
 
 func TestMusicAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
@@ -349,6 +369,18 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 				"liveStageId":     66,
 			},
 		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"id": 1, "musicId": 1001, "musicDifficulty": "expert", "playLevel": 25, "totalNoteCount": 500},
+				{"id": 2, "musicId": 1001, "musicDifficulty": "master", "playLevel": 30, "totalNoteCount": 800},
+				{"id": 3, "musicId": 1002, "musicDifficulty": "append", "playLevel": 34, "totalNoteCount": 1200},
+			},
+			"musictags": {
+				{"id": 1, "musicId": 1001, "musicTag": "vocaloid", "seq": 1},
+				{"id": 2, "musicId": 1001, "musicTag": "street", "seq": 3},
+				{"id": 3, "musicId": 1002, "musicTag": "idol", "seq": 4},
+			},
+		},
 		listTotal: 1,
 	}
 
@@ -388,6 +420,67 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 	}
 	assertMusicHasMappedCreatorArtist(t, firstItem, 77)
 	assertMusicHasMappedLiveStage(t, firstItem, 66)
+	assertMusicHasDifficulties(t, firstItem, []string{"expert", "master"})
+	assertMusicHasTags(t, firstItem, []string{"vocaloid", "street"})
+}
+
+func TestMusicDifficultiesByIDEndpointReturnsFullDifficulties(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musics": {
+					"1001": {"id": 1001, "title": "Test Song"},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"id": 1, "musicId": 1001, "musicDifficulty": "expert", "playLevel": 25, "totalNoteCount": 500},
+				{"id": 2, "musicId": 1001, "musicDifficulty": "master", "playLevel": 30, "totalNoteCount": 800},
+				{"id": 3, "musicId": 1002, "musicDifficulty": "append", "playLevel": 34, "totalNoteCount": 1200},
+			},
+		},
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id/difficulties", musicHandler.DifficultiesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/1001/difficulties", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 difficulties, got %d", len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first difficulty object, got %T", items[0])
+	}
+	if first["id"] != float64(1) || first["musicId"] != float64(1001) || first["totalNoteCount"] != float64(500) {
+		t.Fatalf("expected full first difficulty fields, got %v", first)
+	}
 }
 
 func TestMusicListEndpointSupportsSorting(t *testing.T) {
@@ -415,6 +508,420 @@ func TestMusicListEndpointSupportsSorting(t *testing.T) {
 	}
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestMusicListEndpointSupportsSpoilerOption(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "released", "publishedAt": 946684800000},
+			{"id": 2, "title": "future", "publishedAt": 4102444800000},
+		},
+		listTotal: 2,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?spoiler=false", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?spoiler=true", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 2})
+}
+
+func TestMusicListInvalidSpoilerReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{}
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?spoiler=maybe", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
+func TestMusicListEndpointSupportsSearchFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{
+				"id":         1,
+				"title":      "Tell Your World",
+				"categories": []any{"mv", "original"},
+				"composer":   "kz",
+				"arranger":   "kz",
+				"lyricist":   "kz",
+			},
+			{
+				"id":         2,
+				"title":      "Melt",
+				"categories": []any{"mv", "cover"},
+				"composer":   "ryo",
+				"arranger":   "ryo",
+				"lyricist":   "ryo",
+			},
+			{
+				"id":         3,
+				"title":      "World Is Mine",
+				"categories": []any{"image"},
+				"composer":   "ryo",
+				"arranger":   "ryo",
+				"lyricist":   "ryo",
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?name=world&category=mv&composer=kz", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
+}
+
+func TestMusicListEndpointSupportsRepeatedAndCommaSeparatedFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha", "category": "image", "arranger": "Alice Arrangement", "lyricist": "Carol"},
+			{"id": 2, "title": "bravo", "category": "mv", "arranger": "Bob", "lyricist": "Dana Lyrics"},
+			{"id": 3, "title": "charlie", "category": "mv", "arranger": "Eve", "lyricist": "Frank"},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?category=image,mv&arranger=arrange&lyricist=carol", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1})
+}
+
+func TestMusicListEndpointSupportsTagFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musictags": {
+				{"musicId": 1, "musicTag": "vocaloid", "seq": 1},
+				{"musicId": 2, "musicTag": "street", "seq": 3},
+				{"musicId": 3, "musicTag": "idol", "seq": 4},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?tag=street,idol", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2, 3})
+}
+
+func TestMusicListEndpointSupportsHasAppendFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "musicDifficulty": "hard", "playLevel": 25},
+				{"musicId": 2, "musicDifficulty": "append", "playLevel": 34},
+				{"musicId": 3, "musicDifficulty": "master", "playLevel": 30},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?hasAppend=true", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?hasAppend=false", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1, 3})
+}
+
+func TestMusicListInvalidHasAppendReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{}
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?hasAppend=maybe", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
+}
+
+func TestMusicListEndpointSupportsPlayLevelExactFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 25},
+				{"musicId": 2, "playLevel": 26},
+				{"musicId": 2, "playLevel": 30},
+				{"musicId": 3, "playLevel": 29},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=30", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+}
+
+func TestMusicListEndpointSupportsPlayLevelAliasFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 25},
+				{"musicId": 2, "playLevel": 30},
+				{"musicId": 3, "playLevel": 32},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	testCases := []struct {
+		name     string
+		path     string
+		expected []float64
+	}{
+		{
+			name:     "snake case",
+			path:     "/api/v1/musics/jp/list?play_level=30",
+			expected: []float64{2},
+		},
+		{
+			name:     "short level",
+			path:     "/api/v1/musics/jp/list?level=%3E30",
+			expected: []float64{3},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", resp.Code)
+			}
+
+			assertResponseItemOrder(t, resp.Body.Bytes(), testCase.expected)
+		})
+	}
+}
+
+func TestMusicListEndpointSupportsPlayLevelRangeFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 25},
+				{"musicId": 2, "playLevel": 27},
+				{"musicId": 3, "playLevel": 30},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=26-29", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+}
+
+func TestMusicListEndpointSupportsPlayLevelComparisonFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+			{"id": 2, "title": "bravo"},
+			{"id": 3, "title": "charlie"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1, "playLevel": 26},
+				{"musicId": 2, "playLevel": 28},
+				{"musicId": 3, "playLevel": 30},
+			},
+		},
+		listTotal: 3,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=%3E=28,%3C30", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{2})
+}
+
+func TestMusicListEndpointInvalidPlayLevelReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1, "title": "alpha"},
+		},
+		listTotal: 1,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?playLevel=hard", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
+	}
 }
 
 func TestMusicListSortingBuildsOnlyCurrentPage(t *testing.T) {
@@ -571,5 +1078,64 @@ func assertMusicHasMappedLiveStage(t *testing.T, item map[string]any, expectedLi
 	}
 	if _, exists := item["liveStageId"]; exists {
 		t.Fatalf("expected liveStageId removed from item")
+	}
+}
+
+func assertMusicHasDifficulties(t *testing.T, item map[string]any, expected []string) {
+	t.Helper()
+
+	difficultiesRaw, ok := item["difficulties"]
+	if !ok {
+		t.Fatalf("expected difficulties in item")
+	}
+
+	difficulties, ok := difficultiesRaw.([]any)
+	if !ok {
+		t.Fatalf("expected difficulties array, got %T", difficultiesRaw)
+	}
+	if len(difficulties) != len(expected) {
+		t.Fatalf("expected %d difficulties, got %d", len(expected), len(difficulties))
+	}
+
+	for index, expectedDifficulty := range expected {
+		difficulty, ok := difficulties[index].(map[string]any)
+		if !ok {
+			t.Fatalf("expected difficulties[%d] object, got %T", index, difficulties[index])
+		}
+		if difficulty["musicDifficulty"] != expectedDifficulty {
+			t.Fatalf("expected difficulties[%d].musicDifficulty=%s, got %v", index, expectedDifficulty, difficulty["musicDifficulty"])
+		}
+		for _, hiddenField := range []string{"id", "musicId", "totalNoteCount"} {
+			if _, exists := difficulty[hiddenField]; exists {
+				t.Fatalf("expected difficulties[%d].%s to be omitted", index, hiddenField)
+			}
+		}
+	}
+}
+
+func assertMusicHasTags(t *testing.T, item map[string]any, expected []string) {
+	t.Helper()
+
+	tagsRaw, ok := item["tags"]
+	if !ok {
+		t.Fatalf("expected tags in item")
+	}
+
+	tags, ok := tagsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected tags array, got %T", tagsRaw)
+	}
+	if len(tags) != len(expected) {
+		t.Fatalf("expected %d tags, got %d", len(expected), len(tags))
+	}
+
+	for index, expectedTag := range expected {
+		tag, ok := tags[index].(string)
+		if !ok {
+			t.Fatalf("expected tags[%d] string, got %T", index, tags[index])
+		}
+		if tag != expectedTag {
+			t.Fatalf("expected tags[%d]=%s, got %s", index, expectedTag, tag)
+		}
 	}
 }

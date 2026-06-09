@@ -342,6 +342,60 @@
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated character units",
+                        "name": "unit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated character IDs",
+                        "name": "character",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated skill descriptionSpriteName values",
+                        "name": "skill",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated card supply IDs or card supply types",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated card attributes",
+                        "name": "attr",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated card rarity types",
+                        "name": "rarity",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated support units",
+                        "name": "supportUnit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include cards that have another3dmvCutIns entries",
+                        "name": "has3dmvCutIn",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
@@ -708,6 +762,12 @@
                         "type": "string",
                         "description": "Event type filter (comma-separated values)",
                         "name": "event_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {
@@ -1181,6 +1241,12 @@
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
@@ -1353,6 +1419,12 @@
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {
@@ -1615,6 +1687,60 @@
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Fuzzy music name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated music categories",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated composer names",
+                        "name": "composer",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated arranger names",
+                        "name": "arranger",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated lyricist names",
+                        "name": "lyricist",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated music tags",
+                        "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Music difficulty playLevel. Supports 30, \u003e30, \u003e=30, \u003c30, \u003c=30, or 26-30. Aliases: play_level, level",
+                        "name": "playLevel",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Filter musics by whether they have append difficulty",
+                        "name": "hasAppend",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field",
                         "name": "sort_by",
@@ -1685,6 +1811,65 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/shared.MusicObjectResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/musics/{region}/{id}/difficulties": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "musics"
+                ],
+                "summary": "Get music difficulties by music id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Music ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MusicDifficultiesResponse"
                         }
                     },
                     "400": {
@@ -1787,6 +1972,12 @@
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {
@@ -2045,6 +2236,12 @@
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
                         "in": "query"
                     },
                     {
@@ -2406,7 +2603,12 @@
                 "archivePublishedAt": {},
                 "assetbundleName": {},
                 "attr": {},
-                "cardParameters": {},
+                "cardParameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CardParameterResponse"
+                    }
+                },
                 "cardRarity": {
                     "$ref": "#/definitions/shared.CardRarityResponse"
                 },
@@ -2453,10 +2655,35 @@
                 }
             }
         },
+        "shared.CardParameterResponse": {
+            "type": "object",
+            "properties": {
+                "cardId": {
+                    "type": "integer"
+                },
+                "cardLevel": {
+                    "type": "integer"
+                },
+                "cardParameterType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "power": {
+                    "type": "integer"
+                }
+            }
+        },
         "shared.CardParamsResponse": {
             "type": "object",
             "properties": {
-                "cardParameters": {},
+                "cardParameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CardParameterResponse"
+                    }
+                },
                 "id": {},
                 "specialTrainingPower1BonusFixed": {},
                 "specialTrainingPower2BonusFixed": {},
@@ -2465,15 +2692,81 @@
         },
         "shared.CardRarityResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "cardRarityType": {
+                    "type": "string"
+                },
+                "maxLevel": {
+                    "type": "integer"
+                },
+                "maxSkillLevel": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "trainingMaxLevel": {
+                    "type": "integer"
+                }
+            }
         },
         "shared.CardSupplyResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "cardSupplyType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                }
+            }
         },
         "shared.CharacterResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "firstName": {
+                    "type": "string"
+                },
+                "firstNameEnglish": {
+                    "type": "string"
+                },
+                "firstNameRuby": {
+                    "type": "string"
+                },
+                "gender": {
+                    "type": "string"
+                },
+                "givenName": {
+                    "type": "string"
+                },
+                "givenNameEnglish": {
+                    "type": "string"
+                },
+                "givenNameRuby": {
+                    "type": "string"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "supportUnitType": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
         },
         "shared.CurrentEventResponse": {
             "type": "object",
@@ -2909,6 +3202,13 @@
                 }
             }
         },
+        "shared.LiveStageResponse": {
+            "type": "object",
+            "properties": {
+                "id": {},
+                "name": {}
+            }
+        },
         "shared.MasterDataAdminStatusResponse": {
             "type": "object",
             "properties": {
@@ -2988,13 +3288,92 @@
                 }
             }
         },
+        "shared.MusicArtistResponse": {
+            "type": "object",
+            "properties": {
+                "id": {},
+                "name": {}
+            }
+        },
+        "shared.MusicDifficultiesResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicDifficultyDetailResponse"
+                    }
+                }
+            }
+        },
+        "shared.MusicDifficultyDetailResponse": {
+            "type": "object",
+            "properties": {
+                "id": {},
+                "musicDifficulty": {},
+                "musicId": {},
+                "playLevel": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "totalNoteCount": {}
+            }
+        },
+        "shared.MusicDifficultyResponse": {
+            "type": "object",
+            "properties": {
+                "musicDifficulty": {},
+                "playLevel": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.MusicListItemResponse": {
+            "type": "object",
+            "properties": {
+                "arranger": {},
+                "assetbundleName": {},
+                "composer": {},
+                "creatorArtist": {
+                    "$ref": "#/definitions/shared.MusicArtistResponse"
+                },
+                "dancerCount": {},
+                "difficulties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicDifficultyResponse"
+                    }
+                },
+                "fillerSec": {},
+                "id": {},
+                "liveStage": {
+                    "$ref": "#/definitions/shared.LiveStageResponse"
+                },
+                "lyricist": {},
+                "pronunciation": {},
+                "publishedAt": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "selfDancerPosition": {},
+                "seq": {},
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "title": {}
+            }
+        },
         "shared.MusicListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/shared.MusicObjectResponse"
+                        "$ref": "#/definitions/shared.MusicListItemResponse"
                     }
                 },
                 "pagination": {
@@ -3004,7 +3383,29 @@
         },
         "shared.MusicObjectResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "arranger": {},
+                "assetbundleName": {},
+                "composer": {},
+                "creatorArtist": {
+                    "$ref": "#/definitions/shared.MusicArtistResponse"
+                },
+                "dancerCount": {},
+                "fillerSec": {},
+                "id": {},
+                "liveStage": {
+                    "$ref": "#/definitions/shared.LiveStageResponse"
+                },
+                "lyricist": {},
+                "pronunciation": {},
+                "publishedAt": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "selfDancerPosition": {},
+                "seq": {},
+                "title": {}
+            }
         },
         "shared.PaginationResponse": {
             "type": "object",
@@ -3111,9 +3512,123 @@
                 }
             }
         },
+        "shared.SkillEffectDetailResponse": {
+            "type": "object",
+            "properties": {
+                "activateEffectDuration": {
+                    "type": "number"
+                },
+                "activateEffectValue": {
+                    "type": "integer"
+                },
+                "activateEffectValue2": {
+                    "type": "integer"
+                },
+                "activateEffectValueType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "level": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.SkillEffectResponse": {
+            "type": "object",
+            "properties": {
+                "activateCharacterRank": {
+                    "type": "integer"
+                },
+                "activateLife": {
+                    "type": "integer"
+                },
+                "activateNotesJudgmentType": {
+                    "type": "string"
+                },
+                "activateUnitCount": {
+                    "type": "integer"
+                },
+                "conditionType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "skillEffectDetails": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.SkillEffectDetailResponse"
+                    }
+                },
+                "skillEffectType": {
+                    "type": "string"
+                },
+                "skillEnhance": {
+                    "$ref": "#/definitions/shared.SkillEnhanceResponse"
+                }
+            }
+        },
+        "shared.SkillEnhanceConditionResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.SkillEnhanceResponse": {
+            "type": "object",
+            "properties": {
+                "activateEffectValue": {
+                    "type": "integer"
+                },
+                "activateEffectValueType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "skillEnhanceCondition": {
+                    "$ref": "#/definitions/shared.SkillEnhanceConditionResponse"
+                },
+                "skillEnhanceType": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.SkillResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "descriptionSpriteName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "shortDescription": {
+                    "type": "string"
+                },
+                "skillEffects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.SkillEffectResponse"
+                    }
+                },
+                "skillFilterId": {
+                    "type": "integer"
+                }
+            }
         },
         "shared.UnitProfileListResponse": {
             "type": "object",

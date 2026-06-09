@@ -53,7 +53,10 @@ definitions:
       archivePublishedAt: {}
       assetbundleName: {}
       attr: {}
-      cardParameters: {}
+      cardParameters:
+        items:
+          $ref: '#/definitions/shared.CardParameterResponse'
+        type: array
       cardRarity:
         $ref: '#/definitions/shared.CardRarityResponse'
       cardSkillName: {}
@@ -88,22 +91,80 @@ definitions:
       total_pages:
         type: integer
     type: object
+  shared.CardParameterResponse:
+    properties:
+      cardId:
+        type: integer
+      cardLevel:
+        type: integer
+      cardParameterType:
+        type: string
+      id:
+        type: integer
+      power:
+        type: integer
+    type: object
   shared.CardParamsResponse:
     properties:
-      cardParameters: {}
+      cardParameters:
+        items:
+          $ref: '#/definitions/shared.CardParameterResponse'
+        type: array
       id: {}
       specialTrainingPower1BonusFixed: {}
       specialTrainingPower2BonusFixed: {}
       specialTrainingPower3BonusFixed: {}
     type: object
   shared.CardRarityResponse:
-    additionalProperties: {}
+    properties:
+      cardRarityType:
+        type: string
+      maxLevel:
+        type: integer
+      maxSkillLevel:
+        type: integer
+      seq:
+        type: integer
+      trainingMaxLevel:
+        type: integer
     type: object
   shared.CardSupplyResponse:
-    additionalProperties: {}
+    properties:
+      assetbundleName:
+        type: string
+      cardSupplyType:
+        type: string
+      id:
+        type: integer
     type: object
   shared.CharacterResponse:
-    additionalProperties: {}
+    properties:
+      firstName:
+        type: string
+      firstNameEnglish:
+        type: string
+      firstNameRuby:
+        type: string
+      gender:
+        type: string
+      givenName:
+        type: string
+      givenNameEnglish:
+        type: string
+      givenNameRuby:
+        type: string
+      height:
+        type: number
+      id:
+        type: integer
+      resourceId:
+        type: integer
+      seq:
+        type: integer
+      supportUnitType:
+        type: string
+      unit:
+        type: string
     type: object
   shared.CurrentEventResponse:
     properties:
@@ -404,6 +465,11 @@ definitions:
       status:
         type: string
     type: object
+  shared.LiveStageResponse:
+    properties:
+      id: {}
+      name: {}
+    type: object
   shared.MasterDataAdminStatusResponse:
     properties:
       items:
@@ -457,17 +523,93 @@ definitions:
         example: 3.2.1.10
         type: string
     type: object
+  shared.MusicArtistResponse:
+    properties:
+      id: {}
+      name: {}
+    type: object
+  shared.MusicDifficultiesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MusicDifficultyDetailResponse'
+        type: array
+    type: object
+  shared.MusicDifficultyDetailResponse:
+    properties:
+      id: {}
+      musicDifficulty: {}
+      musicId: {}
+      playLevel: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+      totalNoteCount: {}
+    type: object
+  shared.MusicDifficultyResponse:
+    properties:
+      musicDifficulty: {}
+      playLevel: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.MusicListItemResponse:
+    properties:
+      arranger: {}
+      assetbundleName: {}
+      composer: {}
+      creatorArtist:
+        $ref: '#/definitions/shared.MusicArtistResponse'
+      dancerCount: {}
+      difficulties:
+        items:
+          $ref: '#/definitions/shared.MusicDifficultyResponse'
+        type: array
+      fillerSec: {}
+      id: {}
+      liveStage:
+        $ref: '#/definitions/shared.LiveStageResponse'
+      lyricist: {}
+      pronunciation: {}
+      publishedAt: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+      selfDancerPosition: {}
+      seq: {}
+      tags:
+        items:
+          type: string
+        type: array
+      title: {}
+    type: object
   shared.MusicListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/shared.MusicObjectResponse'
+          $ref: '#/definitions/shared.MusicListItemResponse'
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
     type: object
   shared.MusicObjectResponse:
-    additionalProperties: {}
+    properties:
+      arranger: {}
+      assetbundleName: {}
+      composer: {}
+      creatorArtist:
+        $ref: '#/definitions/shared.MusicArtistResponse'
+      dancerCount: {}
+      fillerSec: {}
+      id: {}
+      liveStage:
+        $ref: '#/definitions/shared.LiveStageResponse'
+      lyricist: {}
+      pronunciation: {}
+      publishedAt: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+      selfDancerPosition: {}
+      seq: {}
+      title: {}
     type: object
   shared.PaginationResponse:
     properties:
@@ -537,8 +679,82 @@ definitions:
       sentence:
         type: string
     type: object
+  shared.SkillEffectDetailResponse:
+    properties:
+      activateEffectDuration:
+        type: number
+      activateEffectValue:
+        type: integer
+      activateEffectValue2:
+        type: integer
+      activateEffectValueType:
+        type: string
+      id:
+        type: integer
+      level:
+        type: integer
+    type: object
+  shared.SkillEffectResponse:
+    properties:
+      activateCharacterRank:
+        type: integer
+      activateLife:
+        type: integer
+      activateNotesJudgmentType:
+        type: string
+      activateUnitCount:
+        type: integer
+      conditionType:
+        type: string
+      id:
+        type: integer
+      skillEffectDetails:
+        items:
+          $ref: '#/definitions/shared.SkillEffectDetailResponse'
+        type: array
+      skillEffectType:
+        type: string
+      skillEnhance:
+        $ref: '#/definitions/shared.SkillEnhanceResponse'
+    type: object
+  shared.SkillEnhanceConditionResponse:
+    properties:
+      id:
+        type: integer
+      seq:
+        type: integer
+      unit:
+        type: string
+    type: object
+  shared.SkillEnhanceResponse:
+    properties:
+      activateEffectValue:
+        type: integer
+      activateEffectValueType:
+        type: string
+      id:
+        type: integer
+      skillEnhanceCondition:
+        $ref: '#/definitions/shared.SkillEnhanceConditionResponse'
+      skillEnhanceType:
+        type: string
+    type: object
   shared.SkillResponse:
-    additionalProperties: {}
+    properties:
+      description:
+        type: string
+      descriptionSpriteName:
+        type: string
+      id:
+        type: integer
+      shortDescription:
+        type: string
+      skillEffects:
+        items:
+          $ref: '#/definitions/shared.SkillEffectResponse'
+        type: array
+      skillFilterId:
+        type: integer
     type: object
   shared.UnitProfileListResponse:
     properties:
@@ -867,6 +1083,42 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Comma-separated character units
+        in: query
+        name: unit
+        type: string
+      - description: Comma-separated character IDs
+        in: query
+        name: character
+        type: string
+      - description: Comma-separated skill descriptionSpriteName values
+        in: query
+        name: skill
+        type: string
+      - description: Comma-separated card supply IDs or card supply types
+        in: query
+        name: type
+        type: string
+      - description: Comma-separated card attributes
+        in: query
+        name: attr
+        type: string
+      - description: Comma-separated card rarity types
+        in: query
+        name: rarity
+        type: string
+      - description: Comma-separated support units
+        in: query
+        name: supportUnit
+        type: string
+      - description: Include cards that have another3dmvCutIns entries
+        in: query
+        name: has3dmvCutIn
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1227,6 +1479,10 @@ paths:
         in: query
         name: event_type
         type: string
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field (id|startAt)
         in: query
         name: sort_by
@@ -1342,6 +1598,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1457,6 +1717,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1611,6 +1875,45 @@ paths:
       summary: Get music by id
       tags:
       - musics
+  /musics/{region}/{id}/difficulties:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Music ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MusicDifficultiesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get music difficulties by music id
+      tags:
+      - musics
   /musics/{region}/list:
     get:
       parameters:
@@ -1627,6 +1930,43 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Fuzzy music name
+        in: query
+        name: name
+        type: string
+      - description: Comma-separated music categories
+        in: query
+        name: category
+        type: string
+      - description: Comma-separated composer names
+        in: query
+        name: composer
+        type: string
+      - description: Comma-separated arranger names
+        in: query
+        name: arranger
+        type: string
+      - description: Comma-separated lyricist names
+        in: query
+        name: lyricist
+        type: string
+      - description: Comma-separated music tags
+        in: query
+        name: tag
+        type: string
+      - description: 'Music difficulty playLevel. Supports 30, >30, >=30, <30, <=30,
+          or 26-30. Aliases: play_level, level'
+        in: query
+        name: playLevel
+        type: string
+      - description: Filter musics by whether they have append difficulty
+        in: query
+        name: hasAppend
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -1742,6 +2082,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by
@@ -2028,6 +2372,10 @@ paths:
         in: query
         name: page_size
         type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
       - description: Sort field
         in: query
         name: sort_by

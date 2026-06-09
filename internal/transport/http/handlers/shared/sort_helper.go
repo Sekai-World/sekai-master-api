@@ -199,6 +199,10 @@ func compareIDValue(left any, right any) int {
 }
 
 func PaginateItems(items []map[string]any, page int, pageSize int) ([]map[string]any, gin.H) {
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
 	total := len(items)
 	totalPages := 0
 	if pageSize > 0 {
