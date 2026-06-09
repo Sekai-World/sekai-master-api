@@ -26,6 +26,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/cards/:region/:id/episodes`
 - `GET /api/v1/musics/:region/list?page=1&page_size=20`
+- `GET /api/v1/musics/:region/:id/difficulties`
 - `GET /api/v1/musics/:region/:id`
 - `GET /api/v1/events/:region/current`
 - `GET /api/v1/events/:region/list?page=1&page_size=20&id=<id>&name=<kw>&unit=<kw>&event_type=<kw>&sort_by=id|startAt&sort_order=asc|desc`
