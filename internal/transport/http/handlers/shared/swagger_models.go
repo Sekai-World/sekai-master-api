@@ -171,6 +171,17 @@ type CardParamsResponse struct {
 	CardParameters                  []CardParameterResponse `json:"cardParameters,omitempty"`
 }
 
+type CardEpisodeResponse struct {
+	ID               any                       `json:"id,omitempty"`
+	CardID           any                       `json:"cardId,omitempty"`
+	EpisodeNo        any                       `json:"episodeNo,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type CardEpisodesResponse struct {
+	Items []CardEpisodeResponse `json:"items"`
+}
+
 type CardPagination struct {
 	Page       int  `json:"page"`
 	PageSize   int  `json:"page_size"`

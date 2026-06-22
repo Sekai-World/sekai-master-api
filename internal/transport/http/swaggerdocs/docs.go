@@ -532,7 +532,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.RecordItemsResponse"
+                            "$ref": "#/definitions/shared.CardEpisodesResponse"
                         }
                     },
                     "400": {
@@ -2591,6 +2591,28 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.CardEpisodeResponse": {
+            "type": "object",
+            "properties": {
+                "cardId": {},
+                "episodeNo": {},
+                "id": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.CardEpisodesResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CardEpisodeResponse"
+                    }
+                }
+            }
+        },
         "shared.CardListResponse": {
             "type": "object",
             "properties": {
@@ -3480,18 +3502,6 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
-                }
-            }
-        },
-        "shared.RecordItemsResponse": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
                 }
             }
         },

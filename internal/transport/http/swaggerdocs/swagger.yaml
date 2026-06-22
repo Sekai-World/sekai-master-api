@@ -39,6 +39,21 @@ definitions:
       updated_at:
         type: string
     type: object
+  shared.CardEpisodeResponse:
+    properties:
+      cardId: {}
+      episodeNo: {}
+      id: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.CardEpisodesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.CardEpisodeResponse'
+        type: array
+    type: object
   shared.CardListResponse:
     properties:
       items:
@@ -655,14 +670,6 @@ definitions:
       username:
         type: string
     type: object
-  shared.RecordItemsResponse:
-    properties:
-      items:
-        items:
-          additionalProperties: {}
-          type: object
-        type: array
-    type: object
   shared.RegionAvailabilityResponse:
     properties:
       regions:
@@ -1008,7 +1015,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.RecordItemsResponse'
+            $ref: '#/definitions/shared.CardEpisodesResponse'
         "400":
           description: Bad Request
           schema:

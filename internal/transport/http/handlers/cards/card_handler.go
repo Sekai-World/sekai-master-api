@@ -158,7 +158,7 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Card ID"
-// @Success 200 {object} shared.RecordItemsResponse
+// @Success 200 {object} shared.CardEpisodesResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
