@@ -835,6 +835,75 @@ func TestCardListInvalidSortByReturnsBadRequest(t *testing.T) {
 	}
 }
 
+func TestCardParamsByIDEndpointReturnsSeparateCardParameters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {
+						"id":                              1001,
+						"specialTrainingPower1BonusFixed": 300,
+						"specialTrainingPower2BonusFixed": 300,
+						"specialTrainingPower3BonusFixed": 300,
+					},
+				},
+			},
+		},
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"id": 1, "cardId": 1001, "cardLevel": 1, "cardParameterType": "param1", "power": 100}},
+			{Item: map[string]any{"id": 2, "cardId": 1001, "cardLevel": 1, "cardParameterType": "param2", "power": 200}},
+			{Item: map[string]any{"id": 3, "cardId": 10010, "cardLevel": 1, "cardParameterType": "param1", "power": 999}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/params", cardHandler.ParamsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/params", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	if cache.lastSearch.entity != "cardparameters" {
+		t.Fatalf("expected search entity cardparameters, got %s", cache.lastSearch.entity)
+	}
+	if cache.lastSearch.query != "1001" {
+		t.Fatalf("expected search query 1001, got %s", cache.lastSearch.query)
+	}
+	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "cardId" {
+		t.Fatalf("expected search fields [cardId], got %v", cache.lastSearch.fields)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["cardParameters"]
+	if !ok {
+		t.Fatalf("expected cardParameters in response")
+	}
+
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected cardParameters array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 exact-match card parameters, got %d", len(items))
+	}
+
+	if body["specialTrainingPower1BonusFixed"] != float64(300) {
+		t.Fatalf("expected special training bonus from card record, got %v", body["specialTrainingPower1BonusFixed"])
+	}
+}
+
 func TestCardEpisodesByIDEndpointReturnsItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

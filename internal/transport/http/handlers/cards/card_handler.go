@@ -149,7 +149,13 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, buildCardParams(record))
+	params, err := handler.buildCardParams(c.Request.Context(), region, id, record)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card params")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, params)
 }
 
 // EpisodesByID godoc
@@ -774,9 +780,9 @@ func findExactCardRarityByType(matches []masterdata.SearchMatch, rarityType stri
 	return nil
 }
 
-func buildCardParams(record map[string]any) map[string]any {
+func (handler *CardHandler) buildCardParams(ctx context.Context, region string, id string, record map[string]any) (map[string]any, error) {
 	if record == nil {
-		return map[string]any{}
+		return map[string]any{}, nil
 	}
 
 	result := map[string]any{}
@@ -785,12 +791,38 @@ func buildCardParams(record map[string]any) map[string]any {
 		"specialTrainingPower1BonusFixed",
 		"specialTrainingPower2BonusFixed",
 		"specialTrainingPower3BonusFixed",
-		"cardParameters",
 	} {
 		if value, ok := record[key]; ok {
 			result[key] = value
 		}
 	}
 
-	return result
+	if handler == nil || handler.masterDataSync == nil {
+		if value, ok := record["cardParameters"]; ok {
+			result["cardParameters"] = value
+		}
+		return result, nil
+	}
+
+	matches, err := handler.masterDataSync.Search(ctx, region, "cardparameters", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, 0, len(matches))
+	targetCardID := shared.NormalizeAnyID(id)
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+			continue
+		}
+		items = append(items, match.Item)
+	}
+
+	if len(items) > 0 {
+		result["cardParameters"] = items
+	} else if value, ok := record["cardParameters"]; ok {
+		result["cardParameters"] = value
+	}
+
+	return result, nil
 }
