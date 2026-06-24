@@ -54,6 +54,26 @@ definitions:
           $ref: '#/definitions/shared.CardEpisodeResponse'
         type: array
     type: object
+  shared.CardEventResponse:
+    properties:
+      bonusRate: {}
+      cardId: {}
+      event:
+        additionalProperties: {}
+        type: object
+      eventId: {}
+      finalBonusRateMax: {}
+      finalBonusRateMin: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.CardEventsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.CardEventResponse'
+        type: array
+    type: object
   shared.CardListResponse:
     properties:
       items:
@@ -1033,6 +1053,45 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get card episodes by card id
+      tags:
+      - cards
+  /cards/{region}/{id}/events:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CardEventsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get card events by card id
       tags:
       - cards
   /cards/{region}/{id}/params:

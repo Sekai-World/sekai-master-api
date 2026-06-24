@@ -182,6 +182,20 @@ type CardEpisodesResponse struct {
 	Items []CardEpisodeResponse `json:"items"`
 }
 
+type CardEventResponse struct {
+	EventID           any                       `json:"eventId,omitempty"`
+	CardID            any                       `json:"cardId,omitempty"`
+	BonusRate         any                       `json:"bonusRate,omitempty"`
+	FinalBonusRateMin any                       `json:"finalBonusRateMin,omitempty"`
+	FinalBonusRateMax any                       `json:"finalBonusRateMax,omitempty"`
+	ReleaseCondition  *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+	Event             map[string]any            `json:"event,omitempty"`
+}
+
+type CardEventsResponse struct {
+	Items []CardEventResponse `json:"items"`
+}
+
 type CardPagination struct {
 	Page       int  `json:"page"`
 	PageSize   int  `json:"page_size"`

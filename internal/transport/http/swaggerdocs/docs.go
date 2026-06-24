@@ -562,6 +562,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/cards/{region}/{id}/events": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cards"
+                ],
+                "summary": "Get card events by card id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Card ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.CardEventsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/cards/{region}/{id}/params": {
             "get": {
                 "produces": [
@@ -2609,6 +2668,34 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/shared.CardEpisodeResponse"
+                    }
+                }
+            }
+        },
+        "shared.CardEventResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRate": {},
+                "cardId": {},
+                "event": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "eventId": {},
+                "finalBonusRateMax": {},
+                "finalBonusRateMin": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.CardEventsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CardEventResponse"
                     }
                 }
             }
