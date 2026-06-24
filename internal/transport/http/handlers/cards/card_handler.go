@@ -2,6 +2,7 @@ package cards
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -214,6 +215,316 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 	response.JSON(c, http.StatusOK, gin.H{
 		"items": items,
 	})
+}
+
+// EventsByID godoc
+// @Summary Get card events by card id
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} shared.CardEventsResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/{id}/events [get]
+func (handler *CardHandler) EventsByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	cardRecord, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "cards", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "CARD_NOT_FOUND", "card not found")
+		return
+	}
+
+	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "eventcards", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card events")
+		return
+	}
+
+	items := make([]map[string]any, 0, len(matches))
+	targetCardID := shared.NormalizeAnyID(id)
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+			continue
+		}
+
+		item := shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, match.Item)
+
+		eventID := shared.NormalizeAnyID(match.Item["eventId"])
+		if eventID != "" {
+			eventRecord, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "events", eventID)
+			if err == nil && found {
+				eventSummary := make(map[string]any, 7)
+				for _, key := range []string{"id", "name", "eventType", "assetbundleName", "startAt", "aggregateAt", "closedAt"} {
+					if value, ok := eventRecord[key]; ok {
+						eventSummary[key] = value
+					}
+				}
+				item["event"] = eventSummary
+			}
+
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(c.Request.Context(), region, eventID, cardRecord, match.Item)
+			if err != nil {
+				response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card event bonuses")
+				return
+			}
+			if ok {
+				item["finalBonusRateMin"] = normalizeBonusRateValue(bonusMin)
+				item["finalBonusRateMax"] = normalizeBonusRateValue(bonusMax)
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"items": items,
+	})
+}
+
+func (handler *CardHandler) buildCardEventBonusRange(ctx context.Context, region string, eventID string, card map[string]any, eventCard map[string]any) (float64, float64, bool, error) {
+	eventIDNumber, ok := intFromAny(eventID)
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	characterID, ok := intFromAny(card["characterId"])
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	rarityType, ok := stringFromAny(card["cardRarityType"])
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	baseBonus := numberFromAnyOrZero(eventCard["bonusRate"])
+	deckBonus, specialBonus, err := handler.cardEventDeckBonus(ctx, region, eventIDNumber, card, characterID)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	baseBonus += deckBonus + specialBonus
+
+	rarityMin, rarityMax, ok := masterRankBonusRange(eventIDNumber, rarityType)
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	return baseBonus + rarityMin, baseBonus + rarityMax, true, nil
+}
+
+func (handler *CardHandler) cardEventDeckBonus(ctx context.Context, region string, eventID int, card map[string]any, characterID int) (float64, float64, error) {
+	deckBonuses, err := handler.masterDataSync.ListAll(ctx, region, "eventdeckbonuses")
+	if err != nil {
+		return 0, 0, err
+	}
+	gameCharacterUnits, err := handler.masterDataSync.ListAll(ctx, region, "gamecharacterunits")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	unitByID := make(map[int]map[string]any, len(gameCharacterUnits))
+	for _, unit := range gameCharacterUnits {
+		unitID, ok := intFromAny(unit["id"])
+		if ok {
+			unitByID[unitID] = unit
+		}
+	}
+
+	cardAttr, _ := stringFromAny(card["attr"])
+	cardSupportUnit, _ := stringFromAny(card["supportUnit"])
+	var matchedDeckBonus float64
+	matchedDeckBonusFound := false
+	virtualSingerSpecialBonus := 0.0
+	virtualSingerSpecialFound := false
+
+	for _, deckBonus := range deckBonuses {
+		bonusEventID, ok := intFromAny(deckBonus["eventId"])
+		if !ok || bonusEventID != eventID {
+			continue
+		}
+
+		deckBonusRate := numberFromAnyOrZero(deckBonus["bonusRate"])
+		deckAttr, hasDeckAttr := stringFromAny(deckBonus["cardAttr"])
+		gameCharacterUnitID, hasGameCharacterUnitID := intFromAny(deckBonus["gameCharacterUnitId"])
+
+		if !hasGameCharacterUnitID {
+			if hasDeckAttr && deckAttr == cardAttr && !matchedDeckBonusFound {
+				matchedDeckBonus = deckBonusRate
+				matchedDeckBonusFound = true
+			}
+			continue
+		}
+
+		unit, found := unitByID[gameCharacterUnitID]
+		if !found {
+			continue
+		}
+		unitCharacterID, ok := intFromAny(unit["gameCharacterId"])
+		if !ok || unitCharacterID != characterID {
+			continue
+		}
+
+		unitCode, _ := stringFromAny(unit["unit"])
+		if characterID >= 21 && !virtualSingerSpecialFound && (unitCode == "piapro" || cardSupportUnit == "none") {
+			virtualSingerSpecialBonus = 15
+			if eventID >= 135 {
+				virtualSingerSpecialBonus += 10
+			}
+			virtualSingerSpecialFound = true
+		}
+
+		attrMatches := !hasDeckAttr || deckAttr == cardAttr
+		if !attrMatches || matchedDeckBonusFound {
+			continue
+		}
+
+		if characterID < 21 || unitCode == "piapro" || cardSupportUnit == unitCode {
+			matchedDeckBonus = deckBonusRate
+			matchedDeckBonusFound = true
+		}
+	}
+
+	return matchedDeckBonus, virtualSingerSpecialBonus, nil
+}
+
+func masterRankBonusRange(eventID int, rarityType string) (float64, float64, bool) {
+	masterRankBonusVersions := []struct {
+		maxEventID int
+		bonuses    map[string][2]float64
+	}{
+		{
+			maxEventID: 35,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0},
+				"rarity_2":        {0, 0},
+				"rarity_3":        {0, 0},
+				"rarity_4":        {0, 0},
+				"rarity_birthday": {0, 0},
+			},
+		},
+		{
+			maxEventID: 53,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0.5},
+				"rarity_2":        {0, 1},
+				"rarity_3":        {0, 5},
+				"rarity_4":        {0, 10},
+				"rarity_birthday": {0, 7.5},
+			},
+		},
+		{
+			maxEventID: 107,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0.5},
+				"rarity_2":        {0, 1},
+				"rarity_3":        {0, 5},
+				"rarity_4":        {0, 15},
+				"rarity_birthday": {0, 10},
+			},
+		},
+		{
+			maxEventID: 999,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0.5},
+				"rarity_2":        {0, 1},
+				"rarity_3":        {0, 5},
+				"rarity_4":        {10, 25},
+				"rarity_birthday": {5, 15},
+			},
+		},
+	}
+
+	for _, version := range masterRankBonusVersions {
+		if eventID <= version.maxEventID {
+			bonus, ok := version.bonuses[rarityType]
+			return bonus[0], bonus[1], ok
+		}
+	}
+
+	return 0, 0, false
+}
+
+func stringFromAny(value any) (string, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	return text, text != ""
+}
+
+func intFromAny(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		if math.Trunc(typed) == typed {
+			return int(typed), true
+		}
+	case float32:
+		floatValue := float64(typed)
+		if math.Trunc(floatValue) == floatValue {
+			return int(floatValue), true
+		}
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed, true
+		}
+	}
+
+	return 0, false
+}
+
+func numberFromAnyOrZero(value any) float64 {
+	switch typed := value.(type) {
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err == nil {
+			return parsed
+		}
+	}
+
+	return 0
+}
+
+func normalizeBonusRateValue(value float64) any {
+	if math.Trunc(value) == value {
+		return int(value)
+	}
+
+	return value
 }
 
 // List godoc

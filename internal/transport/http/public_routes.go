@@ -38,6 +38,7 @@ func registerPublicRoutes(
 	v1.GET("/cards/:region/:id", cardHandler.ByID)
 	v1.GET("/cards/:region/:id/params", cardHandler.ParamsByID)
 	v1.GET("/cards/:region/:id/episodes", cardHandler.EpisodesByID)
+	v1.GET("/cards/:region/:id/events", cardHandler.EventsByID)
 	v1.GET("/musics/regions/:id/availability", musicHandler.AvailableRegionsByID)
 	v1.GET("/musics/:region/list", musicHandler.List)
 	v1.GET("/musics/:region/:id/difficulties", musicHandler.DifficultiesByID)

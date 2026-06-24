@@ -1052,6 +1052,478 @@ func TestCardEpisodesByIDEndpointFiltersNonExactCardIDMatches(t *testing.T) {
 	}
 }
 
+func TestCardEventsByIDEndpointReturnsEventCards(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {
+						"id":             1001,
+						"characterId":    3,
+						"attr":           "cool",
+						"supportUnit":    "none",
+						"cardRarityType": "rarity_3",
+					},
+				},
+				"events": {
+					"143": {
+						"id":              143,
+						"name":            "that day, the sky was far away",
+						"eventType":       "marathon",
+						"assetbundleName": "event_201",
+						"startAt":         1700000000000,
+						"aggregateAt":     1700100000000,
+						"closedAt":        1700200000000,
+					},
+					"202": {
+						"id":              202,
+						"name":            "Walk on and on",
+						"eventType":       "cheerful_carnival",
+						"assetbundleName": "event_202",
+						"startAt":         1700300000000,
+						"aggregateAt":     1700400000000,
+						"closedAt":        1700500000000,
+					},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"eventdeckbonuses": {
+				{"eventId": 143, "gameCharacterUnitId": 3, "bonusRate": 25},
+				{"eventId": 143, "gameCharacterUnitId": 3, "cardAttr": "mysterious", "bonusRate": 50},
+				{"eventId": 202, "cardAttr": "cool", "bonusRate": 20},
+			},
+			"gamecharacterunits": {
+				{"id": 3, "gameCharacterId": 3, "unit": "light_sound"},
+			},
+		},
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"eventId": 143, "cardId": 1001, "bonusRate": 0, "isDisplayCardStory": true}},
+			{Item: map[string]any{"eventId": 202, "cardId": 1001, "bonusRate": 30}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	if cache.lastSearch.entity != "eventcards" {
+		t.Fatalf("expected search entity eventcards, got %s", cache.lastSearch.entity)
+	}
+	if cache.lastSearch.query != "1001" {
+		t.Fatalf("expected search query 1001, got %s", cache.lastSearch.query)
+	}
+	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "cardId" {
+		t.Fatalf("expected search fields [cardId], got %v", cache.lastSearch.fields)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	first, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item object, got %T", items[0])
+	}
+	if first["eventId"] != float64(143) {
+		t.Fatalf("expected first eventId=143, got %v", first["eventId"])
+	}
+	if first["cardId"] != float64(1001) {
+		t.Fatalf("expected first cardId=1001, got %v", first["cardId"])
+	}
+	if first["bonusRate"] != float64(0) {
+		t.Fatalf("expected first bonusRate=0, got %v", first["bonusRate"])
+	}
+	if first["isDisplayCardStory"] != true {
+		t.Fatalf("expected first isDisplayCardStory=true, got %v", first["isDisplayCardStory"])
+	}
+	if first["finalBonusRateMin"] != float64(25) {
+		t.Fatalf("expected first finalBonusRateMin=25, got %v", first["finalBonusRateMin"])
+	}
+	if first["finalBonusRateMax"] != float64(30) {
+		t.Fatalf("expected first finalBonusRateMax=30, got %v", first["finalBonusRateMax"])
+	}
+
+	eventRaw, ok := first["event"]
+	if !ok {
+		t.Fatalf("expected event in first item")
+	}
+	event, ok := eventRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected event object, got %T", eventRaw)
+	}
+	if event["id"] != float64(143) {
+		t.Fatalf("expected event.id=143, got %v", event["id"])
+	}
+	if event["name"] != "that day, the sky was far away" {
+		t.Fatalf("expected event.name, got %v", event["name"])
+	}
+	if event["eventType"] != "marathon" {
+		t.Fatalf("expected event.eventType=marathon, got %v", event["eventType"])
+	}
+	if event["assetbundleName"] != "event_201" {
+		t.Fatalf("expected event.assetbundleName=event_201, got %v", event["assetbundleName"])
+	}
+	if event["startAt"] != float64(1700000000000) {
+		t.Fatalf("expected event.startAt, got %v", event["startAt"])
+	}
+	if event["aggregateAt"] != float64(1700100000000) {
+		t.Fatalf("expected event.aggregateAt, got %v", event["aggregateAt"])
+	}
+	if event["closedAt"] != float64(1700200000000) {
+		t.Fatalf("expected event.closedAt, got %v", event["closedAt"])
+	}
+
+	second, ok := items[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second item object, got %T", items[1])
+	}
+	secondEventRaw, ok := second["event"]
+	if !ok {
+		t.Fatalf("expected event in second item")
+	}
+	secondEvent, ok := secondEventRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected second event object, got %T", secondEventRaw)
+	}
+	if secondEvent["id"] != float64(202) {
+		t.Fatalf("expected second event.id=202, got %v", secondEvent["id"])
+	}
+	if second["finalBonusRateMin"] != float64(50) {
+		t.Fatalf("expected second finalBonusRateMin=50, got %v", second["finalBonusRateMin"])
+	}
+	if second["finalBonusRateMax"] != float64(55) {
+		t.Fatalf("expected second finalBonusRateMax=55, got %v", second["finalBonusRateMax"])
+	}
+}
+
+func TestCardEventsByIDEndpointComputesVirtualSingerBonusRange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"2101": {
+						"id":             2101,
+						"characterId":    21,
+						"attr":           "cool",
+						"supportUnit":    "none",
+						"cardRarityType": "rarity_4",
+					},
+				},
+				"events": {
+					"143": {"id": 143, "name": "vs event"},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"eventdeckbonuses": {
+				{"eventId": 143, "gameCharacterUnitId": 27, "bonusRate": 25},
+			},
+			"gamecharacterunits": {
+				{"id": 27, "gameCharacterId": 21, "unit": "light_sound"},
+			},
+		},
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"eventId": 143, "cardId": 2101, "bonusRate": 0}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/2101/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected item object, got %T", items[0])
+	}
+	if item["finalBonusRateMin"] != float64(35) {
+		t.Fatalf("expected finalBonusRateMin=35, got %v", item["finalBonusRateMin"])
+	}
+	if item["finalBonusRateMax"] != float64(50) {
+		t.Fatalf("expected finalBonusRateMax=50, got %v", item["finalBonusRateMax"])
+	}
+}
+
+func TestCardEventsByIDEndpointUsesEventPeriodMasterRankBonus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"4001": {
+						"id":             4001,
+						"characterId":    17,
+						"attr":           "happy",
+						"supportUnit":    "none",
+						"cardRarityType": "rarity_4",
+					},
+				},
+				"events": {
+					"35": {"id": 35, "name": "old event"},
+					"36": {"id": 36, "name": "next event"},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"eventdeckbonuses": {
+				{"eventId": 35, "gameCharacterUnitId": 17, "cardAttr": "happy", "bonusRate": 50},
+				{"eventId": 36, "gameCharacterUnitId": 17, "cardAttr": "happy", "bonusRate": 50},
+			},
+			"gamecharacterunits": {
+				{"id": 17, "gameCharacterId": 17, "unit": "school_refusal"},
+			},
+		},
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"eventId": 35, "cardId": 4001, "bonusRate": 0}},
+			{Item: map[string]any{"eventId": 36, "cardId": 4001, "bonusRate": 0}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/4001/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	items, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", body["items"])
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	oldEvent, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item object, got %T", items[0])
+	}
+	if oldEvent["finalBonusRateMin"] != float64(50) || oldEvent["finalBonusRateMax"] != float64(50) {
+		t.Fatalf("expected event 35 range 50-50, got %v-%v", oldEvent["finalBonusRateMin"], oldEvent["finalBonusRateMax"])
+	}
+
+	nextEvent, ok := items[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second item object, got %T", items[1])
+	}
+	if nextEvent["finalBonusRateMin"] != float64(50) || nextEvent["finalBonusRateMax"] != float64(60) {
+		t.Fatalf("expected event 36 range 50-60, got %v-%v", nextEvent["finalBonusRateMin"], nextEvent["finalBonusRateMax"])
+	}
+}
+
+func TestCardEventsByIDEndpointFiltersNonExactCardIDMatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {
+						"id": 1001,
+					},
+				},
+			},
+		},
+		searchMatches: []masterdata.SearchMatch{
+			{Item: map[string]any{"eventId": 201, "cardId": 1001, "bonusRate": 50}},
+			{Item: map[string]any{"eventId": 202, "cardId": 10010, "bonusRate": 60}},
+			{Item: map[string]any{"eventId": 203, "cardId": "1001-extra", "bonusRate": 70}},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 exact-match item, got %d", len(items))
+	}
+
+	itemMap, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected item object, got %T", items[0])
+	}
+	if itemMap["cardId"] != float64(1001) {
+		t.Fatalf("expected exact cardId 1001, got %v", itemMap["cardId"])
+	}
+}
+
+func TestCardEventsByIDEndpointReturnsEmptyItemsWhenNoEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {
+						"id": 1001,
+					},
+				},
+			},
+		},
+		searchMatches: nil,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("expected items in response")
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok {
+		t.Fatalf("expected items array, got %T", itemsRaw)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected empty items array, got %d items", len(items))
+	}
+}
+
+func TestCardEventsByIDEndpointCardNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"9999": {
+						"id": 9999,
+					},
+				},
+			},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404 when card not found, got %d", resp.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	errorRaw, ok := body["error"]
+	if !ok {
+		t.Fatalf("expected error in response")
+	}
+	errorObj, ok := errorRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected error object, got %T", errorRaw)
+	}
+	if errorObj["code"] != "CARD_NOT_FOUND" {
+		t.Fatalf("expected error code CARD_NOT_FOUND, got %v", errorObj["code"])
+	}
+}
+
 func TestCardEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1069,12 +1541,14 @@ func TestCardEndpointsBlockedWhenRegionSyncInProgress(t *testing.T) {
 	router.GET("/api/v1/cards/:region/:id", cardHandler.ByID)
 	router.GET("/api/v1/cards/:region/:id/params", cardHandler.ParamsByID)
 	router.GET("/api/v1/cards/:region/:id/episodes", cardHandler.EpisodesByID)
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
 	router.GET("/api/v1/cards/:region/list", cardHandler.List)
 
 	testCases := []string{
 		"/api/v1/cards/jp/1001",
 		"/api/v1/cards/jp/1001/params",
 		"/api/v1/cards/jp/1001/episodes",
+		"/api/v1/cards/jp/1001/events",
 		"/api/v1/cards/jp/list?page=1&page_size=20",
 	}
 
