@@ -1763,6 +1763,138 @@ func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64)
 	}
 }
 
+func TestCardHandler_GachaByID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {"id": 1001, "prefix": "Test Card"},
+					"3000": {"id": 3000, "prefix": "No Pickup Card"},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"gachas": {
+				{
+					"id": 10, "name": "First Gacha", "assetbundleName": "ab_gacha_10",
+					"gachaPickups": []any{
+						map[string]any{"gachaId": 10, "cardId": 1001},
+						map[string]any{"gachaId": 10, "cardId": 2000},
+					},
+				},
+				{
+					"id": 20, "name": "Second Gacha", "assetbundleName": "ab_gacha_20",
+					"gachaPickups": []any{
+						map[string]any{"gachaId": 20, "cardId": 1001},
+					},
+				},
+				{
+					"id": 30, "name": "Unrelated Gacha", "assetbundleName": "ab_gacha_30",
+					"gachaPickups": []any{
+						map[string]any{"gachaId": 30, "cardId": 9999},
+					},
+				},
+				{
+					"id": 40, "name": "No Pickups Gacha", "assetbundleName": "ab_gacha_40",
+				},
+			},
+		},
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/gachas", cardHandler.GachaByID)
+
+	t.Run("success - card has pickup gachas", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/gachas", nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", resp.Code)
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+
+		gachasRaw, ok := body["gachas"]
+		if !ok {
+			t.Fatalf("expected gachas in response")
+		}
+		gachas, ok := gachasRaw.([]any)
+		if !ok {
+			t.Fatalf("expected gachas array, got %T", gachasRaw)
+		}
+		if len(gachas) != 2 {
+			t.Fatalf("expected 2 gachas, got %d", len(gachas))
+		}
+
+		first, ok := gachas[0].(map[string]any)
+		if !ok {
+			t.Fatalf("expected first gacha object, got %T", gachas[0])
+		}
+		if first["id"] != float64(10) {
+			t.Fatalf("expected first gacha id=10, got %v", first["id"])
+		}
+		if first["name"] != "First Gacha" {
+			t.Fatalf("expected first gacha name, got %v", first["name"])
+		}
+		if first["assetbundleName"] != "ab_gacha_10" {
+			t.Fatalf("expected first gacha assetbundleName, got %v", first["assetbundleName"])
+		}
+
+		second, ok := gachas[1].(map[string]any)
+		if !ok {
+			t.Fatalf("expected second gacha object, got %T", gachas[1])
+		}
+		if second["id"] != float64(20) {
+			t.Fatalf("expected second gacha id=20, got %v", second["id"])
+		}
+	})
+
+	t.Run("success - card has no pickup gachas", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/3000/gachas", nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", resp.Code)
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+
+		gachasRaw, ok := body["gachas"]
+		if !ok {
+			t.Fatalf("expected gachas in response")
+		}
+		gachas, ok := gachasRaw.([]any)
+		if !ok {
+			t.Fatalf("expected gachas array, got %T", gachasRaw)
+		}
+		if len(gachas) != 0 {
+			t.Fatalf("expected 0 gachas, got %d", len(gachas))
+		}
+	})
+
+	t.Run("card not found", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/9999/gachas", nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("expected status 404, got %d", resp.Code)
+		}
+	})
+}
+
 func assertResponsePaginationTotal(t *testing.T, bodyBytes []byte, expected float64) {
 	t.Helper()
 

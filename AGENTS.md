@@ -110,3 +110,22 @@ The task is done only when these conditions are met:
 - Migrate down: `mise run migrate-down`
 - Start dependencies: `mise run dev-env-up`
 - Stop dependencies: `mise run dev-env-down`
+
+## Cross-Repository Integration (sekai-master-api → sekai-viewer-reborn)
+
+When you change sekai-master-api code (routes, handlers, response types) that affects
+the API contract, the sekai-viewer-reborn SDK (`@platform/sekai-master-api-sdk`) must
+be regenerated. The full workflow is:
+
+1. Make changes in sekai-master-api.
+2. Regenerate Swagger/OpenAPI spec: `mise run swagger`.
+3. Restart the sekai-master-api dev server: `mise run dev`.
+   Wait for the server to be ready before proceeding.
+4. In sekai-viewer-reborn, regenerate the SDK:
+   `mise run update-sekai-master-api-sdk-local`
+   (This calls `http://localhost:18080/docs/openapi.json` by default.)
+5. Validate: `pnpm --filter @platform/sekai-master-api-sdk check` in sekai-viewer-reborn.
+6. Update any apps that consume the new endpoint (e.g. `@apps/content-site`).
+
+The SDK generator overwrites generated artifacts (`src/sdk.gen.ts`, `src/types.gen.ts`,
+`src/index.ts`). Always verify the generated output matches expectations before committing.

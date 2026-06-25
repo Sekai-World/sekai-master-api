@@ -302,6 +302,92 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 	})
 }
 
+// GachaByID godoc
+// @Summary Get card gacha banners by card id
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} shared.CardGachaResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/{id}/gachas [get]
+func (handler *CardHandler) GachaByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	_, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "cards", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "CARD_NOT_FOUND", "card not found")
+		return
+	}
+
+	allGachas, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "gachas")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to query gachas")
+		return
+	}
+
+	targetCardID := shared.NormalizeAnyID(id)
+	gachas := make([]map[string]any, 0)
+
+	for _, gacha := range allGachas {
+		pickupsRaw, ok := gacha["gachaPickups"]
+		if !ok {
+			continue
+		}
+
+		pickups, ok := pickupsRaw.([]any)
+		if !ok || len(pickups) == 0 {
+			continue
+		}
+
+		for _, pickupRaw := range pickups {
+			pickup, ok := pickupRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
+				gachaSummary := make(map[string]any, 3)
+				if value, ok := gacha["id"]; ok {
+					gachaSummary["id"] = value
+				}
+				if value, ok := gacha["name"]; ok {
+					gachaSummary["name"] = value
+				}
+				if value, ok := gacha["assetbundleName"]; ok {
+					gachaSummary["assetbundleName"] = value
+				}
+				gachas = append(gachas, gachaSummary)
+				break
+			}
+		}
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"gachas": gachas,
+	})
+}
+
 func (handler *CardHandler) buildCardEventBonusRange(ctx context.Context, region string, eventID string, card map[string]any, eventCard map[string]any) (float64, float64, bool, error) {
 	eventIDNumber, ok := intFromAny(eventID)
 	if !ok {

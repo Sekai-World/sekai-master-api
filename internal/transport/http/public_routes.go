@@ -5,6 +5,7 @@ import (
 
 	cardhandlers "sekai-master-api/internal/transport/http/handlers/cards"
 	eventhandlers "sekai-master-api/internal/transport/http/handlers/events"
+	gachahandlers "sekai-master-api/internal/transport/http/handlers/gachas"
 	lookuphandlers "sekai-master-api/internal/transport/http/handlers/lookups"
 	musichandlers "sekai-master-api/internal/transport/http/handlers/musics"
 	systemhandlers "sekai-master-api/internal/transport/http/handlers/system"
@@ -18,6 +19,7 @@ func registerPublicRoutes(
 	cardHandler *cardhandlers.CardHandler,
 	musicHandler *musichandlers.MusicHandler,
 	eventHandler *eventhandlers.EventHandler,
+	gachaHandler *gachahandlers.GachaHandler,
 	lookupHandler *lookuphandlers.LookupHandler,
 	virtualLiveHandler *virtuallivehandlers.VirtualLiveHandler,
 ) {
@@ -39,6 +41,7 @@ func registerPublicRoutes(
 	v1.GET("/cards/:region/:id/params", cardHandler.ParamsByID)
 	v1.GET("/cards/:region/:id/episodes", cardHandler.EpisodesByID)
 	v1.GET("/cards/:region/:id/events", cardHandler.EventsByID)
+	v1.GET("/cards/:region/:id/gachas", cardHandler.GachaByID)
 	v1.GET("/musics/regions/:id/availability", musicHandler.AvailableRegionsByID)
 	v1.GET("/musics/:region/list", musicHandler.List)
 	v1.GET("/musics/:region/:id/difficulties", musicHandler.DifficultiesByID)
@@ -52,6 +55,9 @@ func registerPublicRoutes(
 	v1.GET("/events/:region/:id/cards", eventHandler.CardsByID)
 	v1.GET("/events/:region/:id/musics", eventHandler.MusicsByID)
 	v1.GET("/events/:region/:id/rewards", eventHandler.RewardsByID)
+	v1.GET("/gachas/regions/:id/availability", gachaHandler.AvailableRegionsByID)
+	v1.GET("/gachas/:region/list", gachaHandler.List)
+	v1.GET("/gachas/:region/:id", gachaHandler.ByID)
 	v1.GET("/virtualLives/regions/:id/availability", virtualLiveHandler.AvailableRegionsByID)
 	v1.GET("/virtualLives/:region/list", virtualLiveHandler.List)
 	v1.GET("/virtualLives/:region/:id/items", virtualLiveHandler.ItemsByID)

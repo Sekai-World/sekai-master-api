@@ -74,6 +74,13 @@ definitions:
           $ref: '#/definitions/shared.CardEventResponse'
         type: array
     type: object
+  shared.CardGachaResponse:
+    properties:
+      gachas:
+        items:
+          $ref: '#/definitions/shared.GachaBannerResponse'
+        type: array
+    type: object
   shared.CardListResponse:
     properties:
       items:
@@ -437,6 +444,52 @@ definitions:
       name: {}
       startAt: {}
       virtualLiveType: {}
+    type: object
+  shared.GachaBannerResponse:
+    properties:
+      assetbundleName: {}
+      id: {}
+      name: {}
+    type: object
+  shared.GachaListItemResponse:
+    properties:
+      assetbundleName: {}
+      endAt: {}
+      gachaType: {}
+      id: {}
+      name: {}
+      startAt: {}
+    type: object
+  shared.GachaListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.GachaListItemResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.GachaObjectResponse:
+    properties:
+      assetbundleName: {}
+      costCount: {}
+      costResourceId: {}
+      costResourceType: {}
+      endAt: {}
+      gachaPickups:
+        items:
+          $ref: '#/definitions/shared.GachaPickupResponse'
+        type: array
+      gachaType: {}
+      id: {}
+      name: {}
+      startAt: {}
+      summary: {}
+    type: object
+  shared.GachaPickupResponse:
+    properties:
+      cardId: {}
+      weight: {}
     type: object
   shared.GameCharacterListResponse:
     properties:
@@ -1094,6 +1147,45 @@ paths:
       summary: Get card events by card id
       tags:
       - cards
+  /cards/{region}/{id}/gachas:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CardGachaResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get card gacha banners by card id
+      tags:
+      - cards
   /cards/{region}/{id}/params:
     get:
       parameters:
@@ -1609,6 +1701,125 @@ paths:
       summary: Get available regions for an event id
       tags:
       - events
+  /gachas/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Gacha ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GachaObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get gacha basic info by id
+      tags:
+      - gachas
+  /gachas/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Sort field (id|startAt)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GachaListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List gachas by page
+      tags:
+      - gachas
+  /gachas/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Gacha ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get available regions for a gacha id
+      tags:
+      - gachas
   /gameCharacterUnits/{region}/{id}:
     get:
       parameters:
