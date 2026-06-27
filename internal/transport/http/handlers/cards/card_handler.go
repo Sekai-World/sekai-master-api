@@ -1201,25 +1201,196 @@ func (handler *CardHandler) buildCardParams(ctx context.Context, region string, 
 		return result, nil
 	}
 
-	matches, err := handler.masterDataSync.Search(ctx, region, "cardparameters", id, []string{"cardId"}, 1000000)
-	if err != nil {
-		return nil, err
+	// cardParameters is embedded in the card record; avoid Search on a
+	// non-existent standalone entity which would trigger a full region index
+	// rebuild (~10 s). Only fall back to Search if the field is absent.
+	if value, ok := record["cardParameters"]; ok {
+		result["cardParameters"] = value
+	} else {
+		matches, err := handler.masterDataSync.Search(ctx, region, "cardparameters", id, []string{"cardId"}, 1000000)
+		if err != nil {
+			return nil, err
+		}
+
+		items := make([]map[string]any, 0, len(matches))
+		targetCardID := shared.NormalizeAnyID(id)
+		for _, match := range matches {
+			if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+				continue
+			}
+			items = append(items, match.Item)
+		}
+
+		if len(items) > 0 {
+			result["cardParameters"] = items
+		}
 	}
 
-	items := make([]map[string]any, 0, len(matches))
+	return result, nil
+}
+
+// DetailByID godoc
+// @Summary Get card detail composite by id
+// @Description Returns card base info, params, episodes, events, and gachas in a single response
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} shared.CardDetailResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/{id}/detail [get]
+func (handler *CardHandler) DetailByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	card, found, err := handler.masterDataSync.GetByID(ctx, region, "cards", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "CARD_NOT_FOUND", "card not found")
+		return
+	}
+
+	cardBase := handler.buildCardBase(ctx, region, card)
+
+	cardParams, err := handler.buildCardParams(ctx, region, id, card)
+	if err != nil {
+		logging.FromContext(ctx).Warnw("card detail params error", "component", "card-handler", "region", region, "card_id", id, "error", err)
+		cardParams = nil
+	}
+
+	episodes := handler.buildCardDetailEpisodes(ctx, region, id)
+
+	events := handler.buildCardDetailEvents(ctx, region, id, card)
+
+	gachas := handler.buildCardDetailGachas(ctx, region, id)
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"card":     cardBase,
+		"params":   cardParams,
+		"episodes": episodes,
+		"events":   events,
+		"gachas":   gachas,
+	})
+}
+
+func (handler *CardHandler) buildCardDetailEpisodes(ctx context.Context, region string, id string) []map[string]any {
+	matches, err := handler.masterDataSync.Search(ctx, region, "cardepisodes", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		return nil
+	}
+
 	targetCardID := shared.NormalizeAnyID(id)
+	items := make([]map[string]any, 0, len(matches))
 	for _, match := range matches {
 		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
 			continue
 		}
-		items = append(items, match.Item)
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
+	}
+	return items
+}
+
+func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region string, id string, card map[string]any) []map[string]any {
+	matches, err := handler.masterDataSync.Search(ctx, region, "eventcards", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		return nil
 	}
 
-	if len(items) > 0 {
-		result["cardParameters"] = items
-	} else if value, ok := record["cardParameters"]; ok {
-		result["cardParameters"] = value
+	targetCardID := shared.NormalizeAnyID(id)
+	items := make([]map[string]any, 0, len(matches))
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+			continue
+		}
+
+		item := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item)
+
+		eventID := shared.NormalizeAnyID(match.Item["eventId"])
+		if eventID != "" {
+			eventRecord, found, err := handler.masterDataSync.GetByID(ctx, region, "events", eventID)
+			if err == nil && found {
+				eventSummary := make(map[string]any, 7)
+				for _, key := range []string{"id", "name", "eventType", "assetbundleName", "startAt", "aggregateAt", "closedAt"} {
+					if value, ok := eventRecord[key]; ok {
+						eventSummary[key] = value
+					}
+				}
+				item["event"] = eventSummary
+			}
+
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(ctx, region, eventID, card, match.Item)
+			if err == nil && ok {
+				item["finalBonusRateMin"] = normalizeBonusRateValue(bonusMin)
+				item["finalBonusRateMax"] = normalizeBonusRateValue(bonusMax)
+			}
+		}
+
+		items = append(items, item)
+	}
+	return items
+}
+
+func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region string, id string) []map[string]any {
+	allGachas, err := handler.masterDataSync.ListAll(ctx, region, "gachas")
+	if err != nil {
+		return nil
 	}
 
-	return result, nil
+	targetCardID := shared.NormalizeAnyID(id)
+	gachas := make([]map[string]any, 0)
+
+	for _, gacha := range allGachas {
+		pickupsRaw, ok := gacha["gachaPickups"]
+		if !ok {
+			continue
+		}
+
+		pickups, ok := pickupsRaw.([]any)
+		if !ok || len(pickups) == 0 {
+			continue
+		}
+
+		for _, pickupRaw := range pickups {
+			pickup, ok := pickupRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
+				gachaSummary := make(map[string]any, 3)
+				if value, ok := gacha["id"]; ok {
+					gachaSummary["id"] = value
+				}
+				if value, ok := gacha["name"]; ok {
+					gachaSummary["name"] = value
+				}
+				if value, ok := gacha["assetbundleName"]; ok {
+					gachaSummary["assetbundleName"] = value
+				}
+				gachas = append(gachas, gachaSummary)
+				break
+			}
+		}
+	}
+	return gachas
 }

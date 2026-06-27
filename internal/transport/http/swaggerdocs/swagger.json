@@ -495,6 +495,66 @@
                 }
             }
         },
+        "/cards/{region}/{id}/detail": {
+            "get": {
+                "description": "Returns card base info, params, episodes, events, and gachas in a single response",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cards"
+                ],
+                "summary": "Get card detail composite by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Card ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.CardDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/cards/{region}/{id}/episodes": {
             "get": {
                 "produces": [
@@ -2879,6 +2939,26 @@
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "shared.CardDetailResponse": {
+            "type": "object",
+            "properties": {
+                "card": {
+                    "$ref": "#/definitions/shared.CardObjectResponse"
+                },
+                "episodes": {
+                    "$ref": "#/definitions/shared.CardEpisodesResponse"
+                },
+                "events": {
+                    "$ref": "#/definitions/shared.CardEventsResponse"
+                },
+                "gachas": {
+                    "$ref": "#/definitions/shared.CardGachaResponse"
+                },
+                "params": {
+                    "$ref": "#/definitions/shared.CardParamsResponse"
                 }
             }
         },

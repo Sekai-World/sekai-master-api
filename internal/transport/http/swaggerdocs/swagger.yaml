@@ -39,6 +39,19 @@ definitions:
       updated_at:
         type: string
     type: object
+  shared.CardDetailResponse:
+    properties:
+      card:
+        $ref: '#/definitions/shared.CardObjectResponse'
+      episodes:
+        $ref: '#/definitions/shared.CardEpisodesResponse'
+      events:
+        $ref: '#/definitions/shared.CardEventsResponse'
+      gachas:
+        $ref: '#/definitions/shared.CardGachaResponse'
+      params:
+        $ref: '#/definitions/shared.CardParamsResponse'
+    type: object
   shared.CardEpisodeResponse:
     properties:
       cardId: {}
@@ -1067,6 +1080,47 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get card basic info by id
+      tags:
+      - cards
+  /cards/{region}/{id}/detail:
+    get:
+      description: Returns card base info, params, episodes, events, and gachas in
+        a single response
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CardDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get card detail composite by id
       tags:
       - cards
   /cards/{region}/{id}/episodes:

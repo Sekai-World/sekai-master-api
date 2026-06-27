@@ -206,6 +206,14 @@ type CardGachaResponse struct {
 	Gachas []GachaBannerResponse `json:"gachas"`
 }
 
+type CardDetailResponse struct {
+	Card     CardObjectResponse   `json:"card"`
+	Params   CardParamsResponse    `json:"params"`
+	Episodes CardEpisodesResponse  `json:"episodes"`
+	Events   CardEventsResponse    `json:"events"`
+	Gachas   CardGachaResponse     `json:"gachas"`
+}
+
 type GachaPickupResponse struct {
 	CardID any `json:"cardId,omitempty"`
 	Weight any `json:"weight,omitempty"`
