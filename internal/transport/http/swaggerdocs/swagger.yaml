@@ -463,6 +463,51 @@ definitions:
       assetbundleName: {}
       id: {}
       name: {}
+      startAt: {}
+    type: object
+  shared.GachaBehaviorResponse:
+    properties:
+      costResourceId: {}
+      costResourceQuantity: {}
+      costResourceType: {}
+      executeLimit:
+        type: integer
+      gachaBehaviorType:
+        type: string
+      gachaSpinnableType:
+        type: string
+      groupId:
+        type: integer
+      id: {}
+      priority:
+        type: integer
+      resourceCategory:
+        type: string
+      spinCount:
+        type: integer
+    type: object
+  shared.GachaCardRarityRateResponse:
+    properties:
+      cardRarityType:
+        type: string
+      id: {}
+      lotteryType:
+        type: string
+      rate:
+        type: number
+    type: object
+  shared.GachaDetailSubResponse:
+    properties:
+      cardId: {}
+      gachaId: {}
+      id: {}
+      isWish: {}
+      weight: {}
+    type: object
+  shared.GachaInformationResponse:
+    properties:
+      description: {}
+      summary: {}
     type: object
   shared.GachaListItemResponse:
     properties:
@@ -489,15 +534,34 @@ definitions:
       costResourceId: {}
       costResourceType: {}
       endAt: {}
+      gachaBehaviors:
+        items:
+          $ref: '#/definitions/shared.GachaBehaviorResponse'
+        type: array
+      gachaCardRarityRates:
+        items:
+          $ref: '#/definitions/shared.GachaCardRarityRateResponse'
+        type: array
+      gachaCeilItemId: {}
+      gachaDetails:
+        items:
+          $ref: '#/definitions/shared.GachaDetailSubResponse'
+        type: array
+      gachaInformation:
+        $ref: '#/definitions/shared.GachaInformationResponse'
       gachaPickups:
         items:
           $ref: '#/definitions/shared.GachaPickupResponse'
         type: array
       gachaType: {}
       id: {}
+      isShowPeriod: {}
       name: {}
       startAt: {}
       summary: {}
+      wishFixedSelectCount: {}
+      wishLimitedSelectCount: {}
+      wishSelectCount: {}
     type: object
   shared.GachaPickupResponse:
     properties:
@@ -1203,6 +1267,8 @@ paths:
       - cards
   /cards/{region}/{id}/gachas:
     get:
+      description: Returns gacha banners where the specified card appears as a pickup
+        card
       parameters:
       - description: Region
         in: path

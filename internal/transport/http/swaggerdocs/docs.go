@@ -683,6 +683,7 @@ const docTemplate = `{
         },
         "/cards/{region}/{id}/gachas": {
             "get": {
+                "description": "Returns gacha banners where the specified card appears as a pickup card",
                 "produces": [
                     "application/json"
                 ],
@@ -3566,7 +3567,70 @@ const docTemplate = `{
             "properties": {
                 "assetbundleName": {},
                 "id": {},
-                "name": {}
+                "name": {},
+                "startAt": {}
+            }
+        },
+        "shared.GachaBehaviorResponse": {
+            "type": "object",
+            "properties": {
+                "costResourceId": {},
+                "costResourceQuantity": {},
+                "costResourceType": {},
+                "executeLimit": {
+                    "type": "integer"
+                },
+                "gachaBehaviorType": {
+                    "type": "string"
+                },
+                "gachaSpinnableType": {
+                    "type": "string"
+                },
+                "groupId": {
+                    "type": "integer"
+                },
+                "id": {},
+                "priority": {
+                    "type": "integer"
+                },
+                "resourceCategory": {
+                    "type": "string"
+                },
+                "spinCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.GachaCardRarityRateResponse": {
+            "type": "object",
+            "properties": {
+                "cardRarityType": {
+                    "type": "string"
+                },
+                "id": {},
+                "lotteryType": {
+                    "type": "string"
+                },
+                "rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "shared.GachaDetailSubResponse": {
+            "type": "object",
+            "properties": {
+                "cardId": {},
+                "gachaId": {},
+                "id": {},
+                "isWish": {},
+                "weight": {}
+            }
+        },
+        "shared.GachaInformationResponse": {
+            "type": "object",
+            "properties": {
+                "description": {},
+                "summary": {}
             }
         },
         "shared.GachaListItemResponse": {
@@ -3602,6 +3666,28 @@ const docTemplate = `{
                 "costResourceId": {},
                 "costResourceType": {},
                 "endAt": {},
+                "gachaBehaviors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaBehaviorResponse"
+                    }
+                },
+                "gachaCardRarityRates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaCardRarityRateResponse"
+                    }
+                },
+                "gachaCeilItemId": {},
+                "gachaDetails": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaDetailSubResponse"
+                    }
+                },
+                "gachaInformation": {
+                    "$ref": "#/definitions/shared.GachaInformationResponse"
+                },
                 "gachaPickups": {
                     "type": "array",
                     "items": {
@@ -3610,9 +3696,13 @@ const docTemplate = `{
                 },
                 "gachaType": {},
                 "id": {},
+                "isShowPeriod": {},
                 "name": {},
                 "startAt": {},
-                "summary": {}
+                "summary": {},
+                "wishFixedSelectCount": {},
+                "wishLimitedSelectCount": {},
+                "wishSelectCount": {}
             }
         },
         "shared.GachaPickupResponse": {
