@@ -376,6 +376,26 @@ type MusicListResponse struct {
 	Pagination PaginationResponse      `json:"pagination"`
 }
 
+type MusicVocalResponse struct {
+	ID           any   `json:"id,omitempty"`
+	MusicID      any   `json:"musicId,omitempty"`
+	MusicVocalID any   `json:"musicVocalId,omitempty"`
+	VocalType    any   `json:"vocalType,omitempty"`
+	Seq          any   `json:"seq,omitempty"`
+	PublishedAt  any   `json:"publishedAt,omitempty"`
+}
+
+type MusicVocalsResponse struct {
+	Items []MusicVocalResponse `json:"items"`
+}
+
+type MusicDetailResponse struct {
+	Music        MusicObjectResponse          `json:"music,omitempty"`
+	Difficulties []MusicDifficultyDetailResponse `json:"difficulties,omitempty"`
+	Vocals       []MusicVocalResponse         `json:"vocals,omitempty"`
+	Tags         []string                     `json:"tags,omitempty"`
+}
+
 type UnitProfileObjectResponse struct {
 	ID        any `json:"id,omitempty"`
 	Unit      any `json:"unit,omitempty"`

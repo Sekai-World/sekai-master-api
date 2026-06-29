@@ -46,6 +46,8 @@ func registerPublicRoutes(
 	v1.GET("/musics/regions/:id/availability", musicHandler.AvailableRegionsByID)
 	v1.GET("/musics/:region/list", musicHandler.List)
 	v1.GET("/musics/:region/:id/difficulties", musicHandler.DifficultiesByID)
+	v1.GET("/musics/:region/:id/vocals", musicHandler.VocalsByID)
+	v1.GET("/musics/:region/:id/detail", musicHandler.DetailByID)
 	v1.GET("/musics/:region/:id", musicHandler.ByID)
 	v1.GET("/events/regions/:id/availability", eventHandler.AvailableRegionsByID)
 	v1.GET("/events/:region/current", eventHandler.Current)

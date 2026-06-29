@@ -693,6 +693,23 @@ definitions:
       id: {}
       name: {}
     type: object
+  shared.MusicDetailResponse:
+    properties:
+      difficulties:
+        items:
+          $ref: '#/definitions/shared.MusicDifficultyDetailResponse'
+        type: array
+      music:
+        $ref: '#/definitions/shared.MusicObjectResponse'
+      tags:
+        items:
+          type: string
+        type: array
+      vocals:
+        items:
+          $ref: '#/definitions/shared.MusicVocalResponse'
+        type: array
+    type: object
   shared.MusicDifficultiesResponse:
     properties:
       items:
@@ -775,6 +792,22 @@ definitions:
       selfDancerPosition: {}
       seq: {}
       title: {}
+    type: object
+  shared.MusicVocalResponse:
+    properties:
+      id: {}
+      musicId: {}
+      musicVocalId: {}
+      publishedAt: {}
+      seq: {}
+      vocalType: {}
+    type: object
+  shared.MusicVocalsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MusicVocalResponse'
+        type: array
     type: object
   shared.PaginationResponse:
     properties:
@@ -2272,6 +2305,47 @@ paths:
       summary: Get music by id
       tags:
       - musics
+  /musics/{region}/{id}/detail:
+    get:
+      description: Returns music base info, difficulties, vocals, and tags in a single
+        response
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Music ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MusicDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get music detail composite by id
+      tags:
+      - musics
   /musics/{region}/{id}/difficulties:
     get:
       parameters:
@@ -2309,6 +2383,46 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get music difficulties by music id
+      tags:
+      - musics
+  /musics/{region}/{id}/vocals:
+    get:
+      description: Returns all vocal variants for a specific music
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Music ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MusicVocalsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get music vocals by music id
       tags:
       - musics
   /musics/{region}/list:
