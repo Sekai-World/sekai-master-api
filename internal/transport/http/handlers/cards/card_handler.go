@@ -302,19 +302,19 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 	})
 }
 
-	// GachaByID godoc
-	// @Summary Get card gacha banners by card id
-	// @Description Returns gacha banners where the specified card appears as a pickup card
-	// @Tags cards
-	// @Produce json
-	// @Param region path string true "Region"
-	// @Param id path string true "Card ID"
-	// @Success 200 {object} shared.CardGachaResponse
-	// @Failure 400 {object} shared.ErrorResponse
-	// @Failure 404 {object} shared.ErrorResponse
-	// @Failure 503 {object} shared.ErrorResponse
-	// @Failure 500 {object} shared.ErrorResponse
-	// @Router /cards/{region}/{id}/gachas [get]
+// GachaByID godoc
+// @Summary Get card gacha banners by card id
+// @Description Returns gacha banners where the specified card appears as a pickup card
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} shared.CardGachaResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/{id}/gachas [get]
 func (handler *CardHandler) GachaByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
