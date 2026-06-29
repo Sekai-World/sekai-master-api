@@ -236,6 +236,11 @@ func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string
 		"costResourceType",
 		"costResourceId",
 		"costCount",
+		"gachaCeilItemId",
+		"wishFixedSelectCount",
+		"wishLimitedSelectCount",
+		"wishSelectCount",
+		"isShowPeriod",
 	})
 
 	if pickupsRaw, ok := record["gachaPickups"]; ok {
@@ -247,6 +252,53 @@ func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string
 				}
 			}
 			result["gachaPickups"] = items
+		}
+	}
+
+	if ratesRaw, ok := record["gachaCardRarityRates"]; ok {
+		if rates, ok := ratesRaw.([]any); ok {
+			items := make([]map[string]any, 0, len(rates))
+			for _, rateRaw := range rates {
+				if rate, ok := rateRaw.(map[string]any); ok {
+					items = append(items, pickFields(rate, []string{"id", "cardRarityType", "rate", "lotteryType"}))
+				}
+			}
+			result["gachaCardRarityRates"] = items
+		}
+	}
+
+	if behaviorsRaw, ok := record["gachaBehaviors"]; ok {
+		if behaviors, ok := behaviorsRaw.([]any); ok {
+			items := make([]map[string]any, 0, len(behaviors))
+			for _, behaviorRaw := range behaviors {
+				if behavior, ok := behaviorRaw.(map[string]any); ok {
+					items = append(items, pickFields(behavior, []string{
+						"id", "gachaBehaviorType", "gachaSpinnableType",
+						"costResourceType", "costResourceQuantity", "costResourceId",
+						"resourceCategory", "spinCount", "executeLimit",
+						"priority", "groupId",
+					}))
+				}
+			}
+			result["gachaBehaviors"] = items
+		}
+	}
+
+	if detailsRaw, ok := record["gachaDetails"]; ok {
+		if details, ok := detailsRaw.([]any); ok {
+			items := make([]map[string]any, 0, len(details))
+			for _, detailRaw := range details {
+				if detail, ok := detailRaw.(map[string]any); ok {
+					items = append(items, pickFields(detail, []string{"id", "gachaId", "cardId", "weight", "isWish"}))
+				}
+			}
+			result["gachaDetails"] = items
+		}
+	}
+
+	if infoRaw, ok := record["gachaInformation"]; ok {
+		if info, ok := infoRaw.(map[string]any); ok {
+			result["gachaInformation"] = pickFields(info, []string{"summary", "description"})
 		}
 	}
 

@@ -302,18 +302,19 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 	})
 }
 
-// GachaByID godoc
-// @Summary Get card gacha banners by card id
-// @Tags cards
-// @Produce json
-// @Param region path string true "Region"
-// @Param id path string true "Card ID"
-// @Success 200 {object} shared.CardGachaResponse
-// @Failure 400 {object} shared.ErrorResponse
-// @Failure 404 {object} shared.ErrorResponse
-// @Failure 503 {object} shared.ErrorResponse
-// @Failure 500 {object} shared.ErrorResponse
-// @Router /cards/{region}/{id}/gachas [get]
+	// GachaByID godoc
+	// @Summary Get card gacha banners by card id
+	// @Description Returns gacha banners where the specified card appears as a pickup card
+	// @Tags cards
+	// @Produce json
+	// @Param region path string true "Region"
+	// @Param id path string true "Card ID"
+	// @Success 200 {object} shared.CardGachaResponse
+	// @Failure 400 {object} shared.ErrorResponse
+	// @Failure 404 {object} shared.ErrorResponse
+	// @Failure 503 {object} shared.ErrorResponse
+	// @Failure 500 {object} shared.ErrorResponse
+	// @Router /cards/{region}/{id}/gachas [get]
 func (handler *CardHandler) GachaByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
@@ -367,7 +368,7 @@ func (handler *CardHandler) GachaByID(c *gin.Context) {
 			}
 
 			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
-				gachaSummary := make(map[string]any, 3)
+				gachaSummary := make(map[string]any, 4)
 				if value, ok := gacha["id"]; ok {
 					gachaSummary["id"] = value
 				}
@@ -376,6 +377,9 @@ func (handler *CardHandler) GachaByID(c *gin.Context) {
 				}
 				if value, ok := gacha["assetbundleName"]; ok {
 					gachaSummary["assetbundleName"] = value
+				}
+				if value, ok := gacha["startAt"]; ok {
+					gachaSummary["startAt"] = value
 				}
 				gachas = append(gachas, gachaSummary)
 				break
@@ -1377,7 +1381,7 @@ func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region st
 			}
 
 			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
-				gachaSummary := make(map[string]any, 3)
+				gachaSummary := make(map[string]any, 4)
 				if value, ok := gacha["id"]; ok {
 					gachaSummary["id"] = value
 				}
@@ -1386,6 +1390,9 @@ func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region st
 				}
 				if value, ok := gacha["assetbundleName"]; ok {
 					gachaSummary["assetbundleName"] = value
+				}
+				if value, ok := gacha["startAt"]; ok {
+					gachaSummary["startAt"] = value
 				}
 				gachas = append(gachas, gachaSummary)
 				break
