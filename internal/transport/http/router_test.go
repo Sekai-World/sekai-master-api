@@ -306,6 +306,18 @@ func TestCardEpisodesUnavailable(t *testing.T) {
 	}
 }
 
+func TestCardEventsUnavailable(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/events", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on card events when service unavailable, got %d", resp.Code)
+	}
+}
+
 func TestCardListUnavailable(t *testing.T) {
 	router := setupRouter(t)
 

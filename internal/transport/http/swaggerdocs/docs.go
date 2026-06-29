@@ -503,6 +503,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/cards/{region}/{id}/detail": {
+            "get": {
+                "description": "Returns card base info, params, episodes, events, and gachas in a single response",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cards"
+                ],
+                "summary": "Get card detail composite by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Card ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.CardDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/cards/{region}/{id}/episodes": {
             "get": {
                 "produces": [
@@ -533,6 +593,125 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/shared.CardEpisodesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/cards/{region}/{id}/events": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cards"
+                ],
+                "summary": "Get card events by card id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Card ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.CardEventsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/cards/{region}/{id}/gachas": {
+            "get": {
+                "description": "Returns gacha banners where the specified card appears as a pickup card",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cards"
+                ],
+                "summary": "Get card gacha banners by card id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Card ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.CardGachaResponse"
                         }
                     },
                     "400": {
@@ -1144,6 +1323,187 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/shared.EventRewardsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/gachas/regions/{id}/availability": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gachas"
+                ],
+                "summary": "Get available regions for a gacha id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Gacha ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.RegionAvailabilityResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/gachas/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gachas"
+                ],
+                "summary": "List gachas by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id|startAt)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc|desc)",
+                        "name": "sort_order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GachaListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/gachas/{region}/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gachas"
+                ],
+                "summary": "Get gacha basic info by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Gacha ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GachaObjectResponse"
                         }
                     },
                     "400": {
@@ -2591,6 +2951,26 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.CardDetailResponse": {
+            "type": "object",
+            "properties": {
+                "card": {
+                    "$ref": "#/definitions/shared.CardObjectResponse"
+                },
+                "episodes": {
+                    "$ref": "#/definitions/shared.CardEpisodesResponse"
+                },
+                "events": {
+                    "$ref": "#/definitions/shared.CardEventsResponse"
+                },
+                "gachas": {
+                    "$ref": "#/definitions/shared.CardGachaResponse"
+                },
+                "params": {
+                    "$ref": "#/definitions/shared.CardParamsResponse"
+                }
+            }
+        },
         "shared.CardEpisodeResponse": {
             "type": "object",
             "properties": {
@@ -2609,6 +2989,45 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/shared.CardEpisodeResponse"
+                    }
+                }
+            }
+        },
+        "shared.CardEventResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRate": {},
+                "cardId": {},
+                "event": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "eventId": {},
+                "finalBonusRateMax": {},
+                "finalBonusRateMin": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                }
+            }
+        },
+        "shared.CardEventsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CardEventResponse"
+                    }
+                }
+            }
+        },
+        "shared.CardGachaResponse": {
+            "type": "object",
+            "properties": {
+                "gachas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaBannerResponse"
                     }
                 }
             }
@@ -3141,6 +3560,156 @@ const docTemplate = `{
                 "name": {},
                 "startAt": {},
                 "virtualLiveType": {}
+            }
+        },
+        "shared.GachaBannerResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {},
+                "id": {},
+                "name": {},
+                "startAt": {}
+            }
+        },
+        "shared.GachaBehaviorResponse": {
+            "type": "object",
+            "properties": {
+                "costResourceId": {},
+                "costResourceQuantity": {},
+                "costResourceType": {},
+                "executeLimit": {
+                    "type": "integer"
+                },
+                "gachaBehaviorType": {
+                    "type": "string"
+                },
+                "gachaSpinnableType": {
+                    "type": "string"
+                },
+                "groupId": {
+                    "type": "integer"
+                },
+                "id": {},
+                "priority": {
+                    "type": "integer"
+                },
+                "resourceCategory": {
+                    "type": "string"
+                },
+                "spinCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.GachaCardRarityRateResponse": {
+            "type": "object",
+            "properties": {
+                "cardRarityType": {
+                    "type": "string"
+                },
+                "id": {},
+                "lotteryType": {
+                    "type": "string"
+                },
+                "rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "shared.GachaDetailSubResponse": {
+            "type": "object",
+            "properties": {
+                "cardId": {},
+                "gachaId": {},
+                "id": {},
+                "isWish": {},
+                "weight": {}
+            }
+        },
+        "shared.GachaInformationResponse": {
+            "type": "object",
+            "properties": {
+                "description": {},
+                "summary": {}
+            }
+        },
+        "shared.GachaListItemResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {},
+                "endAt": {},
+                "gachaType": {},
+                "id": {},
+                "name": {},
+                "startAt": {}
+            }
+        },
+        "shared.GachaListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaListItemResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.GachaObjectResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {},
+                "costCount": {},
+                "costResourceId": {},
+                "costResourceType": {},
+                "endAt": {},
+                "gachaBehaviors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaBehaviorResponse"
+                    }
+                },
+                "gachaCardRarityRates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaCardRarityRateResponse"
+                    }
+                },
+                "gachaCeilItemId": {},
+                "gachaDetails": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaDetailSubResponse"
+                    }
+                },
+                "gachaInformation": {
+                    "$ref": "#/definitions/shared.GachaInformationResponse"
+                },
+                "gachaPickups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaPickupResponse"
+                    }
+                },
+                "gachaType": {},
+                "id": {},
+                "isShowPeriod": {},
+                "name": {},
+                "startAt": {},
+                "summary": {},
+                "wishFixedSelectCount": {},
+                "wishLimitedSelectCount": {},
+                "wishSelectCount": {}
+            }
+        },
+        "shared.GachaPickupResponse": {
+            "type": "object",
+            "properties": {
+                "cardId": {},
+                "weight": {}
             }
         },
         "shared.GameCharacterListResponse": {

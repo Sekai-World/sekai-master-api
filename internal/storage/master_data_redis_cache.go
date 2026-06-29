@@ -807,6 +807,43 @@ func (cache *RedisMasterDataCache) getEntityRecordsByIDs(ctx context.Context, re
 	return items, nil
 }
 
+func (cache *RedisMasterDataCache) getEntityRecordsByIDsMapped(ctx context.Context, region string, entity string, ids []string) (map[string]map[string]any, error) {
+	if len(ids) == 0 {
+		return map[string]map[string]any{}, nil
+	}
+
+	const hmgetBatchSize = 500
+
+	entityKey := cache.redisEntityKey(region, entity)
+	result := make(map[string]map[string]any, len(ids))
+	for start := 0; start < len(ids); start += hmgetBatchSize {
+		end := start + hmgetBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+
+		batchIDs := ids[start:end]
+		values, err := cache.client.HMGet(ctx, entityKey, batchIDs...).Result()
+		if err != nil {
+			return nil, fmt.Errorf("hmget region %s entity %s: %w", region, entity, err)
+		}
+
+		for index, raw := range values {
+			if raw == nil {
+				continue
+			}
+
+			record, err := unmarshalRedisEntityRecord(raw, region, entity, batchIDs[index])
+			if err != nil {
+				return nil, err
+			}
+			result[batchIDs[index]] = record
+		}
+	}
+
+	return result, nil
+}
+
 func unmarshalRedisEntityRecord(raw any, region string, entity string, id string) (map[string]any, error) {
 	var body []byte
 	switch typed := raw.(type) {
@@ -960,6 +997,26 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 		selectedFields = []string{"name"}
 	}
 
+	// Short-circuit: single "id" field + query that normalizes to itself → direct HGET.
+	// Avoids full index scan for the common composite-handler pattern (field="id", query="41").
+	if len(selectedFields) == 1 && selectedFields[0] == "id" && normalizedQuery == strings.ToLower(strings.TrimSpace(query)) {
+		record, exists, fastErr := cache.GetByID(ctx, regionName, entityName, normalizedQuery)
+		if fastErr != nil {
+			return nil, fastErr
+		}
+		if !exists {
+			return []masterdata.SearchMatch{}, nil
+		}
+		return []masterdata.SearchMatch{
+			{
+				Item:         record,
+				MatchScore:   100,
+				MatchType:    "exact",
+				MatchedField: "id",
+			},
+		}, nil
+	}
+
 	type scoredCandidate struct {
 		IDIndex      uint32
 		Score        int
@@ -1008,18 +1065,31 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 		candidates = candidates[:limit]
 	}
 
-	results := make([]masterdata.SearchMatch, 0, len(candidates))
+	// Batch HMGET instead of per-record HGET loop.
+	candidateIDs := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		recordID := entityIndex.idsValue(candidate.IDIndex)
 		if recordID == "" {
 			continue
 		}
+		candidateIDs = append(candidateIDs, recordID)
+	}
 
-		record, exists, err := cache.GetByID(ctx, regionName, entityName, recordID)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
+	if len(candidateIDs) == 0 {
+		span.SetAttributes(attribute.Int("result.count", 0))
+		return []masterdata.SearchMatch{}, nil
+	}
+
+	recordByID, batchErr := cache.getEntityRecordsByIDsMapped(ctx, regionName, entityName, candidateIDs)
+	if batchErr != nil {
+		return nil, batchErr
+	}
+
+	results := make([]masterdata.SearchMatch, 0, len(candidates))
+	for _, candidate := range candidates {
+		recordID := entityIndex.idsValue(candidate.IDIndex)
+		record, found := recordByID[recordID]
+		if !found {
 			continue
 		}
 

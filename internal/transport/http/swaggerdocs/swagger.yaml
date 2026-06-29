@@ -39,6 +39,19 @@ definitions:
       updated_at:
         type: string
     type: object
+  shared.CardDetailResponse:
+    properties:
+      card:
+        $ref: '#/definitions/shared.CardObjectResponse'
+      episodes:
+        $ref: '#/definitions/shared.CardEpisodesResponse'
+      events:
+        $ref: '#/definitions/shared.CardEventsResponse'
+      gachas:
+        $ref: '#/definitions/shared.CardGachaResponse'
+      params:
+        $ref: '#/definitions/shared.CardParamsResponse'
+    type: object
   shared.CardEpisodeResponse:
     properties:
       cardId: {}
@@ -52,6 +65,33 @@ definitions:
       items:
         items:
           $ref: '#/definitions/shared.CardEpisodeResponse'
+        type: array
+    type: object
+  shared.CardEventResponse:
+    properties:
+      bonusRate: {}
+      cardId: {}
+      event:
+        additionalProperties: {}
+        type: object
+      eventId: {}
+      finalBonusRateMax: {}
+      finalBonusRateMin: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
+    type: object
+  shared.CardEventsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.CardEventResponse'
+        type: array
+    type: object
+  shared.CardGachaResponse:
+    properties:
+      gachas:
+        items:
+          $ref: '#/definitions/shared.GachaBannerResponse'
         type: array
     type: object
   shared.CardListResponse:
@@ -417,6 +457,116 @@ definitions:
       name: {}
       startAt: {}
       virtualLiveType: {}
+    type: object
+  shared.GachaBannerResponse:
+    properties:
+      assetbundleName: {}
+      id: {}
+      name: {}
+      startAt: {}
+    type: object
+  shared.GachaBehaviorResponse:
+    properties:
+      costResourceId: {}
+      costResourceQuantity: {}
+      costResourceType: {}
+      executeLimit:
+        type: integer
+      gachaBehaviorType:
+        type: string
+      gachaSpinnableType:
+        type: string
+      groupId:
+        type: integer
+      id: {}
+      priority:
+        type: integer
+      resourceCategory:
+        type: string
+      spinCount:
+        type: integer
+    type: object
+  shared.GachaCardRarityRateResponse:
+    properties:
+      cardRarityType:
+        type: string
+      id: {}
+      lotteryType:
+        type: string
+      rate:
+        type: number
+    type: object
+  shared.GachaDetailSubResponse:
+    properties:
+      cardId: {}
+      gachaId: {}
+      id: {}
+      isWish: {}
+      weight: {}
+    type: object
+  shared.GachaInformationResponse:
+    properties:
+      description: {}
+      summary: {}
+    type: object
+  shared.GachaListItemResponse:
+    properties:
+      assetbundleName: {}
+      endAt: {}
+      gachaType: {}
+      id: {}
+      name: {}
+      startAt: {}
+    type: object
+  shared.GachaListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.GachaListItemResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.GachaObjectResponse:
+    properties:
+      assetbundleName: {}
+      costCount: {}
+      costResourceId: {}
+      costResourceType: {}
+      endAt: {}
+      gachaBehaviors:
+        items:
+          $ref: '#/definitions/shared.GachaBehaviorResponse'
+        type: array
+      gachaCardRarityRates:
+        items:
+          $ref: '#/definitions/shared.GachaCardRarityRateResponse'
+        type: array
+      gachaCeilItemId: {}
+      gachaDetails:
+        items:
+          $ref: '#/definitions/shared.GachaDetailSubResponse'
+        type: array
+      gachaInformation:
+        $ref: '#/definitions/shared.GachaInformationResponse'
+      gachaPickups:
+        items:
+          $ref: '#/definitions/shared.GachaPickupResponse'
+        type: array
+      gachaType: {}
+      id: {}
+      isShowPeriod: {}
+      name: {}
+      startAt: {}
+      summary: {}
+      wishFixedSelectCount: {}
+      wishLimitedSelectCount: {}
+      wishSelectCount: {}
+    type: object
+  shared.GachaPickupResponse:
+    properties:
+      cardId: {}
+      weight: {}
     type: object
   shared.GameCharacterListResponse:
     properties:
@@ -996,6 +1146,47 @@ paths:
       summary: Get card basic info by id
       tags:
       - cards
+  /cards/{region}/{id}/detail:
+    get:
+      description: Returns card base info, params, episodes, events, and gachas in
+        a single response
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CardDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get card detail composite by id
+      tags:
+      - cards
   /cards/{region}/{id}/episodes:
     get:
       parameters:
@@ -1033,6 +1224,86 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get card episodes by card id
+      tags:
+      - cards
+  /cards/{region}/{id}/events:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CardEventsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get card events by card id
+      tags:
+      - cards
+  /cards/{region}/{id}/gachas:
+    get:
+      description: Returns gacha banners where the specified card appears as a pickup
+        card
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CardGachaResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get card gacha banners by card id
       tags:
       - cards
   /cards/{region}/{id}/params:
@@ -1550,6 +1821,125 @@ paths:
       summary: Get available regions for an event id
       tags:
       - events
+  /gachas/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Gacha ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GachaObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get gacha basic info by id
+      tags:
+      - gachas
+  /gachas/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Sort field (id|startAt)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GachaListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List gachas by page
+      tags:
+      - gachas
+  /gachas/regions/{id}/availability:
+    get:
+      parameters:
+      - description: Gacha ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.RegionAvailabilityResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get available regions for a gacha id
+      tags:
+      - gachas
   /gameCharacterUnits/{region}/{id}:
     get:
       parameters:

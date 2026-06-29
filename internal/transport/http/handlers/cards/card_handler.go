@@ -2,6 +2,7 @@ package cards
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -149,7 +150,13 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, buildCardParams(record))
+	params, err := handler.buildCardParams(c.Request.Context(), region, id, record)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card params")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, params)
 }
 
 // EpisodesByID godoc
@@ -208,6 +215,406 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 	response.JSON(c, http.StatusOK, gin.H{
 		"items": items,
 	})
+}
+
+// EventsByID godoc
+// @Summary Get card events by card id
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} shared.CardEventsResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/{id}/events [get]
+func (handler *CardHandler) EventsByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	cardRecord, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "cards", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "CARD_NOT_FOUND", "card not found")
+		return
+	}
+
+	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "eventcards", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card events")
+		return
+	}
+
+	items := make([]map[string]any, 0, len(matches))
+	targetCardID := shared.NormalizeAnyID(id)
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+			continue
+		}
+
+		item := shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, match.Item)
+
+		eventID := shared.NormalizeAnyID(match.Item["eventId"])
+		if eventID != "" {
+			eventRecord, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "events", eventID)
+			if err == nil && found {
+				eventSummary := make(map[string]any, 7)
+				for _, key := range []string{"id", "name", "eventType", "assetbundleName", "startAt", "aggregateAt", "closedAt"} {
+					if value, ok := eventRecord[key]; ok {
+						eventSummary[key] = value
+					}
+				}
+				item["event"] = eventSummary
+			}
+
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(c.Request.Context(), region, eventID, cardRecord, match.Item)
+			if err != nil {
+				response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card event bonuses")
+				return
+			}
+			if ok {
+				item["finalBonusRateMin"] = normalizeBonusRateValue(bonusMin)
+				item["finalBonusRateMax"] = normalizeBonusRateValue(bonusMax)
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"items": items,
+	})
+}
+
+// GachaByID godoc
+// @Summary Get card gacha banners by card id
+// @Description Returns gacha banners where the specified card appears as a pickup card
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} shared.CardGachaResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/{id}/gachas [get]
+func (handler *CardHandler) GachaByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	_, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "cards", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "CARD_NOT_FOUND", "card not found")
+		return
+	}
+
+	allGachas, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "gachas")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to query gachas")
+		return
+	}
+
+	targetCardID := shared.NormalizeAnyID(id)
+	gachas := make([]map[string]any, 0)
+
+	for _, gacha := range allGachas {
+		pickupsRaw, ok := gacha["gachaPickups"]
+		if !ok {
+			continue
+		}
+
+		pickups, ok := pickupsRaw.([]any)
+		if !ok || len(pickups) == 0 {
+			continue
+		}
+
+		for _, pickupRaw := range pickups {
+			pickup, ok := pickupRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
+				gachaSummary := make(map[string]any, 4)
+				if value, ok := gacha["id"]; ok {
+					gachaSummary["id"] = value
+				}
+				if value, ok := gacha["name"]; ok {
+					gachaSummary["name"] = value
+				}
+				if value, ok := gacha["assetbundleName"]; ok {
+					gachaSummary["assetbundleName"] = value
+				}
+				if value, ok := gacha["startAt"]; ok {
+					gachaSummary["startAt"] = value
+				}
+				gachas = append(gachas, gachaSummary)
+				break
+			}
+		}
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"gachas": gachas,
+	})
+}
+
+func (handler *CardHandler) buildCardEventBonusRange(ctx context.Context, region string, eventID string, card map[string]any, eventCard map[string]any) (float64, float64, bool, error) {
+	eventIDNumber, ok := intFromAny(eventID)
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	characterID, ok := intFromAny(card["characterId"])
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	rarityType, ok := stringFromAny(card["cardRarityType"])
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	baseBonus := numberFromAnyOrZero(eventCard["bonusRate"])
+	deckBonus, specialBonus, err := handler.cardEventDeckBonus(ctx, region, eventIDNumber, card, characterID)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	baseBonus += deckBonus + specialBonus
+
+	rarityMin, rarityMax, ok := masterRankBonusRange(eventIDNumber, rarityType)
+	if !ok {
+		return 0, 0, false, nil
+	}
+
+	return baseBonus + rarityMin, baseBonus + rarityMax, true, nil
+}
+
+func (handler *CardHandler) cardEventDeckBonus(ctx context.Context, region string, eventID int, card map[string]any, characterID int) (float64, float64, error) {
+	deckBonuses, err := handler.masterDataSync.ListAll(ctx, region, "eventdeckbonuses")
+	if err != nil {
+		return 0, 0, err
+	}
+	gameCharacterUnits, err := handler.masterDataSync.ListAll(ctx, region, "gamecharacterunits")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	unitByID := make(map[int]map[string]any, len(gameCharacterUnits))
+	for _, unit := range gameCharacterUnits {
+		unitID, ok := intFromAny(unit["id"])
+		if ok {
+			unitByID[unitID] = unit
+		}
+	}
+
+	cardAttr, _ := stringFromAny(card["attr"])
+	cardSupportUnit, _ := stringFromAny(card["supportUnit"])
+	var matchedDeckBonus float64
+	matchedDeckBonusFound := false
+	virtualSingerSpecialBonus := 0.0
+	virtualSingerSpecialFound := false
+
+	for _, deckBonus := range deckBonuses {
+		bonusEventID, ok := intFromAny(deckBonus["eventId"])
+		if !ok || bonusEventID != eventID {
+			continue
+		}
+
+		deckBonusRate := numberFromAnyOrZero(deckBonus["bonusRate"])
+		deckAttr, hasDeckAttr := stringFromAny(deckBonus["cardAttr"])
+		gameCharacterUnitID, hasGameCharacterUnitID := intFromAny(deckBonus["gameCharacterUnitId"])
+
+		if !hasGameCharacterUnitID {
+			if hasDeckAttr && deckAttr == cardAttr && !matchedDeckBonusFound {
+				matchedDeckBonus = deckBonusRate
+				matchedDeckBonusFound = true
+			}
+			continue
+		}
+
+		unit, found := unitByID[gameCharacterUnitID]
+		if !found {
+			continue
+		}
+		unitCharacterID, ok := intFromAny(unit["gameCharacterId"])
+		if !ok || unitCharacterID != characterID {
+			continue
+		}
+
+		unitCode, _ := stringFromAny(unit["unit"])
+		if characterID >= 21 && !virtualSingerSpecialFound && (unitCode == "piapro" || cardSupportUnit == "none") {
+			virtualSingerSpecialBonus = 15
+			if eventID >= 135 {
+				virtualSingerSpecialBonus += 10
+			}
+			virtualSingerSpecialFound = true
+		}
+
+		attrMatches := !hasDeckAttr || deckAttr == cardAttr
+		if !attrMatches || matchedDeckBonusFound {
+			continue
+		}
+
+		if characterID < 21 || unitCode == "piapro" || cardSupportUnit == unitCode {
+			matchedDeckBonus = deckBonusRate
+			matchedDeckBonusFound = true
+		}
+	}
+
+	return matchedDeckBonus, virtualSingerSpecialBonus, nil
+}
+
+func masterRankBonusRange(eventID int, rarityType string) (float64, float64, bool) {
+	masterRankBonusVersions := []struct {
+		maxEventID int
+		bonuses    map[string][2]float64
+	}{
+		{
+			maxEventID: 35,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0},
+				"rarity_2":        {0, 0},
+				"rarity_3":        {0, 0},
+				"rarity_4":        {0, 0},
+				"rarity_birthday": {0, 0},
+			},
+		},
+		{
+			maxEventID: 53,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0.5},
+				"rarity_2":        {0, 1},
+				"rarity_3":        {0, 5},
+				"rarity_4":        {0, 10},
+				"rarity_birthday": {0, 7.5},
+			},
+		},
+		{
+			maxEventID: 107,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0.5},
+				"rarity_2":        {0, 1},
+				"rarity_3":        {0, 5},
+				"rarity_4":        {0, 15},
+				"rarity_birthday": {0, 10},
+			},
+		},
+		{
+			maxEventID: 999,
+			bonuses: map[string][2]float64{
+				"rarity_1":        {0, 0.5},
+				"rarity_2":        {0, 1},
+				"rarity_3":        {0, 5},
+				"rarity_4":        {10, 25},
+				"rarity_birthday": {5, 15},
+			},
+		},
+	}
+
+	for _, version := range masterRankBonusVersions {
+		if eventID <= version.maxEventID {
+			bonus, ok := version.bonuses[rarityType]
+			return bonus[0], bonus[1], ok
+		}
+	}
+
+	return 0, 0, false
+}
+
+func stringFromAny(value any) (string, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	return text, text != ""
+}
+
+func intFromAny(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		if math.Trunc(typed) == typed {
+			return int(typed), true
+		}
+	case float32:
+		floatValue := float64(typed)
+		if math.Trunc(floatValue) == floatValue {
+			return int(floatValue), true
+		}
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed, true
+		}
+	}
+
+	return 0, false
+}
+
+func numberFromAnyOrZero(value any) float64 {
+	switch typed := value.(type) {
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err == nil {
+			return parsed
+		}
+	}
+
+	return 0
+}
+
+func normalizeBonusRateValue(value float64) any {
+	if math.Trunc(value) == value {
+		return int(value)
+	}
+
+	return value
 }
 
 // List godoc
@@ -774,9 +1181,9 @@ func findExactCardRarityByType(matches []masterdata.SearchMatch, rarityType stri
 	return nil
 }
 
-func buildCardParams(record map[string]any) map[string]any {
+func (handler *CardHandler) buildCardParams(ctx context.Context, region string, id string, record map[string]any) (map[string]any, error) {
 	if record == nil {
-		return map[string]any{}
+		return map[string]any{}, nil
 	}
 
 	result := map[string]any{}
@@ -785,12 +1192,212 @@ func buildCardParams(record map[string]any) map[string]any {
 		"specialTrainingPower1BonusFixed",
 		"specialTrainingPower2BonusFixed",
 		"specialTrainingPower3BonusFixed",
-		"cardParameters",
 	} {
 		if value, ok := record[key]; ok {
 			result[key] = value
 		}
 	}
 
-	return result
+	if handler == nil || handler.masterDataSync == nil {
+		if value, ok := record["cardParameters"]; ok {
+			result["cardParameters"] = value
+		}
+		return result, nil
+	}
+
+	// cardParameters is embedded in the card record; avoid Search on a
+	// non-existent standalone entity which would trigger a full region index
+	// rebuild (~10 s). Only fall back to Search if the field is absent.
+	if value, ok := record["cardParameters"]; ok {
+		result["cardParameters"] = value
+	} else {
+		matches, err := handler.masterDataSync.Search(ctx, region, "cardparameters", id, []string{"cardId"}, 1000000)
+		if err != nil {
+			return nil, err
+		}
+
+		items := make([]map[string]any, 0, len(matches))
+		targetCardID := shared.NormalizeAnyID(id)
+		for _, match := range matches {
+			if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+				continue
+			}
+			items = append(items, match.Item)
+		}
+
+		if len(items) > 0 {
+			result["cardParameters"] = items
+		}
+	}
+
+	return result, nil
+}
+
+// DetailByID godoc
+// @Summary Get card detail composite by id
+// @Description Returns card base info, params, episodes, events, and gachas in a single response
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Card ID"
+// @Success 200 {object} shared.CardDetailResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/{id}/detail [get]
+func (handler *CardHandler) DetailByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	card, found, err := handler.masterDataSync.GetByID(ctx, region, "cards", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "CARD_NOT_FOUND", "card not found")
+		return
+	}
+
+	cardBase := handler.buildCardBase(ctx, region, card)
+
+	cardParams, err := handler.buildCardParams(ctx, region, id, card)
+	if err != nil {
+		logging.FromContext(ctx).Warnw("card detail params error", "component", "card-handler", "region", region, "card_id", id, "error", err)
+		cardParams = nil
+	}
+
+	episodes := handler.buildCardDetailEpisodes(ctx, region, id)
+
+	events := handler.buildCardDetailEvents(ctx, region, id, card)
+
+	gachas := handler.buildCardDetailGachas(ctx, region, id)
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"card":     cardBase,
+		"params":   cardParams,
+		"episodes": episodes,
+		"events":   events,
+		"gachas":   gachas,
+	})
+}
+
+func (handler *CardHandler) buildCardDetailEpisodes(ctx context.Context, region string, id string) []map[string]any {
+	matches, err := handler.masterDataSync.Search(ctx, region, "cardepisodes", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		return nil
+	}
+
+	targetCardID := shared.NormalizeAnyID(id)
+	items := make([]map[string]any, 0, len(matches))
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+			continue
+		}
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
+	}
+	return items
+}
+
+func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region string, id string, card map[string]any) []map[string]any {
+	matches, err := handler.masterDataSync.Search(ctx, region, "eventcards", id, []string{"cardId"}, 1000000)
+	if err != nil {
+		return nil
+	}
+
+	targetCardID := shared.NormalizeAnyID(id)
+	items := make([]map[string]any, 0, len(matches))
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
+			continue
+		}
+
+		item := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item)
+
+		eventID := shared.NormalizeAnyID(match.Item["eventId"])
+		if eventID != "" {
+			eventRecord, found, err := handler.masterDataSync.GetByID(ctx, region, "events", eventID)
+			if err == nil && found {
+				eventSummary := make(map[string]any, 7)
+				for _, key := range []string{"id", "name", "eventType", "assetbundleName", "startAt", "aggregateAt", "closedAt"} {
+					if value, ok := eventRecord[key]; ok {
+						eventSummary[key] = value
+					}
+				}
+				item["event"] = eventSummary
+			}
+
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(ctx, region, eventID, card, match.Item)
+			if err == nil && ok {
+				item["finalBonusRateMin"] = normalizeBonusRateValue(bonusMin)
+				item["finalBonusRateMax"] = normalizeBonusRateValue(bonusMax)
+			}
+		}
+
+		items = append(items, item)
+	}
+	return items
+}
+
+func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region string, id string) []map[string]any {
+	allGachas, err := handler.masterDataSync.ListAll(ctx, region, "gachas")
+	if err != nil {
+		return nil
+	}
+
+	targetCardID := shared.NormalizeAnyID(id)
+	gachas := make([]map[string]any, 0)
+
+	for _, gacha := range allGachas {
+		pickupsRaw, ok := gacha["gachaPickups"]
+		if !ok {
+			continue
+		}
+
+		pickups, ok := pickupsRaw.([]any)
+		if !ok || len(pickups) == 0 {
+			continue
+		}
+
+		for _, pickupRaw := range pickups {
+			pickup, ok := pickupRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
+				gachaSummary := make(map[string]any, 4)
+				if value, ok := gacha["id"]; ok {
+					gachaSummary["id"] = value
+				}
+				if value, ok := gacha["name"]; ok {
+					gachaSummary["name"] = value
+				}
+				if value, ok := gacha["assetbundleName"]; ok {
+					gachaSummary["assetbundleName"] = value
+				}
+				if value, ok := gacha["startAt"]; ok {
+					gachaSummary["startAt"] = value
+				}
+				gachas = append(gachas, gachaSummary)
+				break
+			}
+		}
+	}
+	return gachas
 }

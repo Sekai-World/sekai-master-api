@@ -19,6 +19,7 @@ import (
 	adminhandlers "sekai-master-api/internal/transport/http/handlers/admin"
 	cardhandlers "sekai-master-api/internal/transport/http/handlers/cards"
 	eventhandlers "sekai-master-api/internal/transport/http/handlers/events"
+	gachahandlers "sekai-master-api/internal/transport/http/handlers/gachas"
 	lookuphandlers "sekai-master-api/internal/transport/http/handlers/lookups"
 	musichandlers "sekai-master-api/internal/transport/http/handlers/musics"
 	systemhandlers "sekai-master-api/internal/transport/http/handlers/system"
@@ -66,6 +67,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	cardHandler := cardhandlers.NewCardHandler(masterDataSync)
 	musicHandler := musichandlers.NewMusicHandler(masterDataSync)
 	eventHandler := eventhandlers.NewEventHandler(masterDataSync)
+	gachaHandler := gachahandlers.NewGachaHandler(masterDataSync)
 	lookupHandler := lookuphandlers.NewLookupHandler(masterDataSync)
 	virtualLiveHandler := virtuallivehandlers.NewVirtualLiveHandler(masterDataSync)
 	masterDataAdminHandler := adminhandlers.NewMasterDataAdminHandler(masterDataSync, startupState)
@@ -75,7 +77,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	}
 
 	v1 := router.Group("/api/v1")
-	registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, lookupHandler, virtualLiveHandler)
+	registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, gachaHandler, lookupHandler, virtualLiveHandler)
 	registerInternalRoutes(v1, gitHubWebhookHandler)
 
 	registerAdminRoutes(

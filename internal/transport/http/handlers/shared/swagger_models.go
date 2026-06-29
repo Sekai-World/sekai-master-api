@@ -182,6 +182,115 @@ type CardEpisodesResponse struct {
 	Items []CardEpisodeResponse `json:"items"`
 }
 
+type CardEventResponse struct {
+	EventID           any                       `json:"eventId,omitempty"`
+	CardID            any                       `json:"cardId,omitempty"`
+	BonusRate         any                       `json:"bonusRate,omitempty"`
+	FinalBonusRateMin any                       `json:"finalBonusRateMin,omitempty"`
+	FinalBonusRateMax any                       `json:"finalBonusRateMax,omitempty"`
+	ReleaseCondition  *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+	Event             map[string]any            `json:"event,omitempty"`
+}
+
+type CardEventsResponse struct {
+	Items []CardEventResponse `json:"items"`
+}
+
+type GachaBannerResponse struct {
+	ID              any `json:"id,omitempty"`
+	Name            any `json:"name,omitempty"`
+	AssetbundleName any `json:"assetbundleName,omitempty"`
+	StartAt         any `json:"startAt,omitempty"`
+}
+
+type CardGachaResponse struct {
+	Gachas []GachaBannerResponse `json:"gachas"`
+}
+
+type CardDetailResponse struct {
+	Card     CardObjectResponse   `json:"card"`
+	Params   CardParamsResponse   `json:"params"`
+	Episodes CardEpisodesResponse `json:"episodes"`
+	Events   CardEventsResponse   `json:"events"`
+	Gachas   CardGachaResponse    `json:"gachas"`
+}
+
+type GachaPickupResponse struct {
+	CardID any `json:"cardId,omitempty"`
+	Weight any `json:"weight,omitempty"`
+}
+
+type GachaCardRarityRateResponse struct {
+	ID             any     `json:"id,omitempty"`
+	CardRarityType string  `json:"cardRarityType,omitempty"`
+	Rate           float64 `json:"rate,omitempty"`
+	LotteryType    string  `json:"lotteryType,omitempty"`
+}
+
+type GachaBehaviorResponse struct {
+	ID                   any    `json:"id,omitempty"`
+	GachaBehaviorType    string `json:"gachaBehaviorType,omitempty"`
+	GachaSpinnableType   string `json:"gachaSpinnableType,omitempty"`
+	CostResourceType     any    `json:"costResourceType,omitempty"`
+	CostResourceQuantity any    `json:"costResourceQuantity,omitempty"`
+	CostResourceID       any    `json:"costResourceId,omitempty"`
+	ResourceCategory     string `json:"resourceCategory,omitempty"`
+	SpinCount            int    `json:"spinCount,omitempty"`
+	ExecuteLimit         int    `json:"executeLimit,omitempty"`
+	Priority             int    `json:"priority,omitempty"`
+	GroupID              int    `json:"groupId,omitempty"`
+}
+
+type GachaDetailSubResponse struct {
+	ID      any `json:"id,omitempty"`
+	GachaID any `json:"gachaId,omitempty"`
+	CardID  any `json:"cardId,omitempty"`
+	Weight  any `json:"weight,omitempty"`
+	IsWish  any `json:"isWish,omitempty"`
+}
+
+type GachaInformationResponse struct {
+	Summary     any `json:"summary,omitempty"`
+	Description any `json:"description,omitempty"`
+}
+
+type GachaObjectResponse struct {
+	ID                     any                           `json:"id,omitempty"`
+	GachaType              any                           `json:"gachaType,omitempty"`
+	Name                   any                           `json:"name,omitempty"`
+	AssetbundleName        any                           `json:"assetbundleName,omitempty"`
+	Summary                any                           `json:"summary,omitempty"`
+	StartAt                any                           `json:"startAt,omitempty"`
+	EndAt                  any                           `json:"endAt,omitempty"`
+	CostResourceType       any                           `json:"costResourceType,omitempty"`
+	CostResourceID         any                           `json:"costResourceId,omitempty"`
+	CostCount              any                           `json:"costCount,omitempty"`
+	GachaPickups           []GachaPickupResponse         `json:"gachaPickups,omitempty"`
+	GachaCardRarityRates   []GachaCardRarityRateResponse `json:"gachaCardRarityRates,omitempty"`
+	GachaBehaviors         []GachaBehaviorResponse       `json:"gachaBehaviors,omitempty"`
+	GachaDetails           []GachaDetailSubResponse      `json:"gachaDetails,omitempty"`
+	GachaInformation       *GachaInformationResponse     `json:"gachaInformation,omitempty"`
+	GachaCeilItemID        any                           `json:"gachaCeilItemId,omitempty"`
+	WishFixedSelectCount   any                           `json:"wishFixedSelectCount,omitempty"`
+	WishLimitedSelectCount any                           `json:"wishLimitedSelectCount,omitempty"`
+	WishSelectCount        any                           `json:"wishSelectCount,omitempty"`
+	IsShowPeriod           any                           `json:"isShowPeriod,omitempty"`
+}
+
+type GachaListItemResponse struct {
+	ID              any `json:"id,omitempty"`
+	GachaType       any `json:"gachaType,omitempty"`
+	Name            any `json:"name,omitempty"`
+	AssetbundleName any `json:"assetbundleName,omitempty"`
+	StartAt         any `json:"startAt,omitempty"`
+	EndAt           any `json:"endAt,omitempty"`
+}
+
+type GachaListResponse struct {
+	Items      []GachaListItemResponse `json:"items"`
+	Pagination PaginationResponse      `json:"pagination"`
+}
+
 type CardPagination struct {
 	Page       int  `json:"page"`
 	PageSize   int  `json:"page_size"`
