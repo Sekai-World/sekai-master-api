@@ -793,12 +793,24 @@ definitions:
       seq: {}
       title: {}
     type: object
+  shared.MusicVocalCharacterResponse:
+    properties:
+      characterId: {}
+      sortOrder: {}
+    type: object
   shared.MusicVocalResponse:
     properties:
+      assetbundleName: {}
+      characters:
+        items:
+          $ref: '#/definitions/shared.MusicVocalCharacterResponse'
+        type: array
       id: {}
       musicId: {}
       musicVocalId: {}
       publishedAt: {}
+      releaseCondition:
+        $ref: '#/definitions/shared.ReleaseConditionResponse'
       seq: {}
       vocalType: {}
     type: object

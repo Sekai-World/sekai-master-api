@@ -4152,13 +4152,30 @@ const docTemplate = `{
                 "title": {}
             }
         },
+        "shared.MusicVocalCharacterResponse": {
+            "type": "object",
+            "properties": {
+                "characterId": {},
+                "sortOrder": {}
+            }
+        },
         "shared.MusicVocalResponse": {
             "type": "object",
             "properties": {
+                "assetbundleName": {},
+                "characters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicVocalCharacterResponse"
+                    }
+                },
                 "id": {},
                 "musicId": {},
                 "musicVocalId": {},
                 "publishedAt": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
                 "seq": {},
                 "vocalType": {}
             }
