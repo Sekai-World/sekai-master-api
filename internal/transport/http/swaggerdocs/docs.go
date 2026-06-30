@@ -2208,6 +2208,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/musics/{region}/{id}/detail": {
+            "get": {
+                "description": "Returns music base info, difficulties, vocals, and tags in a single response",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "musics"
+                ],
+                "summary": "Get music detail composite by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Music ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MusicDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/musics/{region}/{id}/difficulties": {
             "get": {
                 "produces": [
@@ -2238,6 +2298,66 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/shared.MusicDifficultiesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/musics/{region}/{id}/vocals": {
+            "get": {
+                "description": "Returns all vocal variants for a specific music",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "musics"
+                ],
+                "summary": "Get music vocals by music id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Music ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MusicVocalsResponse"
                         }
                     },
                     "400": {
@@ -3894,6 +4014,32 @@ const docTemplate = `{
                 "name": {}
             }
         },
+        "shared.MusicDetailResponse": {
+            "type": "object",
+            "properties": {
+                "difficulties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicDifficultyDetailResponse"
+                    }
+                },
+                "music": {
+                    "$ref": "#/definitions/shared.MusicObjectResponse"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "vocals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicVocalResponse"
+                    }
+                }
+            }
+        },
         "shared.MusicDifficultiesResponse": {
             "type": "object",
             "properties": {
@@ -4004,6 +4150,45 @@ const docTemplate = `{
                 "selfDancerPosition": {},
                 "seq": {},
                 "title": {}
+            }
+        },
+        "shared.MusicVocalCharacterResponse": {
+            "type": "object",
+            "properties": {
+                "characterId": {},
+                "sortOrder": {}
+            }
+        },
+        "shared.MusicVocalResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {},
+                "characters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicVocalCharacterResponse"
+                    }
+                },
+                "id": {},
+                "musicId": {},
+                "musicVocalId": {},
+                "publishedAt": {},
+                "releaseCondition": {
+                    "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "seq": {},
+                "vocalType": {}
+            }
+        },
+        "shared.MusicVocalsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicVocalResponse"
+                    }
+                }
             }
         },
         "shared.PaginationResponse": {

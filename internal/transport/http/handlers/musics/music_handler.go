@@ -897,3 +897,165 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 
 	return result
 }
+
+// VocalsByID godoc
+// @Summary Get music vocals by music id
+// @Description Returns all vocal variants for a specific music
+// @Tags musics
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Music ID"
+// @Success 200 {object} shared.MusicVocalsResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /musics/{region}/{id}/vocals [get]
+func (handler *MusicHandler) VocalsByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	if _, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "musics", id); err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music")
+		return
+	} else if !found {
+		response.Error(c, http.StatusNotFound, "MUSIC_NOT_FOUND", "music not found")
+		return
+	}
+
+	vocals, err := handler.buildMusicVocalsByMusicID(c.Request.Context(), region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music vocals")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{"items": vocals})
+}
+
+// DetailByID godoc
+// @Summary Get music detail composite by id
+// @Description Returns music base info, difficulties, vocals, and tags in a single response
+// @Tags musics
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Music ID"
+// @Success 200 {object} shared.MusicDetailResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /musics/{region}/{id}/detail [get]
+func (handler *MusicHandler) DetailByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "musics", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "MUSIC_NOT_FOUND", "music not found")
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	music := handler.buildMusic(ctx, region, record)
+
+	difficulties, err := handler.loadMusicDifficultiesByMusicID(ctx, region, id, false)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music difficulties")
+		return
+	}
+
+	vocals, err := handler.buildMusicVocalsByMusicID(ctx, region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music vocals")
+		return
+	}
+
+	tags, err := handler.buildMusicTagsByMusicID(ctx, region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music tags")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, gin.H{
+		"music":        music,
+		"difficulties": difficulties,
+		"vocals":       vocals,
+		"tags":         tags,
+	})
+}
+
+func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, region string, musicID string) ([]map[string]any, error) {
+	if handler == nil || handler.masterDataSync == nil {
+		return nil, nil
+	}
+
+	matches, err := handler.masterDataSync.Search(ctx, region, "musicVocals", musicID, []string{"musicId"}, 1000000)
+	if err != nil {
+		return nil, fmt.Errorf("search musicVocals: %w", err)
+	}
+
+	targetMusicID := shared.NormalizeAnyID(musicID)
+	items := make([]map[string]any, 0, len(matches))
+	for _, match := range matches {
+		if shared.NormalizeAnyID(match.Item["musicId"]) != targetMusicID {
+			continue
+		}
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
+	}
+
+	return items, nil
+}
+
+func (handler *MusicHandler) buildMusicTagsByMusicID(ctx context.Context, region string, musicID string) ([]string, error) {
+	if handler == nil || handler.masterDataSync == nil {
+		return nil, nil
+	}
+
+	tagRecords, err := handler.masterDataSync.ListAll(ctx, region, "musictags")
+	if err != nil {
+		return nil, fmt.Errorf("list musictags: %w", err)
+	}
+
+	targetMusicID := shared.NormalizeAnyID(musicID)
+	tags := make([]string, 0)
+	for _, tagRecord := range tagRecords {
+		if shared.NormalizeAnyID(tagRecord["musicId"]) != targetMusicID {
+			continue
+		}
+		musicTag := strings.TrimSpace(fmt.Sprintf("%v", tagRecord["musicTag"]))
+		if musicTag != "" {
+			tags = append(tags, musicTag)
+		}
+	}
+
+	return tags, nil
+}
