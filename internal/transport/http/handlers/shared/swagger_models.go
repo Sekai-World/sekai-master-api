@@ -377,12 +377,20 @@ type MusicListResponse struct {
 }
 
 type MusicVocalResponse struct {
-	ID           any   `json:"id,omitempty"`
-	MusicID      any   `json:"musicId,omitempty"`
-	MusicVocalID any   `json:"musicVocalId,omitempty"`
-	VocalType    any   `json:"vocalType,omitempty"`
-	Seq          any   `json:"seq,omitempty"`
-	PublishedAt  any   `json:"publishedAt,omitempty"`
+	ID              any                      `json:"id,omitempty"`
+	MusicID         any                      `json:"musicId,omitempty"`
+	MusicVocalID    any                      `json:"musicVocalId,omitempty"`
+	VocalType       any                      `json:"vocalType,omitempty"`
+	AssetbundleName any                      `json:"assetbundleName,omitempty"`
+	Seq             any                      `json:"seq,omitempty"`
+	PublishedAt     any                      `json:"publishedAt,omitempty"`
+	Characters      []MusicVocalCharacterResponse `json:"characters,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+}
+
+type MusicVocalCharacterResponse struct {
+	CharacterID any `json:"characterId,omitempty"`
+	SortOrder   any `json:"sortOrder,omitempty"`
 }
 
 type MusicVocalsResponse struct {

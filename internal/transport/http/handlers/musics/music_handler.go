@@ -935,7 +935,11 @@ func (handler *MusicHandler) VocalsByID(c *gin.Context) {
 		return
 	}
 
-	vocals := handler.buildMusicVocalsByMusicID(c.Request.Context(), region, id)
+	vocals, err := handler.buildMusicVocalsByMusicID(c.Request.Context(), region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music vocals")
+		return
+	}
 
 	response.JSON(c, http.StatusOK, gin.H{"items": vocals})
 }
@@ -989,9 +993,17 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 		return
 	}
 
-	vocals := handler.buildMusicVocalsByMusicID(ctx, region, id)
+	vocals, err := handler.buildMusicVocalsByMusicID(ctx, region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music vocals")
+		return
+	}
 
-	tags := handler.buildMusicTagsByMusicID(ctx, region, id)
+	tags, err := handler.buildMusicTagsByMusicID(ctx, region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music tags")
+		return
+	}
 
 	response.JSON(c, http.StatusOK, gin.H{
 		"music":        music,
@@ -1001,14 +1013,14 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 	})
 }
 
-func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, region string, musicID string) []map[string]any {
+func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, region string, musicID string) ([]map[string]any, error) {
 	if handler == nil || handler.masterDataSync == nil {
-		return nil
+		return nil, nil
 	}
 
 	matches, err := handler.masterDataSync.Search(ctx, region, "musicVocals", musicID, []string{"musicId"}, 1000000)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("search musicVocals: %w", err)
 	}
 
 	targetMusicID := shared.NormalizeAnyID(musicID)
@@ -1017,20 +1029,20 @@ func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, regi
 		if shared.NormalizeAnyID(match.Item["musicId"]) != targetMusicID {
 			continue
 		}
-		items = append(items, match.Item)
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
 	}
 
-	return items
+	return items, nil
 }
 
-func (handler *MusicHandler) buildMusicTagsByMusicID(ctx context.Context, region string, musicID string) []string {
+func (handler *MusicHandler) buildMusicTagsByMusicID(ctx context.Context, region string, musicID string) ([]string, error) {
 	if handler == nil || handler.masterDataSync == nil {
-		return nil
+		return nil, nil
 	}
 
 	tagRecords, err := handler.masterDataSync.ListAll(ctx, region, "musictags")
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("list musictags: %w", err)
 	}
 
 	targetMusicID := shared.NormalizeAnyID(musicID)
@@ -1045,5 +1057,5 @@ func (handler *MusicHandler) buildMusicTagsByMusicID(ctx context.Context, region
 		}
 	}
 
-	return tags
+	return tags, nil
 }
