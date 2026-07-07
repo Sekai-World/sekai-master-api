@@ -28,7 +28,7 @@ Set `MASTER_DATA_GITHUB_TOKEN` if higher GitHub API rate limits are needed.
 ## Sync Behavior
 
 - Startup sync compares the configured source commit with the latest successful sync record.
-- Unchanged regions rebuild the in-memory index from Redis when possible.
+- Unchanged regions validate persisted Redis search indexes and rebuild missing or stale persisted indexes when needed.
 - If Redis data is missing but local backup exists, cache is restored from backup.
 - Changed regions download one GitHub tarball for the resolved commit and extract JSON files under the configured path.
 - Cache writes are incremental: changed records are upserted and deleted records are removed.
@@ -44,6 +44,7 @@ Useful settings:
 - `MASTER_DATA_HTTP_RETRY_COUNT`
 - `MASTER_DATA_HTTP_RETRY_BACKOFF_MS`
 - `MASTER_DATA_GITHUB_WEBHOOK_SECRET`
+- `MASTER_DATA_WARM_SEARCH_INDEXES` controls optional startup persisted search-index warmup. It defaults to off in development so indexes are ensured lazily per searched entity, and defaults to on outside development unless explicitly overridden.
 
 Temporary sync workspace:
 
@@ -58,6 +59,10 @@ Redis settings:
 - `REDIS_PASSWORD`
 - `REDIS_DB`
 - `MASTER_DATA_REDIS_KEY_PREFIX`
+
+Search indexes are scoped to fields used by API search paths instead of every scalar field. The default searchable field is `name`; `cards` additionally indexes `prefix` and `cardSkillName`; relationship lookups index `cardId`, `eventId`, `musicId`, `virtualLiveId`, `eventStoryId`, `cardRarityType`, and `unit` when those fields are present. Persisted search indexes live in Redis. Decoded Go in-memory index structures are transient and are created only while a request or rebuild path needs them. Loading an older persisted search index filters out fields outside that policy before using it in memory.
+
+`MASTER_DATA_WARM_SEARCH_INDEXES` and the related ensure flow do not keep decoded indexes retained in Go memory. They only validate that the persisted Redis search indexes needed by search endpoints already exist, or rebuild those persisted indexes when Redis is missing or stale data.
 
 Query behavior:
 

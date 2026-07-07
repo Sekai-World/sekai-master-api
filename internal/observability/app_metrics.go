@@ -132,7 +132,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 
 	indexLoaded, err := meter.Int64ObservableGauge(
 		"sekai_master_data_region_index_loaded",
-		apimetric.WithDescription("Whether a region search index is loaded in memory."),
+		apimetric.WithDescription("Whether RegionIndexStats currently reports a retained in-process decoded search index for a region."),
 	)
 	if err != nil {
 		return err
@@ -140,7 +140,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 
 	indexEntities, err := meter.Int64ObservableGauge(
 		"sekai_master_data_region_index_entities",
-		apimetric.WithDescription("Number of indexed entities per region."),
+		apimetric.WithDescription("Number of indexed entities in the retained in-process decoded search index for a region."),
 	)
 	if err != nil {
 		return err
@@ -148,7 +148,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 
 	indexRecords, err := meter.Int64ObservableGauge(
 		"sekai_master_data_region_index_records",
-		apimetric.WithDescription("Number of indexed records per region."),
+		apimetric.WithDescription("Number of indexed records in the retained in-process decoded search index for a region."),
 	)
 	if err != nil {
 		return err
@@ -156,7 +156,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 
 	indexFields, err := meter.Int64ObservableGauge(
 		"sekai_master_data_region_index_fields",
-		apimetric.WithDescription("Number of indexed searchable fields per region."),
+		apimetric.WithDescription("Number of indexed searchable fields in the retained in-process decoded search index for a region."),
 	)
 	if err != nil {
 		return err
@@ -164,7 +164,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 
 	indexEntries, err := meter.Int64ObservableGauge(
 		"sekai_master_data_region_index_entries",
-		apimetric.WithDescription("Number of search index entries per region."),
+		apimetric.WithDescription("Number of search index entries in the retained in-process decoded search index for a region."),
 	)
 	if err != nil {
 		return err
@@ -172,7 +172,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 
 	indexTextBlobBytes, err := meter.Int64ObservableGauge(
 		"sekai_master_data_region_index_text_blob_bytes",
-		apimetric.WithDescription("Bytes used by the in-memory search text blob per region."),
+		apimetric.WithDescription("Bytes used by the retained in-process decoded search text blob for a region."),
 		apimetric.WithUnit("By"),
 	)
 	if err != nil {
@@ -181,7 +181,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 
 	indexApproxBytes, err := meter.Int64ObservableGauge(
 		"sekai_master_data_region_index_approx_size_bytes",
-		apimetric.WithDescription("Approximate bytes used by the in-memory region search index."),
+		apimetric.WithDescription("Approximate bytes used by the retained in-process decoded search index for a region."),
 		apimetric.WithUnit("By"),
 	)
 	if err != nil {
@@ -262,6 +262,10 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 			observer.ObserveInt64(configuredRegions, 0)
 		}
 
+		// RegionIndexStats reports retained in-process decoded index state only.
+		// Redis-backed persisted index footprint is exposed separately through
+		// RedisUsageStats so this callback stays cheap and never scans or decodes
+		// persisted search index payloads just to populate observability metrics.
 		indexStatsByRegion := make(map[string]storage.RegionIndexStats)
 		if cache != nil {
 			for _, stat := range cache.RegionIndexStats() {
