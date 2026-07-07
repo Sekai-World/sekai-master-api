@@ -1373,6 +1373,45 @@ func TestSyncAllSetsPendingWhenRegionIndexMissing(t *testing.T) {
 	}
 }
 
+func TestSyncAllDoesNotSetPendingWhenPersistedRegionIndexLoads(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "new-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "persisted-index"}},
+			},
+		},
+	}
+	cache := &fakeSyncCache{
+		hasRegionIndexSet: true,
+		hasRegionIndex:    false,
+		loadFromRedisOK:   true,
+	}
+	statusStore := newFakeSyncStatusStore(nil)
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if statusStore.hasSavedStatus("jp", "pending") {
+		t.Fatalf("did not expect pending status when persisted region index loads")
+	}
+	if cache.loadCalls == 0 {
+		t.Fatalf("expected persisted index load to be attempted")
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected latest jp status")
+	}
+	if latest.Status != "success" {
+		t.Fatalf("expected final status success, got %s", latest.Status)
+	}
+}
+
 func TestSyncAllUsesLatestSuccessWhenLatestStatusIsPending(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 
@@ -1420,7 +1459,7 @@ func TestSyncAllUsesLatestSuccessWhenLatestStatusIsPending(t *testing.T) {
 	}
 }
 
-func TestSyncAllSkipWritesSuccessAfterPendingWhenRegionIndexMissing(t *testing.T) {
+func TestSyncAllSkipDoesNotWritePendingWhenRegionIndexCanRebuild(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
 		Region:       "jp",
@@ -1448,20 +1487,12 @@ func TestSyncAllSkipWritesSuccessAfterPendingWhenRegionIndexMissing(t *testing.T
 	}
 
 	saved := statusStore.savedByRegion("jp")
-	if len(saved) < 2 {
-		t.Fatalf("expected at least pending and success statuses, got %d", len(saved))
+	if len(saved) != 1 {
+		t.Fatalf("expected only unchanged success status, got %d", len(saved))
 	}
 
-	if !strings.EqualFold(saved[0].Status, "pending") {
-		t.Fatalf("expected first status pending, got %s", saved[0].Status)
-	}
-
-	if !strings.EqualFold(saved[len(saved)-1].Status, "success") {
-		t.Fatalf("expected final status success, got %s", saved[len(saved)-1].Status)
-	}
-
-	if saved[len(saved)-1].UpdatedAt.Equal(saved[0].UpdatedAt) {
-		t.Fatalf("expected success updated_at to differ from pending updated_at to avoid latest-status tie")
+	if !strings.EqualFold(saved[0].Status, "success") {
+		t.Fatalf("expected unchanged success status, got %s", saved[0].Status)
 	}
 }
 

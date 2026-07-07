@@ -373,7 +373,13 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 				}
 			}
 
-			if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok && !inspector.HasRegionIndex(source.Region) {
+			cacheReady, cacheReadyErr := usecase.regionCacheReady(regionCtx, source.Region)
+			if cacheReadyErr != nil {
+				recordFailure(source.Region, fmt.Errorf("check cache readiness for region %s: %w", source.Region, cacheReadyErr))
+				return
+			}
+
+			if !cacheReady {
 				pendingCommit := ""
 				if hasPreviousStatus {
 					pendingCommit = strings.TrimSpace(previous.SourceCommit)
