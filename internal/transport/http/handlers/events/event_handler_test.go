@@ -810,6 +810,41 @@ func TestEventListEndpointUnitFilterMatchesDisplayedPrimaryUnit(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{102})
 }
 
+func TestEventListEndpointUnitFilterMatchesRawUnitWhenNoEventStory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "No Story None", "unit": "none", "eventType": "cheerful_carnival"},
+					{"id": 102, "name": "Has Story Idol", "unit": "idol", "eventType": "marathon"},
+				},
+				"eventstories": {
+					{"id": 7002, "eventId": 102},
+				},
+				"eventstoryunits": {
+					{"id": 8002, "eventStoryId": 7002, "unit": "idol"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?unit=none&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
+}
+
 func TestEventListEndpointEventTypeFilterRequiresExactEventType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1021,6 +1056,100 @@ func TestEventRewardsByIDEndpointReturnsRankingRewards(t *testing.T) {
 
 	if len(items) != 2 {
 		t.Fatalf("expected 2 rewards, got %d", len(items))
+	}
+}
+
+func TestEventRewardsByIDEndpointEnrichesHonorRewardDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":   101,
+						"name": "test-event",
+						"eventRankingRewardRanges": []any{
+							map[string]any{
+								"fromRank": 1,
+								"toRank":   100,
+								"eventRankingRewards": []any{
+									map[string]any{"id": 10, "resourceBoxId": 9001},
+								},
+							},
+						},
+					},
+				},
+				"resourceboxes": {
+					"9001": {
+						"id":                 9001,
+						"resourceBoxPurpose": "event_ranking_reward",
+						"details": []any{
+							map[string]any{"resourceType": "honor", "resourceId": 301, "resourceLevel": 2, "resourceQuantity": 1, "seq": 1},
+						},
+					},
+				},
+				"honors": {
+					"301": {
+						"id":              301,
+						"groupId":         77,
+						"honorRarity":     "high",
+						"assetbundleName": "degree_event_301",
+						"name":            "Event Honor",
+						"levels": []any{
+							map[string]any{"honorId": 301, "level": 1, "assetbundleName": "degree_event_301"},
+							map[string]any{"honorId": 301, "level": 2, "assetbundleName": "degree_event_301_lv2"},
+						},
+					},
+				},
+				"honorgroups": {
+					"77": {
+						"id":                        77,
+						"name":                      "Event Group",
+						"honorType":                 "event",
+						"backgroundAssetbundleName": "degree_event_bg",
+						"frameName":                 "event_frame",
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/rewards", handler.RewardsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/rewards", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	items := body["items"].([]any)
+	firstRange := items[0].(map[string]any)
+	rewards := firstRange["eventRankingRewards"].([]any)
+	firstReward := rewards[0].(map[string]any)
+	resourceBox := firstReward["resourceBox"].(map[string]any)
+	details := resourceBox["details"].([]any)
+	detail := details[0].(map[string]any)
+	honor := detail["honor"].(map[string]any)
+	group := honor["group"].(map[string]any)
+
+	if honor["assetbundleName"] != "degree_event_301" {
+		t.Fatalf("expected honor assetbundleName to be enriched, got %v", honor["assetbundleName"])
+	}
+	if group["backgroundAssetbundleName"] != "degree_event_bg" {
+		t.Fatalf("expected honor group backgroundAssetbundleName to be enriched, got %v", group["backgroundAssetbundleName"])
+	}
+	if group["frameName"] != "event_frame" {
+		t.Fatalf("expected honor group frameName to be enriched, got %v", group["frameName"])
 	}
 }
 

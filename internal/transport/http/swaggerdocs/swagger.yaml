@@ -403,6 +403,8 @@ definitions:
         type: integer
       id:
         type: integer
+      resourceBox:
+        $ref: '#/definitions/shared.EventRewardResourceBoxResponse'
       resourceBoxId:
         type: integer
       rewardConditionType:
@@ -418,6 +420,57 @@ definitions:
         type: string
       masterRank:
         type: integer
+    type: object
+  shared.EventRewardHonorGroup:
+    properties:
+      backgroundAssetbundleName:
+        type: string
+      frameName:
+        type: string
+      honorType:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  shared.EventRewardHonorLevel:
+    properties:
+      assetbundleName:
+        type: string
+      bonus:
+        type: integer
+      description:
+        type: string
+      honorId:
+        type: integer
+      honorRarity:
+        type: string
+      level:
+        type: integer
+    type: object
+  shared.EventRewardHonorResponse:
+    properties:
+      assetbundleName:
+        type: string
+      group:
+        $ref: '#/definitions/shared.EventRewardHonorGroup'
+      groupId:
+        type: integer
+      honorMissionType:
+        type: string
+      honorRarity:
+        type: string
+      honorType:
+        type: string
+      id:
+        type: integer
+      levels:
+        items:
+          $ref: '#/definitions/shared.EventRewardHonorLevel'
+        type: array
+      name:
+        type: string
     type: object
   shared.EventRewardRangeResponse:
     properties:
@@ -435,6 +488,38 @@ definitions:
         type: boolean
       toRank:
         type: integer
+    type: object
+  shared.EventRewardResourceBoxDetail:
+    properties:
+      honor:
+        $ref: '#/definitions/shared.EventRewardHonorResponse'
+      resourceBoxId:
+        type: integer
+      resourceBoxPurpose:
+        type: string
+      resourceId:
+        type: integer
+      resourceLevel:
+        type: integer
+      resourceQuantity:
+        type: integer
+      resourceType:
+        type: string
+      seq:
+        type: integer
+    type: object
+  shared.EventRewardResourceBoxResponse:
+    properties:
+      details:
+        items:
+          $ref: '#/definitions/shared.EventRewardResourceBoxDetail'
+        type: array
+      id:
+        type: integer
+      resourceBoxPurpose:
+        type: string
+      resourceBoxType:
+        type: string
     type: object
   shared.EventRewardsResponse:
     properties:

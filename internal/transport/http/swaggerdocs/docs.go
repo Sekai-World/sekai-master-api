@@ -3601,6 +3601,9 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "resourceBox": {
+                    "$ref": "#/definitions/shared.EventRewardResourceBoxResponse"
+                },
                 "resourceBoxId": {
                     "type": "integer"
                 },
@@ -3623,6 +3626,84 @@ const docTemplate = `{
                 },
                 "masterRank": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardHonorGroup": {
+            "type": "object",
+            "properties": {
+                "backgroundAssetbundleName": {
+                    "type": "string"
+                },
+                "frameName": {
+                    "type": "string"
+                },
+                "honorType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.EventRewardHonorLevel": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "bonus": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "honorId": {
+                    "type": "integer"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardHonorResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "group": {
+                    "$ref": "#/definitions/shared.EventRewardHonorGroup"
+                },
+                "groupId": {
+                    "type": "integer"
+                },
+                "honorMissionType": {
+                    "type": "string"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "honorType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "levels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventRewardHonorLevel"
+                    }
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },
@@ -3649,6 +3730,55 @@ const docTemplate = `{
                 },
                 "toRank": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardResourceBoxDetail": {
+            "type": "object",
+            "properties": {
+                "honor": {
+                    "$ref": "#/definitions/shared.EventRewardHonorResponse"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "resourceLevel": {
+                    "type": "integer"
+                },
+                "resourceQuantity": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardResourceBoxResponse": {
+            "type": "object",
+            "properties": {
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventRewardResourceBoxDetail"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceBoxType": {
+                    "type": "string"
                 }
             }
         },

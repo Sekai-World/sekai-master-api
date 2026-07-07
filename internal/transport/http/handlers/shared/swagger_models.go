@@ -377,15 +377,15 @@ type MusicListResponse struct {
 }
 
 type MusicVocalResponse struct {
-	ID              any                      `json:"id,omitempty"`
-	MusicID         any                      `json:"musicId,omitempty"`
-	MusicVocalID    any                      `json:"musicVocalId,omitempty"`
-	VocalType       any                      `json:"vocalType,omitempty"`
-	AssetbundleName any                      `json:"assetbundleName,omitempty"`
-	Seq             any                      `json:"seq,omitempty"`
-	PublishedAt     any                      `json:"publishedAt,omitempty"`
-	Characters      []MusicVocalCharacterResponse `json:"characters,omitempty"`
-	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+	ID               any                           `json:"id,omitempty"`
+	MusicID          any                           `json:"musicId,omitempty"`
+	MusicVocalID     any                           `json:"musicVocalId,omitempty"`
+	VocalType        any                           `json:"vocalType,omitempty"`
+	AssetbundleName  any                           `json:"assetbundleName,omitempty"`
+	Seq              any                           `json:"seq,omitempty"`
+	PublishedAt      any                           `json:"publishedAt,omitempty"`
+	Characters       []MusicVocalCharacterResponse `json:"characters,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse     `json:"releaseCondition,omitempty"`
 }
 
 type MusicVocalCharacterResponse struct {
@@ -398,10 +398,10 @@ type MusicVocalsResponse struct {
 }
 
 type MusicDetailResponse struct {
-	Music        MusicObjectResponse          `json:"music,omitempty"`
+	Music        MusicObjectResponse             `json:"music,omitempty"`
 	Difficulties []MusicDifficultyDetailResponse `json:"difficulties,omitempty"`
-	Vocals       []MusicVocalResponse         `json:"vocals,omitempty"`
-	Tags         []string                     `json:"tags,omitempty"`
+	Vocals       []MusicVocalResponse            `json:"vocals,omitempty"`
+	Tags         []string                        `json:"tags,omitempty"`
 }
 
 type UnitProfileObjectResponse struct {
@@ -560,12 +560,60 @@ type EventRewardRangeResponse struct {
 }
 
 type EventRankingRewardResponse struct {
+	ID                        int                             `json:"id,omitempty"`
+	EventRankingRewardRangeID int                             `json:"eventRankingRewardRangeId,omitempty"`
+	Seq                       int                             `json:"seq,omitempty"`
+	ResourceBoxID             int                             `json:"resourceBoxId,omitempty"`
+	RewardConditionType       string                          `json:"rewardConditionType,omitempty"`
+	ConditionValue            int                             `json:"conditionValue,omitempty"`
+	ResourceBox               *EventRewardResourceBoxResponse `json:"resourceBox,omitempty"`
+}
+
+type EventRewardResourceBoxResponse struct {
+	ID                 int                            `json:"id,omitempty"`
+	ResourceBoxPurpose string                         `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxType    string                         `json:"resourceBoxType,omitempty"`
+	Details            []EventRewardResourceBoxDetail `json:"details,omitempty"`
+}
+
+type EventRewardResourceBoxDetail struct {
+	ResourceBoxPurpose string                    `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxID      int                       `json:"resourceBoxId,omitempty"`
+	Seq                int                       `json:"seq,omitempty"`
+	ResourceType       string                    `json:"resourceType,omitempty"`
+	ResourceID         int                       `json:"resourceId,omitempty"`
+	ResourceLevel      int                       `json:"resourceLevel,omitempty"`
+	ResourceQuantity   int                       `json:"resourceQuantity,omitempty"`
+	Honor              *EventRewardHonorResponse `json:"honor,omitempty"`
+}
+
+type EventRewardHonorResponse struct {
+	ID               int                     `json:"id,omitempty"`
+	GroupID          int                     `json:"groupId,omitempty"`
+	HonorRarity      string                  `json:"honorRarity,omitempty"`
+	HonorMissionType string                  `json:"honorMissionType,omitempty"`
+	HonorType        string                  `json:"honorType,omitempty"`
+	AssetbundleName  string                  `json:"assetbundleName,omitempty"`
+	Name             string                  `json:"name,omitempty"`
+	Levels           []EventRewardHonorLevel `json:"levels,omitempty"`
+	Group            *EventRewardHonorGroup  `json:"group,omitempty"`
+}
+
+type EventRewardHonorLevel struct {
+	HonorID         int    `json:"honorId,omitempty"`
+	Level           int    `json:"level,omitempty"`
+	Bonus           int    `json:"bonus,omitempty"`
+	Description     string `json:"description,omitempty"`
+	HonorRarity     string `json:"honorRarity,omitempty"`
+	AssetbundleName string `json:"assetbundleName,omitempty"`
+}
+
+type EventRewardHonorGroup struct {
 	ID                        int    `json:"id,omitempty"`
-	EventRankingRewardRangeID int    `json:"eventRankingRewardRangeId,omitempty"`
-	Seq                       int    `json:"seq,omitempty"`
-	ResourceBoxID             int    `json:"resourceBoxId,omitempty"`
-	RewardConditionType       string `json:"rewardConditionType,omitempty"`
-	ConditionValue            int    `json:"conditionValue,omitempty"`
+	Name                      string `json:"name,omitempty"`
+	HonorType                 string `json:"honorType,omitempty"`
+	BackgroundAssetbundleName string `json:"backgroundAssetbundleName,omitempty"`
+	FrameName                 string `json:"frameName,omitempty"`
 }
 
 type EventRewardsResponse struct {

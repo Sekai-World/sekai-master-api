@@ -356,7 +356,124 @@ func (handler *EventHandler) RewardsByID(c *gin.Context) {
 		}
 	}
 
-	response.JSON(c, http.StatusOK, gin.H{"items": rewards})
+	response.JSON(c, http.StatusOK, gin.H{"items": handler.enrichEventRewardRanges(c.Request.Context(), region, rewards)})
+}
+
+func (handler *EventHandler) enrichEventRewardRanges(ctx context.Context, region string, ranges []any) []any {
+	items := make([]any, 0, len(ranges))
+	for _, item := range ranges {
+		rangeRecord, ok := item.(map[string]any)
+		if !ok {
+			items = append(items, item)
+			continue
+		}
+
+		result := copyRecord(rangeRecord)
+		if rewards, ok := rangeRecord["eventRankingRewards"]; ok {
+			result["eventRankingRewards"] = handler.enrichEventRankingRewards(ctx, region, rewards)
+		}
+		items = append(items, result)
+	}
+
+	return items
+}
+
+func (handler *EventHandler) enrichEventRankingRewards(ctx context.Context, region string, rewards any) []any {
+	items, ok := rewards.([]any)
+	if !ok {
+		items = []any{rewards}
+	}
+
+	result := make([]any, 0, len(items))
+	for _, item := range items {
+		rewardRecord, ok := item.(map[string]any)
+		if !ok {
+			result = append(result, item)
+			continue
+		}
+
+		reward := copyRecord(rewardRecord)
+		if resourceBox := handler.resolveRewardResourceBox(ctx, region, rewardRecord); resourceBox != nil {
+			reward["resourceBox"] = resourceBox
+		}
+		result = append(result, reward)
+	}
+
+	return result
+}
+
+func (handler *EventHandler) resolveRewardResourceBox(ctx context.Context, region string, reward map[string]any) map[string]any {
+	if handler == nil || handler.masterDataSync == nil {
+		return nil
+	}
+
+	resourceBoxID := shared.NormalizeAnyID(reward["resourceBoxId"])
+	if resourceBoxID == "" {
+		return nil
+	}
+
+	resourceBox, found, err := handler.masterDataSync.GetByID(ctx, region, "resourceboxes", resourceBoxID)
+	if err != nil || !found {
+		return nil
+	}
+
+	if purpose := shared.NormalizeComparableText(resourceBox["resourceBoxPurpose"]); purpose != "" && purpose != "event_ranking_reward" {
+		return nil
+	}
+
+	result := pickFields(resourceBox, []string{"id", "resourceBoxPurpose", "resourceBoxType", "details"})
+	if details, ok := resourceBox["details"].([]any); ok {
+		result["details"] = handler.enrichRewardResourceBoxDetails(ctx, region, details)
+	}
+	return result
+}
+
+func (handler *EventHandler) enrichRewardResourceBoxDetails(ctx context.Context, region string, details []any) []any {
+	items := make([]any, 0, len(details))
+	for _, item := range details {
+		detailRecord, ok := item.(map[string]any)
+		if !ok {
+			items = append(items, item)
+			continue
+		}
+
+		detail := copyRecord(detailRecord)
+		if honor := handler.resolveRewardHonor(ctx, region, detailRecord); honor != nil {
+			detail["honor"] = honor
+		}
+		items = append(items, detail)
+	}
+
+	return items
+}
+
+func (handler *EventHandler) resolveRewardHonor(ctx context.Context, region string, detail map[string]any) map[string]any {
+	if handler == nil || handler.masterDataSync == nil {
+		return nil
+	}
+
+	if shared.NormalizeComparableText(detail["resourceType"]) != "honor" {
+		return nil
+	}
+
+	honorID := shared.NormalizeAnyID(detail["resourceId"])
+	if honorID == "" {
+		return nil
+	}
+
+	honor, found, err := handler.masterDataSync.GetByID(ctx, region, "honors", honorID)
+	if err != nil || !found {
+		return nil
+	}
+
+	result := pickFields(honor, []string{"id", "groupId", "honorRarity", "honorMissionType", "honorType", "assetbundleName", "name", "levels"})
+	if groupID := shared.NormalizeAnyID(honor["groupId"]); groupID != "" {
+		if honorGroup, found, err := handler.masterDataSync.GetByID(ctx, region, "honorgroups", groupID); err == nil && found {
+			result["group"] = pickFields(honorGroup, []string{"id", "name", "honorType", "backgroundAssetbundleName", "frameName"})
+		}
+	}
+
+	return result
 }
 
 // MusicsByID godoc
@@ -793,6 +910,18 @@ func pickFields(record map[string]any, keys []string) map[string]any {
 	return result
 }
 
+func copyRecord(record map[string]any) map[string]any {
+	if record == nil {
+		return map[string]any{}
+	}
+
+	result := make(map[string]any, len(record))
+	for key, value := range record {
+		result[key] = value
+	}
+	return result
+}
+
 type eventFilterOptions struct {
 	Enabled bool
 	Fields  map[string][]string
@@ -867,10 +996,6 @@ func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region 
 	}
 
 	eventStory := handler.findEventStoryByEventID(ctx, region, eventID)
-	if eventStory == nil {
-		return false
-	}
-
 	unitText := handler.resolveEventUnitCode(ctx, region, record, eventStory)
 	return anyQueryExactlyMatches(unitText, queryTexts)
 }
