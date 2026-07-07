@@ -26,6 +26,7 @@ type Config struct {
 	SQLitePath                    string
 	MasterDataAutoSync            bool
 	MasterDataRecoverInterrupted  bool
+	MasterDataWarmSearchIndexes   bool
 	MasterDataSyncTimeout         int
 	MasterDataSyncConcurrency     int
 	MasterDataFileConcurrency     int
@@ -87,9 +88,10 @@ func Load() Config {
 		SQLitePath:                    getEnv("SQLITE_PATH", "./tmp/dev.db"),
 		MasterDataAutoSync:            getEnvBool("MASTER_DATA_AUTO_SYNC", true),
 		MasterDataRecoverInterrupted:  getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
+		MasterDataWarmSearchIndexes:   getEnvBool("MASTER_DATA_WARM_SEARCH_INDEXES", !isDevelopmentEnv(appEnv)),
 		MasterDataSyncTimeout:         getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 120),
-		MasterDataSyncConcurrency:     getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", 3),
-		MasterDataFileConcurrency:     getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", 8),
+		MasterDataSyncConcurrency:     getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", defaultMasterDataSyncConcurrency(appEnv)),
+		MasterDataFileConcurrency:     getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", defaultMasterDataFileConcurrency(appEnv)),
 		MasterDataGitHubToken:         strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_TOKEN", "")),
 		MasterDataHTTPTimeout:         getEnvInt("MASTER_DATA_HTTP_TIMEOUT_SECONDS", 20),
 		MasterDataHTTPRetryCount:      getEnvInt("MASTER_DATA_HTTP_RETRY_COUNT", 3),
@@ -118,8 +120,28 @@ func Load() Config {
 	}
 }
 
+func defaultMasterDataSyncConcurrency(appEnv string) int {
+	if isDevelopmentEnv(appEnv) {
+		return 1
+	}
+
+	return 3
+}
+
+func defaultMasterDataFileConcurrency(appEnv string) int {
+	if isDevelopmentEnv(appEnv) {
+		return 2
+	}
+
+	return 8
+}
+
+func isDevelopmentEnv(appEnv string) bool {
+	return strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev")
+}
+
 func defaultAppPort(appEnv string) string {
-	if strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev") {
+	if isDevelopmentEnv(appEnv) {
 		return "18080"
 	}
 
@@ -167,7 +189,7 @@ func dotenvLoadOrder(appEnv string) []string {
 }
 
 func (cfg Config) IsDevelopment() bool {
-	return strings.EqualFold(cfg.AppEnv, "development") || strings.EqualFold(cfg.AppEnv, "dev")
+	return isDevelopmentEnv(cfg.AppEnv)
 }
 
 func (cfg Config) DatabaseDriver() string {

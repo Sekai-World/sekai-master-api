@@ -7,7 +7,16 @@ import (
 )
 
 func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
-	restoreEnv(t, "APP_ENV", "APP_PORT", "MASTER_DATA_RECOVER_INTERRUPTED_SYNC", "MASTER_DATA_SYNC_CONCURRENCY", "OTEL_ENABLED")
+	restoreEnv(
+		t,
+		"APP_ENV",
+		"APP_PORT",
+		"MASTER_DATA_RECOVER_INTERRUPTED_SYNC",
+		"MASTER_DATA_SYNC_CONCURRENCY",
+		"MASTER_DATA_REGION_FILE_CONCURRENCY",
+		"MASTER_DATA_WARM_SEARCH_INDEXES",
+		"OTEL_ENABLED",
+	)
 
 	tmpDir := t.TempDir()
 	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nAPP_PORT=1000\n")
@@ -27,11 +36,72 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	if !cfg.MasterDataRecoverInterrupted {
 		t.Fatalf("expected interrupted sync recovery to default true")
 	}
-	if cfg.MasterDataSyncConcurrency != 3 {
-		t.Fatalf("expected master data sync concurrency to default to 3, got %d", cfg.MasterDataSyncConcurrency)
+	if cfg.MasterDataSyncConcurrency != 1 {
+		t.Fatalf("expected development master data sync concurrency to default to 1, got %d", cfg.MasterDataSyncConcurrency)
+	}
+	if cfg.MasterDataFileConcurrency != 2 {
+		t.Fatalf("expected development master data file concurrency to default to 2, got %d", cfg.MasterDataFileConcurrency)
+	}
+	if cfg.MasterDataWarmSearchIndexes {
+		t.Fatalf("expected development master data search index warmup to default disabled")
 	}
 	if !cfg.OTELEnabled {
 		t.Fatalf("expected OTel to default enabled in development")
+	}
+}
+
+func TestLoadKeepsExplicitMasterDataMemoryControlOverrides(t *testing.T) {
+	restoreEnv(
+		t,
+		"APP_ENV",
+		"MASTER_DATA_SYNC_CONCURRENCY",
+		"MASTER_DATA_REGION_FILE_CONCURRENCY",
+		"MASTER_DATA_WARM_SEARCH_INDEXES",
+	)
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), ""+
+		"APP_ENV=development\n"+
+		"MASTER_DATA_SYNC_CONCURRENCY=3\n"+
+		"MASTER_DATA_REGION_FILE_CONCURRENCY=8\n"+
+		"MASTER_DATA_WARM_SEARCH_INDEXES=true\n")
+
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.MasterDataSyncConcurrency != 3 {
+		t.Fatalf("expected explicit sync concurrency override 3, got %d", cfg.MasterDataSyncConcurrency)
+	}
+	if cfg.MasterDataFileConcurrency != 8 {
+		t.Fatalf("expected explicit file concurrency override 8, got %d", cfg.MasterDataFileConcurrency)
+	}
+	if !cfg.MasterDataWarmSearchIndexes {
+		t.Fatalf("expected explicit search index warmup override enabled")
+	}
+}
+
+func TestLoadKeepsProductionMasterDataDefaults(t *testing.T) {
+	restoreEnv(
+		t,
+		"APP_ENV",
+		"MASTER_DATA_SYNC_CONCURRENCY",
+		"MASTER_DATA_REGION_FILE_CONCURRENCY",
+		"MASTER_DATA_WARM_SEARCH_INDEXES",
+	)
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=production\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.MasterDataSyncConcurrency != 3 {
+		t.Fatalf("expected production sync concurrency default 3, got %d", cfg.MasterDataSyncConcurrency)
+	}
+	if cfg.MasterDataFileConcurrency != 8 {
+		t.Fatalf("expected production file concurrency default 8, got %d", cfg.MasterDataFileConcurrency)
+	}
+	if !cfg.MasterDataWarmSearchIndexes {
+		t.Fatalf("expected production search index warmup to default enabled")
 	}
 }
 
