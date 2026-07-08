@@ -492,8 +492,8 @@ func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 	if cache.storeCalls != 0 {
 		t.Fatalf("expected cache store to be skipped, got storeCalls=%d", cache.storeCalls)
 	}
-	if cache.rebuildCalls != 1 {
-		t.Fatalf("expected redis index rebuild call on skip, got rebuildCalls=%d", cache.rebuildCalls)
+	if cache.rebuildCalls != 2 {
+		t.Fatalf("expected redis index rebuild calls on skip and readiness annotation, got rebuildCalls=%d", cache.rebuildCalls)
 	}
 	if statusStore.saveCount() == 0 {
 		t.Fatalf("expected status to be saved after skip")
@@ -1083,8 +1083,8 @@ func TestSyncAllSkipsByRestoringFromLocalBackupWhenRedisMissing(t *testing.T) {
 	if loader.loadCalls != 0 {
 		t.Fatalf("expected full sync to be skipped using local backup, got loadCalls=%d", loader.loadCalls)
 	}
-	if cache.rebuildCalls != 1 {
-		t.Fatalf("expected one redis rebuild attempt, got %d", cache.rebuildCalls)
+	if cache.rebuildCalls != 2 {
+		t.Fatalf("expected redis rebuild attempts during skip and readiness annotation, got %d", cache.rebuildCalls)
 	}
 	if cache.storeCalls != 1 {
 		t.Fatalf("expected one cache store from local backup, got %d", cache.storeCalls)
@@ -1454,8 +1454,8 @@ func TestSyncAllUsesLatestSuccessWhenLatestStatusIsPending(t *testing.T) {
 	if loader.loadCalls != 0 {
 		t.Fatalf("expected load to be skipped using latest success status, got loadCalls=%d", loader.loadCalls)
 	}
-	if cache.rebuildCalls != 1 {
-		t.Fatalf("expected redis index rebuild on skip, got rebuildCalls=%d", cache.rebuildCalls)
+	if cache.rebuildCalls != 2 {
+		t.Fatalf("expected redis index rebuild calls on skip and readiness annotation, got rebuildCalls=%d", cache.rebuildCalls)
 	}
 }
 
@@ -2018,10 +2018,11 @@ func TestEnsureConfiguredRegionIndexesRebuildsMissingIndexes(t *testing.T) {
 	}
 }
 
-func TestEnsureConfiguredRegionIndexesSkipsRegionsAlreadyInMemory(t *testing.T) {
+func TestEnsureConfiguredRegionIndexesValidatesRedisWhenDecodedIndexIsRetained(t *testing.T) {
 	cache := &fakeSyncCache{
 		hasRegionIndexSet: true,
 		hasRegionIndex:    true,
+		loadFromRedisOK:   true,
 	}
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
 		{Region: "jp"},
@@ -2031,11 +2032,14 @@ func TestEnsureConfiguredRegionIndexesSkipsRegionsAlreadyInMemory(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ensure configured region indexes: %v", err)
 	}
-	if len(loadedRegions) != 0 || len(rebuiltRegions) != 0 {
-		t.Fatalf("expected no loaded or rebuilt regions, got loaded=%v rebuilt=%v", loadedRegions, rebuiltRegions)
+	if len(loadedRegions) != 1 || loadedRegions[0] != "jp" {
+		t.Fatalf("expected jp to load from persisted Redis indexes, got %v", loadedRegions)
 	}
-	if cache.loadCalls != 0 {
-		t.Fatalf("expected no persisted index load calls, got %d", cache.loadCalls)
+	if len(rebuiltRegions) != 0 {
+		t.Fatalf("expected no rebuilt regions, got %v", rebuiltRegions)
+	}
+	if cache.loadCalls != 1 {
+		t.Fatalf("expected 1 persisted index load call, got %d", cache.loadCalls)
 	}
 	if cache.rebuildCalls != 0 {
 		t.Fatalf("expected no rebuild calls, got %d", cache.rebuildCalls)

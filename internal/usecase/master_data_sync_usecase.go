@@ -988,10 +988,6 @@ func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, regi
 		return false, nil
 	}
 
-	if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok && inspector.HasRegionIndex(region) {
-		return true, nil
-	}
-
 	if loader, ok := usecase.cache.(MasterDataCacheIndexLoader); ok {
 		loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
 		if err != nil {
@@ -1012,10 +1008,14 @@ func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, regi
 		}
 	}
 
-	_, canInspect := usecase.cache.(MasterDataCacheIndexInspector)
 	_, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
 	_, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
-	if !canInspect && !canLoad && !canRebuild {
+	if !canLoad && !canRebuild {
+		if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok {
+			return inspector.HasRegionIndex(region), nil
+		}
+	}
+	if !canLoad && !canRebuild {
 		return true, nil
 	}
 
@@ -1156,7 +1156,6 @@ func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.
 
 	loader, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
 	rebuilder, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
-	inspector, canInspect := usecase.cache.(MasterDataCacheIndexInspector)
 	if !canLoad && !canRebuild {
 		return nil, nil, nil
 	}
@@ -1164,10 +1163,6 @@ func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.
 	loadedRegions = make([]string, 0, len(regions))
 	rebuiltRegions = make([]string, 0, len(regions))
 	for _, region := range regions {
-		if canInspect && inspector.HasRegionIndex(region) {
-			continue
-		}
-
 		if canLoad {
 			loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
 			if err != nil {
