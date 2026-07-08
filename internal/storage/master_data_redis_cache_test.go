@@ -25,9 +25,10 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 	defer miniRedis.Close()
 
 	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 0,
 	})
 	if err != nil {
 		t.Fatalf("new redis cache: %v", err)
@@ -138,9 +139,10 @@ func TestSearchIndexPersistsOnlySearchableFields(t *testing.T) {
 	defer miniRedis.Close()
 
 	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 0,
 	})
 	if err != nil {
 		t.Fatalf("new redis cache: %v", err)
@@ -212,9 +214,10 @@ func TestSearchIndexRequiredCurrentSearchesStillWork(t *testing.T) {
 	defer miniRedis.Close()
 
 	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 0,
 	})
 	if err != nil {
 		t.Fatalf("new redis cache: %v", err)
@@ -304,9 +307,10 @@ func TestStoreRegionOmitsUnusedScalarFieldsFromPersistedIndex(t *testing.T) {
 	defer miniRedis.Close()
 
 	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 0,
 	})
 	if err != nil {
 		t.Fatalf("new redis cache: %v", err)
@@ -1038,6 +1042,233 @@ func TestRegionIndexStoreRegionReusesPersistedIndexWhenEntityIsUnchanged(t *test
 	assertNoRetainedRegionIndex(t, readerCache, "jp")
 }
 
+func TestSearchRetainsDecodedIndexWhenLRUCacheEnabled(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 2,
+	}
+	ctx := context.Background()
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+	}
+
+	writerCache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new writer redis cache: %v", err)
+	}
+	if err := writerCache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+	_ = writerCache.Close()
+
+	cache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	if cache.HasRegionIndex("jp") {
+		t.Fatalf("expected empty decoded index cache before search")
+	}
+	matches, err := cache.Search(ctx, "jp", "cards", "alpha", []string{"prefix"}, 10)
+	if err != nil {
+		t.Fatalf("search cards: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 search match, got %d", len(matches))
+	}
+	assertRetainedEntityIndex(t, cache, "jp", "cards")
+}
+
+func TestSearchDecodedIndexLRUEvictsLeastRecentlyUsed(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 2,
+	}
+	ctx := context.Background()
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+		"skills.json": []any{
+			map[string]any{"id": 10, "name": "focus"},
+		},
+		"unitProfiles.json": []any{
+			map[string]any{"unit": "theme_park"},
+		},
+	}
+
+	cache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	if _, err := cache.Search(ctx, "jp", "cards", "alpha", []string{"prefix"}, 10); err != nil {
+		t.Fatalf("search cards: %v", err)
+	}
+	if _, err := cache.Search(ctx, "jp", "skills", "focus", []string{"name"}, 10); err != nil {
+		t.Fatalf("search skills: %v", err)
+	}
+	if _, err := cache.Search(ctx, "jp", "unitprofiles", "theme_park", []string{"unit"}, 10); err != nil {
+		t.Fatalf("search unitprofiles: %v", err)
+	}
+
+	assertNoRetainedEntityIndex(t, cache, "jp", "cards")
+	assertRetainedEntityIndex(t, cache, "jp", "skills")
+	assertRetainedEntityIndex(t, cache, "jp", "unitprofiles")
+}
+
+func TestStoreRegionInvalidatesUnchangedCachedIndex(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 1,
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+	staleIndex := buildEntitySearchIndex("cards", []map[string]any{{"id": 1, "prefix": "beta"}})
+	version, err := cache.persistedEntitySearchIndexVersion(ctx, "jp", "cards")
+	if err != nil {
+		t.Fatalf("get persisted index version: %v", err)
+	}
+	cache.setCachedEntityIndex("jp", "cards", version, staleIndex)
+
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store unchanged payload: %v", err)
+	}
+	assertNoRetainedEntityIndex(t, cache, "jp", "cards")
+
+	matches, err := cache.Search(ctx, "jp", "cards", "beta", []string{"prefix"}, 10)
+	if err != nil {
+		t.Fatalf("search stale beta prefix: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("expected stale beta prefix to miss after unchanged store invalidation, got %d", len(matches))
+	}
+}
+
+func TestSearchLRUValidatesRedisVersionAcrossCacheInstances(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "test:master-data:",
+		MasterDataSearchIndexCacheEntries: 1,
+	}
+	ctx := context.Background()
+	initialPayload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+	}
+	updatedPayload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "beta"},
+		},
+	}
+
+	writerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new writer cache: %v", err)
+	}
+	defer func() {
+		_ = writerCache.Close()
+	}()
+	readerCache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new reader cache: %v", err)
+	}
+	defer func() {
+		_ = readerCache.Close()
+	}()
+
+	if err := writerCache.StoreRegion(ctx, "jp", initialPayload); err != nil {
+		t.Fatalf("store initial payload: %v", err)
+	}
+	alphaMatches, err := readerCache.Search(ctx, "jp", "cards", "alpha", []string{"prefix"}, 10)
+	if err != nil {
+		t.Fatalf("search alpha before update: %v", err)
+	}
+	if len(alphaMatches) != 1 {
+		t.Fatalf("expected alpha to match before update, got %d", len(alphaMatches))
+	}
+	assertRetainedEntityIndex(t, readerCache, "jp", "cards")
+
+	if err := writerCache.StoreRegion(ctx, "jp", updatedPayload); err != nil {
+		t.Fatalf("store updated payload: %v", err)
+	}
+	alphaMatches, err = readerCache.Search(ctx, "jp", "cards", "alpha", []string{"prefix"}, 10)
+	if err != nil {
+		t.Fatalf("search alpha after update: %v", err)
+	}
+	if len(alphaMatches) != 0 {
+		t.Fatalf("expected alpha to miss after Redis update from another cache, got %d", len(alphaMatches))
+	}
+	betaMatches, err := readerCache.Search(ctx, "jp", "cards", "beta", []string{"prefix"}, 10)
+	if err != nil {
+		t.Fatalf("search beta after update: %v", err)
+	}
+	if len(betaMatches) != 1 {
+		t.Fatalf("expected beta to match after Redis update, got %d", len(betaMatches))
+	}
+}
+
 func TestListByPageRebuildsOrderWhenMissing(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {
@@ -1261,6 +1492,50 @@ func BenchmarkRedisMasterDataCacheSearchIndexRetention(b *testing.B) {
 	}
 }
 
+func BenchmarkRedisMasterDataCacheDecodedSearchIndexCache(b *testing.B) {
+	scenarios := []struct {
+		name         string
+		cacheEntries int
+		beforeSearch func(*RedisMasterDataCache)
+	}{
+		{name: "Disabled", cacheEntries: 0},
+		{name: "ColdLRU", cacheEntries: 1, beforeSearch: func(cache *RedisMasterDataCache) {
+			cache.invalidateCachedEntityIndex("jp", "cards")
+		}},
+		{name: "HotLRU", cacheEntries: 1},
+	}
+
+	for _, scenario := range scenarios {
+		b.Run(scenario.name, func(b *testing.B) {
+			cache := benchmarkDecodedSearchIndexCacheSetup(b, scenario.cacheEntries)
+			defer func() {
+				_ = cache.Close()
+			}()
+			ctx := context.Background()
+			if scenario.name == "HotLRU" {
+				if _, err := cache.Search(ctx, "jp", "cards", "benchmarkprefix000100", []string{"prefix"}, 10); err != nil {
+					b.Fatalf("warm search cache: %v", err)
+				}
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if scenario.beforeSearch != nil {
+					scenario.beforeSearch(cache)
+				}
+				matches, err := cache.Search(ctx, "jp", "cards", "benchmarkprefix000100", []string{"prefix"}, 10)
+				if err != nil {
+					b.Fatalf("search cards: %v", err)
+				}
+				if len(matches) != 1 {
+					b.Fatalf("expected 1 search match, got %d", len(matches))
+				}
+			}
+		})
+	}
+}
+
 func readPersistedSearchIndex(
 	t *testing.T,
 	ctx context.Context,
@@ -1348,6 +1623,30 @@ func assertNoRetainedRegionIndex(t *testing.T, cache *RedisMasterDataCache, regi
 	}
 }
 
+func assertRetainedEntityIndex(t *testing.T, cache *RedisMasterDataCache, region string, entity string) {
+	t.Helper()
+
+	_, found, err := cache.cachedEntityIndex(context.Background(), region, entity)
+	if err != nil {
+		t.Fatalf("read cached entity index: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected retained decoded search index for %s/%s", region, entity)
+	}
+}
+
+func assertNoRetainedEntityIndex(t *testing.T, cache *RedisMasterDataCache, region string, entity string) {
+	t.Helper()
+
+	_, found, err := cache.cachedEntityIndex(context.Background(), region, entity)
+	if err != nil {
+		t.Fatalf("read cached entity index: %v", err)
+	}
+	if found {
+		t.Fatalf("expected no retained decoded search index for %s/%s", region, entity)
+	}
+}
+
 func benchmarkRedisSearchIndexRetentionOnce(
 	b *testing.B,
 	run func(context.Context, config.Config, map[string]any) (*RedisMasterDataCache, error),
@@ -1370,6 +1669,45 @@ func benchmarkRedisSearchIndexRetentionOnce(
 		b.Fatal(err)
 	}
 
+	return cache
+}
+
+func benchmarkDecodedSearchIndexCacheSetup(b *testing.B, cacheEntries int) *RedisMasterDataCache {
+	b.Helper()
+
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		b.Fatalf("start miniredis: %v", err)
+	}
+	b.Cleanup(miniRedis.Close)
+
+	cfg := config.Config{
+		RedisAddr:                         miniRedis.Addr(),
+		RedisDB:                           0,
+		MasterDataRedisKeyPrefix:          "bench:master-data:",
+		MasterDataSearchIndexCacheEntries: cacheEntries,
+	}
+	ctx := context.Background()
+	writerCache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "bench:master-data:",
+	})
+	if err != nil {
+		b.Fatalf("new writer cache: %v", err)
+	}
+	if err := writerCache.StoreRegion(ctx, "jp", redisSearchIndexBenchmarkPayload(4096)); err != nil {
+		_ = writerCache.Close()
+		b.Fatalf("store region: %v", err)
+	}
+	if err := writerCache.Close(); err != nil {
+		b.Fatalf("close writer cache: %v", err)
+	}
+
+	cache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		b.Fatalf("new search cache: %v", err)
+	}
 	return cache
 }
 

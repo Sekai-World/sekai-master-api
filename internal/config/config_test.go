@@ -14,6 +14,7 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 		"MASTER_DATA_RECOVER_INTERRUPTED_SYNC",
 		"MASTER_DATA_SYNC_CONCURRENCY",
 		"MASTER_DATA_REGION_FILE_CONCURRENCY",
+		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES",
 		"MASTER_DATA_WARM_SEARCH_INDEXES",
 		"OTEL_ENABLED",
 	)
@@ -45,6 +46,9 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	if cfg.MasterDataWarmSearchIndexes {
 		t.Fatalf("expected development master data search index warmup to default disabled")
 	}
+	if cfg.MasterDataSearchIndexCacheEntries != 32 {
+		t.Fatalf("expected search index cache entries to default to 32, got %d", cfg.MasterDataSearchIndexCacheEntries)
+	}
 	if !cfg.OTELEnabled {
 		t.Fatalf("expected OTel to default enabled in development")
 	}
@@ -56,6 +60,7 @@ func TestLoadKeepsExplicitMasterDataMemoryControlOverrides(t *testing.T) {
 		"APP_ENV",
 		"MASTER_DATA_SYNC_CONCURRENCY",
 		"MASTER_DATA_REGION_FILE_CONCURRENCY",
+		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES",
 		"MASTER_DATA_WARM_SEARCH_INDEXES",
 	)
 
@@ -64,6 +69,7 @@ func TestLoadKeepsExplicitMasterDataMemoryControlOverrides(t *testing.T) {
 		"APP_ENV=development\n"+
 		"MASTER_DATA_SYNC_CONCURRENCY=3\n"+
 		"MASTER_DATA_REGION_FILE_CONCURRENCY=8\n"+
+		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES=0\n"+
 		"MASTER_DATA_WARM_SEARCH_INDEXES=true\n")
 
 	chdir(t, tmpDir)
@@ -77,6 +83,9 @@ func TestLoadKeepsExplicitMasterDataMemoryControlOverrides(t *testing.T) {
 	}
 	if !cfg.MasterDataWarmSearchIndexes {
 		t.Fatalf("expected explicit search index warmup override enabled")
+	}
+	if cfg.MasterDataSearchIndexCacheEntries != 0 {
+		t.Fatalf("expected explicit search index cache override 0, got %d", cfg.MasterDataSearchIndexCacheEntries)
 	}
 }
 

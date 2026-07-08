@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"container/list"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -25,12 +26,15 @@ import (
 )
 
 type RedisMasterDataCache struct {
-	client          *redis.Client
-	keyPrefix       string
-	fileConcurrency int
+	client                  *redis.Client
+	keyPrefix               string
+	fileConcurrency         int
+	searchIndexCacheEntries int
 
-	mu    sync.RWMutex
-	index map[string]map[string]*entitySearchIndex
+	mu           sync.RWMutex
+	index        map[string]map[string]*entitySearchIndex
+	indexOrder   *list.List
+	indexEntries map[string]*list.Element
 }
 
 type RegionIndexStats struct {
@@ -81,6 +85,13 @@ type legacyPersistedSearchIndexItem struct {
 type textSpan struct {
 	Offset uint32
 	Length uint32
+}
+
+type cachedEntitySearchIndex struct {
+	region  string
+	entity  string
+	version string
+	index   *entitySearchIndex
 }
 
 var defaultSearchableFields = map[string]struct{}{
@@ -154,10 +165,13 @@ func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 	}
 
 	return &RedisMasterDataCache{
-		client:          client,
-		keyPrefix:       cfg.MasterDataRedisKeyPrefix,
-		fileConcurrency: fileConcurrency,
-		index:           make(map[string]map[string]*entitySearchIndex),
+		client:                  client,
+		keyPrefix:               cfg.MasterDataRedisKeyPrefix,
+		fileConcurrency:         fileConcurrency,
+		searchIndexCacheEntries: cfg.MasterDataSearchIndexCacheEntries,
+		index:                   make(map[string]map[string]*entitySearchIndex),
+		indexOrder:              list.New(),
+		indexEntries:            make(map[string]*list.Element),
 	}, nil
 }
 
@@ -272,6 +286,7 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 		entityChanged := recordsChanged || orderChanged
 		persistIndexChanged := entityChanged
 		var updatedIndex *entitySearchIndex
+		updatedIndexVersion := ""
 		if entityChanged {
 			updatedIndex = buildEntitySearchIndex(entity, recordMaps)
 		} else {
@@ -322,10 +337,15 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 			}
 		}
 		if persistIndexChanged {
-			cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, updatedIndex)
+			updatedIndexVersion = cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, updatedIndex)
 		}
 		if _, err := pipe.Exec(ctx); err != nil {
 			return fmt.Errorf("incremental update region %s entity %s: %w", regionName, entity, err)
+		}
+		if updatedIndex != nil {
+			cache.setCachedEntityIndex(regionName, entity, updatedIndexVersion, updatedIndex)
+		} else {
+			cache.invalidateCachedEntityIndex(regionName, entity)
 		}
 
 		reportProgress(filePath)
@@ -998,9 +1018,19 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 		return []masterdata.SearchMatch{}, nil
 	}
 
-	entityIndex, found, err := cache.readEntityIndexFromRedis(ctx, regionName, entityName)
+	entityIndex, found, err := cache.cachedEntityIndex(ctx, regionName, entityName)
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		var version string
+		entityIndex, version, found, err = cache.readEntityIndexFromRedis(ctx, regionName, entityName)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			cache.setCachedEntityIndex(regionName, entityName, version, entityIndex)
+		}
 	}
 
 	if !found || entityIndex == nil || len(entityIndex.Fields) == 0 {
@@ -1012,6 +1042,11 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 		if !rebuilt {
 			return []masterdata.SearchMatch{}, nil
 		}
+		version, versionErr := cache.persistedEntitySearchIndexVersion(ctx, regionName, entityName)
+		if versionErr != nil {
+			return nil, versionErr
+		}
+		cache.setCachedEntityIndex(regionName, entityName, version, entityIndex)
 		if entityIndex == nil || len(entityIndex.Fields) == 0 {
 			return []masterdata.SearchMatch{}, nil
 		}
@@ -1146,6 +1181,7 @@ func (cache *RedisMasterDataCache) rebuildEntityIndexFromRedis(
 		return nil, false, fmt.Errorf("hgetall region %s entity %s: %w", regionName, entityName, err)
 	}
 	if len(recordMap) == 0 {
+		cache.invalidateCachedEntityIndex(regionName, entityName)
 		return nil, false, nil
 	}
 
@@ -1160,10 +1196,11 @@ func (cache *RedisMasterDataCache) rebuildEntityIndexFromRedis(
 
 	entityIndex := buildEntitySearchIndex(entityName, records)
 	pipe := cache.client.Pipeline()
-	cache.persistEntitySearchIndex(ctx, pipe, regionName, entityName, entityIndex)
+	version := cache.persistEntitySearchIndex(ctx, pipe, regionName, entityName, entityIndex)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return nil, false, fmt.Errorf("persist rebuilt search index region %s entity %s: %w", regionName, entityName, err)
 	}
+	cache.setCachedEntityIndex(regionName, entityName, version, entityIndex)
 
 	return entityIndex, true, nil
 }
@@ -1192,13 +1229,16 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 	loaded := false
 	loadedCount := 0
 	for _, entity := range entities {
-		_, found, err := cache.readEntityIndexFromRedis(ctx, regionName, entity)
+		entityIndex, version, found, err := cache.readEntityIndexFromRedis(ctx, regionName, entity)
 		if err != nil {
 			return false, err
 		}
 		if found {
+			cache.setCachedEntityIndex(regionName, entity, version, entityIndex)
 			loaded = true
 			loadedCount++
+		} else {
+			cache.invalidateCachedEntityIndex(regionName, entity)
 		}
 	}
 
@@ -1220,23 +1260,7 @@ func (cache *RedisMasterDataCache) HasRegionIndex(region string) bool {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
-	entityIndex := cache.index[regionName]
-	if len(entityIndex) == 0 {
-		return false
-	}
-
-	for _, fields := range entityIndex {
-		if fields == nil {
-			continue
-		}
-		for _, items := range fields.Fields {
-			if len(items) > 0 {
-				return true
-			}
-		}
-	}
-
-	return false
+	return len(cache.index[regionName]) > 0
 }
 
 func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error) {
@@ -1326,10 +1350,13 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 			nextEntities[entity] = struct{}{}
 
 			pipe := cache.client.Pipeline()
-			cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, entityIndex)
+			version := cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, entityIndex)
 			if _, err := pipe.Exec(ctx); err != nil {
 				return false, fmt.Errorf("persist rebuilt search index region %s entity %s: %w", regionName, entity, err)
 			}
+			cache.setCachedEntityIndex(regionName, entity, version, entityIndex)
+		} else {
+			cache.invalidateCachedEntityIndex(regionName, entity)
 		}
 	}
 
@@ -1338,6 +1365,7 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 	}
 
 	if !hasRecords {
+		cache.invalidateCachedRegionIndex(regionName)
 		return false, nil
 	}
 
@@ -1348,6 +1376,7 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 		}
 		pipe.Del(ctx, cache.redisEntitySearchIndexKey(regionName, entity))
 		pipe.SRem(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName), normalizeKey(entity))
+		cache.invalidateCachedEntityIndex(regionName, entity)
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		return false, fmt.Errorf("remove stale rebuilt search indexes region %s: %w", regionName, err)
@@ -1413,6 +1442,148 @@ func (cache *RedisMasterDataCache) RegionIndexStats() []RegionIndexStats {
 	return stats
 }
 
+func (cache *RedisMasterDataCache) cachedEntityIndex(ctx context.Context, region string, entity string) (*entitySearchIndex, bool, error) {
+	if cache == nil || cache.searchIndexCacheEntries <= 0 {
+		return nil, false, nil
+	}
+
+	cache.mu.Lock()
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	entry, ok := cache.indexEntries[entityIndexCacheKey(regionName, entityName)]
+	if !ok {
+		cache.mu.Unlock()
+		return nil, false, nil
+	}
+	cache.indexOrder.MoveToFront(entry)
+	cached, ok := entry.Value.(cachedEntitySearchIndex)
+	if !ok || cached.index == nil {
+		cache.mu.Unlock()
+		return nil, false, nil
+	}
+	cachedVersion := cached.version
+	cachedIndex := cached.index
+	cache.mu.Unlock()
+
+	currentVersion, err := cache.persistedEntitySearchIndexVersion(ctx, regionName, entityName)
+	if err != nil {
+		return nil, false, err
+	}
+	if currentVersion == "" || cachedVersion != currentVersion {
+		cache.invalidateCachedEntityIndex(regionName, entityName)
+		return nil, false, nil
+	}
+
+	return cachedIndex, true, nil
+}
+
+func (cache *RedisMasterDataCache) setCachedEntityIndex(region string, entity string, version string, index *entitySearchIndex) {
+	if cache == nil || cache.searchIndexCacheEntries <= 0 {
+		return
+	}
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" || version == "" || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
+		cache.invalidateCachedEntityIndex(regionName, entityName)
+		return
+	}
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.ensureIndexCacheLocked()
+
+	key := entityIndexCacheKey(regionName, entityName)
+	if entry, ok := cache.indexEntries[key]; ok {
+		entry.Value = cachedEntitySearchIndex{region: regionName, entity: entityName, version: version, index: index}
+		cache.indexOrder.MoveToFront(entry)
+		cache.index[regionName][entityName] = index
+		return
+	}
+
+	if _, ok := cache.index[regionName]; !ok {
+		cache.index[regionName] = make(map[string]*entitySearchIndex)
+	}
+	cache.index[regionName][entityName] = index
+	cache.indexEntries[key] = cache.indexOrder.PushFront(cachedEntitySearchIndex{region: regionName, entity: entityName, version: version, index: index})
+	cache.evictCachedEntityIndexesLocked()
+}
+
+func (cache *RedisMasterDataCache) invalidateCachedEntityIndex(region string, entity string) {
+	if cache == nil {
+		return
+	}
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return
+	}
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.removeCachedEntityIndexLocked(regionName, entityName)
+}
+
+func (cache *RedisMasterDataCache) invalidateCachedRegionIndex(region string) {
+	if cache == nil {
+		return
+	}
+	regionName := normalizeKey(region)
+	if regionName == "" {
+		return
+	}
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	for entity := range cache.index[regionName] {
+		cache.removeCachedEntityIndexLocked(regionName, entity)
+	}
+}
+
+func (cache *RedisMasterDataCache) ensureIndexCacheLocked() {
+	if cache.index == nil {
+		cache.index = make(map[string]map[string]*entitySearchIndex)
+	}
+	if cache.indexOrder == nil {
+		cache.indexOrder = list.New()
+	}
+	if cache.indexEntries == nil {
+		cache.indexEntries = make(map[string]*list.Element)
+	}
+}
+
+func (cache *RedisMasterDataCache) evictCachedEntityIndexesLocked() {
+	for cache.searchIndexCacheEntries > 0 && cache.indexOrder.Len() > cache.searchIndexCacheEntries {
+		entry := cache.indexOrder.Back()
+		if entry == nil {
+			return
+		}
+		cached, ok := entry.Value.(cachedEntitySearchIndex)
+		if !ok {
+			cache.indexOrder.Remove(entry)
+			continue
+		}
+		cache.removeCachedEntityIndexLocked(cached.region, cached.entity)
+	}
+}
+
+func (cache *RedisMasterDataCache) removeCachedEntityIndexLocked(region string, entity string) {
+	key := entityIndexCacheKey(region, entity)
+	if entry, ok := cache.indexEntries[key]; ok {
+		cache.indexOrder.Remove(entry)
+		delete(cache.indexEntries, key)
+	}
+	if entityIndexes, ok := cache.index[region]; ok {
+		delete(entityIndexes, entity)
+		if len(entityIndexes) == 0 {
+			delete(cache.index, region)
+		}
+	}
+}
+
+func entityIndexCacheKey(region string, entity string) string {
+	return normalizeKey(region) + ":" + normalizeKey(entity)
+}
+
 func (cache *RedisMasterDataCache) RedisUsageStats(ctx context.Context) (RedisUsageStats, error) {
 	if cache == nil || cache.client == nil {
 		return RedisUsageStats{}, nil
@@ -1460,31 +1631,40 @@ func (cache *RedisMasterDataCache) redisEntitySearchIndexKey(region string, enti
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":search-index"
 }
 
+func (cache *RedisMasterDataCache) redisEntitySearchIndexVersionKey(region string, entity string) string {
+	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":search-index-version"
+}
+
 func (cache *RedisMasterDataCache) redisRegionSearchIndexEntitiesKey(region string) string {
 	return cache.redisKey(region) + ":search-index:entities"
 }
 
-func (cache *RedisMasterDataCache) persistEntitySearchIndex(ctx context.Context, pipe redis.Pipeliner, region string, entity string, index *entitySearchIndex) {
+func (cache *RedisMasterDataCache) persistEntitySearchIndex(ctx context.Context, pipe redis.Pipeliner, region string, entity string, index *entitySearchIndex) string {
 	entityName := normalizeKey(entity)
 	if entityName == "" {
-		return
+		return ""
 	}
 
 	indexKey := cache.redisEntitySearchIndexKey(region, entityName)
+	versionKey := cache.redisEntitySearchIndexVersionKey(region, entityName)
 	entitiesKey := cache.redisRegionSearchIndexEntitiesKey(region)
 	if index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
 		pipe.Del(ctx, indexKey)
+		pipe.Del(ctx, versionKey)
 		pipe.SRem(ctx, entitiesKey, entityName)
-		return
+		return ""
 	}
 
 	body, err := json.Marshal(index)
 	if err != nil {
-		return
+		return ""
 	}
+	version := entitySearchIndexVersion(body)
 
 	pipe.Set(ctx, indexKey, body, 0)
+	pipe.Set(ctx, versionKey, version, 0)
 	pipe.SAdd(ctx, entitiesKey, entityName)
+	return version
 }
 
 func (cache *RedisMasterDataCache) persistedEntitySearchIndexExists(ctx context.Context, region string, entity string) (bool, error) {
@@ -1502,29 +1682,32 @@ func (cache *RedisMasterDataCache) persistedEntitySearchIndexExists(ctx context.
 	return exists > 0, nil
 }
 
-func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context, region string, entity string) (*entitySearchIndex, bool, error) {
+func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context, region string, entity string) (*entitySearchIndex, string, bool, error) {
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
 	if regionName == "" || entityName == "" {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 
 	body, err := cache.client.Get(ctx, cache.redisEntitySearchIndexKey(regionName, entityName)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, false, nil
+			return nil, "", false, nil
 		}
-		return nil, false, fmt.Errorf("get persisted search index region %s entity %s: %w", regionName, entityName, err)
+		return nil, "", false, fmt.Errorf("get persisted search index region %s entity %s: %w", regionName, entityName, err)
 	}
+	version := entitySearchIndexVersion(body)
 
 	var index entitySearchIndex
 	if err := json.Unmarshal(body, &index); err == nil {
 		compact := compactCurrentSearchIndex(entityName, index)
 		if compact != nil {
 			if !equalEntitySearchIndex(compact, &index) {
-				cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+				version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+			} else {
+				cache.ensureEntitySearchIndexVersion(ctx, regionName, entityName, version)
 			}
-			return compact, true, nil
+			return compact, version, true, nil
 		}
 	}
 
@@ -1532,23 +1715,23 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 	if err := json.Unmarshal(body, &legacyPersisted); err == nil {
 		compact := compactPersistedSearchIndex(entityName, legacyPersisted)
 		if compact != nil {
-			cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
-			return compact, true, nil
+			version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+			return compact, version, true, nil
 		}
 	}
 
 	var legacyFields map[string][]legacySearchIndexItem
 	if err := json.Unmarshal(body, &legacyFields); err != nil {
-		return nil, false, fmt.Errorf("decode persisted search index region %s entity %s: %w", regionName, entityName, err)
+		return nil, "", false, fmt.Errorf("decode persisted search index region %s entity %s: %w", regionName, entityName, err)
 	}
 
 	legacyIndex := compactLegacySearchIndex(entityName, legacyFields)
 	if legacyIndex == nil {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
-	cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
+	version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
 
-	return legacyIndex, true, nil
+	return legacyIndex, version, true, nil
 }
 
 func (cache *RedisMasterDataCache) rewriteEntitySearchIndex(
@@ -1556,10 +1739,53 @@ func (cache *RedisMasterDataCache) rewriteEntitySearchIndex(
 	region string,
 	entity string,
 	index *entitySearchIndex,
-) {
+) string {
 	pipe := cache.client.Pipeline()
-	cache.persistEntitySearchIndex(ctx, pipe, region, entity, index)
+	version := cache.persistEntitySearchIndex(ctx, pipe, region, entity, index)
 	_, _ = pipe.Exec(ctx)
+	return version
+}
+
+func (cache *RedisMasterDataCache) ensureEntitySearchIndexVersion(ctx context.Context, region string, entity string, version string) {
+	if version == "" {
+		return
+	}
+	_ = cache.client.SetNX(ctx, cache.redisEntitySearchIndexVersionKey(region, entity), version, 0).Err()
+}
+
+func (cache *RedisMasterDataCache) persistedEntitySearchIndexVersion(ctx context.Context, region string, entity string) (string, error) {
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return "", nil
+	}
+
+	version, err := cache.client.Get(ctx, cache.redisEntitySearchIndexVersionKey(regionName, entityName)).Result()
+	if err == nil {
+		return strings.TrimSpace(version), nil
+	}
+	if !errors.Is(err, redis.Nil) {
+		return "", fmt.Errorf("get persisted search index version region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	body, err := cache.client.Get(ctx, cache.redisEntitySearchIndexKey(regionName, entityName)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get persisted search index for version region %s entity %s: %w", regionName, entityName, err)
+	}
+	version = entitySearchIndexVersion(body)
+	cache.ensureEntitySearchIndexVersion(ctx, regionName, entityName, version)
+	return version, nil
+}
+
+func entitySearchIndexVersion(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	sum := sha1.Sum(body)
+	return hex.EncodeToString(sum[:])
 }
 
 func equalEntitySearchIndex(left *entitySearchIndex, right *entitySearchIndex) bool {
