@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 
@@ -430,6 +431,78 @@ func TestLoadRegionIndexFromRedisFiltersCurrentPersistedFieldsAfterRestart(t *te
 	assertNoRetainedRegionIndex(t, readerCache, "jp")
 }
 
+func TestSearchCurrentPersistedIndexDoesNotRewrite(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+	cache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	ctx := context.Background()
+	if err := cache.client.HSet(ctx, cache.redisEntityKey("jp", "cards"), "1", `{"id":1,"prefix":"alpha"}`).Err(); err != nil {
+		t.Fatalf("seed by-id record: %v", err)
+	}
+
+	currentIndex := entitySearchIndex{
+		IDs:      []string{"1"},
+		TextBlob: "alpha",
+		Fields: map[string][]searchIndexItem{
+			"prefix": {
+				{IDIndex: 0, TextOffset: 0, TextLength: 5},
+			},
+		},
+	}
+	currentBody, err := json.MarshalIndent(currentIndex, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal current index: %v", err)
+	}
+	indexKey := cache.redisEntitySearchIndexKey("jp", "cards")
+	if err := cache.client.Set(ctx, indexKey, currentBody, time.Minute).Err(); err != nil {
+		t.Fatalf("seed current search index: %v", err)
+	}
+	if err := cache.client.SAdd(ctx, cache.redisRegionSearchIndexEntitiesKey("jp"), "cards").Err(); err != nil {
+		t.Fatalf("seed region index set: %v", err)
+	}
+
+	matches, err := cache.Search(ctx, "jp", "cards", "alpha", []string{"prefix"}, 10)
+	if err != nil {
+		t.Fatalf("search current index: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected current index to remain searchable, got %d matches", len(matches))
+	}
+
+	storedBody, err := cache.client.Get(ctx, indexKey).Bytes()
+	if err != nil {
+		t.Fatalf("get current search index after search: %v", err)
+	}
+	if string(storedBody) != string(currentBody) {
+		t.Fatalf("expected current search index bytes to remain unchanged after search")
+	}
+
+	ttl, err := cache.client.TTL(ctx, indexKey).Result()
+	if err != nil {
+		t.Fatalf("get current search index ttl after search: %v", err)
+	}
+	if ttl <= 0 {
+		t.Fatalf("expected current search index ttl to remain positive after search, got %s", ttl)
+	}
+	assertNoRetainedRegionIndex(t, cache, "jp")
+}
+
 func TestLoadRegionIndexFromRedisFiltersLegacyPersistedFields(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {
@@ -462,7 +535,8 @@ func TestLoadRegionIndexFromRedisFiltersLegacyPersistedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal legacy index: %v", err)
 	}
-	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexKey("jp", "cards"), legacyBody, 0).Err(); err != nil {
+	legacyIndexKey := cache.redisEntitySearchIndexKey("jp", "cards")
+	if err := cache.client.Set(ctx, legacyIndexKey, legacyBody, time.Minute).Err(); err != nil {
 		t.Fatalf("seed legacy search index: %v", err)
 	}
 	if err := cache.client.SAdd(ctx, cache.redisRegionSearchIndexEntitiesKey("jp"), "cards").Err(); err != nil {
@@ -479,6 +553,13 @@ func TestLoadRegionIndexFromRedisFiltersLegacyPersistedFields(t *testing.T) {
 
 	filteredIndex := readPersistedSearchIndex(t, ctx, cache, "jp", "cards")
 	assertPersistedSearchIndex(t, filteredIndex, 1, []string{"prefix"})
+	legacyTTL, err := cache.client.TTL(ctx, legacyIndexKey).Result()
+	if err != nil {
+		t.Fatalf("get legacy search index ttl after migration: %v", err)
+	}
+	if legacyTTL >= 0 {
+		t.Fatalf("expected legacy search index migration to rewrite without ttl, got ttl %s", legacyTTL)
+	}
 	assertNoRetainedRegionIndex(t, cache, "jp")
 
 	legacyMatches, err := cache.Search(ctx, "jp", "cards", "legacy", []string{"assetbundleName"}, 10)

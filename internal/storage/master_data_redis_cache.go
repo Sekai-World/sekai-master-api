@@ -1521,7 +1521,9 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 	if err := json.Unmarshal(body, &index); err == nil {
 		compact := compactCurrentSearchIndex(entityName, index)
 		if compact != nil {
-			cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+			if !equalEntitySearchIndex(compact, &index) {
+				cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+			}
 			return compact, true, nil
 		}
 	}
@@ -1558,6 +1560,33 @@ func (cache *RedisMasterDataCache) rewriteEntitySearchIndex(
 	pipe := cache.client.Pipeline()
 	cache.persistEntitySearchIndex(ctx, pipe, region, entity, index)
 	_, _ = pipe.Exec(ctx)
+}
+
+func equalEntitySearchIndex(left *entitySearchIndex, right *entitySearchIndex) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	if left.TextBlob != right.TextBlob || len(left.IDs) != len(right.IDs) || len(left.Fields) != len(right.Fields) {
+		return false
+	}
+	for index, id := range left.IDs {
+		if right.IDs[index] != id {
+			return false
+		}
+	}
+	for field, leftItems := range left.Fields {
+		rightItems, ok := right.Fields[field]
+		if !ok || len(leftItems) != len(rightItems) {
+			return false
+		}
+		for index, leftItem := range leftItems {
+			if rightItems[index] != leftItem {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func entityNameFromByIDKey(regionPrefix string, key string) string {
