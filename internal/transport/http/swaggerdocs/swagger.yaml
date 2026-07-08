@@ -287,14 +287,30 @@ definitions:
     type: object
   shared.EventCardResponse:
     properties:
+      assetbundleName:
+        type: string
+      attr:
+        type: string
       bonusRate:
         type: integer
       cardId:
         type: integer
+      cardRarityType:
+        type: string
       eventId:
         type: integer
+      initialSpecialTrainingStatus:
+        type: string
+      leaderBonusRate:
+        type: integer
+      name:
+        type: string
+      prefix:
+        type: string
       releaseCondition:
         $ref: '#/definitions/shared.ReleaseConditionResponse'
+      title:
+        type: string
     type: object
   shared.EventCardsResponse:
     properties:
@@ -309,12 +325,81 @@ definitions:
         type: integer
       cardAttr:
         type: string
+      colorCode:
+        type: string
       eventId:
+        type: integer
+      firstName:
+        type: string
+      gameCharacterId:
         type: integer
       gameCharacterUnitId:
         type: integer
+      givenName:
+        type: string
       releaseCondition:
         $ref: '#/definitions/shared.ReleaseConditionResponse'
+      unit:
+        type: string
+    type: object
+  shared.EventDetailAggregateResponse:
+    properties:
+      availableRegions:
+        items:
+          type: string
+        type: array
+      bonuses:
+        $ref: '#/definitions/shared.EventBonusesResponse'
+      cards:
+        $ref: '#/definitions/shared.EventDetailCardsSectionResponse'
+      event:
+        $ref: '#/definitions/shared.EventObjectResponse'
+      isCurrentEvent:
+        type: boolean
+      musics:
+        $ref: '#/definitions/shared.EventDetailMusicsSectionResponse'
+      rewards:
+        $ref: '#/definitions/shared.EventDetailRewardsPreviewResponse'
+    type: object
+  shared.EventDetailCardsSectionResponse:
+    properties:
+      count:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/shared.EventCardResponse'
+        type: array
+    type: object
+  shared.EventDetailMusicsSectionResponse:
+    properties:
+      count:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/shared.EventMusicResponse'
+        type: array
+    type: object
+  shared.EventDetailRewardsPreviewResponse:
+    properties:
+      previewRanges:
+        items:
+          $ref: '#/definitions/shared.EventRewardRangeResponse'
+        type: array
+      summary:
+        $ref: '#/definitions/shared.EventDetailRewardsSummaryResponse'
+    type: object
+  shared.EventDetailRewardsSummaryResponse:
+    properties:
+      fullEndpoint:
+        type: string
+      hasMore:
+        type: boolean
+      previewRangeCount:
+        type: integer
+      totalRangeCount:
+        type: integer
+      totalRewardCount:
+        type: integer
     type: object
   shared.EventHonorBonusResponse:
     properties:
@@ -351,14 +436,20 @@ definitions:
     type: object
   shared.EventMusicResponse:
     properties:
+      assetbundleName:
+        type: string
       eventId:
         type: integer
       musicId:
         type: integer
+      name:
+        type: string
       releaseCondition:
         $ref: '#/definitions/shared.ReleaseConditionResponse'
       seq:
         type: integer
+      title:
+        type: string
     type: object
   shared.EventMusicsResponse:
     properties:
@@ -1741,6 +1832,47 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get event cards by id
+      tags:
+      - events
+  /events/{region}/{id}/detail:
+    get:
+      description: Returns event detail, compact availability/current metadata, enriched
+        related cards/musics, bonuses, and a bounded ranking reward preview.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.EventDetailAggregateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get bounded event detail aggregate by id
       tags:
       - events
   /events/{region}/{id}/musics:

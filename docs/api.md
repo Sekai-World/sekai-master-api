@@ -31,6 +31,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/events/:region/current`
 - `GET /api/v1/events/:region/list?page=1&page_size=20&id=<id>&name=<kw>&unit=<kw>&event_type=<kw>&sort_by=id|startAt&sort_order=asc|desc`
 - `GET /api/v1/events/:region/:id`
+- `GET /api/v1/events/:region/:id/detail`
 - `GET /api/v1/events/:region/:id/rewards`
 - `GET /api/v1/virtualLives/:region/list?page=1&page_size=20`
 - `GET /api/v1/virtualLives/:region/:id`

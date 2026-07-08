@@ -66,6 +66,8 @@ Query behavior:
 - Card params reuses the cached card record and returns params-related fields only.
 - Music responses expand `creatorArtistId` and `liveStageId` and hide the raw ids.
 - Card responses expand `cardSupplyId`, `skillId`, `characterId`, and `cardRarityType`.
+- Event card and music relation endpoints preserve relation fields and enrich minimal display fields from `cards`/`musics`; event music `seq` remains the relation sequence, not the master music sequence.
+- `GET /api/v1/events/{region}/{id}/detail` is a bounded first-screen aggregate: it returns event detail, availability/current metadata, bonuses, enriched cards/musics, and reward preview/summary. It intentionally does not include every ranking reward range; use `/events/{region}/{id}/rewards` for the full reward payload.
 - Event current lookup uses Redis first and refreshes from `events.json` when stale or missing.
 - Event by-id omits `eventRankingRewardRanges`; use the rewards endpoint.
 - Virtual live base response omits items, schedules, and setlists; use dedicated endpoints.
