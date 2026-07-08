@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,8 @@ import (
 type EventHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 }
+
+const eventDetailRewardPreviewLimit = 5
 
 var sortableEventFields = []string{
 	"id",
@@ -67,6 +70,54 @@ func (handler *EventHandler) ByID(c *gin.Context) {
 	}
 
 	response.JSON(c, http.StatusOK, handler.buildEventDetail(c.Request.Context(), region, record))
+}
+
+// DetailByID godoc
+// @Summary Get bounded event detail aggregate by id
+// @Description Returns event detail, compact availability/current metadata, enriched related cards/musics, bonuses, and a bounded ranking reward preview.
+// @Tags events
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Event ID"
+// @Success 200 {object} shared.EventDetailAggregateResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /events/{region}/{id}/detail [get]
+func (handler *EventHandler) DetailByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !handler.ensureRegionReady(c, region) {
+		return
+	}
+
+	record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "events", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "EVENT_NOT_FOUND", "event not found")
+		return
+	}
+
+	payload, err := handler.buildEventDetailAggregate(c.Request.Context(), region, id, record)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event detail")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, payload)
 }
 
 // AvailableRegionsByID godoc
@@ -493,6 +544,10 @@ func (handler *EventHandler) MusicsByID(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if err := handler.enrichEventMusics(c.Request.Context(), strings.TrimSpace(c.Param("region")), items); err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event music details")
+		return
+	}
 
 	response.JSON(c, http.StatusOK, gin.H{"items": items})
 }
@@ -512,6 +567,10 @@ func (handler *EventHandler) MusicsByID(c *gin.Context) {
 func (handler *EventHandler) CardsByID(c *gin.Context) {
 	items, ok := handler.loadEventBonusItems(c, "eventcards", "event cards")
 	if !ok {
+		return
+	}
+	if err := handler.enrichEventCards(c.Request.Context(), strings.TrimSpace(c.Param("region")), items); err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query event card details")
 		return
 	}
 
@@ -549,40 +608,250 @@ func (handler *EventHandler) BonusesByID(c *gin.Context) {
 		return
 	}
 
-	type bonusDataset struct {
-		ResponseKey string
-		Entity      string
-		Label       string
-		ScopedByID  bool
+	payload, err := handler.buildEventBonuses(c.Request.Context(), region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", err.Error())
+		return
 	}
 
-	datasets := []bonusDataset{
-		{ResponseKey: "eventCardBonusLimits", Entity: "eventcardbonuslimits", Label: "event card bonus limits", ScopedByID: true},
-		{ResponseKey: "eventDeckBonuses", Entity: "eventdeckbonuses", Label: "event deck bonuses", ScopedByID: true},
-		{ResponseKey: "eventHonorBonuses", Entity: "eventhonorbonuses", Label: "event honor bonuses", ScopedByID: true},
-		{ResponseKey: "eventMysekaiFixtureGameCharacterPerformanceBonusLimits", Entity: "eventmysekaifixturegamecharacterperformancebonuslimits", Label: "event mysekai fixture game character performance bonus limits", ScopedByID: true},
-		{ResponseKey: "eventRarityBonusRates", Entity: "eventraritybonusrates", Label: "event rarity bonus rates", ScopedByID: false},
-	}
+	response.JSON(c, http.StatusOK, payload)
+}
 
+type bonusDataset struct {
+	ResponseKey string
+	Entity      string
+	Label       string
+	ScopedByID  bool
+}
+
+var eventBonusDatasets = []bonusDataset{
+	{ResponseKey: "eventCardBonusLimits", Entity: "eventcardbonuslimits", Label: "event card bonus limits", ScopedByID: true},
+	{ResponseKey: "eventDeckBonuses", Entity: "eventdeckbonuses", Label: "event deck bonuses", ScopedByID: true},
+	{ResponseKey: "eventHonorBonuses", Entity: "eventhonorbonuses", Label: "event honor bonuses", ScopedByID: true},
+	{ResponseKey: "eventMysekaiFixtureGameCharacterPerformanceBonusLimits", Entity: "eventmysekaifixturegamecharacterperformancebonuslimits", Label: "event mysekai fixture game character performance bonus limits", ScopedByID: true},
+	{ResponseKey: "eventRarityBonusRates", Entity: "eventraritybonusrates", Label: "event rarity bonus rates", ScopedByID: false},
+}
+
+func (handler *EventHandler) buildEventBonuses(ctx context.Context, region string, eventID string) (gin.H, error) {
 	payload := gin.H{}
-	for _, dataset := range datasets {
+	for _, dataset := range eventBonusDatasets {
 		var (
 			items []map[string]any
 			err   error
 		)
 		if dataset.ScopedByID {
-			items, err = handler.findEventBonusItems(c.Request.Context(), region, id, dataset.Entity)
+			items, err = handler.findEventBonusItems(ctx, region, eventID, dataset.Entity)
 		} else {
-			items, err = handler.masterDataSync.ListAll(c.Request.Context(), region, dataset.Entity)
+			items, err = handler.masterDataSync.ListAll(ctx, region, dataset.Entity)
 		}
 		if err != nil {
-			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to query "+dataset.Label)
-			return
+			return nil, fmt.Errorf("failed to query %s", dataset.Label)
+		}
+		if dataset.Entity == "eventdeckbonuses" {
+			items = handler.enrichEventDeckBonuses(ctx, region, items)
 		}
 		payload[dataset.ResponseKey] = items
 	}
 
-	response.JSON(c, http.StatusOK, payload)
+	return payload, nil
+}
+
+func (handler *EventHandler) enrichEventDeckBonuses(ctx context.Context, region string, items []map[string]any) []map[string]any {
+	if len(items) == 0 {
+		return items
+	}
+
+	enrichedItems := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		enrichedItem := copyRecord(item)
+		handler.enrichEventDeckBonus(ctx, region, enrichedItem)
+		enrichedItems = append(enrichedItems, enrichedItem)
+	}
+
+	return enrichedItems
+}
+
+func (handler *EventHandler) enrichEventDeckBonus(ctx context.Context, region string, item map[string]any) {
+	gameCharacterUnitID := shared.NormalizeAnyID(item["gameCharacterUnitId"])
+	if gameCharacterUnitID == "" {
+		return
+	}
+
+	gameCharacterUnit, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacterunits", gameCharacterUnitID)
+	if err != nil || !found {
+		return
+	}
+
+	for key, value := range pickFields(gameCharacterUnit, []string{"gameCharacterId", "unit", "colorCode"}) {
+		item[key] = value
+	}
+
+	gameCharacterID := shared.NormalizeAnyID(gameCharacterUnit["gameCharacterId"])
+	if gameCharacterID == "" {
+		return
+	}
+
+	gameCharacter, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacters", gameCharacterID)
+	if err != nil || !found {
+		return
+	}
+
+	for key, value := range pickFields(gameCharacter, []string{"firstName", "givenName"}) {
+		item[key] = value
+	}
+}
+
+func (handler *EventHandler) buildEventDetailAggregate(ctx context.Context, region string, eventID string, record map[string]any) (gin.H, error) {
+	bonuses, err := handler.buildEventBonuses(ctx, region, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	cards, err := handler.buildEnrichedEventCards(ctx, region, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query event cards")
+	}
+
+	musics, err := handler.buildEnrichedEventMusics(ctx, region, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query event musics")
+	}
+
+	availableRegions, err := shared.AvailableRegionsByID(ctx, handler.masterDataSync, "events", eventID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query event available regions")
+	}
+
+	rewardRanges := eventRewardRanges(record)
+	previewRanges := handler.buildEventRewardPreview(ctx, region, rewardRanges)
+
+	return gin.H{
+		"event":            handler.buildEventDetail(ctx, region, record),
+		"availableRegions": availableRegions,
+		"isCurrentEvent":   handler.isCurrentEvent(ctx, region, eventID),
+		"bonuses":          bonuses,
+		"cards": gin.H{
+			"items": cards,
+			"count": len(cards),
+		},
+		"musics": gin.H{
+			"items": musics,
+			"count": len(musics),
+		},
+		"rewards": gin.H{
+			"summary": gin.H{
+				"totalRangeCount":   len(rewardRanges),
+				"totalRewardCount":  countEventRankingRewards(rewardRanges),
+				"previewRangeCount": len(previewRanges),
+				"hasMore":           len(rewardRanges) > len(previewRanges),
+				"fullEndpoint":      "/api/v1/events/" + region + "/" + eventID + "/rewards",
+			},
+			"previewRanges": previewRanges,
+		},
+	}, nil
+}
+
+func (handler *EventHandler) buildEnrichedEventCards(ctx context.Context, region string, eventID string) ([]map[string]any, error) {
+	items, err := handler.findEventBonusItems(ctx, region, eventID, "eventcards")
+	if err != nil {
+		return nil, err
+	}
+	if err := handler.enrichEventCards(ctx, region, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (handler *EventHandler) buildEnrichedEventMusics(ctx context.Context, region string, eventID string) ([]map[string]any, error) {
+	items, err := handler.findEventBonusItems(ctx, region, eventID, "eventmusics")
+	if err != nil {
+		return nil, err
+	}
+	if err := handler.enrichEventMusics(ctx, region, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (handler *EventHandler) isCurrentEvent(ctx context.Context, region string, eventID string) bool {
+	currentEvent, found, err := handler.masterDataSync.CurrentEvent(ctx, region, time.Now().UTC())
+	if err != nil || !found {
+		return false
+	}
+	return shared.NormalizeAnyID(currentEvent["id"]) == shared.NormalizeAnyID(eventID)
+}
+
+func eventRewardRanges(record map[string]any) []any {
+	value, ok := record["eventRankingRewardRanges"]
+	if !ok {
+		return []any{}
+	}
+	items, ok := value.([]any)
+	if ok {
+		return items
+	}
+	return []any{value}
+}
+
+func (handler *EventHandler) buildEventRewardPreview(ctx context.Context, region string, ranges []any) []any {
+	previewSource := importantEventRewardRanges(ranges)
+	if len(previewSource) == 0 {
+		previewSource = ranges
+	}
+	if len(previewSource) > eventDetailRewardPreviewLimit {
+		previewSource = previewSource[:eventDetailRewardPreviewLimit]
+	}
+	return handler.enrichEventRewardRanges(ctx, region, previewSource)
+}
+
+func importantEventRewardRanges(ranges []any) []any {
+	items := make([]any, 0, len(ranges))
+	for _, item := range ranges {
+		rangeRecord, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if isToRankBorder, ok := rangeRecord["isToRankBorder"].(bool); ok && isToRankBorder {
+			items = append(items, item)
+			continue
+		}
+		if fromRank, ok := numericRank(rangeRecord["fromRank"]); ok && fromRank <= 1000 {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+func numericRank(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case float32:
+		return float64(typed), true
+	case float64:
+		return typed, true
+	default:
+		return 0, false
+	}
+}
+
+func countEventRankingRewards(ranges []any) int {
+	total := 0
+	for _, item := range ranges {
+		rangeRecord, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		rewards, ok := rangeRecord["eventRankingRewards"].([]any)
+		if ok {
+			total += len(rewards)
+		}
+	}
+	return total
 }
 
 func (handler *EventHandler) loadEventBonusItems(c *gin.Context, entity string, label string) ([]map[string]any, bool) {
@@ -644,6 +913,63 @@ func (handler *EventHandler) findEventBonusItems(ctx context.Context, region str
 	}
 
 	return items, nil
+}
+
+func (handler *EventHandler) enrichEventCards(ctx context.Context, region string, items []map[string]any) error {
+	return handler.enrichEventRelationItems(ctx, region, items, "cardId", "cards", []string{
+		"title",
+		"name",
+		"prefix",
+		"assetbundleName",
+		"attr",
+		"cardRarityType",
+		"initialSpecialTrainingStatus",
+	})
+}
+
+func (handler *EventHandler) enrichEventMusics(ctx context.Context, region string, items []map[string]any) error {
+	return handler.enrichEventRelationItems(ctx, region, items, "musicId", "musics", []string{
+		"title",
+		"name",
+		"assetbundleName",
+	})
+}
+
+func (handler *EventHandler) enrichEventRelationItems(ctx context.Context, region string, items []map[string]any, idField string, entity string, fields []string) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	detailsByID := make(map[string]map[string]any)
+	for _, item := range items {
+		id := shared.NormalizeAnyID(item[idField])
+		if id == "" {
+			continue
+		}
+
+		detail, cached := detailsByID[id]
+		if !cached {
+			record, found, err := handler.masterDataSync.GetByID(ctx, region, entity, id)
+			if err != nil {
+				return err
+			}
+			if found {
+				detail = record
+			}
+			detailsByID[id] = detail
+		}
+
+		if detail == nil {
+			continue
+		}
+		for _, field := range fields {
+			if value, ok := detail[field]; ok {
+				item[field] = value
+			}
+		}
+	}
+
+	return nil
 }
 
 func (handler *EventHandler) ensureRegionReady(c *gin.Context, region string) bool {

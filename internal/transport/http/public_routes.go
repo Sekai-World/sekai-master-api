@@ -52,6 +52,7 @@ func registerPublicRoutes(
 	v1.GET("/events/regions/:id/availability", eventHandler.AvailableRegionsByID)
 	v1.GET("/events/:region/current", eventHandler.Current)
 	v1.GET("/events/:region/list", eventHandler.List)
+	v1.GET("/events/:region/:id/detail", eventHandler.DetailByID)
 	v1.GET("/events/:region/:id", eventHandler.ByID)
 	v1.GET("/events/:region/:id/break-times", eventHandler.BreakTimesByID)
 	v1.GET("/events/:region/:id/bonuses", eventHandler.BonusesByID)

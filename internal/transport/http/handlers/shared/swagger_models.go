@@ -526,6 +526,11 @@ type EventCardBonusLimitResponse struct {
 type EventDeckBonusResponse struct {
 	EventID             int                       `json:"eventId,omitempty"`
 	GameCharacterUnitID int                       `json:"gameCharacterUnitId,omitempty"`
+	GameCharacterID     int                       `json:"gameCharacterId,omitempty"`
+	Unit                string                    `json:"unit,omitempty"`
+	FirstName           string                    `json:"firstName,omitempty"`
+	GivenName           string                    `json:"givenName,omitempty"`
+	ColorCode           string                    `json:"colorCode,omitempty"`
 	CardAttr            string                    `json:"cardAttr,omitempty"`
 	BonusRate           int                       `json:"bonusRate,omitempty"`
 	ReleaseCondition    *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
@@ -620,10 +625,46 @@ type EventRewardsResponse struct {
 	Items []EventRewardRangeResponse `json:"items"`
 }
 
+type EventDetailRewardsSummaryResponse struct {
+	TotalRangeCount   int    `json:"totalRangeCount"`
+	TotalRewardCount  int    `json:"totalRewardCount"`
+	PreviewRangeCount int    `json:"previewRangeCount"`
+	HasMore           bool   `json:"hasMore"`
+	FullEndpoint      string `json:"fullEndpoint"`
+}
+
+type EventDetailRewardsPreviewResponse struct {
+	Summary       EventDetailRewardsSummaryResponse `json:"summary"`
+	PreviewRanges []EventRewardRangeResponse        `json:"previewRanges"`
+}
+
+type EventDetailCardsSectionResponse struct {
+	Items []EventCardResponse `json:"items"`
+	Count int                 `json:"count"`
+}
+
+type EventDetailMusicsSectionResponse struct {
+	Items []EventMusicResponse `json:"items"`
+	Count int                  `json:"count"`
+}
+
+type EventDetailAggregateResponse struct {
+	Event            EventObjectResponse               `json:"event"`
+	AvailableRegions []string                          `json:"availableRegions"`
+	IsCurrentEvent   bool                              `json:"isCurrentEvent"`
+	Bonuses          EventBonusesResponse              `json:"bonuses"`
+	Cards            EventDetailCardsSectionResponse   `json:"cards"`
+	Musics           EventDetailMusicsSectionResponse  `json:"musics"`
+	Rewards          EventDetailRewardsPreviewResponse `json:"rewards"`
+}
+
 type EventMusicResponse struct {
 	EventID          int                       `json:"eventId,omitempty"`
 	MusicID          int                       `json:"musicId,omitempty"`
 	Seq              int                       `json:"seq,omitempty"`
+	Title            string                    `json:"title,omitempty"`
+	Name             string                    `json:"name,omitempty"`
+	AssetbundleName  string                    `json:"assetbundleName,omitempty"`
 	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
 }
 
@@ -632,10 +673,18 @@ type EventMusicsResponse struct {
 }
 
 type EventCardResponse struct {
-	EventID          int                       `json:"eventId,omitempty"`
-	CardID           int                       `json:"cardId,omitempty"`
-	BonusRate        int                       `json:"bonusRate,omitempty"`
-	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+	EventID                      int                       `json:"eventId,omitempty"`
+	CardID                       int                       `json:"cardId,omitempty"`
+	BonusRate                    int                       `json:"bonusRate,omitempty"`
+	LeaderBonusRate              int                       `json:"leaderBonusRate,omitempty"`
+	Title                        string                    `json:"title,omitempty"`
+	Name                         string                    `json:"name,omitempty"`
+	Prefix                       string                    `json:"prefix,omitempty"`
+	AssetbundleName              string                    `json:"assetbundleName,omitempty"`
+	Attr                         string                    `json:"attr,omitempty"`
+	CardRarityType               string                    `json:"cardRarityType,omitempty"`
+	InitialSpecialTrainingStatus string                    `json:"initialSpecialTrainingStatus,omitempty"`
+	ReleaseCondition             *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
 }
 
 type EventCardsResponse struct {
