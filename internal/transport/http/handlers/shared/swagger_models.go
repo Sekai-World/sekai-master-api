@@ -377,15 +377,15 @@ type MusicListResponse struct {
 }
 
 type MusicVocalResponse struct {
-	ID              any                      `json:"id,omitempty"`
-	MusicID         any                      `json:"musicId,omitempty"`
-	MusicVocalID    any                      `json:"musicVocalId,omitempty"`
-	VocalType       any                      `json:"vocalType,omitempty"`
-	AssetbundleName any                      `json:"assetbundleName,omitempty"`
-	Seq             any                      `json:"seq,omitempty"`
-	PublishedAt     any                      `json:"publishedAt,omitempty"`
-	Characters      []MusicVocalCharacterResponse `json:"characters,omitempty"`
-	ReleaseCondition *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+	ID               any                           `json:"id,omitempty"`
+	MusicID          any                           `json:"musicId,omitempty"`
+	MusicVocalID     any                           `json:"musicVocalId,omitempty"`
+	VocalType        any                           `json:"vocalType,omitempty"`
+	AssetbundleName  any                           `json:"assetbundleName,omitempty"`
+	Seq              any                           `json:"seq,omitempty"`
+	PublishedAt      any                           `json:"publishedAt,omitempty"`
+	Characters       []MusicVocalCharacterResponse `json:"characters,omitempty"`
+	ReleaseCondition *ReleaseConditionResponse     `json:"releaseCondition,omitempty"`
 }
 
 type MusicVocalCharacterResponse struct {
@@ -398,10 +398,10 @@ type MusicVocalsResponse struct {
 }
 
 type MusicDetailResponse struct {
-	Music        MusicObjectResponse          `json:"music,omitempty"`
+	Music        MusicObjectResponse             `json:"music,omitempty"`
 	Difficulties []MusicDifficultyDetailResponse `json:"difficulties,omitempty"`
-	Vocals       []MusicVocalResponse         `json:"vocals,omitempty"`
-	Tags         []string                     `json:"tags,omitempty"`
+	Vocals       []MusicVocalResponse            `json:"vocals,omitempty"`
+	Tags         []string                        `json:"tags,omitempty"`
 }
 
 type UnitProfileObjectResponse struct {
