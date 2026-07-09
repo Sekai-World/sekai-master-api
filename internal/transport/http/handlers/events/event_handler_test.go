@@ -478,6 +478,202 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 	}
 }
 
+func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	nowMillis := time.Now().UTC().UnixMilli()
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":                        101,
+						"name":                      "test-event",
+						"startAt":                   nowMillis - 60_000,
+						"closedAt":                  nowMillis + 60_000,
+						"unit":                      "light_sound",
+						"virtualLiveId":             501,
+						"eventPointAssetbundleName": "point_101",
+						"eventRankingRewardRanges": []any{
+							map[string]any{"fromRank": 1, "toRank": 10, "isToRankBorder": false, "eventRankingRewards": []any{map[string]any{"id": 1, "resourceBoxId": 9001}}},
+							map[string]any{"fromRank": 5000, "toRank": 10000, "isToRankBorder": true, "eventRankingRewards": []any{map[string]any{"id": 2, "resourceBoxId": 9002}}},
+							map[string]any{"fromRank": 10001, "toRank": 20000, "isToRankBorder": false, "eventRankingRewards": []any{map[string]any{"id": 3, "resourceBoxId": 9003}}},
+						},
+					},
+				},
+				"cards": {
+					"2001": {"id": 2001, "prefix": "A New Song", "assetbundleName": "card_2001", "attr": "cool", "cardRarityType": "rarity_4", "initialSpecialTrainingStatus": "done"},
+				},
+				"musics": {
+					"3001": {"id": 3001, "title": "Tell Your World", "assetbundleName": "music_3001", "seq": 99},
+				},
+				"virtuallives": {
+					"501": {"id": 501, "name": "after live", "assetbundleName": "vl_501", "startAt": 1000, "endAt": 2000, "virtualLiveType": "normal"},
+				},
+				"resourceboxes": {
+					"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 100, "seq": 1}}},
+					"9002": {"id": 9002, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 301, "resourceQuantity": 1, "seq": 1}}},
+				},
+				"gamecharacters": {
+					"6": {"id": 6, "firstName": "Kiritani", "givenName": "Haruka"},
+				},
+				"gamecharacterunits": {
+					"1": {"id": 1, "gameCharacterId": 6, "unit": "idol", "colorCode": "#99ccff"},
+				},
+				"honors": {
+					"301": {"id": 301, "groupId": 401, "assetbundleName": "degree_event_301"},
+				},
+				"honorgroups": {
+					"401": {"id": 401, "backgroundAssetbundleName": "degree_event_bg", "frameName": "event_frame"},
+				},
+			},
+			"en": {
+				"events": {
+					"101": {"id": 101, "name": "test-event-en"},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "test-event", "startAt": nowMillis - 60_000, "closedAt": nowMillis + 60_000},
+				},
+				"eventcards": {
+					{"eventId": 101, "cardId": 2001, "bonusRate": 50, "leaderBonusRate": 10},
+				},
+				"eventmusics": {
+					{"eventId": 101, "musicId": 3001, "seq": 1},
+				},
+				"eventcardbonuslimits": {
+					{"eventId": 101, "memberCountLimit": 4},
+				},
+				"eventdeckbonuses": {
+					{"eventId": 101, "gameCharacterUnitId": 1, "cardAttr": "cool", "bonusRate": 50},
+					{"eventId": 101, "gameCharacterUnitId": 99, "cardAttr": "pure", "bonusRate": 25},
+				},
+				"eventhonorbonuses": {
+					{"eventId": 101, "honorId": 123, "bonusRate": 25},
+				},
+				"eventmysekaifixturegamecharacterperformancebonuslimits": {
+					{"eventId": 101, "bonusRateLimit": 20},
+				},
+				"eventraritybonusrates": {
+					{"cardRarityType": "rarity_4", "masterRank": 0, "bonusRate": 20},
+				},
+			},
+		},
+	}
+
+	statusStore := &fakeEventHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{
+			{Region: "jp", Status: "success"},
+			{Region: "en", Status: "success"},
+		},
+	}
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	handler := NewEventHandler(syncUsecase)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/detail", handler.DetailByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/detail", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	event := body["event"].(map[string]any)
+	if event["id"] != float64(101) {
+		t.Fatalf("expected event.id=101, got %v", event["id"])
+	}
+	if _, exists := event["eventRankingRewardRanges"]; exists {
+		t.Fatalf("expected aggregate event object to omit full eventRankingRewardRanges")
+	}
+	if event["eventPointIcon"] != "thumbnail/common_event/point_101/icon_eventpoint" {
+		t.Fatalf("expected mapped eventPointIcon, got %v", event["eventPointIcon"])
+	}
+
+	availableRegions := body["availableRegions"].([]any)
+	if len(availableRegions) != 2 || availableRegions[0] != "en" || availableRegions[1] != "jp" {
+		t.Fatalf("expected availableRegions [en jp], got %v", availableRegions)
+	}
+	if body["isCurrentEvent"] != true {
+		t.Fatalf("expected isCurrentEvent=true, got %v", body["isCurrentEvent"])
+	}
+
+	cards := body["cards"].(map[string]any)
+	if cards["count"] != float64(1) {
+		t.Fatalf("expected cards.count=1, got %v", cards["count"])
+	}
+	card := cards["items"].([]any)[0].(map[string]any)
+	if card["prefix"] != "A New Song" || card["assetbundleName"] != "card_2001" {
+		t.Fatalf("expected enriched card fields, got %v", card)
+	}
+
+	musics := body["musics"].(map[string]any)
+	if musics["count"] != float64(1) {
+		t.Fatalf("expected musics.count=1, got %v", musics["count"])
+	}
+	music := musics["items"].([]any)[0].(map[string]any)
+	if music["title"] != "Tell Your World" || music["seq"] != float64(1) {
+		t.Fatalf("expected enriched music fields with relation seq, got %v", music)
+	}
+
+	bonuses := body["bonuses"].(map[string]any)
+	deckBonuses := bonuses["eventDeckBonuses"].([]any)
+	if len(deckBonuses) != 2 {
+		t.Fatalf("expected aggregate bonuses to include deck bonuses, got %v", bonuses)
+	}
+	resolvedDeckBonus := deckBonuses[0].(map[string]any)
+	if resolvedDeckBonus["gameCharacterUnitId"] != float64(1) || resolvedDeckBonus["cardAttr"] != "cool" || resolvedDeckBonus["bonusRate"] != float64(50) {
+		t.Fatalf("expected aggregate deck bonus to preserve raw fields, got %v", resolvedDeckBonus)
+	}
+	if resolvedDeckBonus["gameCharacterId"] != float64(6) || resolvedDeckBonus["unit"] != "idol" || resolvedDeckBonus["firstName"] != "Kiritani" || resolvedDeckBonus["givenName"] != "Haruka" || resolvedDeckBonus["colorCode"] != "#99ccff" {
+		t.Fatalf("expected aggregate deck bonus character fields, got %v", resolvedDeckBonus)
+	}
+	missingDeckBonus := deckBonuses[1].(map[string]any)
+	if missingDeckBonus["gameCharacterUnitId"] != float64(99) || missingDeckBonus["cardAttr"] != "pure" || missingDeckBonus["bonusRate"] != float64(25) {
+		t.Fatalf("expected aggregate deck bonus with missing lookup to preserve raw fields, got %v", missingDeckBonus)
+	}
+	if _, exists := missingDeckBonus["gameCharacterId"]; exists {
+		t.Fatalf("expected missing lookup deck bonus to omit gameCharacterId, got %v", missingDeckBonus)
+	}
+
+	rewards := body["rewards"].(map[string]any)
+	summary := rewards["summary"].(map[string]any)
+	if summary["totalRangeCount"] != float64(3) {
+		t.Fatalf("expected totalRangeCount=3, got %v", summary["totalRangeCount"])
+	}
+	if summary["totalRewardCount"] != float64(3) {
+		t.Fatalf("expected totalRewardCount=3, got %v", summary["totalRewardCount"])
+	}
+	if summary["previewRangeCount"] != float64(2) {
+		t.Fatalf("expected previewRangeCount=2, got %v", summary["previewRangeCount"])
+	}
+	if summary["hasMore"] != true {
+		t.Fatalf("expected hasMore=true, got %v", summary["hasMore"])
+	}
+	if summary["fullEndpoint"] != "/api/v1/events/jp/101/rewards" {
+		t.Fatalf("expected fullEndpoint path, got %v", summary["fullEndpoint"])
+	}
+	previewRanges := rewards["previewRanges"].([]any)
+	if len(previewRanges) != 2 {
+		t.Fatalf("expected 2 preview ranges, got %d", len(previewRanges))
+	}
+	previewReward := previewRanges[1].(map[string]any)["eventRankingRewards"].([]any)[0].(map[string]any)
+	resourceBox := previewReward["resourceBox"].(map[string]any)
+	detail := resourceBox["details"].([]any)[0].(map[string]any)
+	if detail["honor"].(map[string]any)["assetbundleName"] != "degree_event_301" {
+		t.Fatalf("expected preview rewards to be enriched, got %v", detail)
+	}
+}
+
 func TestEventBreakTimesByIDEndpointReturnsBreakTime(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -810,6 +1006,41 @@ func TestEventListEndpointUnitFilterMatchesDisplayedPrimaryUnit(t *testing.T) {
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{102})
 }
 
+func TestEventListEndpointUnitFilterMatchesRawUnitWhenNoEventStory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "No Story None", "unit": "none", "eventType": "cheerful_carnival"},
+					{"id": 102, "name": "Has Story Idol", "unit": "idol", "eventType": "marathon"},
+				},
+				"eventstories": {
+					{"id": 7002, "eventId": 102},
+				},
+				"eventstoryunits": {
+					{"id": 8002, "eventStoryId": 7002, "unit": "idol"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?unit=none&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
+}
+
 func TestEventListEndpointEventTypeFilterRequiresExactEventType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1024,6 +1255,100 @@ func TestEventRewardsByIDEndpointReturnsRankingRewards(t *testing.T) {
 	}
 }
 
+func TestEventRewardsByIDEndpointEnrichesHonorRewardDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":   101,
+						"name": "test-event",
+						"eventRankingRewardRanges": []any{
+							map[string]any{
+								"fromRank": 1,
+								"toRank":   100,
+								"eventRankingRewards": []any{
+									map[string]any{"id": 10, "resourceBoxId": 9001},
+								},
+							},
+						},
+					},
+				},
+				"resourceboxes": {
+					"9001": {
+						"id":                 9001,
+						"resourceBoxPurpose": "event_ranking_reward",
+						"details": []any{
+							map[string]any{"resourceType": "honor", "resourceId": 301, "resourceLevel": 2, "resourceQuantity": 1, "seq": 1},
+						},
+					},
+				},
+				"honors": {
+					"301": {
+						"id":              301,
+						"groupId":         77,
+						"honorRarity":     "high",
+						"assetbundleName": "degree_event_301",
+						"name":            "Event Honor",
+						"levels": []any{
+							map[string]any{"honorId": 301, "level": 1, "assetbundleName": "degree_event_301"},
+							map[string]any{"honorId": 301, "level": 2, "assetbundleName": "degree_event_301_lv2"},
+						},
+					},
+				},
+				"honorgroups": {
+					"77": {
+						"id":                        77,
+						"name":                      "Event Group",
+						"honorType":                 "event",
+						"backgroundAssetbundleName": "degree_event_bg",
+						"frameName":                 "event_frame",
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/rewards", handler.RewardsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/rewards", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	body := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	items := body["items"].([]any)
+	firstRange := items[0].(map[string]any)
+	rewards := firstRange["eventRankingRewards"].([]any)
+	firstReward := rewards[0].(map[string]any)
+	resourceBox := firstReward["resourceBox"].(map[string]any)
+	details := resourceBox["details"].([]any)
+	detail := details[0].(map[string]any)
+	honor := detail["honor"].(map[string]any)
+	group := honor["group"].(map[string]any)
+
+	if honor["assetbundleName"] != "degree_event_301" {
+		t.Fatalf("expected honor assetbundleName to be enriched, got %v", honor["assetbundleName"])
+	}
+	if group["backgroundAssetbundleName"] != "degree_event_bg" {
+		t.Fatalf("expected honor group backgroundAssetbundleName to be enriched, got %v", group["backgroundAssetbundleName"])
+	}
+	if group["frameName"] != "event_frame" {
+		t.Fatalf("expected honor group frameName to be enriched, got %v", group["frameName"])
+	}
+}
+
 func TestEventMusicsByIDEndpointReturnsEventMusics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1034,6 +1359,19 @@ func TestEventMusicsByIDEndpointReturnsEventMusics(t *testing.T) {
 					"101": {
 						"id":   101,
 						"name": "test-event",
+					},
+				},
+				"musics": {
+					"2001": {
+						"id":              2001,
+						"title":           "Tell Your World",
+						"assetbundleName": "music_2001",
+						"seq":             99,
+					},
+					"2003": {
+						"id":              2003,
+						"title":           "Newly Edgy Idols",
+						"assetbundleName": "music_2003",
 					},
 				},
 				"releaseconditions": {
@@ -1094,6 +1432,15 @@ func TestEventMusicsByIDEndpointReturnsEventMusics(t *testing.T) {
 	if first["musicId"] != float64(2001) {
 		t.Fatalf("expected first musicId=2001, got %v", first["musicId"])
 	}
+	if first["title"] != "Tell Your World" {
+		t.Fatalf("expected first title from music detail, got %v", first["title"])
+	}
+	if first["assetbundleName"] != "music_2001" {
+		t.Fatalf("expected first assetbundleName from music detail, got %v", first["assetbundleName"])
+	}
+	if first["seq"] != float64(1) {
+		t.Fatalf("expected event music seq=1 to be preserved, got %v", first["seq"])
+	}
 	releaseConditionRaw, ok := first["releaseCondition"]
 	if !ok {
 		t.Fatalf("expected releaseCondition in first event music")
@@ -1125,12 +1472,27 @@ func TestEventCardsByIDEndpointReturnsEventCards(t *testing.T) {
 						"name": "test-event",
 					},
 				},
+				"cards": {
+					"2001": {
+						"id":                           2001,
+						"prefix":                       "A New Song",
+						"assetbundleName":              "card_2001",
+						"attr":                         "cool",
+						"cardRarityType":               "rarity_4",
+						"initialSpecialTrainingStatus": "done",
+					},
+					"2003": {
+						"id":              2003,
+						"prefix":          "Stage Ready",
+						"assetbundleName": "card_2003",
+					},
+				},
 			},
 		},
 		listByEntity: map[string]map[string][]map[string]any{
 			"jp": {
 				"eventcards": {
-					{"eventId": 101, "cardId": 2001, "bonusRate": 50},
+					{"eventId": 101, "cardId": 2001, "bonusRate": 50, "leaderBonusRate": 10},
 					{"eventId": 102, "cardId": 2002, "bonusRate": 60},
 					{"eventId": "101", "cardId": 2003, "bonusRate": 70},
 				},
@@ -1171,6 +1533,27 @@ func TestEventCardsByIDEndpointReturnsEventCards(t *testing.T) {
 	if first["cardId"] != float64(2001) {
 		t.Fatalf("expected first cardId=2001, got %v", first["cardId"])
 	}
+	if first["prefix"] != "A New Song" {
+		t.Fatalf("expected first prefix from card detail, got %v", first["prefix"])
+	}
+	if first["assetbundleName"] != "card_2001" {
+		t.Fatalf("expected first assetbundleName from card detail, got %v", first["assetbundleName"])
+	}
+	if first["attr"] != "cool" {
+		t.Fatalf("expected first attr from card detail, got %v", first["attr"])
+	}
+	if first["cardRarityType"] != "rarity_4" {
+		t.Fatalf("expected first cardRarityType from card detail, got %v", first["cardRarityType"])
+	}
+	if first["initialSpecialTrainingStatus"] != "done" {
+		t.Fatalf("expected first initialSpecialTrainingStatus from card detail, got %v", first["initialSpecialTrainingStatus"])
+	}
+	if first["bonusRate"] != float64(50) {
+		t.Fatalf("expected first bonusRate=50, got %v", first["bonusRate"])
+	}
+	if first["leaderBonusRate"] != float64(10) {
+		t.Fatalf("expected first leaderBonusRate=10, got %v", first["leaderBonusRate"])
+	}
 }
 
 func TestEventBonusesByIDEndpointReturnsBonusDatasets(t *testing.T) {
@@ -1185,6 +1568,13 @@ func TestEventBonusesByIDEndpointReturnsBonusDatasets(t *testing.T) {
 						"name": "test-event",
 					},
 				},
+				"gamecharacters": {
+					"6": {"id": 6, "firstName": "Kiritani", "givenName": "Haruka"},
+				},
+				"gamecharacterunits": {
+					"1": {"id": 1, "gameCharacterId": 6, "unit": "idol", "colorCode": "#99ccff"},
+					"3": {"id": 3, "gameCharacterId": 404, "unit": "piapro"},
+				},
 			},
 		},
 		listByEntity: map[string]map[string][]map[string]any{
@@ -1195,6 +1585,8 @@ func TestEventBonusesByIDEndpointReturnsBonusDatasets(t *testing.T) {
 				},
 				"eventdeckbonuses": {
 					{"eventId": 101, "gameCharacterUnitId": 1, "cardAttr": "cool", "bonusRate": 50},
+					{"eventId": 101, "gameCharacterUnitId": 3, "cardAttr": "happy", "bonusRate": 40},
+					{"eventId": 101, "gameCharacterUnitId": 99, "cardAttr": "pure", "bonusRate": 25},
 					{"eventId": 102, "gameCharacterUnitId": 2, "cardAttr": "cute", "bonusRate": 60},
 				},
 				"eventhonorbonuses": {
@@ -1242,8 +1634,29 @@ func TestEventBonusesByIDEndpointReturnsBonusDatasets(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected eventDeckBonuses array, got %T", body["eventDeckBonuses"])
 	}
-	if len(deckBonuses) != 1 {
-		t.Fatalf("expected 1 eventDeckBonuses item, got %d", len(deckBonuses))
+	if len(deckBonuses) != 3 {
+		t.Fatalf("expected 3 eventDeckBonuses items, got %d", len(deckBonuses))
+	}
+	resolvedDeckBonus := deckBonuses[0].(map[string]any)
+	if resolvedDeckBonus["gameCharacterUnitId"] != float64(1) || resolvedDeckBonus["cardAttr"] != "cool" || resolvedDeckBonus["bonusRate"] != float64(50) {
+		t.Fatalf("expected deck bonus to preserve raw fields, got %v", resolvedDeckBonus)
+	}
+	if resolvedDeckBonus["gameCharacterId"] != float64(6) || resolvedDeckBonus["unit"] != "idol" || resolvedDeckBonus["firstName"] != "Kiritani" || resolvedDeckBonus["givenName"] != "Haruka" || resolvedDeckBonus["colorCode"] != "#99ccff" {
+		t.Fatalf("expected enriched deck bonus character fields, got %v", resolvedDeckBonus)
+	}
+	partialDeckBonus := deckBonuses[1].(map[string]any)
+	if partialDeckBonus["gameCharacterUnitId"] != float64(3) || partialDeckBonus["gameCharacterId"] != float64(404) || partialDeckBonus["unit"] != "piapro" {
+		t.Fatalf("expected partial unit fields when character lookup is missing, got %v", partialDeckBonus)
+	}
+	if _, exists := partialDeckBonus["firstName"]; exists {
+		t.Fatalf("expected partial deck bonus to omit firstName, got %v", partialDeckBonus)
+	}
+	missingDeckBonus := deckBonuses[2].(map[string]any)
+	if missingDeckBonus["gameCharacterUnitId"] != float64(99) || missingDeckBonus["cardAttr"] != "pure" || missingDeckBonus["bonusRate"] != float64(25) {
+		t.Fatalf("expected deck bonus with missing unit lookup to preserve raw fields, got %v", missingDeckBonus)
+	}
+	if _, exists := missingDeckBonus["gameCharacterId"]; exists {
+		t.Fatalf("expected missing unit lookup to omit gameCharacterId, got %v", missingDeckBonus)
 	}
 
 	honorBonuses, ok := body["eventHonorBonuses"].([]any)
