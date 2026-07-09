@@ -1365,18 +1365,36 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 	}
 
 	if !hasRecords {
+		pipe := cache.client.Pipeline()
+		for _, entity := range existingEntities {
+			entityName := normalizeKey(entity)
+			if entityName == "" {
+				continue
+			}
+			pipe.Del(ctx, cache.redisEntitySearchIndexKey(regionName, entityName))
+			pipe.Del(ctx, cache.redisEntitySearchIndexVersionKey(regionName, entityName))
+		}
+		pipe.Del(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName))
+		if _, err := pipe.Exec(ctx); err != nil {
+			return false, fmt.Errorf("remove empty region search indexes region %s: %w", regionName, err)
+		}
 		cache.invalidateCachedRegionIndex(regionName)
 		return false, nil
 	}
 
 	pipe := cache.client.Pipeline()
 	for _, entity := range existingEntities {
-		if _, ok := nextEntities[normalizeKey(entity)]; ok {
+		entityName := normalizeKey(entity)
+		if entityName == "" {
 			continue
 		}
-		pipe.Del(ctx, cache.redisEntitySearchIndexKey(regionName, entity))
-		pipe.SRem(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName), normalizeKey(entity))
-		cache.invalidateCachedEntityIndex(regionName, entity)
+		if _, ok := nextEntities[entityName]; ok {
+			continue
+		}
+		pipe.Del(ctx, cache.redisEntitySearchIndexKey(regionName, entityName))
+		pipe.Del(ctx, cache.redisEntitySearchIndexVersionKey(regionName, entityName))
+		pipe.SRem(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName), entityName)
+		cache.invalidateCachedEntityIndex(regionName, entityName)
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		return false, fmt.Errorf("remove stale rebuilt search indexes region %s: %w", regionName, err)

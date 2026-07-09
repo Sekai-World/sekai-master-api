@@ -1460,6 +1460,115 @@ func TestRedisMasterDataCacheSearchIndexRetentionCharacterization(t *testing.T) 
 	assertNoRetainedRegionIndex(t, rebuildCache, "jp")
 }
 
+func TestRebuildRegionIndexFromRedisRemovesStaleSearchIndexVersionKeys(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+	ctx := context.Background()
+	cache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+		"skills.json": []any{
+			map[string]any{"id": 10, "name": "focus"},
+		},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+	assertRedisKeyExists(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "cards"))
+	assertRedisKeyExists(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "cards"))
+	assertRedisKeyExists(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "skills"))
+	assertRedisKeyExists(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "skills"))
+
+	if err := cache.client.Del(ctx, cache.redisEntityKey("jp", "skills")).Err(); err != nil {
+		t.Fatalf("delete stale entity by-id hash: %v", err)
+	}
+
+	rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, "jp")
+	if err != nil {
+		t.Fatalf("rebuild region index: %v", err)
+	}
+	if !rebuilt {
+		t.Fatalf("expected region index rebuild to keep remaining entity")
+	}
+
+	assertRedisKeyExists(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "cards"))
+	assertRedisKeyExists(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "cards"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "skills"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "skills"))
+	assertRedisSetExcludes(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"), "skills")
+}
+
+func TestRebuildRegionIndexFromRedisClearsSearchIndexArtifactsWhenRegionHasNoRecords(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+	ctx := context.Background()
+	cache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() {
+		_ = cache.Close()
+	}()
+
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "prefix": "alpha"},
+		},
+		"skills.json": []any{
+			map[string]any{"id": 10, "name": "focus"},
+		},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+	assertRedisKeyExists(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"))
+
+	if err := cache.client.Del(ctx, cache.redisEntityKey("jp", "cards"), cache.redisEntityKey("jp", "skills")).Err(); err != nil {
+		t.Fatalf("delete region by-id hashes: %v", err)
+	}
+
+	rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, "jp")
+	if err != nil {
+		t.Fatalf("rebuild empty region index: %v", err)
+	}
+	if rebuilt {
+		t.Fatalf("expected empty region rebuild to report no rebuilt index")
+	}
+
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "cards"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "cards"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "skills"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "skills"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"))
+}
+
 func BenchmarkRedisMasterDataCacheSearchIndexRetention(b *testing.B) {
 	scenarios := []struct {
 		name string
@@ -1620,6 +1729,42 @@ func assertNoRetainedRegionIndex(t *testing.T, cache *RedisMasterDataCache, regi
 		if stat.Region == normalizeKey(region) {
 			t.Fatalf("expected no retained region index stats for %s, got %+v", region, stat)
 		}
+	}
+}
+
+func assertRedisKeyExists(t *testing.T, ctx context.Context, cache *RedisMasterDataCache, key string) {
+	t.Helper()
+
+	exists, err := cache.client.Exists(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("check redis key %s exists: %v", key, err)
+	}
+	if exists == 0 {
+		t.Fatalf("expected redis key %s to exist", key)
+	}
+}
+
+func assertRedisKeyMissing(t *testing.T, ctx context.Context, cache *RedisMasterDataCache, key string) {
+	t.Helper()
+
+	exists, err := cache.client.Exists(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("check redis key %s missing: %v", key, err)
+	}
+	if exists != 0 {
+		t.Fatalf("expected redis key %s to be missing", key)
+	}
+}
+
+func assertRedisSetExcludes(t *testing.T, ctx context.Context, cache *RedisMasterDataCache, key string, member string) {
+	t.Helper()
+
+	isMember, err := cache.client.SIsMember(ctx, key, member).Result()
+	if err != nil {
+		t.Fatalf("check redis set %s excludes %s: %v", key, member, err)
+	}
+	if isMember {
+		t.Fatalf("expected redis set %s to exclude %s", key, member)
 	}
 }
 
