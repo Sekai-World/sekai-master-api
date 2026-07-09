@@ -28,7 +28,8 @@ Set `MASTER_DATA_GITHUB_TOKEN` if higher GitHub API rate limits are needed.
 ## Sync Behavior
 
 - Startup sync compares the configured source commit with the latest successful sync record.
-- Unchanged regions rebuild the in-memory index from Redis when possible.
+- Unchanged regions validate persisted Redis search indexes and rebuild missing or stale persisted indexes when needed.
+- Admin dashboard status, available-region reads, and observability metric callbacks are read-only. They report whether the current process has retained usable runtime cache/index state, but they do not load, rebuild, rewrite, or repair Redis search indexes.
 - If Redis data is missing but local backup exists, cache is restored from backup.
 - Changed regions download one GitHub tarball for the resolved commit and extract JSON files under the configured path.
 - Cache writes are incremental: changed records are upserted and deleted records are removed.
@@ -44,6 +45,8 @@ Useful settings:
 - `MASTER_DATA_HTTP_RETRY_COUNT`
 - `MASTER_DATA_HTTP_RETRY_BACKOFF_MS`
 - `MASTER_DATA_GITHUB_WEBHOOK_SECRET`
+- `MASTER_DATA_WARM_SEARCH_INDEXES` controls optional startup persisted search-index warmup. It defaults to off in development so indexes are ensured lazily per searched entity, and defaults to on outside development unless explicitly overridden.
+- `MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES` bounds the in-process LRU cache of decoded search indexes. The default is `32`; set it to `0` to disable decoded-index retention while keeping Redis persisted indexes authoritative.
 
 Temporary sync workspace:
 
@@ -59,6 +62,10 @@ Redis settings:
 - `REDIS_DB`
 - `MASTER_DATA_REDIS_KEY_PREFIX`
 
+Search indexes are scoped to fields used by API search paths instead of every scalar field. The default searchable field is `name`; `cards` additionally indexes `prefix` and `cardSkillName`; relationship lookups index `cardId`, `eventId`, `musicId`, `virtualLiveId`, `eventStoryId`, `cardRarityType`, and `unit` when those fields are present. Persisted search indexes live in Redis as entity payload keys plus matching `:search-index-version` keys. Decoded Go in-memory index structures are held only in the bounded `MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES` LRU cache, so hot searched entities avoid repeated Redis decode work without retaining every region/entity forever. Loading an older persisted search index filters out fields outside that policy before using it in memory.
+
+`MASTER_DATA_WARM_SEARCH_INDEXES` and the related ensure flow validate that the persisted Redis search indexes needed by search endpoints already exist, or rebuild those persisted indexes when Redis is missing or stale data. Search misses may also rebuild the requested entity index from Redis by-id data. Any decoded indexes created during warmup, ensure, or search are still subject to the same bounded LRU cache; Redis remains the authoritative source. Rebuild cleanup deletes stale search-index payload keys, their matching version keys, and empty region search-index entity sets so Redis key counts do not retain orphaned index metadata.
+
 Query behavior:
 
 - Card by-id reads from Redis hash cache.
@@ -72,4 +79,4 @@ Query behavior:
 - Event by-id omits `eventRankingRewardRanges`; use the rewards endpoint.
 - Virtual live base response omits items, schedules, and setlists; use dedicated endpoints.
 - If a top-level `releaseConditionId` exists, the response expands `releaseCondition` and hides `releaseConditionId`.
-- Region data endpoints return `503 REGION_DATA_NOT_READY` until region sync status is `success` and Redis has usable cache/index data for that region.
+- Region data endpoints return `503 REGION_DATA_NOT_READY` until region sync status is `success` and the current process reports usable read-only runtime cache/index state for that region. Run the explicit sync, warmup, or ensure flow to repair persisted Redis indexes instead of relying on read endpoints to do it.

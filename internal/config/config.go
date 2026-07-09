@@ -11,49 +11,51 @@ import (
 )
 
 type Config struct {
-	Port                          string
-	AppEnv                        string
-	LogLevel                      string
-	LokiPushURL                   string
-	OTELEnabled                   bool
-	OTELServiceName               string
-	OTELServiceVersion            string
-	OTELExporterOTLPEndpoint      string
-	OTELExporterOTLPInsecure      bool
-	OTELMetricExportIntervalMS    int
-	DatabaseDriverName            string
-	DatabaseURL                   string
-	SQLitePath                    string
-	MasterDataAutoSync            bool
-	MasterDataRecoverInterrupted  bool
-	MasterDataSyncTimeout         int
-	MasterDataSyncConcurrency     int
-	MasterDataFileConcurrency     int
-	MasterDataGitHubToken         string
-	MasterDataHTTPTimeout         int
-	MasterDataHTTPRetryCount      int
-	MasterDataHTTPRetryBackoffMS  int
-	MasterDataGitHubWebhookSecret string
-	MasterDataRegions             []string
-	MasterDataSources             map[string]MasterDataSource
-	RedisAddr                     string
-	RedisPassword                 string
-	RedisDB                       int
-	MasterDataRedisKeyPrefix      string
-	OIDCIssuerURL                 string
-	OIDCInternalURL               string
-	OIDCAudience                  string
-	OIDCSkipIssuer                bool
-	OIDCSkipAudCheck              bool
-	OIDCClientID                  string
-	OIDCAuthURL                   string
-	OIDCTokenURL                  string
-	OIDCRedirectURL               string
-	OIDCScopes                    []string
-	OIDCPrivateKeyPath            string
-	OIDCPrivateKeyID              string
-	OIDCAdminClaim                string
-	OIDCAdminClaimValues          []string
+	Port                              string
+	AppEnv                            string
+	LogLevel                          string
+	LokiPushURL                       string
+	OTELEnabled                       bool
+	OTELServiceName                   string
+	OTELServiceVersion                string
+	OTELExporterOTLPEndpoint          string
+	OTELExporterOTLPInsecure          bool
+	OTELMetricExportIntervalMS        int
+	DatabaseDriverName                string
+	DatabaseURL                       string
+	SQLitePath                        string
+	MasterDataAutoSync                bool
+	MasterDataRecoverInterrupted      bool
+	MasterDataWarmSearchIndexes       bool
+	MasterDataSearchIndexCacheEntries int
+	MasterDataSyncTimeout             int
+	MasterDataSyncConcurrency         int
+	MasterDataFileConcurrency         int
+	MasterDataGitHubToken             string
+	MasterDataHTTPTimeout             int
+	MasterDataHTTPRetryCount          int
+	MasterDataHTTPRetryBackoffMS      int
+	MasterDataGitHubWebhookSecret     string
+	MasterDataRegions                 []string
+	MasterDataSources                 map[string]MasterDataSource
+	RedisAddr                         string
+	RedisPassword                     string
+	RedisDB                           int
+	MasterDataRedisKeyPrefix          string
+	OIDCIssuerURL                     string
+	OIDCInternalURL                   string
+	OIDCAudience                      string
+	OIDCSkipIssuer                    bool
+	OIDCSkipAudCheck                  bool
+	OIDCClientID                      string
+	OIDCAuthURL                       string
+	OIDCTokenURL                      string
+	OIDCRedirectURL                   string
+	OIDCScopes                        []string
+	OIDCPrivateKeyPath                string
+	OIDCPrivateKeyID                  string
+	OIDCAdminClaim                    string
+	OIDCAdminClaimValues              []string
 }
 
 type MasterDataSource struct {
@@ -72,54 +74,76 @@ func Load() Config {
 	otelEnabled := getEnvBool("OTEL_ENABLED", strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev"))
 
 	return Config{
-		Port:                          port,
-		AppEnv:                        appEnv,
-		LogLevel:                      logLevel,
-		LokiPushURL:                   strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
-		OTELEnabled:                   otelEnabled,
-		OTELServiceName:               strings.TrimSpace(getEnv("OTEL_SERVICE_NAME", "sekai-master-api")),
-		OTELServiceVersion:            strings.TrimSpace(getEnv("OTEL_SERVICE_VERSION", "")),
-		OTELExporterOTLPEndpoint:      strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
-		OTELExporterOTLPInsecure:      getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
-		OTELMetricExportIntervalMS:    getEnvInt("OTEL_METRIC_EXPORT_INTERVAL", 10000),
-		DatabaseDriverName:            getEnv("DATABASE_DRIVER", ""),
-		DatabaseURL:                   getEnv("DATABASE_URL", "postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable"),
-		SQLitePath:                    getEnv("SQLITE_PATH", "./tmp/dev.db"),
-		MasterDataAutoSync:            getEnvBool("MASTER_DATA_AUTO_SYNC", true),
-		MasterDataRecoverInterrupted:  getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
-		MasterDataSyncTimeout:         getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 120),
-		MasterDataSyncConcurrency:     getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", 3),
-		MasterDataFileConcurrency:     getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", 8),
-		MasterDataGitHubToken:         strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_TOKEN", "")),
-		MasterDataHTTPTimeout:         getEnvInt("MASTER_DATA_HTTP_TIMEOUT_SECONDS", 20),
-		MasterDataHTTPRetryCount:      getEnvInt("MASTER_DATA_HTTP_RETRY_COUNT", 3),
-		MasterDataHTTPRetryBackoffMS:  getEnvInt("MASTER_DATA_HTTP_RETRY_BACKOFF_MS", 300),
-		MasterDataGitHubWebhookSecret: strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_WEBHOOK_SECRET", "")),
-		MasterDataRegions:             getEnvList("MASTER_DATA_REGIONS"),
-		MasterDataSources:             loadMasterDataSources(getEnvList("MASTER_DATA_REGIONS")),
-		RedisAddr:                     getEnv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword:                 getEnv("REDIS_PASSWORD", ""),
-		RedisDB:                       getEnvInt("REDIS_DB", 0),
-		MasterDataRedisKeyPrefix:      getEnv("MASTER_DATA_REDIS_KEY_PREFIX", "sekai:master-data:"),
-		OIDCIssuerURL:                 strings.TrimSpace(getEnv("OIDC_ISSUER_URL", "")),
-		OIDCInternalURL:               strings.TrimSpace(getEnv("OIDC_INTERNAL_URL", "")),
-		OIDCAudience:                  strings.TrimSpace(getEnv("OIDC_AUDIENCE", "")),
-		OIDCSkipIssuer:                strings.EqualFold(getEnv("OIDC_SKIP_ISSUER_CHECK", "false"), "true"),
-		OIDCSkipAudCheck:              strings.EqualFold(getEnv("OIDC_SKIP_AUDIENCE_CHECK", "false"), "true"),
-		OIDCClientID:                  strings.TrimSpace(getEnv("OIDC_CLIENT_ID", "")),
-		OIDCAuthURL:                   strings.TrimSpace(getEnv("OIDC_AUTH_URL", "")),
-		OIDCTokenURL:                  strings.TrimSpace(getEnv("OIDC_TOKEN_URL", "")),
-		OIDCRedirectURL:               strings.TrimSpace(getEnv("OIDC_REDIRECT_URL", "http://localhost:"+port+"/api/v1/admin/login/callback")),
-		OIDCScopes:                    getEnvListWithFallback("OIDC_SCOPES", []string{"openid", "profile", "email"}),
-		OIDCPrivateKeyPath:            strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_PATH", "")),
-		OIDCPrivateKeyID:              strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_ID", "")),
-		OIDCAdminClaim:                strings.TrimSpace(getEnv("OIDC_ADMIN_CLAIM", "")),
-		OIDCAdminClaimValues:          getEnvList("OIDC_ADMIN_CLAIM_VALUES"),
+		Port:                              port,
+		AppEnv:                            appEnv,
+		LogLevel:                          logLevel,
+		LokiPushURL:                       strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
+		OTELEnabled:                       otelEnabled,
+		OTELServiceName:                   strings.TrimSpace(getEnv("OTEL_SERVICE_NAME", "sekai-master-api")),
+		OTELServiceVersion:                strings.TrimSpace(getEnv("OTEL_SERVICE_VERSION", "")),
+		OTELExporterOTLPEndpoint:          strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
+		OTELExporterOTLPInsecure:          getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
+		OTELMetricExportIntervalMS:        getEnvInt("OTEL_METRIC_EXPORT_INTERVAL", 10000),
+		DatabaseDriverName:                getEnv("DATABASE_DRIVER", ""),
+		DatabaseURL:                       getEnv("DATABASE_URL", "postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable"),
+		SQLitePath:                        getEnv("SQLITE_PATH", "./tmp/dev.db"),
+		MasterDataAutoSync:                getEnvBool("MASTER_DATA_AUTO_SYNC", true),
+		MasterDataRecoverInterrupted:      getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
+		MasterDataWarmSearchIndexes:       getEnvBool("MASTER_DATA_WARM_SEARCH_INDEXES", !isDevelopmentEnv(appEnv)),
+		MasterDataSearchIndexCacheEntries: getEnvInt("MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES", 32),
+		MasterDataSyncTimeout:             getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 120),
+		MasterDataSyncConcurrency:         getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", defaultMasterDataSyncConcurrency(appEnv)),
+		MasterDataFileConcurrency:         getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", defaultMasterDataFileConcurrency(appEnv)),
+		MasterDataGitHubToken:             strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_TOKEN", "")),
+		MasterDataHTTPTimeout:             getEnvInt("MASTER_DATA_HTTP_TIMEOUT_SECONDS", 20),
+		MasterDataHTTPRetryCount:          getEnvInt("MASTER_DATA_HTTP_RETRY_COUNT", 3),
+		MasterDataHTTPRetryBackoffMS:      getEnvInt("MASTER_DATA_HTTP_RETRY_BACKOFF_MS", 300),
+		MasterDataGitHubWebhookSecret:     strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_WEBHOOK_SECRET", "")),
+		MasterDataRegions:                 getEnvList("MASTER_DATA_REGIONS"),
+		MasterDataSources:                 loadMasterDataSources(getEnvList("MASTER_DATA_REGIONS")),
+		RedisAddr:                         getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:                     getEnv("REDIS_PASSWORD", ""),
+		RedisDB:                           getEnvInt("REDIS_DB", 0),
+		MasterDataRedisKeyPrefix:          getEnv("MASTER_DATA_REDIS_KEY_PREFIX", "sekai:master-data:"),
+		OIDCIssuerURL:                     strings.TrimSpace(getEnv("OIDC_ISSUER_URL", "")),
+		OIDCInternalURL:                   strings.TrimSpace(getEnv("OIDC_INTERNAL_URL", "")),
+		OIDCAudience:                      strings.TrimSpace(getEnv("OIDC_AUDIENCE", "")),
+		OIDCSkipIssuer:                    strings.EqualFold(getEnv("OIDC_SKIP_ISSUER_CHECK", "false"), "true"),
+		OIDCSkipAudCheck:                  strings.EqualFold(getEnv("OIDC_SKIP_AUDIENCE_CHECK", "false"), "true"),
+		OIDCClientID:                      strings.TrimSpace(getEnv("OIDC_CLIENT_ID", "")),
+		OIDCAuthURL:                       strings.TrimSpace(getEnv("OIDC_AUTH_URL", "")),
+		OIDCTokenURL:                      strings.TrimSpace(getEnv("OIDC_TOKEN_URL", "")),
+		OIDCRedirectURL:                   strings.TrimSpace(getEnv("OIDC_REDIRECT_URL", "http://localhost:"+port+"/api/v1/admin/login/callback")),
+		OIDCScopes:                        getEnvListWithFallback("OIDC_SCOPES", []string{"openid", "profile", "email"}),
+		OIDCPrivateKeyPath:                strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_PATH", "")),
+		OIDCPrivateKeyID:                  strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_ID", "")),
+		OIDCAdminClaim:                    strings.TrimSpace(getEnv("OIDC_ADMIN_CLAIM", "")),
+		OIDCAdminClaimValues:              getEnvList("OIDC_ADMIN_CLAIM_VALUES"),
 	}
 }
 
+func defaultMasterDataSyncConcurrency(appEnv string) int {
+	if isDevelopmentEnv(appEnv) {
+		return 1
+	}
+
+	return 3
+}
+
+func defaultMasterDataFileConcurrency(appEnv string) int {
+	if isDevelopmentEnv(appEnv) {
+		return 2
+	}
+
+	return 8
+}
+
+func isDevelopmentEnv(appEnv string) bool {
+	return strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev")
+}
+
 func defaultAppPort(appEnv string) string {
-	if strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev") {
+	if isDevelopmentEnv(appEnv) {
 		return "18080"
 	}
 
@@ -167,7 +191,7 @@ func dotenvLoadOrder(appEnv string) []string {
 }
 
 func (cfg Config) IsDevelopment() bool {
-	return strings.EqualFold(cfg.AppEnv, "development") || strings.EqualFold(cfg.AppEnv, "dev")
+	return isDevelopmentEnv(cfg.AppEnv)
 }
 
 func (cfg Config) DatabaseDriver() string {

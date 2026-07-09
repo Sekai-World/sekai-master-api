@@ -119,20 +119,7 @@ func main() {
 		startupState.MarkReady()
 		logger.Infow("startup migrations completed; general api routes enabled")
 
-		if len(masterDataSources) > 0 && cfg.IsDevelopment() {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
-				warmedRegions, warmErr := masterDataSyncUsecase.WarmConfiguredRegionIndexes(ctx)
-				cancel()
-				if warmErr != nil {
-					logger.Warnw("failed to preload persisted master data search indexes", "error", warmErr)
-				} else if len(warmedRegions) > 0 {
-					logger.Infow("preloaded persisted master data search indexes", "regions", warmedRegions)
-				}
-			}()
-		}
-
-		if len(masterDataSources) > 0 && cfg.IsDevelopment() {
+		if len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
 				defer cancel()

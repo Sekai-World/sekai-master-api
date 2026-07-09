@@ -373,7 +373,13 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 				}
 			}
 
-			if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok && !inspector.HasRegionIndex(source.Region) {
+			cacheReady, cacheReadyErr := usecase.regionCacheReady(regionCtx, source.Region)
+			if cacheReadyErr != nil {
+				recordFailure(source.Region, fmt.Errorf("check cache readiness for region %s: %w", source.Region, cacheReadyErr))
+				return
+			}
+
+			if !cacheReady {
 				pendingCommit := ""
 				if hasPreviousStatus {
 					pendingCommit = strings.TrimSpace(previous.SourceCommit)
@@ -869,10 +875,7 @@ func (usecase *MasterDataSyncUsecase) ReadyRegions(ctx context.Context) ([]strin
 			continue
 		}
 
-		cacheReady, err := usecase.regionCacheReady(ctx, region)
-		if err != nil {
-			return nil, err
-		}
+		cacheReady := usecase.regionCacheReadySnapshot(region)
 		if !cacheReady {
 			continue
 		}
@@ -954,10 +957,7 @@ func (usecase *MasterDataSyncUsecase) statusesWithRuntimeCacheReadiness(ctx cont
 			continue
 		}
 
-		cacheReady, err := usecase.regionCacheReady(ctx, status.Region)
-		if err != nil {
-			return nil, err
-		}
+		cacheReady := usecase.regionCacheReadySnapshot(status.Region)
 		if cacheReady {
 			annotated = append(annotated, status)
 			continue
@@ -972,6 +972,23 @@ func (usecase *MasterDataSyncUsecase) statusesWithRuntimeCacheReadiness(ctx cont
 	return annotated, nil
 }
 
+func (usecase *MasterDataSyncUsecase) regionCacheReadySnapshot(region string) bool {
+	if usecase == nil || usecase.cache == nil {
+		return true
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		return false
+	}
+
+	if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok {
+		return inspector.HasRegionIndex(region)
+	}
+
+	return true
+}
+
 func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, region string) (bool, error) {
 	if usecase == nil || usecase.cache == nil {
 		return true, nil
@@ -980,10 +997,6 @@ func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, regi
 	region = strings.ToLower(strings.TrimSpace(region))
 	if region == "" {
 		return false, nil
-	}
-
-	if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok && inspector.HasRegionIndex(region) {
-		return true, nil
 	}
 
 	if loader, ok := usecase.cache.(MasterDataCacheIndexLoader); ok {
@@ -1006,10 +1019,14 @@ func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, regi
 		}
 	}
 
-	_, canInspect := usecase.cache.(MasterDataCacheIndexInspector)
 	_, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
 	_, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
-	if !canInspect && !canLoad && !canRebuild {
+	if !canLoad && !canRebuild {
+		if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok {
+			return inspector.HasRegionIndex(region), nil
+		}
+	}
+	if !canLoad && !canRebuild {
 		return true, nil
 	}
 
@@ -1150,7 +1167,6 @@ func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.
 
 	loader, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
 	rebuilder, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
-	inspector, canInspect := usecase.cache.(MasterDataCacheIndexInspector)
 	if !canLoad && !canRebuild {
 		return nil, nil, nil
 	}
@@ -1158,10 +1174,6 @@ func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.
 	loadedRegions = make([]string, 0, len(regions))
 	rebuiltRegions = make([]string, 0, len(regions))
 	for _, region := range regions {
-		if canInspect && inspector.HasRegionIndex(region) {
-			continue
-		}
-
 		if canLoad {
 			loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
 			if err != nil {
