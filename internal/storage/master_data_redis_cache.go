@@ -776,6 +776,21 @@ func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string
 	return items, int(total), nil
 }
 
+func (cache *RedisMasterDataCache) HasEntityRecords(ctx context.Context, region string, entity string) (bool, error) {
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return false, nil
+	}
+
+	count, err := cache.client.HLen(ctx, cache.redisEntityKey(regionName, entityName)).Result()
+	if err != nil {
+		return false, fmt.Errorf("hlen by-id region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	return count > 0, nil
+}
+
 func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
 	ctx, span := tracing.StartSpan(ctx, "redis.master_data.list_all", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)))
 	var err error

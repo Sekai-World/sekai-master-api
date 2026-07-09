@@ -64,7 +64,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForCardRecords(c, region) {
 		return
 	}
 
@@ -136,7 +136,7 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForCardRecords(c, region) {
 		return
 	}
 
@@ -651,10 +651,6 @@ func (handler *CardHandler) List(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
-		return
-	}
-
 	page := 1
 	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
 		parsedPage, err := strconv.Atoi(rawPage)
@@ -687,6 +683,9 @@ func (handler *CardHandler) List(c *gin.Context) {
 
 	filterOptions, ok := parseCardListFilterOptions(c)
 	if !ok {
+		return
+	}
+	if !handler.ensureRegionReadyForCardRecords(c, region) {
 		return
 	}
 
@@ -1124,6 +1123,23 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	}
 
 	return result
+}
+
+func (handler *CardHandler) ensureRegionReadyForCardRecords(c *gin.Context, region string) bool {
+	if handler == nil || handler.masterDataSync == nil {
+		return true
+	}
+
+	hasCards, err := handler.masterDataSync.HasEntityRecords(c.Request.Context(), region, "cards")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
+		return false
+	}
+	if hasCards {
+		return true
+	}
+
+	return handler.ensureRegionReady(c, region)
 }
 
 func (handler *CardHandler) ensureRegionReady(c *gin.Context, region string) bool {

@@ -19,6 +19,9 @@ type fakeCardHandlerCache struct {
 	listByEntity  map[string][]map[string]any
 	listItems     []map[string]any
 	listTotal     int
+	hasRecords    map[string]map[string]bool
+	hasIndex      bool
+	hasIndexSet   bool
 	searchMatches []masterdata.SearchMatch
 	rarityMatches []masterdata.SearchMatch
 	searchCalls   []fakeCardSearchCall
@@ -106,6 +109,23 @@ func copyCardTestItems(source []map[string]any) []map[string]any {
 
 func (cache *fakeCardHandlerCache) ListByPage(_ context.Context, _, _ string, _, _ int) ([]map[string]any, int, error) {
 	return cache.listItems, cache.listTotal, nil
+}
+
+func (cache *fakeCardHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	if cache.hasRecords == nil {
+		if regionData, ok := cache.byID[region]; ok && len(regionData[entity]) > 0 {
+			return true, nil
+		}
+		return len(cache.listItems) > 0, nil
+	}
+	return cache.hasRecords[region][entity], nil
+}
+
+func (cache *fakeCardHandlerCache) HasRegionIndex(_ string) bool {
+	if !cache.hasIndexSet {
+		return true
+	}
+	return cache.hasIndex
 }
 
 func (cache *fakeCardHandlerCache) Search(_ context.Context, region, entity, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
@@ -504,7 +524,7 @@ func TestCardListEndpointMapsCardSupply(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/list", cardHandler.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&spoiler=true", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -518,6 +538,114 @@ func TestCardListEndpointMapsCardSupply(t *testing.T) {
 	}
 
 	assertFirstItemHasMappedCardSupply(t, body)
+}
+
+func TestCardListEndpointUsesPersistedCardDataWhenRuntimeIndexMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1001, "prefix": "persisted-card"},
+		},
+		listTotal:   1,
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
+}
+
+func TestCardListEndpointReturnsNotReadyWhenNoRuntimeIndexOrCardData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", resp.Code)
+	}
+}
+
+func TestCardEpisodesEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {"id": 1001, "prefix": "persisted-card"},
+				},
+			},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/episodes", cardHandler.EpisodesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/episodes", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", resp.Code)
+	}
+}
+
+func TestCardDetailEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {"id": 1001, "prefix": "persisted-card"},
+				},
+			},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/detail", cardHandler.DetailByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/detail", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", resp.Code)
+	}
 }
 
 func TestCardListEndpointSupportsSorting(t *testing.T) {

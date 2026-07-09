@@ -50,6 +50,10 @@ type MasterDataCacheIndexInspector interface {
 	HasRegionIndex(region string) bool
 }
 
+type MasterDataCacheEntityInspector interface {
+	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
+}
+
 type MasterDataSyncStatusStore interface {
 	Save(ctx context.Context, status masterdata.SyncStatus) error
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
@@ -886,6 +890,24 @@ func (usecase *MasterDataSyncUsecase) ReadyRegions(ctx context.Context) ([]strin
 
 	sort.Strings(regions)
 	return regions, nil
+}
+
+func (usecase *MasterDataSyncUsecase) HasEntityRecords(ctx context.Context, region string, entity string) (bool, error) {
+	if usecase == nil || usecase.cache == nil {
+		return false, nil
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
+	if region == "" || entity == "" {
+		return false, nil
+	}
+
+	if inspector, ok := usecase.cache.(MasterDataCacheEntityInspector); ok {
+		return inspector.HasEntityRecords(ctx, region, entity)
+	}
+
+	return false, nil
 }
 
 func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]masterdata.SyncStatus, error) {
