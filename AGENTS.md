@@ -11,6 +11,7 @@ This file defines collaboration boundaries, execution order, and acceptance crit
 - Authentication boundary: only admin APIs require authentication; other GET APIs are public by default.
 - Query strategy:
   - `cards` by-id: Redis hash cache.
+  - `cards` data endpoints may treat persisted `cards` by-id records as sufficient read-only data readiness; do not require decoded search-index LRU state for card list/by-id reads after restart.
   - Search uses Redis-persisted indexes scoped to API search fields. Decoded Go search indexes are only a bounded in-process LRU cache.
   - `cards` fuzzy name search includes the current `prefix` field.
   - `cards` list pagination: paginate by real data order, using array index; do not rely on contiguous IDs.

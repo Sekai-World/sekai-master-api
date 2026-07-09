@@ -30,6 +30,7 @@ Set `MASTER_DATA_GITHUB_TOKEN` if higher GitHub API rate limits are needed.
 - Startup sync compares the configured source commit with the latest successful sync record.
 - Unchanged regions validate persisted Redis search indexes and rebuild missing or stale persisted indexes when needed.
 - Admin dashboard status, available-region reads, and observability metric callbacks are read-only. They report whether the current process has retained usable runtime cache/index state, but they do not load, rebuild, rewrite, or repair Redis search indexes.
+- Card data endpoints can still serve from persisted Redis by-id records after a process restart even when decoded search indexes have not been warmed in memory.
 - If Redis data is missing but local backup exists, cache is restored from backup.
 - Changed regions download one GitHub tarball for the resolved commit and extract JSON files under the configured path.
 - Cache writes are incremental: changed records are upserted and deleted records are removed.
@@ -79,4 +80,4 @@ Query behavior:
 - Event by-id omits `eventRankingRewardRanges`; use the rewards endpoint.
 - Virtual live base response omits items, schedules, and setlists; use dedicated endpoints.
 - If a top-level `releaseConditionId` exists, the response expands `releaseCondition` and hides `releaseConditionId`.
-- Region data endpoints return `503 REGION_DATA_NOT_READY` until region sync status is `success` and the current process reports usable read-only runtime cache/index state for that region. Run the explicit sync, warmup, or ensure flow to repair persisted Redis indexes instead of relying on read endpoints to do it.
+- Region data endpoints return `503 REGION_DATA_NOT_READY` until the required persisted data is available or the current process reports usable read-only runtime cache/index state for that region. Card endpoints check the `cards` by-id hash with a read-only Redis `HLEN` probe, so list/by-id card reads do not depend on decoded search-index LRU state after restart. Run the explicit sync, warmup, or ensure flow to repair persisted Redis indexes instead of relying on status/availability read endpoints to do it.
