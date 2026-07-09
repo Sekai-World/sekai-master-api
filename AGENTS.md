@@ -19,6 +19,7 @@ This file defines collaboration boundaries, execution order, and acceptance crit
   - Optional override: `DATABASE_DRIVER` can override the default with `sqlite` or `pgx`.
 - Migration strategy: use Goose SQL migrations; run automatic migrations on startup.
 - Local dependency orchestration: `deploy/compose/dev-compose.yaml` for PostgreSQL 18, Redis 8, Grafana, and Loki.
+- Local dev server: `sekai-master-api` is managed through OrbStack. Do not manually kill/stop it during normal agent work; restart it from the project root with `mise run dev` when code or OpenAPI changes need to be served locally.
 
 ## Agent Roles
 
@@ -104,7 +105,8 @@ The task is done only when these conditions are met:
 
 ## Preferred Commands
 
-- Run API: `mise run run`
+- Run/restart API dev server: `mise run dev`
+- Run API directly: `mise run run`
 - Unit tests: `mise run test`
 - Migrate up: `mise run migrate-up`
 - Migrate down: `mise run migrate-down`
@@ -119,7 +121,7 @@ be regenerated. The full workflow is:
 
 1. Make changes in sekai-master-api.
 2. Regenerate Swagger/OpenAPI spec: `mise run swagger`.
-3. Restart the sekai-master-api dev server: `mise run dev`.
+3. Restart the OrbStack-managed sekai-master-api dev server from the project root: `mise run dev`.
    Wait for the server to be ready before proceeding.
 4. In sekai-viewer-reborn, regenerate the SDK:
    `mise run update-sekai-master-api-sdk-local`

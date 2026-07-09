@@ -1234,6 +1234,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{region}/{id}/detail": {
+            "get": {
+                "description": "Returns event detail, compact availability/current metadata, enriched related cards/musics, bonuses, and a bounded ranking reward preview.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Get bounded event detail aggregate by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.EventDetailAggregateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{region}/{id}/musics": {
             "get": {
                 "produces": [
@@ -3432,17 +3492,41 @@ const docTemplate = `{
         "shared.EventCardResponse": {
             "type": "object",
             "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "attr": {
+                    "type": "string"
+                },
                 "bonusRate": {
                     "type": "integer"
                 },
                 "cardId": {
                     "type": "integer"
                 },
+                "cardRarityType": {
+                    "type": "string"
+                },
                 "eventId": {
                     "type": "integer"
                 },
+                "initialSpecialTrainingStatus": {
+                    "type": "string"
+                },
+                "leaderBonusRate": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
                 "releaseCondition": {
                     "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
@@ -3466,14 +3550,120 @@ const docTemplate = `{
                 "cardAttr": {
                     "type": "string"
                 },
+                "colorCode": {
+                    "type": "string"
+                },
                 "eventId": {
+                    "type": "integer"
+                },
+                "firstName": {
+                    "type": "string"
+                },
+                "gameCharacterId": {
                     "type": "integer"
                 },
                 "gameCharacterUnitId": {
                     "type": "integer"
                 },
+                "givenName": {
+                    "type": "string"
+                },
                 "releaseCondition": {
                     "$ref": "#/definitions/shared.ReleaseConditionResponse"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.EventDetailAggregateResponse": {
+            "type": "object",
+            "properties": {
+                "availableRegions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "bonuses": {
+                    "$ref": "#/definitions/shared.EventBonusesResponse"
+                },
+                "cards": {
+                    "$ref": "#/definitions/shared.EventDetailCardsSectionResponse"
+                },
+                "event": {
+                    "$ref": "#/definitions/shared.EventObjectResponse"
+                },
+                "isCurrentEvent": {
+                    "type": "boolean"
+                },
+                "musics": {
+                    "$ref": "#/definitions/shared.EventDetailMusicsSectionResponse"
+                },
+                "rewards": {
+                    "$ref": "#/definitions/shared.EventDetailRewardsPreviewResponse"
+                }
+            }
+        },
+        "shared.EventDetailCardsSectionResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventCardResponse"
+                    }
+                }
+            }
+        },
+        "shared.EventDetailMusicsSectionResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventMusicResponse"
+                    }
+                }
+            }
+        },
+        "shared.EventDetailRewardsPreviewResponse": {
+            "type": "object",
+            "properties": {
+                "previewRanges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventRewardRangeResponse"
+                    }
+                },
+                "summary": {
+                    "$ref": "#/definitions/shared.EventDetailRewardsSummaryResponse"
+                }
+            }
+        },
+        "shared.EventDetailRewardsSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "fullEndpoint": {
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "previewRangeCount": {
+                    "type": "integer"
+                },
+                "totalRangeCount": {
+                    "type": "integer"
+                },
+                "totalRewardCount": {
+                    "type": "integer"
                 }
             }
         },
@@ -3526,17 +3716,26 @@ const docTemplate = `{
         "shared.EventMusicResponse": {
             "type": "object",
             "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
                 "eventId": {
                     "type": "integer"
                 },
                 "musicId": {
                     "type": "integer"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "releaseCondition": {
                     "$ref": "#/definitions/shared.ReleaseConditionResponse"
                 },
                 "seq": {
                     "type": "integer"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
@@ -3601,6 +3800,9 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "resourceBox": {
+                    "$ref": "#/definitions/shared.EventRewardResourceBoxResponse"
+                },
                 "resourceBoxId": {
                     "type": "integer"
                 },
@@ -3623,6 +3825,84 @@ const docTemplate = `{
                 },
                 "masterRank": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardHonorGroup": {
+            "type": "object",
+            "properties": {
+                "backgroundAssetbundleName": {
+                    "type": "string"
+                },
+                "frameName": {
+                    "type": "string"
+                },
+                "honorType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.EventRewardHonorLevel": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "bonus": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "honorId": {
+                    "type": "integer"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardHonorResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "group": {
+                    "$ref": "#/definitions/shared.EventRewardHonorGroup"
+                },
+                "groupId": {
+                    "type": "integer"
+                },
+                "honorMissionType": {
+                    "type": "string"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "honorType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "levels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventRewardHonorLevel"
+                    }
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },
@@ -3649,6 +3929,55 @@ const docTemplate = `{
                 },
                 "toRank": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardResourceBoxDetail": {
+            "type": "object",
+            "properties": {
+                "honor": {
+                    "$ref": "#/definitions/shared.EventRewardHonorResponse"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "resourceLevel": {
+                    "type": "integer"
+                },
+                "resourceQuantity": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.EventRewardResourceBoxResponse": {
+            "type": "object",
+            "properties": {
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventRewardResourceBoxDetail"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceBoxType": {
+                    "type": "string"
                 }
             }
         },
