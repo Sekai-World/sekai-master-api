@@ -76,7 +76,12 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, handler.buildMusic(c.Request.Context(), region, record))
+	item, err := handler.buildMusic(c.Request.Context(), region, record)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich music")
+		return
+	}
+	response.JSON(c, http.StatusOK, item)
 }
 
 // DifficultiesByID godoc
@@ -251,7 +256,11 @@ func (handler *MusicHandler) List(c *gin.Context) {
 			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
-		items := handler.buildMusicList(c.Request.Context(), region, pagedRecords)
+		items, err := handler.buildMusicList(c.Request.Context(), region, pagedRecords)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich musics")
+			return
+		}
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      items,
 			"pagination": pagination,
@@ -271,8 +280,14 @@ func (handler *MusicHandler) List(c *gin.Context) {
 	}
 	hasNext := page < totalPages
 
+	items, err := handler.buildMusicList(c.Request.Context(), region, records)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich musics")
+		return
+	}
+
 	response.JSON(c, http.StatusOK, gin.H{
-		"items": handler.buildMusicList(c.Request.Context(), region, records),
+		"items": items,
 		"pagination": gin.H{
 			"page":        page,
 			"page_size":   pageSize,
@@ -780,13 +795,22 @@ func (handler *MusicHandler) ensureRegionReadyForMusicRecords(c *gin.Context, re
 	return false
 }
 
-func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, records []map[string]any) []map[string]any {
-	difficulties := handler.loadMusicDifficultyRecords(ctx, region)
-	tags := handler.loadMusicTagRecords(ctx, region)
+func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, records []map[string]any) ([]map[string]any, error) {
+	difficulties, err := handler.loadMusicDifficultyRecords(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	tags, err := handler.loadMusicTagRecords(ctx, region)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		musicID := shared.NormalizeAnyID(record["id"])
-		item := handler.buildMusic(ctx, region, record)
+		item, err := handler.buildMusic(ctx, region, record)
+		if err != nil {
+			return nil, err
+		}
 		item["difficulties"] = difficulties[musicID]
 		if item["difficulties"] == nil {
 			item["difficulties"] = []map[string]any{}
@@ -798,17 +822,17 @@ func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, 
 		items = append(items, item)
 	}
 
-	return items
+	return items, nil
 }
 
-func (handler *MusicHandler) loadMusicDifficultyRecords(ctx context.Context, region string) map[string][]map[string]any {
+func (handler *MusicHandler) loadMusicDifficultyRecords(ctx context.Context, region string) (map[string][]map[string]any, error) {
 	if handler == nil || handler.masterDataSync == nil {
-		return map[string][]map[string]any{}
+		return map[string][]map[string]any{}, nil
 	}
 
 	difficultyRecords, err := handler.masterDataSync.ListAll(ctx, region, "musicdifficulties")
 	if err != nil {
-		return map[string][]map[string]any{}
+		return nil, fmt.Errorf("list music difficulties: %w", err)
 	}
 
 	difficulties := make(map[string][]map[string]any, len(difficultyRecords))
@@ -817,20 +841,24 @@ func (handler *MusicHandler) loadMusicDifficultyRecords(ctx context.Context, reg
 		if musicID == "" {
 			continue
 		}
-		difficulties[musicID] = append(difficulties[musicID], handler.buildMusicDifficulty(ctx, region, difficulty, true))
+		item, err := handler.buildMusicDifficulty(ctx, region, difficulty, true)
+		if err != nil {
+			return nil, err
+		}
+		difficulties[musicID] = append(difficulties[musicID], item)
 	}
 
-	return difficulties
+	return difficulties, nil
 }
 
-func (handler *MusicHandler) loadMusicTagRecords(ctx context.Context, region string) map[string][]string {
+func (handler *MusicHandler) loadMusicTagRecords(ctx context.Context, region string) (map[string][]string, error) {
 	if handler == nil || handler.masterDataSync == nil {
-		return map[string][]string{}
+		return map[string][]string{}, nil
 	}
 
 	tagRecords, err := handler.masterDataSync.ListAll(ctx, region, "musictags")
 	if err != nil {
-		return map[string][]string{}
+		return nil, fmt.Errorf("list music tags: %w", err)
 	}
 
 	tags := make(map[string][]string, len(tagRecords))
@@ -843,7 +871,7 @@ func (handler *MusicHandler) loadMusicTagRecords(ctx context.Context, region str
 		tags[musicID] = append(tags[musicID], musicTag)
 	}
 
-	return tags
+	return tags, nil
 }
 
 func (handler *MusicHandler) loadMusicDifficultiesByMusicID(ctx context.Context, region string, musicID string, compact bool) ([]map[string]any, error) {
@@ -858,27 +886,37 @@ func (handler *MusicHandler) loadMusicDifficultiesByMusicID(ctx context.Context,
 		if shared.NormalizeAnyID(difficulty["musicId"]) != targetMusicID {
 			continue
 		}
-		difficulties = append(difficulties, handler.buildMusicDifficulty(ctx, region, difficulty, compact))
+		item, err := handler.buildMusicDifficulty(ctx, region, difficulty, compact)
+		if err != nil {
+			return nil, err
+		}
+		difficulties = append(difficulties, item)
 	}
 
 	return difficulties, nil
 }
 
-func (handler *MusicHandler) buildMusicDifficulty(ctx context.Context, region string, difficulty map[string]any, compact bool) map[string]any {
-	result := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, difficulty)
+func (handler *MusicHandler) buildMusicDifficulty(ctx context.Context, region string, difficulty map[string]any, compact bool) (map[string]any, error) {
+	result, err := shared.BuildRecordWithReleaseConditionResult(ctx, handler.masterDataSync, region, difficulty)
+	if err != nil {
+		return nil, err
+	}
 	if compact {
 		delete(result, "id")
 		delete(result, "musicId")
 		delete(result, "totalNoteCount")
 	}
-	return result
+	return result, nil
 }
 
-func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any) map[string]any {
-	result := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record)
+func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any) (map[string]any, error) {
+	result, err := shared.BuildRecordWithReleaseConditionResult(ctx, handler.masterDataSync, region, record)
+	if err != nil {
+		return nil, err
+	}
 
 	if handler == nil || handler.masterDataSync == nil {
-		return result
+		return result, nil
 	}
 
 	if rawCreatorArtistID, hasCreatorArtistID := record["creatorArtistId"]; hasCreatorArtistID {
@@ -889,7 +927,10 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 			result["creatorArtist"] = nil
 		} else {
 			creatorArtist, found, err := handler.masterDataSync.GetByID(ctx, region, "musicartists", creatorArtistLookupID)
-			if err != nil || !found {
+			if err != nil {
+				return nil, fmt.Errorf("get music artist %s: %w", creatorArtistLookupID, err)
+			}
+			if !found {
 				result["creatorArtist"] = nil
 			} else {
 				result["creatorArtist"] = creatorArtist
@@ -905,7 +946,10 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 			result["liveStage"] = nil
 		} else {
 			liveStage, found, err := handler.masterDataSync.GetByID(ctx, region, "livestages", liveStageLookupID)
-			if err != nil || !found {
+			if err != nil {
+				return nil, fmt.Errorf("get live stage %s: %w", liveStageLookupID, err)
+			}
+			if !found {
 				result["liveStage"] = nil
 			} else {
 				result["liveStage"] = liveStage
@@ -913,7 +957,7 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // VocalsByID godoc
@@ -1003,7 +1047,11 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	music := handler.buildMusic(ctx, region, record)
+	music, err := handler.buildMusic(ctx, region, record)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich music")
+		return
+	}
 
 	difficulties, err := handler.loadMusicDifficultiesByMusicID(ctx, region, id, false)
 	if err != nil {
