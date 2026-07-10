@@ -11,7 +11,7 @@ This file defines collaboration boundaries, execution order, and acceptance crit
 - Authentication boundary: only admin APIs require authentication; other GET APIs are public by default.
 - Query strategy:
   - `cards` by-id: Redis hash cache.
-  - `cards` data endpoints may treat persisted `cards` by-id records as sufficient read-only data readiness; do not require decoded search-index LRU state for card list/by-id reads after restart.
+  - Relaxed single-entity data endpoints may treat persisted by-id records as sufficient read-only data readiness only when the region's current persisted sync status is `success`; do not require decoded search-index LRU state for those reads after restart.
   - Search uses Redis-persisted indexes scoped to API search fields. Decoded Go search indexes are only a bounded in-process LRU cache.
   - `cards` fuzzy name search includes the current `prefix` field.
   - `cards` list pagination: paginate by real data order, using array index; do not rely on contiguous IDs.
@@ -63,6 +63,7 @@ Responsible for database connections, dialect compatibility, and the data access
   - Keep Redis search-index repair side-effectful only in sync/ensure/search-miss flows; `DashboardStatus`, `ReadyRegions`, admin dashboard reads, available-region helper reads, and observability callbacks must remain read-only.
   - When rebuilding Redis search indexes, remove stale `:search-index-version` keys together with stale `:search-index` keys and clear persisted search-index artifacts when a region no longer has records.
   - Keep field constraints stable for the separate `cards` basic-info and params endpoints.
+  - Relaxed persisted-record reads must not call `Search` for enrichment because search misses may repair Redis indexes. Use direct persisted-record reads and return the endpoint query error when required enrichment storage reads fail.
 
 ### 4) Environment Agent
 

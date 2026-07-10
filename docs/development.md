@@ -41,7 +41,7 @@ mise run dev-env-up-metrics
 mise run dev-metrics
 ```
 
-This starts PostgreSQL, Redis, Keycloak, Prometheus, and a metrics-only Alloy collector. It enables OTEL metrics export from the app without Loki or Tempo.
+This starts PostgreSQL, Redis, Keycloak, Prometheus, and a metrics-only Alloy collector. It enables OTEL metrics export from the app without Loki or Tempo. The app sets `OTEL_TRACING_ENABLED=false`, so it does not install HTTP tracing middleware or export spans to the metrics-only collector.
 
 For the full local observability stack:
 
@@ -116,6 +116,8 @@ mise run dev-logs-ui
 Grafana is available only after `mise run dev-env-up-full`; metrics-only mode uses Prometheus directly.
 
 Grafana provisions Loki, Prometheus, Tempo datasources and dashboards for API/network, runtime memory, and master-data metrics.
+
+`OTEL_ENABLED` controls OpenTelemetry metrics initialization. `OTEL_TRACING_ENABLED` controls trace exporter/provider setup and HTTP tracing independently; when omitted it inherits `OTEL_ENABLED` for backward compatibility. Set tracing to `false` when the configured collector does not expose a traces pipeline.
 
 ## Smoke Check
 
