@@ -24,6 +24,9 @@ type fakeEventHandlerCache struct {
 	listByEntity   map[string]map[string][]map[string]any
 	storeCallCount int
 	searchCalls    []fakeEventSearchCall
+	hasRecords     map[string]map[string]bool
+	hasIndex       bool
+	hasIndexSet    bool
 }
 
 type fakeEventSearchCall struct {
@@ -176,6 +179,20 @@ func (cache *fakeEventHandlerCache) ListByPage(_ context.Context, region string,
 	return records[start:end], total, nil
 }
 
+func (cache *fakeEventHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	if cache.hasRecords == nil {
+		return false, nil
+	}
+	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
+}
+
+func (cache *fakeEventHandlerCache) HasRegionIndex(_ string) bool {
+	if !cache.hasIndexSet {
+		return true
+	}
+	return cache.hasIndex
+}
+
 func TestEventByIDEndpointOmitsRankingRewardsField(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -319,6 +336,160 @@ func TestEventAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing
 	expected := []string{"en", "jp"}
 	if !reflect.DeepEqual(body.Regions, expected) {
 		t.Fatalf("expected regions %v, got %v", expected, body.Regions)
+	}
+}
+
+func TestEventRepresentativeEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {"id": 101, "name": "persisted-event"},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {{"id": 101, "name": "persisted-event"}},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"events": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id", handler.ByID)
+	router.GET("/api/v1/events/:region/:id/detail", handler.DetailByID)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "by id", path: "/api/v1/events/jp/101"},
+		{name: "detail", path: "/api/v1/events/jp/101/detail"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected status 503, got %d", resp.Code)
+			}
+		})
+	}
+}
+
+func TestEventListAndCurrentUsePersistedEventRecordsWhenRuntimeIndexMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	nowMillis := time.Now().UTC().UnixMilli()
+	currentRecord := map[string]any{
+		"id":              101,
+		"name":            "persisted-current-event",
+		"startAt":         nowMillis - int64(time.Hour/time.Millisecond),
+		"closedAt":        nowMillis + int64(time.Hour/time.Millisecond),
+		"aggregateAt":     nowMillis + int64(2*time.Hour/time.Millisecond),
+		"assetbundleName": "event_persisted",
+		"eventType":       "marathon",
+		"unit":            "idol",
+	}
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": currentRecord,
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {currentRecord},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"events": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	statusStore := &fakeEventHandlerStatusStore{}
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	handler := NewEventHandler(syncUsecase)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/list", handler.List)
+	router.GET("/api/v1/events/:region/current", handler.Current)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/list?page=1&page_size=20", nil)
+	listResp := httptest.NewRecorder()
+	router.ServeHTTP(listResp, listReq)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("expected list status 200, got %d: %s", listResp.Code, listResp.Body.String())
+	}
+
+	currentReq := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/current", nil)
+	currentResp := httptest.NewRecorder()
+	router.ServeHTTP(currentResp, currentReq)
+	if currentResp.Code != http.StatusOK {
+		t.Fatalf("expected current status 200, got %d: %s", currentResp.Code, currentResp.Body.String())
+	}
+
+	var currentBody map[string]any
+	if err := json.Unmarshal(currentResp.Body.Bytes(), &currentBody); err != nil {
+		t.Fatalf("unmarshal current response: %v", err)
+	}
+	if currentBody["id"] != float64(101) {
+		t.Fatalf("expected current event id 101, got %v", currentBody["id"])
+	}
+}
+
+func TestEventAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {"id": 101, "name": "persisted-event"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"events": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/regions/:id/availability", handler.AvailableRegionsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/regions/101/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Regions) != 0 {
+		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
 	}
 }
 
