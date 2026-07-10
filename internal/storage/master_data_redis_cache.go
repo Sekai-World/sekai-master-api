@@ -616,6 +616,82 @@ func compactPersistedSearchIndex(entity string, index legacyPersistedEntitySearc
 	return compact
 }
 
+func (cache *RedisMasterDataCache) compactLegacyStringIDSearchIndex(
+	ctx context.Context,
+	region string,
+	entity string,
+	fields map[string][]string,
+) (*entitySearchIndex, error) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0)
+	seenIDs := make(map[string]struct{})
+	for field, fieldIDs := range fields {
+		field = normalizeKey(field)
+		if !isSearchableField(entity, field) {
+			continue
+		}
+
+		for _, rawID := range fieldIDs {
+			id := strings.TrimSpace(rawID)
+			if id == "" {
+				continue
+			}
+			if _, exists := seenIDs[id]; exists {
+				continue
+			}
+			seenIDs[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	records, err := cache.getEntityRecordsByIDsMapped(ctx, region, entity, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load legacy string id records region %s entity %s: %w", region, entity, err)
+	}
+
+	legacyFields := make(map[string][]legacySearchIndexItem, len(fields))
+	for field, fieldIDs := range fields {
+		field = normalizeKey(field)
+		if !isSearchableField(entity, field) {
+			continue
+		}
+
+		items := make([]legacySearchIndexItem, 0, len(fieldIDs))
+		for _, rawID := range fieldIDs {
+			id := strings.TrimSpace(rawID)
+			if id == "" {
+				continue
+			}
+
+			record, ok := records[id]
+			if !ok {
+				continue
+			}
+			searchable := searchableFields(entity, record)
+			normalizedText := searchable[field]
+			if normalizedText == "" {
+				continue
+			}
+
+			items = append(items, legacySearchIndexItem{
+				ID:             id,
+				NormalizedText: normalizedText,
+			})
+		}
+		if len(items) > 0 {
+			legacyFields[field] = items
+		}
+	}
+
+	return compactLegacySearchIndex(entity, legacyFields), nil
+}
+
 func compactCurrentSearchIndex(entity string, index entitySearchIndex) *entitySearchIndex {
 	if len(index.IDs) == 0 || len(index.Fields) == 0 {
 		return nil
@@ -1196,6 +1272,9 @@ func (cache *RedisMasterDataCache) rebuildEntityIndexFromRedis(
 		return nil, false, fmt.Errorf("hgetall region %s entity %s: %w", regionName, entityName, err)
 	}
 	if len(recordMap) == 0 {
+		if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entityName); err != nil {
+			return nil, false, err
+		}
 		cache.invalidateCachedEntityIndex(regionName, entityName)
 		return nil, false, nil
 	}
@@ -1244,6 +1323,18 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 	loaded := false
 	loadedCount := 0
 	for _, entity := range entities {
+		hasRecords, err := cache.HasEntityRecords(ctx, regionName, entity)
+		if err != nil {
+			return false, err
+		}
+		if !hasRecords {
+			if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entity); err != nil {
+				return false, err
+			}
+			cache.invalidateCachedEntityIndex(regionName, entity)
+			continue
+		}
+
 		entityIndex, version, found, err := cache.readEntityIndexFromRedis(ctx, regionName, entity)
 		if err != nil {
 			return false, err
@@ -1253,6 +1344,9 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 			loaded = true
 			loadedCount++
 		} else {
+			if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entity); err != nil {
+				return false, err
+			}
 			cache.invalidateCachedEntityIndex(regionName, entity)
 		}
 	}
@@ -1700,6 +1794,24 @@ func (cache *RedisMasterDataCache) persistEntitySearchIndex(ctx context.Context,
 	return version
 }
 
+func (cache *RedisMasterDataCache) removePersistedEntitySearchIndex(ctx context.Context, region string, entity string) error {
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return nil
+	}
+
+	pipe := cache.client.Pipeline()
+	pipe.Del(ctx, cache.redisEntitySearchIndexKey(regionName, entityName))
+	pipe.Del(ctx, cache.redisEntitySearchIndexVersionKey(regionName, entityName))
+	pipe.SRem(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName), entityName)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("remove persisted search index region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	return nil
+}
+
 func (cache *RedisMasterDataCache) persistedEntitySearchIndexExists(ctx context.Context, region string, entity string) (bool, error) {
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
@@ -1754,17 +1866,32 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 	}
 
 	var legacyFields map[string][]legacySearchIndexItem
-	if err := json.Unmarshal(body, &legacyFields); err != nil {
-		return nil, "", false, fmt.Errorf("decode persisted search index region %s entity %s: %w", regionName, entityName, err)
-	}
+	if err := json.Unmarshal(body, &legacyFields); err == nil {
+		legacyIndex := compactLegacySearchIndex(entityName, legacyFields)
+		if legacyIndex == nil {
+			return nil, "", false, nil
+		}
+		version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
 
-	legacyIndex := compactLegacySearchIndex(entityName, legacyFields)
-	if legacyIndex == nil {
-		return nil, "", false, nil
-	}
-	version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
+		return legacyIndex, version, true, nil
+	} else {
+		legacyDecodeErr := err
+		var legacyStringFields map[string][]string
+		if err := json.Unmarshal(body, &legacyStringFields); err != nil {
+			return nil, "", false, fmt.Errorf("decode persisted search index region %s entity %s: %w", regionName, entityName, legacyDecodeErr)
+		}
 
-	return legacyIndex, version, true, nil
+		legacyIndex, err := cache.compactLegacyStringIDSearchIndex(ctx, regionName, entityName, legacyStringFields)
+		if err != nil {
+			return nil, "", false, err
+		}
+		if legacyIndex == nil {
+			return nil, "", false, nil
+		}
+		version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
+
+		return legacyIndex, version, true, nil
+	}
 }
 
 func (cache *RedisMasterDataCache) rewriteEntitySearchIndex(
