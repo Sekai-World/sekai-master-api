@@ -89,6 +89,27 @@ services:
     networks:
       - dev
 
+  alloy-metrics:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/alloy/Dockerfile
+    image: sekai/alloy-dev:1.12.1
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/metrics-only.alloy
+      - --storage.path=/var/lib/alloy/data
+    expose:
+      - "4317"
+      - "4318"
+    depends_on:
+      prometheus:
+        condition: service_started
+    volumes:
+      - alloy-metrics-data:/var/lib/alloy/data
+    networks:
+      - dev
+
   prometheus:
     build:
       context: ../..
@@ -168,6 +189,7 @@ volumes:
   prometheus-data:
   tempo-data:
   alloy-data:
+  alloy-metrics-data:
 
 networks:
   dev:

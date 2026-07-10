@@ -14,7 +14,7 @@ Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token vali
 - SQLite for development; PostgreSQL for test and production
 - Redis-backed master-data cache with specialized card/music/event/virtual-live queries
 - Multi-region GitHub master-data sync
-- Local Docker Compose stack for PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and OpenTelemetry Collector
+- Local Docker Compose core stack for PostgreSQL, Redis, and Keycloak, with opt-in Prometheus/Grafana/Loki/Tempo/Alloy observability modes
 - Swagger UI in development and test environments
 
 ## Quick Start
@@ -27,11 +27,25 @@ mise run tidy
 mise run run
 ```
 
-For the full local dependency stack:
+For the default lightweight local dependency stack:
 
 ```sh
 mise run dev-env-up
 mise run dev
+```
+
+For local metrics only:
+
+```sh
+mise run dev-env-up-metrics
+mise run dev-metrics
+```
+
+For the full local observability stack:
+
+```sh
+mise run dev-env-up-full
+mise run dev-full
 ```
 
 ## Common Commands
@@ -42,6 +56,8 @@ mise run dev
 - `mise run format`: format Go files
 - `mise run swagger`: regenerate Swagger docs
 - `mise run dev-env-up`: start local dependencies
+- `mise run dev-env-up-metrics`: start local dependencies plus Prometheus and metrics-only Alloy
+- `mise run dev-env-up-full`: start local dependencies plus Loki, Tempo, Prometheus, Alloy, and Grafana
 - `mise run dev-env-down`: stop local dependencies
 - `mise run migrate-up`: run migrations up
 - `mise run migrate-down`: run migrations down

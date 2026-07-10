@@ -3,7 +3,8 @@ set -eu
 
 . ./.mise/lib/tasks.sh
 load_development_env
+
 cmd="$(compose_cmd)"
 set -- $(compose_project_args)
 $cmd "$@" -f "$(compose_file_abs)" up -d --build --remove-orphans \
-  postgres redis keycloak loki tempo prometheus alloy grafana
+  postgres redis keycloak prometheus alloy-metrics
