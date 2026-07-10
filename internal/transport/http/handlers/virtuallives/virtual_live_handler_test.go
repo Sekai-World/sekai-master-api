@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,9 @@ type fakeVirtualLiveHandlerCache struct {
 	byID                  map[string]map[string]map[string]map[string]any
 	listItems             []map[string]any
 	listTotal             int
+	hasRecords            map[string]map[string]bool
+	hasIndex              bool
+	hasIndexSet           bool
 	searchMatches         []masterdata.SearchMatch
 	searchMatchesByEntity map[string][]masterdata.SearchMatch
 	searchCalls           []struct {
@@ -108,6 +112,20 @@ func (cache *fakeVirtualLiveHandlerCache) Search(_ context.Context, region, enti
 		}
 	}
 	return cache.searchMatches, nil
+}
+
+func (cache *fakeVirtualLiveHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	if cache.hasRecords == nil {
+		return false, nil
+	}
+	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
+}
+
+func (cache *fakeVirtualLiveHandlerCache) HasRegionIndex(_ string) bool {
+	if !cache.hasIndexSet {
+		return true
+	}
+	return cache.hasIndex
 }
 
 func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
@@ -482,6 +500,99 @@ func TestVirtualLiveAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *t
 	expected := []string{"en", "jp"}
 	if !reflect.DeepEqual(body.Regions, expected) {
 		t.Fatalf("expected regions %v, got %v", expected, body.Regions)
+	}
+}
+
+func TestVirtualLiveRepresentativeEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {"id": 501, "name": "persisted-virtual-live"},
+				},
+			},
+		},
+		listItems: []map[string]any{{"id": 501, "name": "persisted-virtual-live"}},
+		listTotal: 1,
+		hasRecords: map[string]map[string]bool{
+			"jp": {"virtuallives": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
+	router.GET("/api/v1/virtualLives/:region/:id/items", handler.ItemsByID)
+	router.GET("/api/v1/virtualLives/:region/:id/schedules", handler.SchedulesByID)
+	router.GET("/api/v1/virtualLives/:region/:id/setlists", handler.SetlistsByID)
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "by id", path: "/api/v1/virtualLives/jp/501"},
+		{name: "items", path: "/api/v1/virtualLives/jp/501/items"},
+		{name: "schedules", path: "/api/v1/virtualLives/jp/501/schedules"},
+		{name: "setlists", path: "/api/v1/virtualLives/jp/501/setlists"},
+		{name: "list", path: "/api/v1/virtualLives/jp/list?page=1&page_size=20"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected status 503, got %d", resp.Code)
+			}
+		})
+	}
+}
+
+func TestVirtualLiveAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {"id": 501, "name": "persisted-virtual-live"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"virtuallives": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/regions/:id/availability", handler.AvailableRegionsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/regions/501/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Regions) != 0 {
+		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
 	}
 }
 

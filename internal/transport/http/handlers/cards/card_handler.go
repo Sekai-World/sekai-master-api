@@ -2,6 +2,7 @@ package cards
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/logging"
 	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
@@ -64,7 +64,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForCardRecords(c, region) {
 		return
 	}
 
@@ -78,7 +78,17 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, handler.buildCardBase(c.Request.Context(), region, record))
+	rarities, err := handler.loadCardRarities(c.Request.Context(), region)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
+		return
+	}
+	item, err := handler.buildCardBase(c.Request.Context(), region, record, rarities)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
+		return
+	}
+	response.JSON(c, http.StatusOK, item)
 }
 
 // AvailableRegionsByID godoc
@@ -136,7 +146,7 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForCardRecords(c, region) {
 		return
 	}
 
@@ -651,10 +661,6 @@ func (handler *CardHandler) List(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
-		return
-	}
-
 	page := 1
 	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
 		parsedPage, err := strconv.Atoi(rawPage)
@@ -689,6 +695,9 @@ func (handler *CardHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !handler.ensureRegionReadyForCardRecords(c, region) {
+		return
+	}
 
 	if !includeSpoilers || sortOptions.Enabled || filterOptions.Enabled() {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "cards")
@@ -713,9 +722,19 @@ func (handler *CardHandler) List(c *gin.Context) {
 			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
+		rarities, err := handler.loadCardRarities(c.Request.Context(), region)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
+			return
+		}
 		items := make([]map[string]any, 0, len(pagedRecords))
 		for _, record := range pagedRecords {
-			items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
+			item, buildErr := handler.buildCardBase(c.Request.Context(), region, record, rarities)
+			if buildErr != nil {
+				response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
+				return
+			}
+			items = append(items, item)
 		}
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      items,
@@ -731,8 +750,18 @@ func (handler *CardHandler) List(c *gin.Context) {
 	}
 
 	items := make([]map[string]any, 0, len(records))
+	rarities, err := handler.loadCardRarities(c.Request.Context(), region)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
+		return
+	}
 	for _, record := range records {
-		items = append(items, handler.buildCardBase(c.Request.Context(), region, record))
+		item, buildErr := handler.buildCardBase(c.Request.Context(), region, record, rarities)
+		if buildErr != nil {
+			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
+			return
+		}
+		items = append(items, item)
 	}
 
 	totalPages := 0
@@ -1014,9 +1043,9 @@ func setContains(set map[string]struct{}, value string) bool {
 	return ok
 }
 
-func (handler *CardHandler) buildCardBase(ctx context.Context, region string, record map[string]any) map[string]any {
+func (handler *CardHandler) buildCardBase(ctx context.Context, region string, record map[string]any, rarities []map[string]any) (map[string]any, error) {
 	if record == nil {
-		return map[string]any{}
+		return map[string]any{}, nil
 	}
 
 	keys := []string{
@@ -1042,7 +1071,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 	}
 
 	if handler == nil || handler.masterDataSync == nil {
-		return result
+		return result, nil
 	}
 
 	if cardSupplyID, ok := record["cardSupplyId"]; ok {
@@ -1051,7 +1080,10 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 			result["cardSupply"] = nil
 		} else {
 			cardSupply, found, err := handler.masterDataSync.GetByID(ctx, region, "cardsupplies", lookupID)
-			if err != nil || !found {
+			if err != nil {
+				return nil, fmt.Errorf("get card supply %s: %w", lookupID, err)
+			}
+			if !found {
 				result["cardSupply"] = nil
 			} else {
 				result["cardSupply"] = cardSupply
@@ -1065,7 +1097,10 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 			result["skill"] = nil
 		} else {
 			skill, found, err := handler.masterDataSync.GetByID(ctx, region, "skills", skillLookupID)
-			if err != nil || !found {
+			if err != nil {
+				return nil, fmt.Errorf("get skill %s: %w", skillLookupID, err)
+			}
+			if !found {
 				result["skill"] = nil
 			} else {
 				result["skill"] = skill
@@ -1079,7 +1114,10 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 			result["character"] = nil
 		} else {
 			character, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacters", characterLookupID)
-			if err != nil || !found {
+			if err != nil {
+				return nil, fmt.Errorf("get game character %s: %w", characterLookupID, err)
+			}
+			if !found {
 				result["character"] = nil
 			} else {
 				result["character"] = sanitizeGameCharacter(character)
@@ -1103,27 +1141,51 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 			logger.Warnw("card rarity lookup empty type", "component", "card-handler", "region", region, "card_id", cardID)
 			result["cardRarity"] = nil
 		} else {
-			matches, err := handler.masterDataSync.Search(ctx, region, "cardrarities", rarityTypeLookup, []string{"cardRarityType"}, 20)
-			if err != nil {
-				logger.Debugw("card rarity lookup search error", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "error", err)
+			logger.Debugw("card rarity lookup list done", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "records", len(rarities))
+			rarity := findExactCardRarityRecordByType(rarities, rarityTypeLookup)
+			if rarity == nil {
+				logger.Warnw("card rarity lookup not found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup)
 				result["cardRarity"] = nil
 			} else {
-				logger.Debugw("card rarity lookup search done", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "matches", len(matches))
-				rarity := findExactCardRarityByType(matches, rarityTypeLookup)
-				if rarity == nil {
-					logger.Warnw("card rarity lookup not found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup)
-					result["cardRarity"] = nil
-				} else {
-					logger.Debugw("card rarity lookup found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "rarity_id", rarity["id"])
-					result["cardRarity"] = rarity
-				}
+				logger.Debugw("card rarity lookup found", "component", "card-handler", "region", region, "card_id", cardID, "type", rarityTypeLookup, "rarity_id", rarity["id"])
+				result["cardRarity"] = rarity
 			}
 		}
 	} else {
 		logging.FromContext(ctx).Warnw("card rarity lookup skipped", "component", "card-handler", "reason", "missing_card_rarity_type", "region", region, "card_id", shared.NormalizeAnyID(record["id"]))
 	}
 
-	return result
+	return result, nil
+}
+
+func (handler *CardHandler) loadCardRarities(ctx context.Context, region string) ([]map[string]any, error) {
+	if handler == nil || handler.masterDataSync == nil {
+		return nil, nil
+	}
+
+	rarities, err := handler.masterDataSync.ListAll(ctx, region, "cardrarities")
+	if err != nil {
+		return nil, fmt.Errorf("list card rarities: %w", err)
+	}
+	return rarities, nil
+}
+
+func (handler *CardHandler) ensureRegionReadyForCardRecords(c *gin.Context, region string) bool {
+	if handler == nil || handler.masterDataSync == nil {
+		return true
+	}
+
+	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), handler.masterDataSync, region, "cards")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
+		return false
+	}
+	if ready {
+		return true
+	}
+
+	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
+	return false
 }
 
 func (handler *CardHandler) ensureRegionReady(c *gin.Context, region string) bool {
@@ -1166,15 +1228,15 @@ func sanitizeGameCharacter(character map[string]any) map[string]any {
 	return result
 }
 
-func findExactCardRarityByType(matches []masterdata.SearchMatch, rarityType string) map[string]any {
-	if rarityType == "" || len(matches) == 0 {
+func findExactCardRarityRecordByType(records []map[string]any, rarityType string) map[string]any {
+	if rarityType == "" || len(records) == 0 {
 		return nil
 	}
 
-	for _, match := range matches {
-		candidateType := shared.NormalizeComparableText(match.Item["cardRarityType"])
+	for _, record := range records {
+		candidateType := shared.NormalizeComparableText(record["cardRarityType"])
 		if candidateType == rarityType {
-			return match.Item
+			return record
 		}
 	}
 
@@ -1274,7 +1336,16 @@ func (handler *CardHandler) DetailByID(c *gin.Context) {
 		return
 	}
 
-	cardBase := handler.buildCardBase(ctx, region, card)
+	rarities, err := handler.loadCardRarities(ctx, region)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
+		return
+	}
+	cardBase, err := handler.buildCardBase(ctx, region, card, rarities)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
+		return
+	}
 
 	cardParams, err := handler.buildCardParams(ctx, region, id, card)
 	if err != nil {

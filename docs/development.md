@@ -23,16 +23,34 @@ For host-mode API development:
 mise run run
 ```
 
-For the bundled dependency stack:
+For the default lightweight dependency stack:
 
 ```sh
 mise run dev-env-up
 mise run dev
 ```
 
-`mise run dev-env-up` starts PostgreSQL, Redis, Keycloak, Grafana, Loki, Tempo, Prometheus, and the OpenTelemetry Collector.
+`mise run dev-env-up` starts only PostgreSQL, Redis, and Keycloak. The default app container runs with `OTEL_ENABLED=false`, no Loki push URL, and no OTLP endpoint, so local development does not require the observability stack.
 
-`mise run dev` builds and runs the API container on the `sekai-dev` Docker network. The app container publishes `http://localhost:18080` by default and uses internal service URLs for PostgreSQL, Redis, Keycloak, Loki, and OTEL.
+`mise run dev` builds and runs the API container on the `sekai-dev` Docker network. The app container publishes `http://localhost:18080` by default and uses internal service URLs for PostgreSQL, Redis, and Keycloak.
+
+For metrics-only local observability:
+
+```sh
+mise run dev-env-up-metrics
+mise run dev-metrics
+```
+
+This starts PostgreSQL, Redis, Keycloak, Prometheus, and a metrics-only Alloy collector. It enables OTEL metrics export from the app without Loki or Tempo. The app sets `OTEL_TRACING_ENABLED=false`, so it does not install HTTP tracing middleware or export spans to the metrics-only collector.
+
+For the full local observability stack:
+
+```sh
+mise run dev-env-up-full
+mise run dev-full
+```
+
+This starts PostgreSQL, Redis, Keycloak, Loki, Tempo, Prometheus, Alloy, and Grafana, and runs the app with Loki and OTLP endpoints configured.
 
 Useful commands:
 
@@ -83,7 +101,7 @@ Migration files live in `internal/storage/migrations`.
 
 Logging uses Zap. Configure level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`). If empty, the default is `debug` outside production and `info` in production.
 
-The local stack includes Grafana, Loki, Prometheus, Tempo, and Alloy. With OrbStack, common URLs are:
+Local observability is opt-in. With OrbStack, common URLs are:
 
 - Grafana: `http://grafana.sekai-master-api.orb.local`
 - Prometheus: `http://prometheus.sekai-master-api.orb.local`
@@ -95,7 +113,11 @@ Open Grafana quickly:
 mise run dev-logs-ui
 ```
 
+Grafana is available only after `mise run dev-env-up-full`; metrics-only mode uses Prometheus directly.
+
 Grafana provisions Loki, Prometheus, Tempo datasources and dashboards for API/network, runtime memory, and master-data metrics.
+
+`OTEL_ENABLED` controls OpenTelemetry metrics initialization. `OTEL_TRACING_ENABLED` controls trace exporter/provider setup and HTTP tracing independently; when omitted it inherits `OTEL_ENABLED` for backward compatibility. Set tracing to `false` when the configured collector does not expose a traces pipeline.
 
 ## Smoke Check
 

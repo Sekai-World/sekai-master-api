@@ -16,6 +16,7 @@ type Config struct {
 	LogLevel                          string
 	LokiPushURL                       string
 	OTELEnabled                       bool
+	OTELTracingEnabled                bool
 	OTELServiceName                   string
 	OTELServiceVersion                string
 	OTELExporterOTLPEndpoint          string
@@ -71,7 +72,7 @@ func Load() Config {
 	appEnv := getEnv("APP_ENV", "development")
 	port := getEnv("APP_PORT", defaultAppPort(appEnv))
 	logLevel := resolveLogLevel(strings.TrimSpace(getEnv("LOG_LEVEL", "")), appEnv)
-	otelEnabled := getEnvBool("OTEL_ENABLED", strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev"))
+	otelEnabled := getEnvBool("OTEL_ENABLED", false)
 
 	return Config{
 		Port:                              port,
@@ -79,6 +80,7 @@ func Load() Config {
 		LogLevel:                          logLevel,
 		LokiPushURL:                       strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
 		OTELEnabled:                       otelEnabled,
+		OTELTracingEnabled:                getEnvBool("OTEL_TRACING_ENABLED", otelEnabled),
 		OTELServiceName:                   strings.TrimSpace(getEnv("OTEL_SERVICE_NAME", "sekai-master-api")),
 		OTELServiceVersion:                strings.TrimSpace(getEnv("OTEL_SERVICE_VERSION", "")),
 		OTELExporterOTLPEndpoint:          strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),

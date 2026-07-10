@@ -37,12 +37,14 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	}
 
 	router.Use(middleware.RequestID())
-	router.Use(otelgin.Middleware(cfg.OTELServiceName, otelgin.WithFilter(func(request *http.Request) bool {
-		if request == nil || request.URL == nil {
-			return false
-		}
-		return !strings.HasPrefix(request.URL.Path, "/docs")
-	})))
+	if cfg.OTELEnabled && cfg.OTELTracingEnabled {
+		router.Use(otelgin.Middleware(cfg.OTELServiceName, otelgin.WithFilter(func(request *http.Request) bool {
+			if request == nil || request.URL == nil {
+				return false
+			}
+			return !strings.HasPrefix(request.URL.Path, "/docs")
+		})))
+	}
 	router.Use(httpMetrics)
 	router.Use(middleware.AccessLog())
 	router.Use(middleware.StartupGate(startupState))

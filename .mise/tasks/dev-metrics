@@ -4,8 +4,8 @@ set -eu
 . ./.mise/lib/tasks.sh
 load_defaults
 
-echo "[dev-full] ensuring full dependency stack is running"
-mise run --skip-tools dev-env-up-full
+echo "[dev-metrics] ensuring metrics dependency stack is running"
+mise run --skip-tools dev-env-up-metrics
 
 docker_bin="${DOCKER}"
 dev_image="${DEV_APP_IMAGE}"
@@ -15,10 +15,10 @@ dev_volume="${DEV_APP_VOLUME}"
 app_port="${APP_PORT}"
 internal_port="${DEV_APP_INTERNAL_PORT}"
 
-echo "[dev-full] building app image ${dev_image} with buildx"
+echo "[dev-metrics] building app image ${dev_image} with buildx"
 "$docker_bin" buildx build --load -f deploy/compose/app/Dockerfile -t "$dev_image" .
 
-echo "[dev-full] recreating container ${dev_container} on network ${dev_network}"
+echo "[dev-metrics] recreating container ${dev_container} on network ${dev_network}"
 "$docker_bin" rm -f "$dev_container" >/dev/null 2>&1 || true
 "$docker_bin" volume create "$dev_volume" >/dev/null
 "$docker_bin" run -d \
@@ -28,13 +28,13 @@ echo "[dev-full] recreating container ${dev_container} on network ${dev_network}
   -e DEV_HOST_APP_PORT="$app_port" \
   -e DEV_MASTER_DATA_AUTO_SYNC="${DEV_MASTER_DATA_AUTO_SYNC}" \
   -e DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC="${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC}" \
-  -e DEV_OBSERVABILITY_MODE=full \
+  -e DEV_OBSERVABILITY_MODE=metrics \
   -p "${app_port}:${internal_port}" \
   -v "${dev_volume}:/app/tmp" \
   "$dev_image" >/dev/null
 
-echo "[dev-full] app listening on http://localhost:${app_port}"
-echo "[dev-full] MASTER_DATA_AUTO_SYNC=${DEV_MASTER_DATA_AUTO_SYNC}"
-echo "[dev-full] MASTER_DATA_RECOVER_INTERRUPTED_SYNC=${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC}"
-echo "[dev-full] DEV_OBSERVABILITY_MODE=full"
-echo "[dev-full] logs: mise run dev-logs"
+echo "[dev-metrics] app listening on http://localhost:${app_port}"
+echo "[dev-metrics] MASTER_DATA_AUTO_SYNC=${DEV_MASTER_DATA_AUTO_SYNC}"
+echo "[dev-metrics] MASTER_DATA_RECOVER_INTERRUPTED_SYNC=${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC}"
+echo "[dev-metrics] DEV_OBSERVABILITY_MODE=metrics"
+echo "[dev-metrics] logs: mise run dev-logs"

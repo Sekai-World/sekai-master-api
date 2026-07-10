@@ -28,6 +28,7 @@ echo "[dev] recreating container ${dev_container} on network ${dev_network}"
   -e DEV_HOST_APP_PORT="$app_port" \
   -e DEV_MASTER_DATA_AUTO_SYNC="${DEV_MASTER_DATA_AUTO_SYNC}" \
   -e DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC="${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC}" \
+  -e DEV_OBSERVABILITY_MODE=off \
   -p "${app_port}:${internal_port}" \
   -v "${dev_volume}:/app/tmp" \
   "$dev_image" >/dev/null
@@ -35,4 +36,5 @@ echo "[dev] recreating container ${dev_container} on network ${dev_network}"
 echo "[dev] app listening on http://localhost:${app_port}"
 echo "[dev] MASTER_DATA_AUTO_SYNC=${DEV_MASTER_DATA_AUTO_SYNC}"
 echo "[dev] MASTER_DATA_RECOVER_INTERRUPTED_SYNC=${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC}"
+echo "[dev] DEV_OBSERVABILITY_MODE=off"
 echo "[dev] logs: mise run dev-logs"

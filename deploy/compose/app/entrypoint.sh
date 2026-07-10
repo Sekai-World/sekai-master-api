@@ -7,6 +7,7 @@ BAKED_FILE="${APP_DIR}/.env.development.local.baked"
 HOST_APP_PORT="${DEV_HOST_APP_PORT:-18080}"
 MASTER_DATA_AUTO_SYNC_OVERRIDE="${DEV_MASTER_DATA_AUTO_SYNC:-false}"
 MASTER_DATA_RECOVER_INTERRUPTED_SYNC_OVERRIDE="${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC:-false}"
+OBSERVABILITY_MODE="${DEV_OBSERVABILITY_MODE:-off}"
 
 read_dotenv_value() {
   file_path="$1"
@@ -72,9 +73,29 @@ mkdir -p /app/tmp
   printf 'MASTER_DATA_AUTO_SYNC=%s\n' "${MASTER_DATA_AUTO_SYNC_OVERRIDE}"
   printf 'MASTER_DATA_RECOVER_INTERRUPTED_SYNC=%s\n' "${MASTER_DATA_RECOVER_INTERRUPTED_SYNC_OVERRIDE}"
   printf 'REDIS_ADDR=redis:6379\n'
-  printf 'LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push\n'
-  printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318\n'
-  printf 'OTEL_EXPORTER_OTLP_INSECURE=true\n'
+  case "${OBSERVABILITY_MODE}" in
+    metrics)
+      printf 'OTEL_ENABLED=true\n'
+	  printf 'OTEL_TRACING_ENABLED=false\n'
+      printf 'LOKI_PUSH_URL=\n'
+      printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy-metrics:4318\n'
+      printf 'OTEL_EXPORTER_OTLP_INSECURE=true\n'
+      ;;
+    full)
+      printf 'OTEL_ENABLED=true\n'
+	  printf 'OTEL_TRACING_ENABLED=true\n'
+      printf 'LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push\n'
+      printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318\n'
+      printf 'OTEL_EXPORTER_OTLP_INSECURE=true\n'
+      ;;
+    *)
+      printf 'OTEL_ENABLED=false\n'
+	  printf 'OTEL_TRACING_ENABLED=false\n'
+      printf 'LOKI_PUSH_URL=\n'
+      printf 'OTEL_EXPORTER_OTLP_ENDPOINT=\n'
+      printf 'OTEL_EXPORTER_OTLP_INSECURE=false\n'
+      ;;
+  esac
   printf 'OIDC_INTERNAL_URL=http://keycloak:8080%s\n' "${issuer_path}"
   printf 'OIDC_REDIRECT_URL=http://localhost:%s/api/v1/admin/login/callback\n' "${HOST_APP_PORT}"
 } > "${OVERRIDE_FILE}"
