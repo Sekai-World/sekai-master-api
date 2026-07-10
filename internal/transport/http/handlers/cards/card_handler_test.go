@@ -679,7 +679,7 @@ func TestCardListEndpointReturnsNotReadyWhenNoRuntimeIndexOrCardData(t *testing.
 	}
 }
 
-func TestCardEpisodesEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
+func TestCardPersistedAggregateReadsReturnOKWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{
@@ -698,71 +698,18 @@ func TestCardEpisodesEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testi
 
 	router := gin.New()
 	router.GET("/api/v1/cards/:region/:id/episodes", cardHandler.EpisodesByID)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/episodes", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status 503, got %d", resp.Code)
-	}
-}
-
-func TestCardDetailEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeCardHandlerCache{
-		byID: map[string]map[string]map[string]map[string]any{
-			"jp": {
-				"cards": {
-					"1001": {"id": 1001, "prefix": "persisted-card"},
-				},
-			},
-		},
-		hasIndexSet: true,
-		hasIndex:    false,
-	}
-
-	cardHandler := newReadyCardHandler(cache)
-
-	router := gin.New()
-	router.GET("/api/v1/cards/:region/:id/detail", cardHandler.DetailByID)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/1001/detail", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status 503, got %d", resp.Code)
-	}
-}
-
-func TestCardRelationEndpointsRequireRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeCardHandlerCache{
-		byID: map[string]map[string]map[string]map[string]any{
-			"jp": {
-				"cards": {
-					"1001": {"id": 1001, "prefix": "persisted-card"},
-				},
-			},
-		},
-		hasIndexSet: true,
-		hasIndex:    false,
-	}
-
-	cardHandler := newReadyCardHandler(cache)
-	router := gin.New()
 	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
 	router.GET("/api/v1/cards/:region/:id/gachas", cardHandler.GachaByID)
+	router.GET("/api/v1/cards/:region/:id/detail", cardHandler.DetailByID)
 
 	testCases := []struct {
 		name string
 		path string
 	}{
+		{name: "episodes", path: "/api/v1/cards/jp/1001/episodes"},
 		{name: "events", path: "/api/v1/cards/jp/1001/events"},
 		{name: "gachas", path: "/api/v1/cards/jp/1001/gachas"},
+		{name: "detail", path: "/api/v1/cards/jp/1001/detail"},
 	}
 
 	for _, testCase := range testCases {
@@ -771,8 +718,8 @@ func TestCardRelationEndpointsRequireRuntimeIndexWhenOnlyCardDataExists(t *testi
 			resp := httptest.NewRecorder()
 			router.ServeHTTP(resp, req)
 
-			if resp.Code != http.StatusServiceUnavailable {
-				t.Fatalf("expected status 503, got %d", resp.Code)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 			}
 		})
 	}
