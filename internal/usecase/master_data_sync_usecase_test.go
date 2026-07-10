@@ -618,7 +618,7 @@ func TestDashboardStatusKeepsRunningWhileSyncActive(t *testing.T) {
 	}
 }
 
-func TestDashboardStatusMarksSuccessfulStatusPendingWhenRedisCacheMissing(t *testing.T) {
+func TestDashboardStatusKeepsSuccessfulStatusWhenRuntimeIndexMissing(t *testing.T) {
 	now := time.Now().UTC()
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
 		{
@@ -643,11 +643,11 @@ func TestDashboardStatusMarksSuccessfulStatusPendingWhenRedisCacheMissing(t *tes
 	if len(statuses) != 1 {
 		t.Fatalf("expected one status item, got %d", len(statuses))
 	}
-	if statuses[0].Status != "pending" {
-		t.Fatalf("expected stale success to be reported as pending, got %s", statuses[0].Status)
+	if statuses[0].Status != "success" {
+		t.Fatalf("expected persisted success to stay successful, got %s", statuses[0].Status)
 	}
-	if statuses[0].ErrorMessage == "" {
-		t.Fatalf("expected stale success to include cache readiness message")
+	if statuses[0].ErrorMessage != "" {
+		t.Fatalf("expected persisted success to avoid cache readiness message, got %q", statuses[0].ErrorMessage)
 	}
 	if cache.loadCalls != 0 {
 		t.Fatalf("expected dashboard status to avoid redis index load, got %d calls", cache.loadCalls)

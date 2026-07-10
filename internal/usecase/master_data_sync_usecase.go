@@ -927,21 +927,21 @@ func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]ma
 		}
 	}
 	if !hasRunningStatus {
-		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
+		return statuses, nil
 	}
 
 	stableStore, ok := usecase.statusStore.(MasterDataSyncLatestStableStore)
 	if !ok {
-		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
+		return statuses, nil
 	}
 
 	stableStatuses, err := stableStore.ListLatestStable(ctx)
 	if err != nil {
 		usecase.logf("dashboard status fallback skipped error=%v", err)
-		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
+		return statuses, nil
 	}
 	if len(stableStatuses) == 0 {
-		return usecase.statusesWithRuntimeCacheReadiness(ctx, statuses)
+		return statuses, nil
 	}
 
 	stableByRegion := make(map[string]masterdata.SyncStatus, len(stableStatuses))
@@ -964,34 +964,7 @@ func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]ma
 		merged = append(merged, status)
 	}
 
-	return usecase.statusesWithRuntimeCacheReadiness(ctx, merged)
-}
-
-func (usecase *MasterDataSyncUsecase) statusesWithRuntimeCacheReadiness(ctx context.Context, statuses []masterdata.SyncStatus) ([]masterdata.SyncStatus, error) {
-	if len(statuses) == 0 {
-		return statuses, nil
-	}
-
-	annotated := make([]masterdata.SyncStatus, 0, len(statuses))
-	for _, status := range statuses {
-		if !strings.EqualFold(strings.TrimSpace(status.Status), "success") {
-			annotated = append(annotated, status)
-			continue
-		}
-
-		cacheReady := usecase.regionCacheReadySnapshot(status.Region)
-		if cacheReady {
-			annotated = append(annotated, status)
-			continue
-		}
-
-		status.Status = "pending"
-		status.ErrorMessage = "redis cache is not ready; run master data sync"
-		status.UpdatedAt = time.Now().UTC()
-		annotated = append(annotated, status)
-	}
-
-	return annotated, nil
+	return merged, nil
 }
 
 func (usecase *MasterDataSyncUsecase) regionCacheReadySnapshot(region string) bool {
