@@ -31,7 +31,13 @@ func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.
 		return false, err
 	}
 	if hasRecords {
-		return true, nil
+		hasSuccessfulSync, err := masterDataSync.HasSuccessfulSync(ctx, normalizedRegion)
+		if err != nil {
+			return false, err
+		}
+		if hasSuccessfulSync {
+			return true, nil
+		}
 	}
 
 	readyRegions, err := ReadyMasterDataRegions(ctx, masterDataSync)

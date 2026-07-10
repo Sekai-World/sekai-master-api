@@ -422,7 +422,9 @@ func TestEventListAndCurrentUsePersistedEventRecordsWhenRuntimeIndexMissing(t *t
 		hasIndex:    false,
 	}
 
-	statusStore := &fakeEventHandlerStatusStore{}
+	statusStore := &fakeEventHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}},
+	}
 	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 	handler := NewEventHandler(syncUsecase)
 	router := gin.New()

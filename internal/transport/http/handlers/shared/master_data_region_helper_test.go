@@ -22,7 +22,9 @@ func TestRegionHasEntityRecordsOrReady_returns_true_when_entity_records_exist(t 
 				"jp": {"cards": true},
 			},
 		},
-		&fakeMasterDataRegionHelperStatusStore{},
+		&fakeMasterDataRegionHelperStatusStore{
+			statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}},
+		},
 		nil,
 		1,
 	)
@@ -36,6 +38,75 @@ func TestRegionHasEntityRecordsOrReady_returns_true_when_entity_records_exist(t 
 	}
 	if !ready {
 		t.Fatalf("expected region to be ready when entity records exist")
+	}
+}
+
+func TestRegionHasEntityRecordsOrReady_rejects_records_without_successful_sync(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "missing status", status: ""},
+		{name: "pending status", status: "pending"},
+		{name: "running status", status: "running"},
+		{name: "failed status", status: "failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			statuses := []masterdata.SyncStatus(nil)
+			if tt.status != "" {
+				statuses = []masterdata.SyncStatus{{Region: "jp", Status: tt.status}}
+			}
+			masterDataSync := usecase.NewMasterDataSyncUsecase(
+				nil,
+				nil,
+				&fakeMasterDataRegionHelperCache{
+					hasRecords: map[string]map[string]bool{"jp": {"cards": true}},
+				},
+				&fakeMasterDataRegionHelperStatusStore{statuses: statuses},
+				nil,
+				1,
+			)
+
+			ready, err := RegionHasEntityRecordsOrReady(context.Background(), masterDataSync, "jp", "cards")
+
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if ready {
+				t.Fatalf("expected records with %q status to remain unavailable", tt.status)
+			}
+		})
+	}
+}
+
+func TestRegionHasEntityRecordsOrReady_returns_error_when_sync_status_check_fails(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("list statuses failed")
+	masterDataSync := usecase.NewMasterDataSyncUsecase(
+		nil,
+		nil,
+		&fakeMasterDataRegionHelperCache{
+			hasRecords: map[string]map[string]bool{"jp": {"cards": true}},
+		},
+		&fakeMasterDataRegionHelperStatusStore{listErr: expectedErr},
+		nil,
+		1,
+	)
+
+	ready, err := RegionHasEntityRecordsOrReady(context.Background(), masterDataSync, "jp", "cards")
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected error %v, got %v", expectedErr, err)
+	}
+	if ready {
+		t.Fatalf("expected region to be unavailable when status lookup fails")
 	}
 }
 
@@ -220,6 +291,7 @@ func (cache *fakeMasterDataRegionHelperCache) HasRegionIndex(region string) bool
 
 type fakeMasterDataRegionHelperStatusStore struct {
 	statuses []masterdata.SyncStatus
+	listErr  error
 }
 
 func (store *fakeMasterDataRegionHelperStatusStore) Save(_ context.Context, _ masterdata.SyncStatus) error {
@@ -227,5 +299,8 @@ func (store *fakeMasterDataRegionHelperStatusStore) Save(_ context.Context, _ ma
 }
 
 func (store *fakeMasterDataRegionHelperStatusStore) List(_ context.Context) ([]masterdata.SyncStatus, error) {
+	if store.listErr != nil {
+		return nil, store.listErr
+	}
 	return store.statuses, nil
 }

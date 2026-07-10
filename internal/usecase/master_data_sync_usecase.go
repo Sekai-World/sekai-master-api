@@ -910,6 +910,31 @@ func (usecase *MasterDataSyncUsecase) HasEntityRecords(ctx context.Context, regi
 	return false, nil
 }
 
+func (usecase *MasterDataSyncUsecase) HasSuccessfulSync(ctx context.Context, region string) (bool, error) {
+	if usecase == nil || usecase.statusStore == nil {
+		return false, nil
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		return false, nil
+	}
+
+	statuses, err := usecase.statusStore.List(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list master data sync statuses: %w", err)
+	}
+
+	for _, status := range statuses {
+		if strings.EqualFold(strings.TrimSpace(status.Region), region) &&
+			strings.EqualFold(strings.TrimSpace(status.Status), "success") {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]masterdata.SyncStatus, error) {
 	statuses, err := usecase.Status(ctx)
 	if err != nil {
