@@ -71,7 +71,7 @@ func Load() Config {
 	appEnv := getEnv("APP_ENV", "development")
 	port := getEnv("APP_PORT", defaultAppPort(appEnv))
 	logLevel := resolveLogLevel(strings.TrimSpace(getEnv("LOG_LEVEL", "")), appEnv)
-	otelEnabled := getEnvBool("OTEL_ENABLED", strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "dev"))
+	otelEnabled := getEnvBool("OTEL_ENABLED", false)
 
 	return Config{
 		Port:                              port,

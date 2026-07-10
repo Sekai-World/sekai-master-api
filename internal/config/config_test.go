@@ -49,8 +49,21 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	if cfg.MasterDataSearchIndexCacheEntries != 32 {
 		t.Fatalf("expected search index cache entries to default to 32, got %d", cfg.MasterDataSearchIndexCacheEntries)
 	}
-	if !cfg.OTELEnabled {
-		t.Fatalf("expected OTel to default enabled in development")
+	if cfg.OTELEnabled {
+		t.Fatalf("expected OTel to default disabled in development")
+	}
+}
+
+func TestLoadDefaultsOTELDisabled(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "OTEL_ENABLED")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=production\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.OTELEnabled {
+		t.Fatalf("expected OTel to default disabled unless explicitly enabled")
 	}
 }
 
@@ -302,6 +315,19 @@ func TestLoadReadsOTELConfig(t *testing.T) {
 	}
 	if cfg.OTELMetricExportIntervalMS != 5000 {
 		t.Fatalf("OTEL metric export interval = %d, want %d", cfg.OTELMetricExportIntervalMS, 5000)
+	}
+}
+
+func TestLoadKeepsExplicitOTELDisabled(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "OTEL_ENABLED")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nOTEL_ENABLED=false\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.OTELEnabled {
+		t.Fatalf("expected explicit OTEL_ENABLED=false to disable OTel")
 	}
 }
 
