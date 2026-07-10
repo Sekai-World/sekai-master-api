@@ -25,6 +25,7 @@ type fakeCardHandlerCache struct {
 	searchMatches []masterdata.SearchMatch
 	rarityMatches []masterdata.SearchMatch
 	searchCalls   []fakeCardSearchCall
+	listAllCalls  map[string]int
 	lastSearch    struct {
 		region string
 		entity string
@@ -86,6 +87,10 @@ func (cache *fakeCardHandlerCache) GetByID(_ context.Context, region string, ent
 }
 
 func (cache *fakeCardHandlerCache) ListAll(_ context.Context, _ string, entity string) ([]map[string]any, error) {
+	if cache.listAllCalls == nil {
+		cache.listAllCalls = make(map[string]int)
+	}
+	cache.listAllCalls[entity]++
 	if cache.listByEntity != nil {
 		if entityItems, ok := cache.listByEntity[entity]; ok {
 			return copyCardTestItems(entityItems), nil
@@ -175,6 +180,9 @@ func TestBuildCardBaseMapsCardSupply(t *testing.T) {
 				},
 			},
 		},
+		listByEntity: map[string][]map[string]any{
+			"cardrarities": {{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+		},
 	}
 
 	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -188,11 +196,10 @@ func TestBuildCardBaseMapsCardSupply(t *testing.T) {
 		"cardSupplyId":   10,
 		"skillId":        20,
 	}
-	cache.rarityMatches = []masterdata.SearchMatch{
-		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+	result, err := handler.buildCardBase(context.Background(), "jp", card, cache.listByEntity["cardrarities"])
+	if err != nil {
+		t.Fatalf("build card base: %v", err)
 	}
-
-	result := handler.buildCardBase(context.Background(), "jp", card)
 
 	if _, exists := result["cardSupplyId"]; exists {
 		t.Fatalf("expected cardSupplyId to be removed from response")
@@ -313,9 +320,9 @@ func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
 				},
 			},
 		},
-	}
-	cache.rarityMatches = []masterdata.SearchMatch{
-		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+		listByEntity: map[string][]map[string]any{
+			"cardrarities": {{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+		},
 	}
 
 	cardHandler := newReadyCardHandler(cache)
@@ -860,8 +867,8 @@ func TestCardListSortingBuildsOnlyCurrentPage(t *testing.T) {
 			{"id": 1, "prefix": "alpha", "cardRarityType": "rarity_4"},
 		},
 		listTotal: 2,
-		rarityMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4"}},
+		listByEntity: map[string][]map[string]any{
+			"cardrarities": {{"id": 4, "cardRarityType": "rarity_4"}},
 		},
 	}
 
@@ -884,8 +891,11 @@ func TestCardListSortingBuildsOnlyCurrentPage(t *testing.T) {
 			rarityLookups++
 		}
 	}
-	if rarityLookups != 1 {
-		t.Fatalf("expected 1 cardrarities lookup for current page, got %d", rarityLookups)
+	if rarityLookups != 0 {
+		t.Fatalf("expected card rarity enrichment not to use Search, got %d calls", rarityLookups)
+	}
+	if cache.listAllCalls["cardrarities"] != 1 {
+		t.Fatalf("expected card rarities to load once per response, got %d calls", cache.listAllCalls["cardrarities"])
 	}
 }
 
