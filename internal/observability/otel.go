@@ -33,11 +33,6 @@ func Setup(ctx context.Context, cfg config.Config) (func(), error) {
 		return nil, err
 	}
 
-	traceExporter, err := newTraceExporter(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	metricExporter, err := newMetricExporter(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -52,13 +47,20 @@ func Setup(ctx context.Context, cfg config.Config) (func(), error) {
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(metricExporter, readerOptions...)),
 	)
-	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithResource(res),
-		sdktrace.WithSampler(defaultTraceSampler(cfg.AppEnv)),
-		sdktrace.WithBatcher(traceExporter),
-	)
-
-	otel.SetTracerProvider(tracerProvider)
+	var tracerProvider *sdktrace.TracerProvider
+	if cfg.OTELTracingEnabled {
+		traceExporter, traceErr := newTraceExporter(ctx, cfg)
+		if traceErr != nil {
+			shutdownProviders(meterProvider, nil)
+			return nil, traceErr
+		}
+		tracerProvider = sdktrace.NewTracerProvider(
+			sdktrace.WithResource(res),
+			sdktrace.WithSampler(defaultTraceSampler(cfg.AppEnv)),
+			sdktrace.WithBatcher(traceExporter),
+		)
+		otel.SetTracerProvider(tracerProvider)
+	}
 	otel.SetMeterProvider(meterProvider)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},

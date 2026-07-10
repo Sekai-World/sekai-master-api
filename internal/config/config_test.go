@@ -278,6 +278,7 @@ func TestLoadReadsOTELConfig(t *testing.T) {
 		t,
 		"APP_ENV",
 		"OTEL_ENABLED",
+		"OTEL_TRACING_ENABLED",
 		"OTEL_SERVICE_NAME",
 		"OTEL_SERVICE_VERSION",
 		"OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -301,6 +302,9 @@ func TestLoadReadsOTELConfig(t *testing.T) {
 	if !cfg.OTELEnabled {
 		t.Fatalf("expected OTel to be enabled")
 	}
+	if !cfg.OTELTracingEnabled {
+		t.Fatalf("expected tracing to inherit enabled OTel state")
+	}
 	if cfg.OTELServiceName != "sekai-master-api-dev" {
 		t.Fatalf("OTEL service name = %q, want %q", cfg.OTELServiceName, "sekai-master-api-dev")
 	}
@@ -315,6 +319,22 @@ func TestLoadReadsOTELConfig(t *testing.T) {
 	}
 	if cfg.OTELMetricExportIntervalMS != 5000 {
 		t.Fatalf("OTEL metric export interval = %d, want %d", cfg.OTELMetricExportIntervalMS, 5000)
+	}
+}
+
+func TestLoadAllowsTracingDisabledWhileOTELRemainsEnabled(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "OTEL_ENABLED", "OTEL_TRACING_ENABLED")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nOTEL_ENABLED=true\nOTEL_TRACING_ENABLED=false\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if !cfg.OTELEnabled {
+		t.Fatalf("expected OTel metrics to remain enabled")
+	}
+	if cfg.OTELTracingEnabled {
+		t.Fatalf("expected tracing to be disabled explicitly")
 	}
 }
 
