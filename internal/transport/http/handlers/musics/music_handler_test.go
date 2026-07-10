@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,9 @@ type fakeMusicHandlerCache struct {
 	listItems     []map[string]any
 	listByEntity  map[string][]map[string]any
 	listTotal     int
+	hasRecords    map[string]map[string]bool
+	hasIndex      bool
+	hasIndexSet   bool
 	searchMatches []masterdata.SearchMatch
 	searchCalls   []fakeMusicSearchCall
 	getByIDCalls  []fakeMusicGetByIDCall
@@ -130,6 +134,20 @@ func (cache *fakeMusicHandlerCache) Search(_ context.Context, region, entity, qu
 		limit:  limit,
 	})
 	return cache.searchMatches, nil
+}
+
+func (cache *fakeMusicHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	if cache.hasRecords == nil {
+		return false, nil
+	}
+	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
+}
+
+func (cache *fakeMusicHandlerCache) HasRegionIndex(_ string) bool {
+	if !cache.hasIndexSet {
+		return true
+	}
+	return cache.hasIndex
 }
 
 func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64) {
@@ -337,6 +355,206 @@ func TestMusicAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing
 	expected := []string{"en", "jp"}
 	if !reflect.DeepEqual(body.Regions, expected) {
 		t.Fatalf("expected regions %v, got %v", expected, body.Regions)
+	}
+}
+
+func TestMusicByIDEndpointReturnsPersistedMusicWithoutRuntimeIndex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musics": {
+					"1001": {"id": 1001, "title": "persisted-music"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"musics": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id", musicHandler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/1001", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+}
+
+func TestMusicListEndpointReturnsPersistedRecordsWithoutRuntimeIndex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		listItems: []map[string]any{{"id": 1001, "title": "persisted-music"}},
+		listTotal: 1,
+		hasRecords: map[string]map[string]bool{
+			"jp": {"musics": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
+}
+
+func TestMusicStrictEndpointsRequireRuntimeIndexWhenOnlyMusicRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musics": {
+					"1001": {"id": 1001, "title": "persisted-music"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"musics": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id/detail", musicHandler.DetailByID)
+	router.GET("/api/v1/musics/:region/:id/difficulties", musicHandler.DifficultiesByID)
+	router.GET("/api/v1/musics/:region/:id/vocals", musicHandler.VocalsByID)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "detail", path: "/api/v1/musics/jp/1001/detail"},
+		{name: "difficulties", path: "/api/v1/musics/jp/1001/difficulties"},
+		{name: "vocals", path: "/api/v1/musics/jp/1001/vocals"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected status 503, got %d", resp.Code)
+			}
+		})
+	}
+}
+
+func TestMusicEndpointsWithoutMusicRecordsStillRequireRuntimeIndexEvenIfRelatedRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musicartists": {
+					"77": {"id": 77, "name": "Artist A"},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{"musicId": 1001, "musicDifficulty": "expert", "playLevel": 25},
+			},
+			"musictags": {
+				{"musicId": 1001, "musicTag": "vocaloid", "seq": 1},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {
+				"musicartists":      true,
+				"musicdifficulties": true,
+				"musictags":         true,
+			},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id", musicHandler.ByID)
+	router.GET("/api/v1/musics/:region/list", musicHandler.List)
+
+	for _, testCase := range []struct {
+		name string
+		path string
+	}{
+		{name: "by id", path: "/api/v1/musics/jp/1001"},
+		{name: "list", path: "/api/v1/musics/jp/list?page=1&page_size=20"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected status 503, got %d", resp.Code)
+			}
+		})
+	}
+}
+
+func TestMusicAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musics": {
+					"1001": {"id": 1001, "title": "persisted-music"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"musics": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	musicHandler := newReadyMusicHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/musics/regions/:id/availability", musicHandler.AvailableRegionsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/regions/1001/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Regions) != 0 {
+		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
 	}
 }
 

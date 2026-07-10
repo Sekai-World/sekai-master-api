@@ -473,6 +473,47 @@ func TestCardAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.
 	}
 }
 
+func TestCardAvailabilityEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {"id": 1001, "prefix": "persisted-card"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"cards": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/cards/regions/:id/availability", cardHandler.AvailableRegionsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/regions/1001/availability", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Regions) != 0 {
+		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+	}
+}
+
 func TestCardListEndpointMapsCardSupply(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -568,6 +609,47 @@ func TestCardListEndpointUsesPersistedCardDataWhenRuntimeIndexMissing(t *testing
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
 }
 
+func TestCardRecordEndpointsUsePersistedCardDataWhenRuntimeIndexMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {"id": 1001, "prefix": "persisted-card"},
+				},
+			},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id", cardHandler.ByID)
+	router.GET("/api/v1/cards/:region/:id/params", cardHandler.ParamsByID)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "by id", path: "/api/v1/cards/jp/1001"},
+		{name: "params", path: "/api/v1/cards/jp/1001/params"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
 func TestCardListEndpointReturnsNotReadyWhenNoRuntimeIndexOrCardData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -645,6 +727,47 @@ func TestCardDetailEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testing
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d", resp.Code)
+	}
+}
+
+func TestCardRelationEndpointsRequireRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1001": {"id": 1001, "prefix": "persisted-card"},
+				},
+			},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/:id/events", cardHandler.EventsByID)
+	router.GET("/api/v1/cards/:region/:id/gachas", cardHandler.GachaByID)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "events", path: "/api/v1/cards/jp/1001/events"},
+		{name: "gachas", path: "/api/v1/cards/jp/1001/gachas"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected status 503, got %d", resp.Code)
+			}
+		})
 	}
 }
 

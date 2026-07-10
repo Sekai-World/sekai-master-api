@@ -1130,16 +1130,17 @@ func (handler *CardHandler) ensureRegionReadyForCardRecords(c *gin.Context, regi
 		return true
 	}
 
-	hasCards, err := handler.masterDataSync.HasEntityRecords(c.Request.Context(), region, "cards")
+	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), handler.masterDataSync, region, "cards")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
 	}
-	if hasCards {
+	if ready {
 		return true
 	}
 
-	return handler.ensureRegionReady(c, region)
+	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
+	return false
 }
 
 func (handler *CardHandler) ensureRegionReady(c *gin.Context, region string) bool {

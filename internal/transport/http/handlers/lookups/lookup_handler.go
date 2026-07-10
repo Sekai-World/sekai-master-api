@@ -78,7 +78,7 @@ func (handler *LookupHandler) UnitProfilesByUnit(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and unit are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForEntityRecords(c, region, unitProfilesConfig.entity) {
 		return
 	}
 
@@ -267,7 +267,7 @@ func (handler *LookupHandler) byID(c *gin.Context, config lookupResourceConfig) 
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForEntityRecords(c, region, config.entity) {
 		return
 	}
 
@@ -316,7 +316,7 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForEntityRecords(c, region, config.entity) {
 		return
 	}
 
@@ -412,6 +412,24 @@ func (handler *LookupHandler) ensureRegionReady(c *gin.Context, region string) b
 		if readyRegion == normalizedRegion {
 			return true
 		}
+	}
+
+	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
+	return false
+}
+
+func (handler *LookupHandler) ensureRegionReadyForEntityRecords(c *gin.Context, region string, entity string) bool {
+	if handler == nil || handler.masterDataSync == nil {
+		return true
+	}
+
+	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), handler.masterDataSync, region, entity)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
+		return false
+	}
+	if ready {
+		return true
 	}
 
 	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")

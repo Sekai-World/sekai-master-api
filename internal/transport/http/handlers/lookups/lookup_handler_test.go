@@ -20,6 +20,9 @@ import (
 type fakeLookupCache struct {
 	byID         map[string]map[string]map[string]map[string]any
 	listByEntity map[string]map[string][]map[string]any
+	hasRecords   map[string]map[string]bool
+	hasIndex     bool
+	hasIndexSet  bool
 }
 
 type fakeLookupStatusStore struct {
@@ -107,6 +110,20 @@ func (cache *fakeLookupCache) ListByPage(_ context.Context, region string, entit
 
 func (cache *fakeLookupCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
 	return []masterdata.SearchMatch{}, nil
+}
+
+func (cache *fakeLookupCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	if cache.hasRecords == nil {
+		return false, nil
+	}
+	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
+}
+
+func (cache *fakeLookupCache) HasRegionIndex(_ string) bool {
+	if !cache.hasIndexSet {
+		return true
+	}
+	return cache.hasIndex
 }
 
 func TestUnitProfilesByUnitEndpointReturnsRecord(t *testing.T) {
@@ -321,5 +338,128 @@ func TestGameCharactersListInvalidSortByReturnsBadRequest(t *testing.T) {
 	}
 	if shared.NormalizeComparableText(errorBody["code"]) != "invalid_request" {
 		t.Fatalf("expected INVALID_REQUEST, got %v", errorBody["code"])
+	}
+}
+
+func TestLookupRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gamecharacters": {
+					"6": {"id": 6, "firstName": "Kiritani", "givenName": "Haruka"},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"unitprofiles": {
+					{"id": 10, "unit": "idol", "unitName": "MORE MORE JUMP！"},
+				},
+				"gamecharacters": {
+					{"id": 6, "firstName": "Kiritani", "givenName": "Haruka"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {
+				"unitprofiles":   true,
+				"gamecharacters": true,
+			},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/unitProfiles/:region/:unit", handler.UnitProfilesByUnit)
+	router.GET("/api/v1/gameCharacters/:region/:id", handler.GameCharactersByID)
+	router.GET("/api/v1/gameCharacters/:region/list", handler.GameCharactersList)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "unit profile by unit", path: "/api/v1/unitProfiles/jp/idol"},
+		{name: "generic by id", path: "/api/v1/gameCharacters/jp/6"},
+		{name: "generic list", path: "/api/v1/gameCharacters/jp/list?page=1&page_size=20"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestLookupAvailabilityEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gamecharacters": {
+					"6": {"id": 6, "firstName": "Kiritani", "givenName": "Haruka"},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"unitprofiles": {
+					{"id": 10, "unit": "idol", "unitName": "MORE MORE JUMP！"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {
+				"unitprofiles":   true,
+				"gamecharacters": true,
+			},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/unitProfiles/regions/:unit/availability", handler.UnitProfilesAvailableRegionsByUnit)
+	router.GET("/api/v1/gameCharacters/regions/:id/availability", handler.GameCharactersAvailableRegionsByID)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "unit profile availability", path: "/api/v1/unitProfiles/regions/idol/availability"},
+		{name: "generic by-id availability", path: "/api/v1/gameCharacters/regions/6/availability"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			var body struct {
+				Regions []string `json:"regions"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if len(body.Regions) != 0 {
+				t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+			}
+		})
 	}
 }

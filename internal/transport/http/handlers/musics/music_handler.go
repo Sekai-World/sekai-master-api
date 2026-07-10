@@ -62,7 +62,7 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForMusicRecords(c, region) {
 		return
 	}
 
@@ -189,7 +189,7 @@ func (handler *MusicHandler) List(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !handler.ensureRegionReadyForMusicRecords(c, region) {
 		return
 	}
 
@@ -756,6 +756,24 @@ func (handler *MusicHandler) ensureRegionReady(c *gin.Context, region string) bo
 		if readyRegion == normalizedRegion {
 			return true
 		}
+	}
+
+	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
+	return false
+}
+
+func (handler *MusicHandler) ensureRegionReadyForMusicRecords(c *gin.Context, region string) bool {
+	if handler == nil || handler.masterDataSync == nil {
+		return true
+	}
+
+	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), handler.masterDataSync, region, "musics")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
+		return false
+	}
+	if ready {
+		return true
 	}
 
 	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
