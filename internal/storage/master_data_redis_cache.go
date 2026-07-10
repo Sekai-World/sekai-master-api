@@ -1842,27 +1842,38 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 		return nil, "", false, fmt.Errorf("get persisted search index region %s entity %s: %w", regionName, entityName, err)
 	}
 	version := entitySearchIndexVersion(body)
+	decodeErrors := make([]error, 0, 4)
 
 	var index entitySearchIndex
 	if err := json.Unmarshal(body, &index); err == nil {
 		compact := compactCurrentSearchIndex(entityName, index)
 		if compact != nil {
 			if !equalEntitySearchIndex(compact, &index) {
-				version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+				version, err = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+				if err != nil {
+					return nil, "", false, err
+				}
 			} else {
 				cache.ensureEntitySearchIndexVersion(ctx, regionName, entityName, version)
 			}
 			return compact, version, true, nil
 		}
+	} else {
+		decodeErrors = append(decodeErrors, fmt.Errorf("current format: %w", err))
 	}
 
 	var legacyPersisted legacyPersistedEntitySearchIndex
 	if err := json.Unmarshal(body, &legacyPersisted); err == nil {
 		compact := compactPersistedSearchIndex(entityName, legacyPersisted)
 		if compact != nil {
-			version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+			version, err = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, compact)
+			if err != nil {
+				return nil, "", false, err
+			}
 			return compact, version, true, nil
 		}
+	} else {
+		decodeErrors = append(decodeErrors, fmt.Errorf("persisted legacy format: %w", err))
 	}
 
 	var legacyFields map[string][]legacySearchIndexItem
@@ -1871,14 +1882,23 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 		if legacyIndex == nil {
 			return nil, "", false, nil
 		}
-		version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
+		version, err = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
+		if err != nil {
+			return nil, "", false, err
+		}
 
 		return legacyIndex, version, true, nil
 	} else {
-		legacyDecodeErr := err
+		decodeErrors = append(decodeErrors, fmt.Errorf("legacy item map format: %w", err))
 		var legacyStringFields map[string][]string
 		if err := json.Unmarshal(body, &legacyStringFields); err != nil {
-			return nil, "", false, fmt.Errorf("decode persisted search index region %s entity %s: %w", regionName, entityName, legacyDecodeErr)
+			decodeErrors = append(decodeErrors, fmt.Errorf("legacy string-ID map format: %w", err))
+			return nil, "", false, fmt.Errorf(
+				"decode persisted search index region %s entity %s: %w",
+				regionName,
+				entityName,
+				errors.Join(decodeErrors...),
+			)
 		}
 
 		legacyIndex, err := cache.compactLegacyStringIDSearchIndex(ctx, regionName, entityName, legacyStringFields)
@@ -1888,7 +1908,10 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 		if legacyIndex == nil {
 			return nil, "", false, nil
 		}
-		version = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
+		version, err = cache.rewriteEntitySearchIndex(ctx, regionName, entityName, legacyIndex)
+		if err != nil {
+			return nil, "", false, err
+		}
 
 		return legacyIndex, version, true, nil
 	}
@@ -1899,11 +1922,13 @@ func (cache *RedisMasterDataCache) rewriteEntitySearchIndex(
 	region string,
 	entity string,
 	index *entitySearchIndex,
-) string {
+) (string, error) {
 	pipe := cache.client.Pipeline()
 	version := cache.persistEntitySearchIndex(ctx, pipe, region, entity, index)
-	_, _ = pipe.Exec(ctx)
-	return version
+	if _, err := pipe.Exec(ctx); err != nil {
+		return "", fmt.Errorf("rewrite persisted search index region %s entity %s: %w", region, entity, err)
+	}
+	return version, nil
 }
 
 func (cache *RedisMasterDataCache) ensureEntitySearchIndexVersion(ctx context.Context, region string, entity string, version string) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -505,6 +506,79 @@ func TestSearchCurrentPersistedIndexDoesNotRewrite(t *testing.T) {
 		t.Fatalf("expected current search index ttl to remain positive after search, got %s", ttl)
 	}
 	assertNoRetainedRegionIndex(t, cache, "jp")
+}
+
+func TestReadEntityIndexFromRedisReportsAllDecodeFormats(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() { _ = cache.Close() }()
+
+	ctx := context.Background()
+	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexKey("jp", "cards"), []byte("not-json"), 0).Err(); err != nil {
+		t.Fatalf("seed malformed index: %v", err)
+	}
+
+	_, _, found, err := cache.readEntityIndexFromRedis(ctx, "jp", "cards")
+	if err == nil {
+		t.Fatalf("expected malformed persisted index to return an error")
+	}
+	if found {
+		t.Fatalf("expected malformed persisted index not to be reported as loaded")
+	}
+	for _, label := range []string{
+		"current format",
+		"persisted legacy format",
+		"legacy item map format",
+		"legacy string-ID map format",
+	} {
+		if !strings.Contains(err.Error(), label) {
+			t.Fatalf("expected decode error to include %q, got %v", label, err)
+		}
+	}
+}
+
+func TestRewriteEntitySearchIndexReturnsPipelineError(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	if err := cache.Close(); err != nil {
+		t.Fatalf("close redis cache: %v", err)
+	}
+
+	_, err = cache.rewriteEntitySearchIndex(context.Background(), "jp", "cards", &entitySearchIndex{
+		IDs:      []string{"1"},
+		TextBlob: "alpha",
+		Fields: map[string][]searchIndexItem{
+			"prefix": {{IDIndex: 0, TextOffset: 0, TextLength: 5}},
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected rewrite pipeline failure to be returned")
+	}
+	if !strings.Contains(err.Error(), "rewrite persisted search index region jp entity cards") {
+		t.Fatalf("expected contextual rewrite error, got %v", err)
+	}
 }
 
 func TestLoadRegionIndexFromRedisFiltersLegacyPersistedFields(t *testing.T) {
