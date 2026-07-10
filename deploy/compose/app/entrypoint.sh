@@ -76,18 +76,21 @@ mkdir -p /app/tmp
   case "${OBSERVABILITY_MODE}" in
     metrics)
       printf 'OTEL_ENABLED=true\n'
+	  printf 'OTEL_TRACING_ENABLED=false\n'
       printf 'LOKI_PUSH_URL=\n'
       printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy-metrics:4318\n'
       printf 'OTEL_EXPORTER_OTLP_INSECURE=true\n'
       ;;
     full)
       printf 'OTEL_ENABLED=true\n'
+	  printf 'OTEL_TRACING_ENABLED=true\n'
       printf 'LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push\n'
       printf 'OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318\n'
       printf 'OTEL_EXPORTER_OTLP_INSECURE=true\n'
       ;;
     *)
       printf 'OTEL_ENABLED=false\n'
+	  printf 'OTEL_TRACING_ENABLED=false\n'
       printf 'LOKI_PUSH_URL=\n'
       printf 'OTEL_EXPORTER_OTLP_ENDPOINT=\n'
       printf 'OTEL_EXPORTER_OTLP_INSECURE=false\n'
