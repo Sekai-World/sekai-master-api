@@ -173,6 +173,62 @@ func TestGachaRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t 
 	}
 }
 
+func TestGachaRecordEndpointsPreserveNotReadyResponseContract(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeGachaHandlerCache{
+		hasRecords: map[string]map[string]bool{
+			"jp": {"gachas": false},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+	statusStore := &fakeGachaHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{},
+	}
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	handler := NewGachaHandler(syncUsecase)
+	router := gin.New()
+	router.GET("/api/v1/gachas/:region/:id", handler.ByID)
+	router.GET("/api/v1/gachas/:region/list", handler.List)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "by id", path: "/api/v1/gachas/jp/10"},
+		{name: "list", path: "/api/v1/gachas/jp/list?page=1&page_size=20"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected status 503, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			var body struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if body.Error.Code != "REGION_NOT_READY" {
+				t.Fatalf("expected REGION_NOT_READY, got %q", body.Error.Code)
+			}
+			if body.Error.Message != "master data for this region is not available" {
+				t.Fatalf("unexpected error message: %q", body.Error.Message)
+			}
+		})
+	}
+}
+
 func TestGachaAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
