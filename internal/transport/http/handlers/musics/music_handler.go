@@ -1066,18 +1066,18 @@ func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, regi
 		return nil, nil
 	}
 
-	matches, err := handler.masterDataSync.Search(ctx, region, "musicVocals", musicID, []string{"musicId"}, 1000000)
+	records, err := handler.masterDataSync.ListAll(ctx, region, "musicvocals")
 	if err != nil {
-		return nil, fmt.Errorf("search musicVocals: %w", err)
+		return nil, fmt.Errorf("list musicvocals: %w", err)
 	}
 
 	targetMusicID := shared.NormalizeAnyID(musicID)
-	items := make([]map[string]any, 0, len(matches))
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["musicId"]) != targetMusicID {
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if shared.NormalizeAnyID(record["musicId"]) != targetMusicID {
 			continue
 		}
-		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record))
 	}
 
 	return items, nil
