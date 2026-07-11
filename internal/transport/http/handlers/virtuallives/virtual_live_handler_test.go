@@ -17,6 +17,7 @@ import (
 
 type fakeVirtualLiveHandlerCache struct {
 	byID                  map[string]map[string]map[string]map[string]any
+	listByEntity          map[string][]map[string]any
 	listItems             []map[string]any
 	listTotal             int
 	hasRecords            map[string]map[string]bool
@@ -76,9 +77,16 @@ func (cache *fakeVirtualLiveHandlerCache) GetByID(_ context.Context, region stri
 	return record, true, nil
 }
 
-func (cache *fakeVirtualLiveHandlerCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
-	items := make([]map[string]any, 0, len(cache.listItems))
-	for _, item := range cache.listItems {
+func (cache *fakeVirtualLiveHandlerCache) ListAll(_ context.Context, _ string, entity string) ([]map[string]any, error) {
+	source := cache.listItems
+	if cache.listByEntity != nil {
+		if entityItems, ok := cache.listByEntity[strings.ToLower(strings.TrimSpace(entity))]; ok {
+			source = entityItems
+		}
+	}
+
+	items := make([]map[string]any, 0, len(source))
+	for _, item := range source {
 		copied := make(map[string]any, len(item))
 		for key, value := range item {
 			copied[key] = value
@@ -171,28 +179,24 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 				},
 			},
 		},
-		searchMatchesByEntity: map[string][]masterdata.SearchMatch{
+		listByEntity: map[string][]map[string]any{
 			"virtuallivepamphlets": {
 				{
-					Item: map[string]any{
-						"id":              9001,
-						"name":            "Pamphlet A",
-						"assetbundleName": "pamphlet_501",
-						"flavorText":      "hello",
-						"virtualLiveId":   501,
-					},
+					"id":              9001,
+					"name":            "Pamphlet A",
+					"assetbundleName": "pamphlet_501",
+					"flavorText":      "hello",
+					"virtualLiveId":   501,
 				},
 			},
 			"virtuallivetickets": {
 				{
-					Item: map[string]any{
-						"id":                    9101,
-						"name":                  "Ticket A",
-						"assetbundleName":       "ticket_501",
-						"flavorText":            "admit one",
-						"virtualLiveTicketType": "normal",
-						"virtualLiveId":         501,
-					},
+					"id":                    9101,
+					"name":                  "Ticket A",
+					"assetbundleName":       "ticket_501",
+					"flavorText":            "admit one",
+					"virtualLiveTicketType": "normal",
+					"virtualLiveId":         501,
 				},
 			},
 		},
