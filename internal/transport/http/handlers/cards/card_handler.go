@@ -207,19 +207,15 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 		return
 	}
 
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "cardepisodes", id, []string{"cardId"}, 1000000)
+	records, err := handler.listRecordsByField(c.Request.Context(), region, "cardepisodes", "cardId", id)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card episodes")
 		return
 	}
 
-	items := make([]map[string]any, 0, len(matches))
-	targetCardID := shared.NormalizeAnyID(id)
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
-			continue
-		}
-		items = append(items, shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, match.Item))
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, record))
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
@@ -265,22 +261,17 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 		return
 	}
 
-	matches, err := handler.masterDataSync.Search(c.Request.Context(), region, "eventcards", id, []string{"cardId"}, 1000000)
+	records, err := handler.listRecordsByField(c.Request.Context(), region, "eventcards", "cardId", id)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card events")
 		return
 	}
 
-	items := make([]map[string]any, 0, len(matches))
-	targetCardID := shared.NormalizeAnyID(id)
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
-			continue
-		}
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		item := shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, record)
 
-		item := shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, match.Item)
-
-		eventID := shared.NormalizeAnyID(match.Item["eventId"])
+		eventID := shared.NormalizeAnyID(record["eventId"])
 		if eventID != "" {
 			eventRecord, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "events", eventID)
 			if err == nil && found {
@@ -293,7 +284,7 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 				item["event"] = eventSummary
 			}
 
-			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(c.Request.Context(), region, eventID, cardRecord, match.Item)
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(c.Request.Context(), region, eventID, cardRecord, record)
 			if err != nil {
 				response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card event bonuses")
 				return
@@ -1220,36 +1211,8 @@ func (handler *CardHandler) buildCardParams(ctx context.Context, region string, 
 		}
 	}
 
-	if handler == nil || handler.masterDataSync == nil {
-		if value, ok := record["cardParameters"]; ok {
-			result["cardParameters"] = value
-		}
-		return result, nil
-	}
-
-	// cardParameters is embedded in the card record; avoid Search on a
-	// non-existent standalone entity which would trigger a full region index
-	// rebuild (~10 s). Only fall back to Search if the field is absent.
 	if value, ok := record["cardParameters"]; ok {
 		result["cardParameters"] = value
-	} else {
-		matches, err := handler.masterDataSync.Search(ctx, region, "cardparameters", id, []string{"cardId"}, 1000000)
-		if err != nil {
-			return nil, err
-		}
-
-		items := make([]map[string]any, 0, len(matches))
-		targetCardID := shared.NormalizeAnyID(id)
-		for _, match := range matches {
-			if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
-				continue
-			}
-			items = append(items, match.Item)
-		}
-
-		if len(items) > 0 {
-			result["cardParameters"] = items
-		}
 	}
 
 	return result, nil
@@ -1329,38 +1292,29 @@ func (handler *CardHandler) DetailByID(c *gin.Context) {
 }
 
 func (handler *CardHandler) buildCardDetailEpisodes(ctx context.Context, region string, id string) []map[string]any {
-	matches, err := handler.masterDataSync.Search(ctx, region, "cardepisodes", id, []string{"cardId"}, 1000000)
+	records, err := handler.listRecordsByField(ctx, region, "cardepisodes", "cardId", id)
 	if err != nil {
 		return nil
 	}
 
-	targetCardID := shared.NormalizeAnyID(id)
-	items := make([]map[string]any, 0, len(matches))
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
-			continue
-		}
-		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record))
 	}
 	return items
 }
 
 func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region string, id string, card map[string]any) []map[string]any {
-	matches, err := handler.masterDataSync.Search(ctx, region, "eventcards", id, []string{"cardId"}, 1000000)
+	records, err := handler.listRecordsByField(ctx, region, "eventcards", "cardId", id)
 	if err != nil {
 		return nil
 	}
 
-	targetCardID := shared.NormalizeAnyID(id)
-	items := make([]map[string]any, 0, len(matches))
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["cardId"]) != targetCardID {
-			continue
-		}
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		item := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record)
 
-		item := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item)
-
-		eventID := shared.NormalizeAnyID(match.Item["eventId"])
+		eventID := shared.NormalizeAnyID(record["eventId"])
 		if eventID != "" {
 			eventRecord, found, err := handler.masterDataSync.GetByID(ctx, region, "events", eventID)
 			if err == nil && found {
@@ -1373,7 +1327,7 @@ func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region st
 				item["event"] = eventSummary
 			}
 
-			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(ctx, region, eventID, card, match.Item)
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(ctx, region, eventID, card, record)
 			if err == nil && ok {
 				item["finalBonusRateMin"] = normalizeBonusRateValue(bonusMin)
 				item["finalBonusRateMax"] = normalizeBonusRateValue(bonusMax)
@@ -1383,6 +1337,23 @@ func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region st
 		items = append(items, item)
 	}
 	return items
+}
+
+func (handler *CardHandler) listRecordsByField(ctx context.Context, region string, entity string, field string, value string) ([]map[string]any, error) {
+	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+
+	targetValue := shared.NormalizeAnyID(value)
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if shared.NormalizeAnyID(record[field]) != targetValue {
+			continue
+		}
+		items = append(items, record)
+	}
+	return items, nil
 }
 
 func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region string, id string) []map[string]any {

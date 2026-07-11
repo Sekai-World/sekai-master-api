@@ -655,6 +655,7 @@ func TestCardRecordEndpointsUsePersistedCardDataWhenRuntimeIndexMissing(t *testi
 			}
 		})
 	}
+
 }
 
 func TestCardListEndpointReturnsNotReadyWhenNoRuntimeIndexOrCardData(t *testing.T) {
@@ -690,6 +691,14 @@ func TestCardPersistedAggregateReadsReturnOKWithoutRuntimeIndex(t *testing.T) {
 				},
 			},
 		},
+		listByEntity: map[string][]map[string]any{
+			"cardepisodes": {
+				{"id": 1, "cardId": 1001, "episodeNo": 1},
+			},
+			"eventcards": {
+				{"eventId": 143, "cardId": 1001, "bonusRate": 0},
+			},
+		},
 		hasIndexSet: true,
 		hasIndex:    false,
 	}
@@ -722,6 +731,10 @@ func TestCardPersistedAggregateReadsReturnOKWithoutRuntimeIndex(t *testing.T) {
 				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 			}
 		})
+	}
+
+	if len(cache.searchCalls) != 0 {
+		t.Fatalf("expected persisted aggregate reads not to call Search, got %v", cache.searchCalls)
 	}
 }
 
@@ -1055,14 +1068,13 @@ func TestCardParamsByIDEndpointReturnsSeparateCardParameters(t *testing.T) {
 						"specialTrainingPower1BonusFixed": 300,
 						"specialTrainingPower2BonusFixed": 300,
 						"specialTrainingPower3BonusFixed": 300,
+						"cardParameters": []any{
+							map[string]any{"id": 1, "cardId": 1001, "cardLevel": 1, "cardParameterType": "param1", "power": 100},
+							map[string]any{"id": 2, "cardId": 1001, "cardLevel": 1, "cardParameterType": "param2", "power": 200},
+						},
 					},
 				},
 			},
-		},
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"id": 1, "cardId": 1001, "cardLevel": 1, "cardParameterType": "param1", "power": 100}},
-			{Item: map[string]any{"id": 2, "cardId": 1001, "cardLevel": 1, "cardParameterType": "param2", "power": 200}},
-			{Item: map[string]any{"id": 3, "cardId": 10010, "cardLevel": 1, "cardParameterType": "param1", "power": 999}},
 		},
 	}
 
@@ -1079,14 +1091,8 @@ func TestCardParamsByIDEndpointReturnsSeparateCardParameters(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 
-	if cache.lastSearch.entity != "cardparameters" {
-		t.Fatalf("expected search entity cardparameters, got %s", cache.lastSearch.entity)
-	}
-	if cache.lastSearch.query != "1001" {
-		t.Fatalf("expected search query 1001, got %s", cache.lastSearch.query)
-	}
-	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "cardId" {
-		t.Fatalf("expected search fields [cardId], got %v", cache.lastSearch.fields)
+	if len(cache.searchCalls) != 0 {
+		t.Fatalf("expected params endpoint not to call Search, got %v", cache.searchCalls)
 	}
 
 	var body map[string]any
@@ -1132,9 +1138,11 @@ func TestCardEpisodesByIDEndpointReturnsItems(t *testing.T) {
 				},
 			},
 		},
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"id": 1, "cardId": 1001, "episodeNo": 1, "releaseConditionId": 7}},
-			{Item: map[string]any{"id": 2, "cardId": 1001, "episodeNo": 2, "releaseConditionId": 7}},
+		listByEntity: map[string][]map[string]any{
+			"cardepisodes": {
+				{"id": 1, "cardId": 1001, "episodeNo": 1, "releaseConditionId": 7},
+				{"id": 2, "cardId": 1001, "episodeNo": 2, "releaseConditionId": 7},
+			},
 		},
 	}
 
@@ -1149,16 +1157,6 @@ func TestCardEpisodesByIDEndpointReturnsItems(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-
-	if cache.lastSearch.entity != "cardepisodes" {
-		t.Fatalf("expected search entity cardepisodes, got %s", cache.lastSearch.entity)
-	}
-	if cache.lastSearch.query != "1001" {
-		t.Fatalf("expected search query 1001, got %s", cache.lastSearch.query)
-	}
-	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "cardId" {
-		t.Fatalf("expected search fields [cardId], got %v", cache.lastSearch.fields)
 	}
 
 	var body map[string]any
@@ -1211,10 +1209,12 @@ func TestCardEpisodesByIDEndpointFiltersNonExactCardIDMatches(t *testing.T) {
 				},
 			},
 		},
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"id": 1, "cardId": 1001, "episodeNo": 1}},
-			{Item: map[string]any{"id": 2, "cardId": 10010, "episodeNo": 1}},
-			{Item: map[string]any{"id": 3, "cardId": "1001-extra", "episodeNo": 2}},
+		listByEntity: map[string][]map[string]any{
+			"cardepisodes": {
+				{"id": 1, "cardId": 1001, "episodeNo": 1},
+				{"id": 2, "cardId": 10010, "episodeNo": 1},
+				{"id": 3, "cardId": "1001-extra", "episodeNo": 2},
+			},
 		},
 	}
 
@@ -1306,10 +1306,10 @@ func TestCardEventsByIDEndpointReturnsEventCards(t *testing.T) {
 			"gamecharacterunits": {
 				{"id": 3, "gameCharacterId": 3, "unit": "light_sound"},
 			},
-		},
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"eventId": 143, "cardId": 1001, "bonusRate": 0, "isDisplayCardStory": true}},
-			{Item: map[string]any{"eventId": 202, "cardId": 1001, "bonusRate": 30}},
+			"eventcards": {
+				{"eventId": 143, "cardId": 1001, "bonusRate": 0, "isDisplayCardStory": true},
+				{"eventId": 202, "cardId": 1001, "bonusRate": 30},
+			},
 		},
 	}
 
@@ -1324,16 +1324,6 @@ func TestCardEventsByIDEndpointReturnsEventCards(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-
-	if cache.lastSearch.entity != "eventcards" {
-		t.Fatalf("expected search entity eventcards, got %s", cache.lastSearch.entity)
-	}
-	if cache.lastSearch.query != "1001" {
-		t.Fatalf("expected search query 1001, got %s", cache.lastSearch.query)
-	}
-	if len(cache.lastSearch.fields) != 1 || cache.lastSearch.fields[0] != "cardId" {
-		t.Fatalf("expected search fields [cardId], got %v", cache.lastSearch.fields)
 	}
 
 	var body map[string]any
@@ -1456,9 +1446,9 @@ func TestCardEventsByIDEndpointComputesVirtualSingerBonusRange(t *testing.T) {
 			"gamecharacterunits": {
 				{"id": 27, "gameCharacterId": 21, "unit": "light_sound"},
 			},
-		},
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"eventId": 143, "cardId": 2101, "bonusRate": 0}},
+			"eventcards": {
+				{"eventId": 143, "cardId": 2101, "bonusRate": 0},
+			},
 		},
 	}
 
@@ -1532,10 +1522,10 @@ func TestCardEventsByIDEndpointUsesEventPeriodMasterRankBonus(t *testing.T) {
 			"gamecharacterunits": {
 				{"id": 17, "gameCharacterId": 17, "unit": "school_refusal"},
 			},
-		},
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"eventId": 35, "cardId": 4001, "bonusRate": 0}},
-			{Item: map[string]any{"eventId": 36, "cardId": 4001, "bonusRate": 0}},
+			"eventcards": {
+				{"eventId": 35, "cardId": 4001, "bonusRate": 0},
+				{"eventId": 36, "cardId": 4001, "bonusRate": 0},
+			},
 		},
 	}
 
@@ -1594,10 +1584,12 @@ func TestCardEventsByIDEndpointFiltersNonExactCardIDMatches(t *testing.T) {
 				},
 			},
 		},
-		searchMatches: []masterdata.SearchMatch{
-			{Item: map[string]any{"eventId": 201, "cardId": 1001, "bonusRate": 50}},
-			{Item: map[string]any{"eventId": 202, "cardId": 10010, "bonusRate": 60}},
-			{Item: map[string]any{"eventId": 203, "cardId": "1001-extra", "bonusRate": 70}},
+		listByEntity: map[string][]map[string]any{
+			"eventcards": {
+				{"eventId": 201, "cardId": 1001, "bonusRate": 50},
+				{"eventId": 202, "cardId": 10010, "bonusRate": 60},
+				{"eventId": 203, "cardId": "1001-extra", "bonusRate": 70},
+			},
 		},
 	}
 
