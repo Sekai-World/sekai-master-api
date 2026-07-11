@@ -64,7 +64,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReadyForCardRecords(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
 		return
 	}
 
@@ -146,7 +146,7 @@ func (handler *CardHandler) ParamsByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReadyForCardRecords(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
 		return
 	}
 
@@ -193,7 +193,7 @@ func (handler *CardHandler) EpisodesByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReadyForCardRecords(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
 		return
 	}
 
@@ -251,7 +251,7 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReadyForCardRecords(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
 		return
 	}
 
@@ -337,7 +337,7 @@ func (handler *CardHandler) GachaByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReadyForCardRecords(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
 		return
 	}
 
@@ -695,7 +695,7 @@ func (handler *CardHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !handler.ensureRegionReadyForCardRecords(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
 		return
 	}
 
@@ -1170,24 +1170,6 @@ func (handler *CardHandler) loadCardRarities(ctx context.Context, region string)
 	return rarities, nil
 }
 
-func (handler *CardHandler) ensureRegionReadyForCardRecords(c *gin.Context, region string) bool {
-	if handler == nil || handler.masterDataSync == nil {
-		return true
-	}
-
-	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), handler.masterDataSync, region, "cards")
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
-		return false
-	}
-	if ready {
-		return true
-	}
-
-	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
-	return false
-}
-
 func sanitizeGameCharacter(character map[string]any) map[string]any {
 	if character == nil {
 		return map[string]any{}
@@ -1298,7 +1280,7 @@ func (handler *CardHandler) DetailByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReadyForCardRecords(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
 		return
 	}
 
