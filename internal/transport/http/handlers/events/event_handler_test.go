@@ -24,6 +24,7 @@ type fakeEventHandlerCache struct {
 	listByEntity   map[string]map[string][]map[string]any
 	storeCallCount int
 	searchCalls    []fakeEventSearchCall
+	searchErr      error
 	hasRecords     map[string]map[string]bool
 	hasIndex       bool
 	hasIndexSet    bool
@@ -339,7 +340,7 @@ func TestEventAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing
 	}
 }
 
-func TestEventRepresentativeEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestEventByIDEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -365,14 +366,161 @@ func TestEventRepresentativeEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExi
 	handler := newReadyEventHandler(cache)
 	router := gin.New()
 	router.GET("/api/v1/events/:region/:id", handler.ByID)
-	router.GET("/api/v1/events/:region/:id/detail", handler.DetailByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", resp.Code)
+	}
+}
+
+func TestEventSecondaryEndpointsUsePersistedEventRecordsWhenRuntimeIndexMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"events": {
+					"101": {
+						"id":               101,
+						"name":             "persisted-event",
+						"eventBreakTimeId": 501,
+						"eventRankingRewardRanges": []any{
+							map[string]any{
+								"fromRank": 1,
+								"toRank":   100,
+								"eventRankingRewards": []any{
+									map[string]any{"id": 701, "resourceType": "jewel", "resourceQuantity": 500},
+								},
+							},
+						},
+					},
+				},
+				"eventbreaktimes": {
+					"501": {"id": 501, "startAt": 1000, "endAt": 2000},
+				},
+				"cards": {
+					"2001": {"id": 2001, "prefix": "Persisted Card", "assetbundleName": "card_2001", "attr": "cool"},
+				},
+				"musics": {
+					"3001": {"id": 3001, "title": "Persisted Music", "assetbundleName": "music_3001"},
+				},
+				"releaseconditions": {
+					"1": {"id": 1, "releaseConditionType": "event_music", "sentence": "Persisted unlock"},
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"events": {
+					{"id": 101, "name": "persisted-event"},
+				},
+				"eventcards": {
+					{"eventId": 101, "cardId": 2001, "bonusRate": 50},
+				},
+				"eventmusics": {
+					{"eventId": 101, "musicId": 3001, "releaseConditionId": 1, "seq": 1},
+				},
+				"eventcardbonuslimits": {
+					{"eventId": 101, "memberCountLimit": 4},
+				},
+				"eventdeckbonuses": {
+					{"eventId": 101, "gameCharacterUnitId": 1, "cardAttr": "cool", "bonusRate": 50},
+				},
+				"eventhonorbonuses": {
+					{"eventId": 101, "honorId": 123, "bonusRate": 25},
+				},
+				"eventmysekaifixturegamecharacterperformancebonuslimits": {
+					{"eventId": 101, "bonusRateLimit": 20},
+				},
+				"eventraritybonusrates": {
+					{"cardRarityType": "rarity_4", "masterRank": 0, "bonusRate": 20},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"events": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/break-times", handler.BreakTimesByID)
+	router.GET("/api/v1/events/:region/:id/rewards", handler.RewardsByID)
+	router.GET("/api/v1/events/:region/:id/cards", handler.CardsByID)
+	router.GET("/api/v1/events/:region/:id/musics", handler.MusicsByID)
+	router.GET("/api/v1/events/:region/:id/bonuses", handler.BonusesByID)
 
 	testCases := []struct {
-		name string
-		path string
+		name   string
+		path   string
+		assert func(*testing.T, map[string]any)
 	}{
-		{name: "by id", path: "/api/v1/events/jp/101"},
-		{name: "detail", path: "/api/v1/events/jp/101/detail"},
+		{
+			name: "break times",
+			path: "/api/v1/events/jp/101/break-times",
+			assert: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				if body["id"] != float64(501) || body["startAt"] != float64(1000) || body["endAt"] != float64(2000) {
+					t.Fatalf("expected persisted break time, got %v", body)
+				}
+			},
+		},
+		{
+			name: "rewards",
+			path: "/api/v1/events/jp/101/rewards",
+			assert: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				items := body["items"].([]any)
+				rewardRange := items[0].(map[string]any)
+				reward := rewardRange["eventRankingRewards"].([]any)[0].(map[string]any)
+				if rewardRange["fromRank"] != float64(1) || reward["id"] != float64(701) || reward["resourceQuantity"] != float64(500) {
+					t.Fatalf("expected persisted ranking reward, got %v", body)
+				}
+			},
+		},
+		{
+			name: "cards",
+			path: "/api/v1/events/jp/101/cards",
+			assert: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				item := body["items"].([]any)[0].(map[string]any)
+				if item["cardId"] != float64(2001) || item["prefix"] != "Persisted Card" || item["bonusRate"] != float64(50) {
+					t.Fatalf("expected persisted event card with details, got %v", body)
+				}
+			},
+		},
+		{
+			name: "musics",
+			path: "/api/v1/events/jp/101/musics",
+			assert: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				item := body["items"].([]any)[0].(map[string]any)
+				releaseCondition := item["releaseCondition"].(map[string]any)
+				if item["musicId"] != float64(3001) || item["title"] != "Persisted Music" || releaseCondition["id"] != float64(1) {
+					t.Fatalf("expected persisted event music with details, got %v", body)
+				}
+			},
+		},
+		{
+			name: "bonuses",
+			path: "/api/v1/events/jp/101/bonuses",
+			assert: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				cardLimit := body["eventCardBonusLimits"].([]any)[0].(map[string]any)
+				deckBonus := body["eventDeckBonuses"].([]any)[0].(map[string]any)
+				honorBonus := body["eventHonorBonuses"].([]any)[0].(map[string]any)
+				mysekaiLimit := body["eventMysekaiFixtureGameCharacterPerformanceBonusLimits"].([]any)[0].(map[string]any)
+				rarityRate := body["eventRarityBonusRates"].([]any)[0].(map[string]any)
+				if cardLimit["memberCountLimit"] != float64(4) || deckBonus["gameCharacterUnitId"] != float64(1) || honorBonus["honorId"] != float64(123) || mysekaiLimit["bonusRateLimit"] != float64(20) || rarityRate["cardRarityType"] != "rarity_4" {
+					t.Fatalf("expected complete persisted event bonuses, got %v", body)
+				}
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -381,8 +529,93 @@ func TestEventRepresentativeEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExi
 			resp := httptest.NewRecorder()
 			router.ServeHTTP(resp, req)
 
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+			var body map[string]any
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			testCase.assert(t, body)
+		})
+	}
+}
+
+func TestEventSecondaryEndpointsReturnNotFoundWhenPersistedEventIsMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		hasRecords: map[string]map[string]bool{
+			"jp": {"events": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+	handler := newReadyEventHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/break-times", handler.BreakTimesByID)
+	router.GET("/api/v1/events/:region/:id/rewards", handler.RewardsByID)
+	router.GET("/api/v1/events/:region/:id/cards", handler.CardsByID)
+	router.GET("/api/v1/events/:region/:id/musics", handler.MusicsByID)
+	router.GET("/api/v1/events/:region/:id/bonuses", handler.BonusesByID)
+
+	paths := []string{
+		"/api/v1/events/jp/999/break-times",
+		"/api/v1/events/jp/999/rewards",
+		"/api/v1/events/jp/999/cards",
+		"/api/v1/events/jp/999/musics",
+		"/api/v1/events/jp/999/bonuses",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusNotFound {
+				t.Fatalf("expected status 404, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestEventSecondaryEndpointsRejectPersistedRecordsWhenSyncFailed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeEventHandlerCache{
+		hasRecords: map[string]map[string]bool{
+			"jp": {"events": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+	statusStore := &fakeEventHandlerStatusStore{
+		statuses: []masterdata.SyncStatus{{Region: "jp", Status: "failed"}},
+	}
+	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
+	handler := NewEventHandler(syncUsecase)
+	router := gin.New()
+	router.GET("/api/v1/events/:region/:id/break-times", handler.BreakTimesByID)
+	router.GET("/api/v1/events/:region/:id/rewards", handler.RewardsByID)
+	router.GET("/api/v1/events/:region/:id/cards", handler.CardsByID)
+	router.GET("/api/v1/events/:region/:id/musics", handler.MusicsByID)
+	router.GET("/api/v1/events/:region/:id/bonuses", handler.BonusesByID)
+
+	paths := []string{
+		"/api/v1/events/jp/101/break-times",
+		"/api/v1/events/jp/101/rewards",
+		"/api/v1/events/jp/101/cards",
+		"/api/v1/events/jp/101/musics",
+		"/api/v1/events/jp/101/bonuses",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
 			if resp.Code != http.StatusServiceUnavailable {
-				t.Fatalf("expected status 503, got %d", resp.Code)
+				t.Fatalf("expected status 503, got %d: %s", resp.Code, resp.Body.String())
 			}
 		})
 	}
@@ -651,10 +884,11 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 	}
 }
 
-func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
+func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	nowMillis := time.Now().UTC().UnixMilli()
+	const eventStartAt = int64(946684800000)
+	const eventClosedAt = int64(4102444800000)
 	cache := &fakeEventHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
@@ -662,8 +896,8 @@ func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
 					"101": {
 						"id":                        101,
 						"name":                      "test-event",
-						"startAt":                   nowMillis - 60_000,
-						"closedAt":                  nowMillis + 60_000,
+						"startAt":                   eventStartAt,
+						"closedAt":                  eventClosedAt,
 						"unit":                      "light_sound",
 						"virtualLiveId":             501,
 						"eventPointAssetbundleName": "point_101",
@@ -709,7 +943,10 @@ func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
 		listByEntity: map[string]map[string][]map[string]any{
 			"jp": {
 				"events": {
-					{"id": 101, "name": "test-event", "startAt": nowMillis - 60_000, "closedAt": nowMillis + 60_000},
+					{"id": 101, "name": "test-event", "startAt": eventStartAt, "closedAt": eventClosedAt},
+				},
+				"currentevents": {
+					{"id": 101, "name": "test-event", "startAt": eventStartAt, "closedAt": eventClosedAt},
 				},
 				"eventcards": {
 					{"eventId": 101, "cardId": 2001, "bonusRate": 50, "leaderBonusRate": 10},
@@ -735,6 +972,11 @@ func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
 				},
 			},
 		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"events": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
 	}
 
 	statusStore := &fakeEventHandlerStatusStore{
@@ -773,11 +1015,14 @@ func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
 	}
 
 	availableRegions := body["availableRegions"].([]any)
-	if len(availableRegions) != 2 || availableRegions[0] != "en" || availableRegions[1] != "jp" {
-		t.Fatalf("expected availableRegions [en jp], got %v", availableRegions)
+	if len(availableRegions) != 0 {
+		t.Fatalf("expected no available regions without runtime indexes, got %v", availableRegions)
 	}
 	if body["isCurrentEvent"] != true {
 		t.Fatalf("expected isCurrentEvent=true, got %v", body["isCurrentEvent"])
+	}
+	if cache.storeCallCount != 0 {
+		t.Fatalf("expected seeded current event cache to avoid StoreRegion, got %d calls", cache.storeCallCount)
 	}
 
 	cards := body["cards"].(map[string]any)
@@ -799,6 +1044,10 @@ func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
 	}
 
 	bonuses := body["bonuses"].(map[string]any)
+	cardBonusLimits := bonuses["eventCardBonusLimits"].([]any)
+	if len(cardBonusLimits) != 1 || cardBonusLimits[0].(map[string]any)["memberCountLimit"] != float64(4) {
+		t.Fatalf("expected aggregate card bonus limits, got %v", cardBonusLimits)
+	}
 	deckBonuses := bonuses["eventDeckBonuses"].([]any)
 	if len(deckBonuses) != 2 {
 		t.Fatalf("expected aggregate bonuses to include deck bonuses, got %v", bonuses)
@@ -816,6 +1065,18 @@ func TestEventDetailByIDEndpointReturnsBoundedAggregate(t *testing.T) {
 	}
 	if _, exists := missingDeckBonus["gameCharacterId"]; exists {
 		t.Fatalf("expected missing lookup deck bonus to omit gameCharacterId, got %v", missingDeckBonus)
+	}
+	honorBonuses := bonuses["eventHonorBonuses"].([]any)
+	if len(honorBonuses) != 1 || honorBonuses[0].(map[string]any)["honorId"] != float64(123) {
+		t.Fatalf("expected aggregate honor bonuses, got %v", honorBonuses)
+	}
+	mysekaiLimits := bonuses["eventMysekaiFixtureGameCharacterPerformanceBonusLimits"].([]any)
+	if len(mysekaiLimits) != 1 || mysekaiLimits[0].(map[string]any)["bonusRateLimit"] != float64(20) {
+		t.Fatalf("expected aggregate Mysekai bonus limits, got %v", mysekaiLimits)
+	}
+	rarityRates := bonuses["eventRarityBonusRates"].([]any)
+	if len(rarityRates) != 1 || rarityRates[0].(map[string]any)["cardRarityType"] != "rarity_4" {
+		t.Fatalf("expected aggregate rarity bonus rates, got %v", rarityRates)
 	}
 
 	rewards := body["rewards"].(map[string]any)
@@ -1084,19 +1345,8 @@ func TestEventListEndpointFiltersByNameUnitAndEventTypeUsingEventStoryUnits(t *t
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
 
-	if len(cache.searchCalls) == 0 {
-		t.Fatalf("expected event story search calls to be recorded")
-	}
-
-	foundEventStoryUnitsSearch := false
-	for _, call := range cache.searchCalls {
-		if call.entity == "eventstoryunits" {
-			foundEventStoryUnitsSearch = true
-			break
-		}
-	}
-	if !foundEventStoryUnitsSearch {
-		t.Fatalf("expected unit filter to search eventstoryunits")
+	if len(cache.searchCalls) != 0 {
+		t.Fatalf("expected event list filters not to call Search, got %v", cache.searchCalls)
 	}
 }
 
@@ -2032,6 +2282,9 @@ func TestCurrentEventEndpointRefreshesExpiredCache(t *testing.T) {
 }
 
 func (cache *fakeEventHandlerCache) Search(_ context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
+	if cache.searchErr != nil {
+		return nil, cache.searchErr
+	}
 	if limit <= 0 {
 		limit = 20
 	}

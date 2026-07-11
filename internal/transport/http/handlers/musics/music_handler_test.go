@@ -417,22 +417,62 @@ func TestMusicListEndpointReturnsPersistedRecordsWithoutRuntimeIndex(t *testing.
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
 }
 
-func TestMusicStrictEndpointsRequireRuntimeIndexWhenOnlyMusicRecordsExist(t *testing.T) {
+func TestMusicEndpointsReturnPersistedRecordsAfterRestartWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	vocal := map[string]any{
+		"id":                 501,
+		"musicId":            1001,
+		"musicVocalType":     "virtual_singer",
+		"caption":            "Virtual Singer version",
+		"assetbundleName":    "music_vocal_001",
+		"releaseConditionId": 88,
+	}
 	cache := &fakeMusicHandlerCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
-				"musics": {
-					"1001": {"id": 1001, "title": "persisted-music"},
+				"musicartists": {
+					"77": {"id": 77, "name": "Persisted Artist"},
 				},
+				"livestages": {
+					"66": {"id": 66, "name": "Persisted Stage"},
+				},
+				"releaseconditions": {
+					"88": {"id": 88, "sentence": "Persisted unlock condition"},
+				},
+				"musics": {
+					"1001": {
+						"id":                 1001,
+						"title":              "Persisted Music",
+						"creatorArtistId":    77,
+						"liveStageId":        66,
+						"releaseConditionId": 88,
+					},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musicdifficulties": {
+				{
+					"id":                 1,
+					"musicId":            1001,
+					"musicDifficulty":    "expert",
+					"playLevel":          25,
+					"totalNoteCount":     500,
+					"releaseConditionId": 88,
+				},
+			},
+			"musicvocals": {vocal},
+			"musictags": {
+				{"id": 1, "musicId": 1001, "musicTag": "vocaloid", "seq": 1},
 			},
 		},
 		hasRecords: map[string]map[string]bool{
 			"jp": {"musics": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
+		hasIndexSet:   true,
+		hasIndex:      false,
+		searchMatches: []masterdata.SearchMatch{{Item: vocal}},
 	}
 
 	musicHandler := newReadyMusicHandler(cache)
@@ -442,12 +482,75 @@ func TestMusicStrictEndpointsRequireRuntimeIndexWhenOnlyMusicRecordsExist(t *tes
 	router.GET("/api/v1/musics/:region/:id/vocals", musicHandler.VocalsByID)
 
 	testCases := []struct {
-		name string
-		path string
+		name           string
+		path           string
+		assertResponse func(*testing.T, map[string]any)
 	}{
-		{name: "detail", path: "/api/v1/musics/jp/1001/detail"},
-		{name: "difficulties", path: "/api/v1/musics/jp/1001/difficulties"},
-		{name: "vocals", path: "/api/v1/musics/jp/1001/vocals"},
+		{
+			name: "difficulties",
+			path: "/api/v1/musics/jp/1001/difficulties",
+			assertResponse: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				items, ok := body["items"].([]any)
+				if !ok || len(items) != 1 {
+					t.Fatalf("expected one persisted difficulty, got %v", body["items"])
+				}
+				difficulty, ok := items[0].(map[string]any)
+				if !ok || difficulty["musicDifficulty"] != "expert" || difficulty["totalNoteCount"] != float64(500) {
+					t.Fatalf("expected complete persisted expert difficulty, got %v", items[0])
+				}
+			},
+		},
+		{
+			name: "vocals",
+			path: "/api/v1/musics/jp/1001/vocals",
+			assertResponse: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				items, ok := body["items"].([]any)
+				if !ok || len(items) != 1 {
+					t.Fatalf("expected one persisted vocal, got %v", body["items"])
+				}
+				persistedVocal, ok := items[0].(map[string]any)
+				if !ok || persistedVocal["id"] != float64(501) || persistedVocal["caption"] != "Virtual Singer version" {
+					t.Fatalf("expected persisted vocal 501, got %v", items[0])
+				}
+			},
+		},
+		{
+			name: "detail",
+			path: "/api/v1/musics/jp/1001/detail",
+			assertResponse: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				music, ok := body["music"].(map[string]any)
+				if !ok || music["title"] != "Persisted Music" {
+					t.Fatalf("expected persisted music section, got %v", body["music"])
+				}
+				creatorArtist, ok := music["creatorArtist"].(map[string]any)
+				if !ok || creatorArtist["name"] != "Persisted Artist" {
+					t.Fatalf("expected persisted creator artist enrichment, got %v", music["creatorArtist"])
+				}
+				liveStage, ok := music["liveStage"].(map[string]any)
+				if !ok || liveStage["name"] != "Persisted Stage" {
+					t.Fatalf("expected persisted live stage enrichment, got %v", music["liveStage"])
+				}
+				difficulties, difficultiesOK := body["difficulties"].([]any)
+				vocals, vocalsOK := body["vocals"].([]any)
+				tags, tagsOK := body["tags"].([]any)
+				if !difficultiesOK || len(difficulties) != 1 {
+					t.Fatalf("expected persisted detail difficulties, got %v", body["difficulties"])
+				}
+				if !vocalsOK || len(vocals) != 1 {
+					t.Fatalf("expected persisted detail vocals, got %v", body["vocals"])
+				}
+				detailVocal, ok := vocals[0].(map[string]any)
+				if !ok || detailVocal["id"] != float64(501) {
+					t.Fatalf("expected persisted detail vocal 501, got %v", vocals[0])
+				}
+				if !tagsOK || len(tags) != 1 || tags[0] != "vocaloid" {
+					t.Fatalf("expected persisted detail tags, got %v", body["tags"])
+				}
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -456,9 +559,15 @@ func TestMusicStrictEndpointsRequireRuntimeIndexWhenOnlyMusicRecordsExist(t *tes
 			resp := httptest.NewRecorder()
 			router.ServeHTTP(resp, req)
 
-			if resp.Code != http.StatusServiceUnavailable {
-				t.Fatalf("expected status 503, got %d", resp.Code)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 			}
+
+			var body map[string]any
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			testCase.assertResponse(t, body)
 		})
 	}
 }

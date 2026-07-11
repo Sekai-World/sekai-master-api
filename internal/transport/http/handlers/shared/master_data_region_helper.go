@@ -2,8 +2,12 @@ package shared
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+
+	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -52,6 +56,24 @@ func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.
 	}
 
 	return false, nil
+}
+
+func EnsureRegionReadyForEntityRecords(c *gin.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) bool {
+	if masterDataSync == nil {
+		return true
+	}
+
+	ready, err := RegionHasEntityRecordsOrReady(c.Request.Context(), masterDataSync, region, entity)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
+		return false
+	}
+	if ready {
+		return true
+	}
+
+	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
+	return false
 }
 
 func AvailableRegionsByID(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, entity string, id string) ([]string, error) {

@@ -2,12 +2,152 @@ package shared
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/usecase"
 )
+
+func TestEnsureRegionReadyForEntityRecords_returns_true_without_writing_response(t *testing.T) {
+	// Given
+	masterDataSync := usecase.NewMasterDataSyncUsecase(
+		nil,
+		nil,
+		&fakeMasterDataRegionHelperCache{
+			hasRecords: map[string]map[string]bool{
+				"jp": {"cards": true},
+			},
+		},
+		&fakeMasterDataRegionHelperStatusStore{
+			statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}},
+		},
+		nil,
+		1,
+	)
+	c, recorder := newMasterDataRegionHelperContext()
+
+	// When
+	ready := EnsureRegionReadyForEntityRecords(c, masterDataSync, "jp", "cards")
+
+	// Then
+	if !ready {
+		t.Fatal("expected region to be ready")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected no response to be written, got status %d", recorder.Code)
+	}
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("expected no response body, got %s", recorder.Body.String())
+	}
+}
+
+func TestEnsureRegionReadyForEntityRecords_maps_unavailable_region(t *testing.T) {
+	// Given
+	masterDataSync := usecase.NewMasterDataSyncUsecase(
+		nil,
+		nil,
+		&fakeMasterDataRegionHelperCache{
+			hasRecords:     map[string]map[string]bool{"jp": {"cards": false}},
+			hasRegionIndex: map[string]bool{"jp": false},
+		},
+		&fakeMasterDataRegionHelperStatusStore{
+			statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}},
+		},
+		nil,
+		1,
+	)
+	c, recorder := newMasterDataRegionHelperContext()
+
+	// When
+	ready := EnsureRegionReadyForEntityRecords(c, masterDataSync, "jp", "cards")
+
+	// Then
+	if ready {
+		t.Fatal("expected region to be unavailable")
+	}
+	assertMasterDataRegionHelperError(
+		t,
+		recorder,
+		http.StatusServiceUnavailable,
+		"REGION_DATA_NOT_READY",
+		"region data is updating or unavailable, please try again later",
+	)
+}
+
+func TestEnsureRegionReadyForEntityRecords_maps_status_error(t *testing.T) {
+	// Given
+	masterDataSync := usecase.NewMasterDataSyncUsecase(
+		nil,
+		nil,
+		&fakeMasterDataRegionHelperCache{
+			hasRecords: map[string]map[string]bool{"jp": {"cards": true}},
+		},
+		&fakeMasterDataRegionHelperStatusStore{
+			listErr: errors.New("list statuses failed"),
+		},
+		nil,
+		1,
+	)
+	c, recorder := newMasterDataRegionHelperContext()
+
+	// When
+	ready := EnsureRegionReadyForEntityRecords(c, masterDataSync, "jp", "cards")
+
+	// Then
+	if ready {
+		t.Fatal("expected readiness check to fail")
+	}
+	assertMasterDataRegionHelperError(
+		t,
+		recorder,
+		http.StatusInternalServerError,
+		"MASTER_DATA_STATUS_ERROR",
+		"failed to check master data sync status",
+	)
+}
+
+func newMasterDataRegionHelperContext() (*gin.Context, *httptest.ResponseRecorder) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	return c, recorder
+}
+
+func assertMasterDataRegionHelperError(
+	t *testing.T,
+	recorder *httptest.ResponseRecorder,
+	expectedStatus int,
+	expectedCode string,
+	expectedMessage string,
+) {
+	t.Helper()
+
+	if recorder.Code != expectedStatus {
+		t.Fatalf("expected status %d, got %d", expectedStatus, recorder.Code)
+	}
+
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body.Error.Code != expectedCode {
+		t.Fatalf("expected error code %q, got %q", expectedCode, body.Error.Code)
+	}
+	if body.Error.Message != expectedMessage {
+		t.Fatalf("expected error message %q, got %q", expectedMessage, body.Error.Message)
+	}
+}
 
 func TestRegionHasEntityRecordsOrReady_returns_true_when_entity_records_exist(t *testing.T) {
 	t.Parallel()

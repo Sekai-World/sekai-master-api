@@ -36,19 +36,19 @@ func findVirtualLiveRelatedRecord(
 		return nil
 	}
 
-	matches, err := masterDataSync.Search(ctx, region, entity, virtualLiveID, []string{"virtualLiveId"}, 10)
+	records, err := masterDataSync.ListAll(ctx, region, entity)
 	if err != nil {
 		return nil
 	}
 
 	targetVirtualLiveID := shared.NormalizeAnyID(virtualLiveID)
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["virtualLiveId"]) != targetVirtualLiveID {
+	for _, record := range records {
+		if shared.NormalizeAnyID(record["virtualLiveId"]) != targetVirtualLiveID {
 			continue
 		}
 
-		pamphlet := make(map[string]any, len(match.Item))
-		for key, value := range match.Item {
+		pamphlet := make(map[string]any, len(record))
+		for key, value := range record {
 			if key == "virtualLiveId" {
 				continue
 			}

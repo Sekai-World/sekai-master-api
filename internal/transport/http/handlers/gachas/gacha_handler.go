@@ -51,7 +51,7 @@ func (handler *GachaHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReadyForEntityRecords(c, region, "gachas") {
+	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
 		return
 	}
 
@@ -125,7 +125,7 @@ func (handler *GachaHandler) List(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
-	if !handler.ensureRegionReadyForEntityRecords(c, region, "gachas") {
+	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
 		return
 	}
 
@@ -211,6 +211,24 @@ func (handler *GachaHandler) buildGachaList(ctx context.Context, region string, 
 		items = append(items, handler.buildGachaListItem(region, record))
 	}
 	return items
+}
+
+func ensureGachaRegionReady(c *gin.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string) bool {
+	if masterDataSync == nil {
+		return true
+	}
+
+	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), masterDataSync, region, "gachas")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
+		return false
+	}
+	if ready {
+		return true
+	}
+
+	response.Error(c, http.StatusServiceUnavailable, "REGION_NOT_READY", "master data for this region is not available")
+	return false
 }
 
 func (handler *GachaHandler) buildGachaListItem(region string, record map[string]any) map[string]any {
@@ -303,46 +321,6 @@ func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string
 	}
 
 	return result
-}
-
-func (handler *GachaHandler) ensureRegionReady(c *gin.Context, region string) bool {
-	if handler == nil || handler.masterDataSync == nil {
-		return true
-	}
-
-	readyRegions, err := shared.ReadyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
-		return false
-	}
-
-	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
-	for _, readyRegion := range readyRegions {
-		if readyRegion == normalizedRegion {
-			return true
-		}
-	}
-
-	response.Error(c, http.StatusServiceUnavailable, "REGION_NOT_READY", "master data for this region is not available")
-	return false
-}
-
-func (handler *GachaHandler) ensureRegionReadyForEntityRecords(c *gin.Context, region string, entity string) bool {
-	if handler == nil || handler.masterDataSync == nil {
-		return true
-	}
-
-	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), handler.masterDataSync, region, entity)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
-		return false
-	}
-	if ready {
-		return true
-	}
-
-	response.Error(c, http.StatusServiceUnavailable, "REGION_NOT_READY", "master data for this region is not available")
-	return false
 }
 
 func pickFields(record map[string]any, fields []string) map[string]any {
