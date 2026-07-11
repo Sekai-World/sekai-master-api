@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
@@ -898,18 +897,18 @@ func (handler *EventHandler) ensureEventExists(c *gin.Context, region string, id
 }
 
 func (handler *EventHandler) findEventBonusItems(ctx context.Context, region string, eventID string, entity string) ([]map[string]any, error) {
-	matches, err := handler.masterDataSync.Search(ctx, region, entity, eventID, []string{"eventId"}, 1000000)
+	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]map[string]any, 0, len(matches))
+	items := make([]map[string]any, 0, len(records))
 	targetEventID := shared.NormalizeAnyID(eventID)
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["eventId"]) != targetEventID {
+	for _, record := range records {
+		if shared.NormalizeAnyID(record["eventId"]) != targetEventID {
 			continue
 		}
-		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, match.Item))
+		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record))
 	}
 
 	return items, nil
@@ -1102,14 +1101,14 @@ func (handler *EventHandler) findEventStoryByEventID(ctx context.Context, region
 		return nil
 	}
 
-	matches, err := handler.masterDataSync.Search(ctx, region, "eventstories", eventID, []string{"eventId"}, 10)
+	records, err := handler.masterDataSync.ListAll(ctx, region, "eventstories")
 	if err != nil {
 		return nil
 	}
 
-	for _, match := range matches {
-		if shared.NormalizeAnyID(match.Item["eventId"]) == eventID {
-			return match.Item
+	for _, record := range records {
+		if shared.NormalizeAnyID(record["eventId"]) == eventID {
+			return record
 		}
 	}
 
@@ -1121,9 +1120,9 @@ func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string
 	if eventStory != nil {
 		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
 		if eventStoryID != "" {
-			matches, err := handler.masterDataSync.Search(ctx, region, "eventstoryunits", eventStoryID, []string{"eventStoryId"}, 20)
+			records, err := handler.listRecordsByField(ctx, region, "eventstoryunits", "eventStoryId", eventStoryID)
 			if err == nil {
-				unitLookup = pickPrimaryEventStoryUnit(matches)
+				unitLookup = pickPrimaryEventStoryUnit(records)
 			}
 		}
 	}
@@ -1135,21 +1134,21 @@ func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string
 		return nil
 	}
 
-	matches, err := handler.masterDataSync.Search(ctx, region, "unitprofiles", unitLookup, []string{"unit"}, 1)
-	if err != nil || len(matches) == 0 {
+	records, err := handler.listRecordsByComparableField(ctx, region, "unitprofiles", "unit", unitLookup)
+	if err != nil || len(records) == 0 {
 		return nil
 	}
 
-	return pickFields(matches[0].Item, []string{"unit", "unitName", "colorCode"})
+	return pickFields(records[0], []string{"unit", "unitName", "colorCode"})
 }
 
 func (handler *EventHandler) resolveEventUnitCode(ctx context.Context, region string, record map[string]any, eventStory map[string]any) string {
 	if eventStory != nil {
 		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
 		if eventStoryID != "" {
-			matches, err := handler.masterDataSync.Search(ctx, region, "eventstoryunits", eventStoryID, []string{"eventStoryId"}, 20)
+			records, err := handler.listRecordsByField(ctx, region, "eventstoryunits", "eventStoryId", eventStoryID)
 			if err == nil {
-				if unit := pickPrimaryEventStoryUnit(matches); unit != "" {
+				if unit := pickPrimaryEventStoryUnit(records); unit != "" {
 					return unit
 				}
 			}
@@ -1159,22 +1158,56 @@ func (handler *EventHandler) resolveEventUnitCode(ctx context.Context, region st
 	return shared.NormalizeComparableText(record["unit"])
 }
 
-func pickPrimaryEventStoryUnit(matches []masterdata.SearchMatch) string {
+func pickPrimaryEventStoryUnit(records []map[string]any) string {
 	var fallback string
-	for _, match := range matches {
-		unit := shared.NormalizeComparableText(match.Item["unit"])
+	for _, record := range records {
+		unit := shared.NormalizeComparableText(record["unit"])
 		if unit == "" {
 			continue
 		}
 		if fallback == "" {
 			fallback = unit
 		}
-		if shared.NormalizeComparableText(match.Item["eventStoryUnitRelation"]) == "main" {
+		if shared.NormalizeComparableText(record["eventStoryUnitRelation"]) == "main" {
 			return unit
 		}
 	}
 
 	return fallback
+}
+
+func (handler *EventHandler) listRecordsByField(ctx context.Context, region string, entity string, field string, value string) ([]map[string]any, error) {
+	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+
+	targetValue := shared.NormalizeAnyID(value)
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if shared.NormalizeAnyID(record[field]) != targetValue {
+			continue
+		}
+		items = append(items, record)
+	}
+	return items, nil
+}
+
+func (handler *EventHandler) listRecordsByComparableField(ctx context.Context, region string, entity string, field string, value string) ([]map[string]any, error) {
+	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+
+	targetValue := shared.NormalizeComparableText(value)
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if shared.NormalizeComparableText(record[field]) != targetValue {
+			continue
+		}
+		items = append(items, record)
+	}
+	return items, nil
 }
 
 func (handler *EventHandler) resolveBannerGameCharacter(ctx context.Context, region string, eventStory map[string]any) map[string]any {

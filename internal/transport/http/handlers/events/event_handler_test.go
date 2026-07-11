@@ -3,7 +3,6 @@ package events
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -619,90 +618,6 @@ func TestEventSecondaryEndpointsRejectPersistedRecordsWhenSyncFailed(t *testing.
 				t.Fatalf("expected status 503, got %d: %s", resp.Code, resp.Body.String())
 			}
 		})
-	}
-}
-
-func TestEventSearchBackedSecondaryEndpointsReturnInternalServerErrorOnSearchFailure(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeEventHandlerCache{
-		byID: map[string]map[string]map[string]map[string]any{
-			"jp": {
-				"events": {
-					"101": {"id": 101, "name": "persisted-event"},
-				},
-			},
-		},
-		hasRecords: map[string]map[string]bool{
-			"jp": {"events": true},
-		},
-		hasIndexSet: true,
-		hasIndex:    false,
-		searchErr:   errors.New("search unavailable"),
-	}
-	handler := newReadyEventHandler(cache)
-	router := gin.New()
-	router.GET("/api/v1/events/:region/:id/cards", handler.CardsByID)
-	router.GET("/api/v1/events/:region/:id/musics", handler.MusicsByID)
-	router.GET("/api/v1/events/:region/:id/bonuses", handler.BonusesByID)
-
-	paths := []string{
-		"/api/v1/events/jp/101/cards",
-		"/api/v1/events/jp/101/musics",
-		"/api/v1/events/jp/101/bonuses",
-	}
-	for _, path := range paths {
-		t.Run(path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-
-			if resp.Code != http.StatusInternalServerError {
-				t.Fatalf("expected status 500, got %d: %s", resp.Code, resp.Body.String())
-			}
-		})
-	}
-}
-
-func TestEventDetailByIDEndpointReturnsInternalServerErrorOnSearchFailureWithPersistedRecords(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeEventHandlerCache{
-		byID: map[string]map[string]map[string]map[string]any{
-			"jp": {
-				"events": {
-					"101": {"id": 101, "name": "persisted-event"},
-				},
-			},
-		},
-		hasRecords: map[string]map[string]bool{
-			"jp": {"events": true},
-		},
-		hasIndexSet: true,
-		hasIndex:    false,
-		searchErr:   errors.New("search unavailable"),
-	}
-	handler := newReadyEventHandler(cache)
-	router := gin.New()
-	router.GET("/api/v1/events/:region/:id/detail", handler.DetailByID)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101/detail", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusInternalServerError {
-		t.Fatalf("expected status 500, got %d: %s", resp.Code, resp.Body.String())
-	}
-	var body struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if body.Error.Code != "EVENT_QUERY_ERROR" {
-		t.Fatalf("expected EVENT_QUERY_ERROR, got %q", body.Error.Code)
 	}
 }
 
@@ -1430,19 +1345,8 @@ func TestEventListEndpointFiltersByNameUnitAndEventTypeUsingEventStoryUnits(t *t
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
 
-	if len(cache.searchCalls) == 0 {
-		t.Fatalf("expected event story search calls to be recorded")
-	}
-
-	foundEventStoryUnitsSearch := false
-	for _, call := range cache.searchCalls {
-		if call.entity == "eventstoryunits" {
-			foundEventStoryUnitsSearch = true
-			break
-		}
-	}
-	if !foundEventStoryUnitsSearch {
-		t.Fatalf("expected unit filter to search eventstoryunits")
+	if len(cache.searchCalls) != 0 {
+		t.Fatalf("expected event list filters not to call Search, got %v", cache.searchCalls)
 	}
 }
 
