@@ -503,58 +503,6 @@ func TestVirtualLiveAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *t
 	}
 }
 
-func TestVirtualLiveRepresentativeEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	cache := &fakeVirtualLiveHandlerCache{
-		byID: map[string]map[string]map[string]map[string]any{
-			"jp": {
-				"virtuallives": {
-					"501": {"id": 501, "name": "persisted-virtual-live"},
-				},
-			},
-		},
-		listItems: []map[string]any{{"id": 501, "name": "persisted-virtual-live"}},
-		listTotal: 1,
-		hasRecords: map[string]map[string]bool{
-			"jp": {"virtuallives": true},
-		},
-		hasIndexSet: true,
-		hasIndex:    false,
-	}
-
-	handler := newReadyVirtualLiveHandler(cache)
-	router := gin.New()
-	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
-	router.GET("/api/v1/virtualLives/:region/:id/items", handler.ItemsByID)
-	router.GET("/api/v1/virtualLives/:region/:id/schedules", handler.SchedulesByID)
-	router.GET("/api/v1/virtualLives/:region/:id/setlists", handler.SetlistsByID)
-	router.GET("/api/v1/virtualLives/:region/list", handler.List)
-
-	testCases := []struct {
-		name string
-		path string
-	}{
-		{name: "by id", path: "/api/v1/virtualLives/jp/501"},
-		{name: "items", path: "/api/v1/virtualLives/jp/501/items"},
-		{name: "schedules", path: "/api/v1/virtualLives/jp/501/schedules"},
-		{name: "setlists", path: "/api/v1/virtualLives/jp/501/setlists"},
-		{name: "list", path: "/api/v1/virtualLives/jp/list?page=1&page_size=20"},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-
-			if resp.Code != http.StatusServiceUnavailable {
-				t.Fatalf("expected status 503, got %d", resp.Code)
-			}
-		})
-	}
-}
-
 func TestVirtualLiveAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -676,5 +624,91 @@ func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 	}
 	if ticket, exists := first["ticket"]; !exists || ticket != nil {
 		t.Fatalf("expected ticket to be null when not found, got %v", first["ticket"])
+	}
+}
+
+func TestVirtualLivePersistedRecordsReturnDataWhenIndexMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":                   501,
+						"name":                 "persisted-after-restart",
+						"assetbundleName":      "vl_501",
+						"startAt":              1000,
+						"endAt":                2000,
+						"virtualLiveType":      "normal",
+						"virtualLiveGroupId":   77,
+						"screenMvMusicVocalId": 29,
+						"virtualItems": []any{
+							map[string]any{"virtualItemId": 1, "quantity": 2},
+						},
+						"virtualLiveSchedules": []any{
+							map[string]any{"id": 10, "startAt": 1000},
+						},
+						"virtualLiveSetlists": []any{
+							map[string]any{"musicId": 1, "seq": 1},
+						},
+					},
+				},
+			},
+		},
+		listItems: []map[string]any{
+			{
+				"id":              501,
+				"name":            "persisted-after-restart",
+				"assetbundleName": "vl_501",
+				"virtualLiveType": "normal",
+				"virtualItems": []any{
+					map[string]any{"virtualItemId": 1, "quantity": 2},
+				},
+				"virtualLiveSchedules": []any{
+					map[string]any{"id": 10, "startAt": 1000},
+				},
+				"virtualLiveSetlists": []any{
+					map[string]any{"musicId": 1, "seq": 1},
+				},
+			},
+		},
+		listTotal: 1,
+		hasRecords: map[string]map[string]bool{
+			"jp": {"virtuallives": true},
+		},
+		hasIndexSet: true,
+		hasIndex:    false,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
+	router.GET("/api/v1/virtualLives/:region/:id/items", handler.ItemsByID)
+	router.GET("/api/v1/virtualLives/:region/:id/schedules", handler.SchedulesByID)
+	router.GET("/api/v1/virtualLives/:region/:id/setlists", handler.SetlistsByID)
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "by id", path: "/api/v1/virtualLives/jp/501"},
+		{name: "items", path: "/api/v1/virtualLives/jp/501/items"},
+		{name: "schedules", path: "/api/v1/virtualLives/jp/501/schedules"},
+		{name: "setlists", path: "/api/v1/virtualLives/jp/501/setlists"},
+		{name: "list", path: "/api/v1/virtualLives/jp/list?page=1&page_size=20"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
 	}
 }

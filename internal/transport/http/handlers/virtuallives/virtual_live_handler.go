@@ -63,7 +63,7 @@ func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "virtuallives") {
 		return
 	}
 
@@ -185,7 +185,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "virtuallives") {
 		return
 	}
 
@@ -263,28 +263,6 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 			"has_next":    page < totalPages,
 		},
 	})
-}
-
-func (handler *VirtualLiveHandler) ensureRegionReady(c *gin.Context, region string) bool {
-	if handler == nil || handler.masterDataSync == nil {
-		return true
-	}
-
-	readyRegions, err := shared.ReadyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
-		return false
-	}
-
-	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
-	for _, readyRegion := range readyRegions {
-		if readyRegion == normalizedRegion {
-			return true
-		}
-	}
-
-	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
-	return false
 }
 
 func (handler *VirtualLiveHandler) buildVirtualLiveList(ctx context.Context, region string, records []map[string]any) []map[string]any {
@@ -480,7 +458,7 @@ func (handler *VirtualLiveHandler) respondVirtualLiveArrayField(c *gin.Context, 
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "virtuallives") {
 		return
 	}
 
