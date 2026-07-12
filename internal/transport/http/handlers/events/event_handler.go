@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ type EventHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 }
 
-const eventDetailRewardPreviewLimit = 5
+const eventDetailRewardPreviewLimit = 4
 
 var sortableEventFields = []string{
 	"id",
@@ -453,6 +454,22 @@ func (handler *EventHandler) enrichEventRankingRewards(ctx context.Context, regi
 }
 
 func (handler *EventHandler) resolveRewardResourceBox(ctx context.Context, region string, reward map[string]any) map[string]any {
+	resolved := handler.resolveRewardResourceBoxWithRegion(ctx, region, reward)
+	if resolved == nil {
+		return nil
+	}
+	return resolved.record
+}
+
+type resolvedRewardResourceBox struct {
+	record map[string]any
+	region string
+}
+
+// resolveRewardResourceBoxWithRegion deliberately applies the regional fallback
+// only to ranking reward resource boxes. Event and range master data remain
+// strictly region-scoped.
+func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Context, region string, reward map[string]any) *resolvedRewardResourceBox {
 	if handler == nil || handler.masterDataSync == nil {
 		return nil
 	}
@@ -462,20 +479,30 @@ func (handler *EventHandler) resolveRewardResourceBox(ctx context.Context, regio
 		return nil
 	}
 
-	resourceBox, found, err := handler.masterDataSync.GetByID(ctx, region, "resourceboxes", resourceBoxID)
-	if err != nil || !found {
-		return nil
+	regions := []string{region}
+	if strings.ToLower(strings.TrimSpace(region)) != "jp" {
+		regions = append(regions, "jp")
 	}
+	for _, sourceRegion := range regions {
+		resourceBox, found, err := handler.masterDataSync.GetByID(ctx, sourceRegion, "resourceboxes", resourceBoxID)
+		if err != nil || !found || !isUsableEventRankingResourceBox(resourceBox) {
+			continue
+		}
 
-	if purpose := shared.NormalizeComparableText(resourceBox["resourceBoxPurpose"]); purpose != "" && purpose != "event_ranking_reward" {
-		return nil
+		result := pickFields(resourceBox, []string{"id", "resourceBoxPurpose", "resourceBoxType", "details"})
+		details, _ := resourceBox["details"].([]any)
+		result["details"] = handler.enrichRewardResourceBoxDetails(ctx, sourceRegion, details)
+		return &resolvedRewardResourceBox{record: result, region: sourceRegion}
 	}
+	return nil
+}
 
-	result := pickFields(resourceBox, []string{"id", "resourceBoxPurpose", "resourceBoxType", "details"})
-	if details, ok := resourceBox["details"].([]any); ok {
-		result["details"] = handler.enrichRewardResourceBoxDetails(ctx, region, details)
+func isUsableEventRankingResourceBox(resourceBox map[string]any) bool {
+	if shared.NormalizeComparableText(resourceBox["resourceBoxPurpose"]) != "event_ranking_reward" {
+		return false
 	}
-	return result
+	details, ok := resourceBox["details"].([]any)
+	return ok && len(details) > 0
 }
 
 func (handler *EventHandler) enrichRewardResourceBoxDetails(ctx context.Context, region string, details []any) []any {
@@ -793,32 +820,124 @@ func eventRewardRanges(record map[string]any) []any {
 }
 
 func (handler *EventHandler) buildEventRewardPreview(ctx context.Context, region string, ranges []any) []any {
-	previewSource := importantEventRewardRanges(ranges)
-	if len(previewSource) == 0 {
-		previewSource = ranges
+	previewSource := make([]any, 0, eventDetailRewardPreviewLimit)
+	selected := make(map[int]bool)
+	orderedIndices := eventRewardRangeIndicesByRank(ranges)
+	for _, targetRank := range []float64{1, 100, 1000} {
+		for _, index := range orderedIndices {
+			item := ranges[index]
+			if selected[index] || !eventRewardRangeContains(item, targetRank) {
+				continue
+			}
+			selected[index] = true
+			previewSource = append(previewSource, item)
+			break
+		}
 	}
-	if len(previewSource) > eventDetailRewardPreviewLimit {
-		previewSource = previewSource[:eventDetailRewardPreviewLimit]
+
+	// The final degree reward rank is chosen from all ranges, rather than from
+	// rank borders: a degree can occur in any inclusive reward interval.
+	for offset := len(orderedIndices) - 1; offset >= 0; offset-- {
+		index := orderedIndices[offset]
+		if selected[index] || !handler.eventRewardRangeHasDegree(ctx, region, ranges[index]) {
+			continue
+		}
+		selected[index] = true
+		previewSource = append(previewSource, ranges[index])
+		break
 	}
+
+	sort.SliceStable(previewSource, func(i, j int) bool {
+		left, leftOK := eventRewardRangeFromRank(previewSource[i])
+		right, rightOK := eventRewardRangeFromRank(previewSource[j])
+		if !leftOK || !rightOK {
+			return leftOK && !rightOK
+		}
+		return left < right
+	})
 	return handler.enrichEventRewardRanges(ctx, region, previewSource)
 }
 
-func importantEventRewardRanges(ranges []any) []any {
-	items := make([]any, 0, len(ranges))
-	for _, item := range ranges {
-		rangeRecord, ok := item.(map[string]any)
+func eventRewardRangeContains(item any, rank float64) bool {
+	rangeRecord, ok := item.(map[string]any)
+	if !ok {
+		return false
+	}
+	fromRank, fromOK := numericRank(rangeRecord["fromRank"])
+	toRank, toOK := numericRank(rangeRecord["toRank"])
+	return fromOK && toOK && fromRank <= rank && rank <= toRank
+}
+
+func eventRewardRangeFromRank(item any) (float64, bool) {
+	rangeRecord, ok := item.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	return numericRank(rangeRecord["fromRank"])
+}
+
+func eventRewardRangeIndicesByRank(ranges []any) []int {
+	indices := make([]int, 0, len(ranges))
+	for index, item := range ranges {
+		if _, ok := eventRewardRangeFromRank(item); ok {
+			indices = append(indices, index)
+		}
+	}
+	sort.SliceStable(indices, func(i, j int) bool {
+		leftFrom, _ := eventRewardRangeFromRank(ranges[indices[i]])
+		rightFrom, _ := eventRewardRangeFromRank(ranges[indices[j]])
+		if leftFrom != rightFrom {
+			return leftFrom < rightFrom
+		}
+		leftTo, _ := eventRewardRangeToRank(ranges[indices[i]])
+		rightTo, _ := eventRewardRangeToRank(ranges[indices[j]])
+		return leftTo < rightTo
+	})
+	return indices
+}
+
+func eventRewardRangeToRank(item any) (float64, bool) {
+	rangeRecord, ok := item.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	return numericRank(rangeRecord["toRank"])
+}
+
+func (handler *EventHandler) eventRewardRangeHasDegree(ctx context.Context, region string, item any) bool {
+	rangeRecord, ok := item.(map[string]any)
+	if !ok {
+		return false
+	}
+	rewards, ok := rangeRecord["eventRankingRewards"]
+	if !ok {
+		return false
+	}
+	items, ok := rewards.([]any)
+	if !ok {
+		items = []any{rewards}
+	}
+	for _, item := range items {
+		reward, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		if isToRankBorder, ok := rangeRecord["isToRankBorder"].(bool); ok && isToRankBorder {
-			items = append(items, item)
+		resourceBox := handler.resolveRewardResourceBox(ctx, region, reward)
+		if resourceBox == nil {
 			continue
 		}
-		if fromRank, ok := numericRank(rangeRecord["fromRank"]); ok && fromRank <= 1000 {
-			items = append(items, item)
+		details, ok := resourceBox["details"].([]any)
+		if !ok {
+			continue
+		}
+		for _, detail := range details {
+			detailRecord, ok := detail.(map[string]any)
+			if ok && shared.NormalizeComparableText(detailRecord["resourceType"]) == "honor" {
+				return true
+			}
 		}
 	}
-	return items
+	return false
 }
 
 func numericRank(value any) (float64, bool) {
