@@ -1108,6 +1108,128 @@ func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecordsWith
 	}
 }
 
+func TestEventRewardPreviewSelectsNumberedRanksAndFinalDegreeReward(t *testing.T) {
+	cache := &fakeEventHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"resourceboxes": {
+					"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "jewel"}}},
+					"9002": {"id": 9002, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 999}}},
+					"9003": {"id": 9003, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 998}}},
+				},
+			},
+		},
+	}
+	handler := newReadyEventHandler(cache)
+	ranges := []any{
+		map[string]any{"fromRank": 2001, "toRank": 3000, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9003}}}, // final degree reward rank
+		map[string]any{"fromRank": 1001, "toRank": 2000, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9002}}}, // earlier degree reward rank
+		map[string]any{"fromRank": 10000, "toRank": 20000, "isToRankBorder": true, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9001}}},
+		map[string]any{"fromRank": 501, "toRank": 1000, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9001}}},
+		map[string]any{"fromRank": 51, "toRank": 100, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9001}}},
+		map[string]any{"fromRank": 1, "toRank": 1, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9001}}},
+	}
+
+	preview := handler.buildEventRewardPreview(context.Background(), "jp", ranges)
+	if len(preview) != 4 {
+		t.Fatalf("expected #1, #100, #1000, and final degree reward ranges, got %d", len(preview))
+	}
+	for index, expected := range []float64{1, 51, 501, 2001} {
+		actual, ok := numericRank(preview[index].(map[string]any)["fromRank"])
+		if !ok {
+			t.Fatalf("expected numeric preview range start, got %v", preview[index])
+		}
+		if actual != expected {
+			t.Fatalf("expected preview range %d to start at %v, got %v", index, expected, actual)
+		}
+	}
+	lastReward := preview[3].(map[string]any)["eventRankingRewards"].([]any)[0].(map[string]any)
+	if _, ok := lastReward["resourceBox"].(map[string]any)["details"].([]any)[0].(map[string]any)["honor"]; ok {
+		t.Fatalf("expected missing honor metadata not to be required for degree selection")
+	}
+}
+
+func TestEventRewardPreviewDeduplicatesTargetRange(t *testing.T) {
+	handler := newReadyEventHandler(&fakeEventHandlerCache{})
+	preview := handler.buildEventRewardPreview(context.Background(), "jp", []any{
+		map[string]any{"fromRank": 1, "toRank": 100},
+		map[string]any{"fromRank": 501, "toRank": 1000},
+	})
+	if len(preview) != 2 {
+		t.Fatalf("expected target range to be deduplicated, got %d ranges", len(preview))
+	}
+}
+
+func TestEventRankingRewardResourceBoxPrefersRegionalRecord(t *testing.T) {
+	cache := &fakeEventHandlerCache{byID: map[string]map[string]map[string]map[string]any{
+		"tw": {"resourceboxes": {
+			"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 300}}},
+		}},
+		"jp": {"resourceboxes": {
+			"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 100}}},
+		}},
+	}}
+	handler := newReadyEventHandler(cache)
+
+	resolved := handler.resolveRewardResourceBox(context.Background(), "tw", map[string]any{"resourceBoxId": 9001})
+	if resolved == nil || resolved["details"].([]any)[0].(map[string]any)["resourceQuantity"] != 300 {
+		t.Fatalf("expected regional resource box to win, got %v", resolved)
+	}
+}
+
+func TestEventRankingRewardJPFallbackEnrichesHonorFromJP(t *testing.T) {
+	cache := &fakeEventHandlerCache{byID: map[string]map[string]map[string]map[string]any{
+		"tw": {"resourceboxes": {
+			"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{}},
+		}},
+		"jp": {
+			"resourceboxes": {"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 301}}}},
+			"honors":        {"301": {"id": 301, "groupId": 401, "assetbundleName": "degree_301"}},
+			"honorgroups":   {"401": {"id": 401, "backgroundAssetbundleName": "degree_bg"}},
+		},
+	}}
+	handler := newReadyEventHandler(cache)
+	rewards := []any{map[string]any{"resourceBoxId": 9001}}
+	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards)
+	reward := result[0].(map[string]any)
+	detail := reward["resourceBox"].(map[string]any)["details"].([]any)[0].(map[string]any)
+	honor := detail["honor"].(map[string]any)
+	if honor["assetbundleName"] != "degree_301" || honor["group"].(map[string]any)["backgroundAssetbundleName"] != "degree_bg" {
+		t.Fatalf("expected JP honor and group enrichment, got %v", detail)
+	}
+}
+
+func TestEventRankingRewardMissingResourceBoxesRemainSparse(t *testing.T) {
+	handler := newReadyEventHandler(&fakeEventHandlerCache{})
+	rewards := []any{map[string]any{"id": 701, "resourceBoxId": 9001}}
+	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards)
+	reward := result[0].(map[string]any)
+	if _, exists := reward["resourceBox"]; exists {
+		t.Fatalf("expected missing resource box to remain sparse, got %v", reward)
+	}
+}
+
+func TestEventRewardPreviewFindsDegreeThroughJPFallback(t *testing.T) {
+	cache := &fakeEventHandlerCache{byID: map[string]map[string]map[string]map[string]any{
+		"jp": {"resourceboxes": {
+			"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 301}}},
+		}},
+	}}
+	handler := newReadyEventHandler(cache)
+	ranges := []any{
+		map[string]any{"fromRank": 1, "toRank": 100, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9001}}},
+		map[string]any{"fromRank": 1001, "toRank": 2000, "eventRankingRewards": []any{map[string]any{"resourceBoxId": 9001}}},
+	}
+	preview := handler.buildEventRewardPreview(context.Background(), "tw", ranges)
+	if len(preview) != 2 {
+		t.Fatalf("expected JP fallback degree range in preview, got %d ranges", len(preview))
+	}
+	lastFrom, _ := eventRewardRangeFromRank(preview[len(preview)-1])
+	if lastFrom != 1001 {
+		t.Fatalf("expected final degree range from rank 1001, got %v", lastFrom)
+	}
+}
+
 func TestEventBreakTimesByIDEndpointReturnsBreakTime(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
