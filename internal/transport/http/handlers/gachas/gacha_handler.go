@@ -2,7 +2,11 @@ package gachas
 
 import (
 	"context"
+	"encoding/json"
+	"math"
+	"math/big"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -66,6 +70,91 @@ func (handler *GachaHandler) ByID(c *gin.Context) {
 	}
 
 	response.JSON(c, http.StatusOK, handler.buildGachaDetail(c.Request.Context(), region, record))
+}
+
+// RateChoiceWishesByID godoc
+// @Summary Get rate choice wishes for a gacha
+// @Tags gachas
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Gacha ID"
+// @Success 200 {object} shared.GachaRateChoiceWishesResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /gachas/{region}/{id}/rate-choice-wishes [get]
+func (handler *GachaHandler) RateChoiceWishesByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+		return
+	}
+
+	record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "gachas", id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to query gacha")
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, "GACHA_NOT_FOUND", "gacha not found")
+		return
+	}
+
+	gachaID := any(id)
+	if persistedGachaID, ok := record["id"]; ok && persistedGachaID != nil {
+		gachaID = persistedGachaID
+	}
+
+	result := shared.GachaRateChoiceWishesResponse{
+		GachaID:                    gachaID,
+		RateChoiceGachaWishGroupID: nil,
+		Items:                      make([]shared.GachaRateChoiceWishResponse, 0),
+	}
+
+	groupID, configured := record["rateChoiceGachaWishGroupId"]
+	if !configured || groupID == nil {
+		response.JSON(c, http.StatusOK, result)
+		return
+	}
+	result.RateChoiceGachaWishGroupID = groupID
+
+	wishRecords, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "ratechoicegachawishes")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to query rate choice wishes")
+		return
+	}
+
+	for _, wishRecord := range wishRecords {
+		if !rateChoiceValuesEqual(wishRecord["groupId"], groupID) {
+			continue
+		}
+
+		item, ok := buildRateChoiceWishResponse(wishRecord)
+		if !ok {
+			continue
+		}
+		result.Items = append(result.Items, item)
+	}
+
+	sort.SliceStable(result.Items, func(i, j int) bool {
+		seqComparison := compareRateChoiceValues(result.Items[i].Seq, result.Items[j].Seq)
+		if seqComparison != 0 {
+			return seqComparison < 0
+		}
+		return compareRateChoiceValues(result.Items[i].ID, result.Items[j].ID) < 0
+	})
+
+	response.JSON(c, http.StatusOK, result)
 }
 
 // AvailableRegionsByID godoc
@@ -331,4 +420,160 @@ func pickFields(record map[string]any, fields []string) map[string]any {
 		}
 	}
 	return result
+}
+
+func rateChoiceValuesEqual(left any, right any) bool {
+	if left == nil || right == nil {
+		return false
+	}
+
+	leftNumber, leftOK := rateChoiceNumericValue(left)
+	rightNumber, rightOK := rateChoiceNumericValue(right)
+	if leftOK && rightOK {
+		return leftNumber.Cmp(rightNumber) == 0
+	}
+	if leftOK != rightOK {
+		return false
+	}
+
+	return shared.NormalizeAnyID(left) == shared.NormalizeAnyID(right)
+}
+
+func buildRateChoiceWishResponse(record map[string]any) (shared.GachaRateChoiceWishResponse, bool) {
+	lotteryType, ok := rateChoiceStringValue(record["lotteryType"])
+	if !ok {
+		return shared.GachaRateChoiceWishResponse{}, false
+	}
+	selectCount, ok := rateChoiceIntegerValue(record["selectCount"])
+	if !ok {
+		return shared.GachaRateChoiceWishResponse{}, false
+	}
+	seq, ok := rateChoiceIntegerValue(record["seq"])
+	if !ok {
+		return shared.GachaRateChoiceWishResponse{}, false
+	}
+
+	return shared.GachaRateChoiceWishResponse{
+		ID:          record["id"],
+		GroupID:     record["groupId"],
+		LotteryType: lotteryType,
+		SelectCount: selectCount,
+		Seq:         seq,
+	}, true
+}
+
+func rateChoiceStringValue(value any) (string, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+
+	text = strings.TrimSpace(text)
+	return text, text != ""
+}
+
+func compareRateChoiceValues(left any, right any) int {
+	if left == nil || right == nil {
+		switch {
+		case left == nil && right == nil:
+			return 0
+		case left == nil:
+			return 1
+		default:
+			return -1
+		}
+	}
+
+	leftNumber, leftOK := rateChoiceNumericValue(left)
+	rightNumber, rightOK := rateChoiceNumericValue(right)
+	if leftOK && rightOK {
+		return leftNumber.Cmp(rightNumber)
+	}
+	if leftOK != rightOK {
+		if leftOK {
+			return -1
+		}
+		return 1
+	}
+
+	leftText := shared.NormalizeComparableText(left)
+	rightText := shared.NormalizeComparableText(right)
+	switch {
+	case leftText < rightText:
+		return -1
+	case leftText > rightText:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func rateChoiceNumericValue(value any) (*big.Rat, bool) {
+	switch typed := value.(type) {
+	case json.Number:
+		return parseRateChoiceNumericString(typed.String())
+	case int:
+		return new(big.Rat).SetInt64(int64(typed)), true
+	case int8:
+		return new(big.Rat).SetInt64(int64(typed)), true
+	case int16:
+		return new(big.Rat).SetInt64(int64(typed)), true
+	case int32:
+		return new(big.Rat).SetInt64(int64(typed)), true
+	case int64:
+		return new(big.Rat).SetInt64(typed), true
+	case uint:
+		return new(big.Rat).SetUint64(uint64(typed)), true
+	case uint8:
+		return new(big.Rat).SetUint64(uint64(typed)), true
+	case uint16:
+		return new(big.Rat).SetUint64(uint64(typed)), true
+	case uint32:
+		return new(big.Rat).SetUint64(uint64(typed)), true
+	case uint64:
+		return new(big.Rat).SetUint64(typed), true
+	case float32:
+		return parseRateChoiceFloat(float64(typed), 32)
+	case float64:
+		return parseRateChoiceFloat(typed, 64)
+	case string:
+		return parseRateChoiceNumericString(typed)
+	default:
+		return nil, false
+	}
+}
+
+func rateChoiceIntegerValue(value any) (int, bool) {
+	numeric, ok := rateChoiceNumericValue(value)
+	if !ok || numeric.Denom().Cmp(big.NewInt(1)) != 0 {
+		return 0, false
+	}
+
+	maxInt := int64(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	numerator := numeric.Num()
+	minValue := big.NewInt(minInt)
+	maxValue := big.NewInt(maxInt)
+	if numerator.Cmp(minValue) < 0 || numerator.Cmp(maxValue) > 0 {
+		return 0, false
+	}
+
+	return int(numerator.Int64()), true
+}
+
+func parseRateChoiceFloat(value float64, bitSize int) (*big.Rat, bool) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return nil, false
+	}
+
+	return parseRateChoiceNumericString(strconv.FormatFloat(value, 'g', -1, bitSize))
+}
+
+func parseRateChoiceNumericString(value string) (*big.Rat, bool) {
+	rat, ok := new(big.Rat).SetString(strings.TrimSpace(value))
+	if !ok {
+		return nil, false
+	}
+
+	return rat, true
 }

@@ -291,6 +291,20 @@ type GachaListResponse struct {
 	Pagination PaginationResponse      `json:"pagination"`
 }
 
+type GachaRateChoiceWishResponse struct {
+	ID          any    `json:"id"`
+	GroupID     any    `json:"groupId"`
+	LotteryType string `json:"lotteryType"`
+	SelectCount int    `json:"selectCount"`
+	Seq         int    `json:"seq"`
+}
+
+type GachaRateChoiceWishesResponse struct {
+	GachaID                    any                           `json:"gachaId"`
+	RateChoiceGachaWishGroupID any                           `json:"rateChoiceGachaWishGroupId"`
+	Items                      []GachaRateChoiceWishResponse `json:"items"`
+}
+
 type CardPagination struct {
 	Page       int  `json:"page"`
 	PageSize   int  `json:"page_size"`

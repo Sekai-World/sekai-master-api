@@ -1593,6 +1593,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/gachas/{region}/{id}/rate-choice-wishes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gachas"
+                ],
+                "summary": "Get rate choice wishes for a gacha",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Gacha ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GachaRateChoiceWishesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/gameCharacterUnits/regions/{id}/availability": {
             "get": {
                 "produces": [
@@ -4159,6 +4218,35 @@ const docTemplate = `{
             "properties": {
                 "cardId": {},
                 "weight": {}
+            }
+        },
+        "shared.GachaRateChoiceWishResponse": {
+            "type": "object",
+            "properties": {
+                "groupId": {},
+                "id": {},
+                "lotteryType": {
+                    "type": "string"
+                },
+                "selectCount": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.GachaRateChoiceWishesResponse": {
+            "type": "object",
+            "properties": {
+                "gachaId": {},
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GachaRateChoiceWishResponse"
+                    }
+                },
+                "rateChoiceGachaWishGroupId": {}
             }
         },
         "shared.GameCharacterListResponse": {

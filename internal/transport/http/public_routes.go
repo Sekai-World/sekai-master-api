@@ -61,6 +61,7 @@ func registerPublicRoutes(
 	v1.GET("/events/:region/:id/rewards", eventHandler.RewardsByID)
 	v1.GET("/gachas/regions/:id/availability", gachaHandler.AvailableRegionsByID)
 	v1.GET("/gachas/:region/list", gachaHandler.List)
+	v1.GET("/gachas/:region/:id/rate-choice-wishes", gachaHandler.RateChoiceWishesByID)
 	v1.GET("/gachas/:region/:id", gachaHandler.ByID)
 	v1.GET("/virtualLives/regions/:id/availability", virtualLiveHandler.AvailableRegionsByID)
 	v1.GET("/virtualLives/:region/list", virtualLiveHandler.List)

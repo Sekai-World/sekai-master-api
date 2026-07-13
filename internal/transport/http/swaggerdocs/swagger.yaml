@@ -744,6 +744,26 @@ definitions:
       cardId: {}
       weight: {}
     type: object
+  shared.GachaRateChoiceWishResponse:
+    properties:
+      groupId: {}
+      id: {}
+      lotteryType:
+        type: string
+      selectCount:
+        type: integer
+      seq:
+        type: integer
+    type: object
+  shared.GachaRateChoiceWishesResponse:
+    properties:
+      gachaId: {}
+      items:
+        items:
+          $ref: '#/definitions/shared.GachaRateChoiceWishResponse'
+        type: array
+      rateChoiceGachaWishGroupId: {}
+    type: object
   shared.GameCharacterListResponse:
     properties:
       items:
@@ -2120,6 +2140,45 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get gacha basic info by id
+      tags:
+      - gachas
+  /gachas/{region}/{id}/rate-choice-wishes:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Gacha ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GachaRateChoiceWishesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get rate choice wishes for a gacha
       tags:
       - gachas
   /gachas/{region}/list:
