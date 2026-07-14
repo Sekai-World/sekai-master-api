@@ -16,14 +16,23 @@ import (
 )
 
 type fakeGachaHandlerCache struct {
-	byID         map[string]map[string]map[string]map[string]any
-	listByEntity map[string]map[string][]map[string]any
-	hasRecords   map[string]map[string]bool
-	hasIndex     bool
-	hasIndexSet  bool
-	listAllCalls []string
-	searchCalls  int
-	listAllErr   error
+	byID             map[string]map[string]map[string]map[string]any
+	listByEntity     map[string]map[string][]map[string]any
+	hasRecords       map[string]map[string]bool
+	hasIndex         bool
+	hasIndexSet      bool
+	listAllCalls     []string
+	searchCalls      int
+	getByIDCalls     []gachaGetByIDCall
+	listAllErr       error
+	getByIDErr       error
+	getByIDErrEntity string
+}
+
+type gachaGetByIDCall struct {
+	region string
+	entity string
+	id     string
 }
 
 type fakeGachaHandlerStatusStore struct {
@@ -51,6 +60,14 @@ func (cache *fakeGachaHandlerCache) StoreRegion(_ context.Context, _ string, _ m
 }
 
 func (cache *fakeGachaHandlerCache) GetByID(_ context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	cache.getByIDCalls = append(cache.getByIDCalls, gachaGetByIDCall{
+		region: strings.ToLower(strings.TrimSpace(region)),
+		entity: strings.ToLower(strings.TrimSpace(entity)),
+		id:     id,
+	})
+	if cache.getByIDErr != nil && (cache.getByIDErrEntity == "" || cache.getByIDErrEntity == strings.ToLower(strings.TrimSpace(entity))) {
+		return nil, false, cache.getByIDErr
+	}
 	regionData, ok := cache.byID[strings.ToLower(strings.TrimSpace(region))]
 	if !ok {
 		return nil, false, nil
@@ -181,6 +198,232 @@ func TestGachaRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t 
 				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 			}
 		})
+	}
+}
+
+func TestGachaDetailEnrichesTicketBehaviorsAndDeduplicatesLookups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeGachaHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gachas": {
+					"100": {
+						"id": 100,
+						"gachaBehaviors": []any{
+							map[string]any{"id": 1, "costResourceType": "gacha_ticket", "costResourceId": json.Number("007")},
+							map[string]any{"id": 2, "costResourceType": "gacha_ticket", "costResourceId": " 7 "},
+							map[string]any{"id": 3, "costResourceType": "jewel", "costResourceId": 7},
+						},
+					},
+				},
+				"gachatickets": {
+					"7": {"id": 7, "assetbundleName": "gacha_ticket_007"},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"gachas": true},
+		},
+	}
+
+	handler := newReadyGachaHandler(cache)
+	result, err := handler.buildGachaDetail(context.Background(), "jp", cache.byID["jp"]["gachas"]["100"])
+	if err != nil {
+		t.Fatalf("build gacha detail: %v", err)
+	}
+
+	behaviors, ok := result["gachaBehaviors"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected projected gacha behaviors, got %T", result["gachaBehaviors"])
+	}
+	if len(behaviors) != 3 {
+		t.Fatalf("expected 3 behaviors, got %d", len(behaviors))
+	}
+	for _, index := range []int{0, 1} {
+		if behaviors[index]["costResourceAssetbundleName"] != "gacha_ticket_007" {
+			t.Fatalf("expected behavior %d ticket asset bundle, got %v", index, behaviors[index]["costResourceAssetbundleName"])
+		}
+	}
+	if _, found := behaviors[2]["costResourceAssetbundleName"]; found {
+		t.Fatal("did not expect ticket asset bundle for non-ticket behavior")
+	}
+
+	var ticketLookups []gachaGetByIDCall
+	for _, call := range cache.getByIDCalls {
+		if call.entity == "gachatickets" {
+			ticketLookups = append(ticketLookups, call)
+		}
+	}
+	if len(ticketLookups) != 1 || ticketLookups[0].id != "7" {
+		t.Fatalf("expected one normalized ticket lookup for id 7, got %+v", ticketLookups)
+	}
+	if cache.searchCalls != 0 {
+		t.Fatalf("expected no search calls, got %d", cache.searchCalls)
+	}
+}
+
+func TestNormalizeGachaTicketID(t *testing.T) {
+	testCases := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "trimmed leading zeros", value: " 0007 ", want: "7"},
+		{name: "large string preserves exact value", value: "9007199254740993", want: "9007199254740993"},
+		{name: "large json number preserves exact value", value: json.Number("9007199254740993"), want: "9007199254740993"},
+		{name: "exact integer", value: int64(7), want: "7"},
+		{name: "exact integral float", value: float64(7), want: "7"},
+		{name: "exact large integral float", value: float64(9007199254740992), want: "9007199254740992"},
+		{name: "negative string", value: "-7", want: ""},
+		{name: "negative numeric", value: int64(-7), want: ""},
+		{name: "fractional string", value: "7.0", want: ""},
+		{name: "fractional numeric", value: float64(7.5), want: ""},
+		{name: "exponent string", value: "7e0", want: ""},
+		{name: "exponent json number", value: json.Number("7e0"), want: ""},
+		{name: "malformed string", value: "ticket-7", want: ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := normalizeGachaTicketID(testCase.value); got != testCase.want {
+				t.Fatalf("normalizeGachaTicketID(%v) = %q, want %q", testCase.value, got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestGachaDetailOmitsMissingOrMalformedTicketMetadata(t *testing.T) {
+	cache := &fakeGachaHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gachatickets": {
+					"7": {"id": 7},
+				},
+			},
+		},
+	}
+	handler := newReadyGachaHandler(cache)
+	record := map[string]any{
+		"gachaBehaviors": []any{
+			map[string]any{"id": 1, "costResourceType": "gacha_ticket", "costResourceId": 7},
+			map[string]any{"id": 2, "costResourceType": "gacha_ticket", "costResourceId": map[string]any{"id": 7}},
+			map[string]any{"id": 3, "costResourceType": "gacha_ticket", "costResourceId": 8},
+			map[string]any{"id": 4, "costResourceType": "gacha_ticket", "costResourceId": " 008 "},
+		},
+	}
+
+	result, err := handler.buildGachaDetail(context.Background(), "jp", record)
+	if err != nil {
+		t.Fatalf("build gacha detail: %v", err)
+	}
+	behaviors := result["gachaBehaviors"].([]map[string]any)
+	for index, behavior := range behaviors {
+		if _, found := behavior["costResourceAssetbundleName"]; found {
+			t.Fatalf("did not expect ticket asset bundle for behavior %d: %v", index, behavior)
+		}
+	}
+	if len(cache.getByIDCalls) != 2 {
+		t.Fatalf("expected valid and missing ticket lookups only once each, got %+v", cache.getByIDCalls)
+	}
+	if cache.getByIDCalls[0].id != "7" || cache.getByIDCalls[1].id != "8" {
+		t.Fatalf("expected normalized ticket lookups for ids 7 and 8, got %+v", cache.getByIDCalls)
+	}
+}
+
+func TestGachaDetailOnlyCopiesNonEmptyStringTicketAssetbundleName(t *testing.T) {
+	cache := &fakeGachaHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gachatickets": {
+					"7": {"assetbundleName": 123},
+					"8": {"assetbundleName": "  ticket_008  "},
+					"9": {"assetbundleName": "   "},
+				},
+			},
+		},
+	}
+	handler := newReadyGachaHandler(cache)
+	record := map[string]any{
+		"gachaBehaviors": []any{
+			map[string]any{"id": 1, "costResourceType": "gacha_ticket", "costResourceId": 7},
+			map[string]any{"id": 2, "costResourceType": "gacha_ticket", "costResourceId": 8},
+			map[string]any{"id": 3, "costResourceType": "gacha_ticket", "costResourceId": 9},
+		},
+	}
+
+	result, err := handler.buildGachaDetail(context.Background(), "jp", record)
+	if err != nil {
+		t.Fatalf("build gacha detail: %v", err)
+	}
+	behaviors := result["gachaBehaviors"].([]map[string]any)
+	if _, found := behaviors[0]["costResourceAssetbundleName"]; found {
+		t.Fatalf("did not expect non-string asset bundle name: %v", behaviors[0])
+	}
+	if behaviors[1]["costResourceAssetbundleName"] != "ticket_008" {
+		t.Fatalf("expected trimmed asset bundle name, got %v", behaviors[1]["costResourceAssetbundleName"])
+	}
+	if _, found := behaviors[2]["costResourceAssetbundleName"]; found {
+		t.Fatalf("did not expect empty asset bundle name: %v", behaviors[2])
+	}
+}
+
+func TestGachaDetailPropagatesTicketLookupError(t *testing.T) {
+	cache := &fakeGachaHandlerCache{getByIDErr: errors.New("redis unavailable")}
+	handler := newReadyGachaHandler(cache)
+	record := map[string]any{
+		"gachaBehaviors": []any{
+			map[string]any{"costResourceType": "gacha_ticket", "costResourceId": 7},
+		},
+	}
+
+	if _, err := handler.buildGachaDetail(context.Background(), "jp", record); err == nil {
+		t.Fatal("expected ticket lookup error")
+	}
+}
+
+func TestGachaDetailEndpointReturnsQueryErrorWhenTicketLookupFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &fakeGachaHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gachas": {
+					"100": {
+						"id": 100,
+						"gachaBehaviors": []any{
+							map[string]any{"costResourceType": "gacha_ticket", "costResourceId": 7},
+						},
+					},
+				},
+			},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"gachas": true},
+		},
+		getByIDErr:       errors.New("redis unavailable"),
+		getByIDErrEntity: "gachatickets",
+	}
+
+	handler := newReadyGachaHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/gachas/:region/:id", handler.ByID)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/gachas/jp/100", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body.Error.Code != "GACHA_QUERY_ERROR" {
+		t.Fatalf("expected GACHA_QUERY_ERROR, got %q", body.Error.Code)
 	}
 }
 

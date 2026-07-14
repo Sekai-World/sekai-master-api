@@ -643,6 +643,8 @@ definitions:
     type: object
   shared.GachaBehaviorResponse:
     properties:
+      costResourceAssetbundleName:
+        type: string
       costResourceId: {}
       costResourceQuantity: {}
       costResourceType: {}

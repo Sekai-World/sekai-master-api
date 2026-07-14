@@ -228,17 +228,18 @@ type GachaCardRarityRateResponse struct {
 }
 
 type GachaBehaviorResponse struct {
-	ID                   any    `json:"id,omitempty"`
-	GachaBehaviorType    string `json:"gachaBehaviorType,omitempty"`
-	GachaSpinnableType   string `json:"gachaSpinnableType,omitempty"`
-	CostResourceType     any    `json:"costResourceType,omitempty"`
-	CostResourceQuantity any    `json:"costResourceQuantity,omitempty"`
-	CostResourceID       any    `json:"costResourceId,omitempty"`
-	ResourceCategory     string `json:"resourceCategory,omitempty"`
-	SpinCount            int    `json:"spinCount,omitempty"`
-	ExecuteLimit         int    `json:"executeLimit,omitempty"`
-	Priority             int    `json:"priority,omitempty"`
-	GroupID              int    `json:"groupId,omitempty"`
+	ID                          any    `json:"id,omitempty"`
+	GachaBehaviorType           string `json:"gachaBehaviorType,omitempty"`
+	GachaSpinnableType          string `json:"gachaSpinnableType,omitempty"`
+	CostResourceType            any    `json:"costResourceType,omitempty"`
+	CostResourceQuantity        any    `json:"costResourceQuantity,omitempty"`
+	CostResourceID              any    `json:"costResourceId,omitempty"`
+	CostResourceAssetbundleName string `json:"costResourceAssetbundleName,omitempty"`
+	ResourceCategory            string `json:"resourceCategory,omitempty"`
+	SpinCount                   int    `json:"spinCount,omitempty"`
+	ExecuteLimit                int    `json:"executeLimit,omitempty"`
+	Priority                    int    `json:"priority,omitempty"`
+	GroupID                     int    `json:"groupId,omitempty"`
 }
 
 type GachaDetailSubResponse struct {

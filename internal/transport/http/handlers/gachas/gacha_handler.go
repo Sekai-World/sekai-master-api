@@ -3,6 +3,7 @@ package gachas
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"math/big"
 	"net/http"
@@ -69,7 +70,13 @@ func (handler *GachaHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, handler.buildGachaDetail(c.Request.Context(), region, record))
+	item, err := handler.buildGachaDetail(c.Request.Context(), region, record)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to enrich gacha")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, item)
 }
 
 // RateChoiceWishesByID godoc
@@ -331,7 +338,7 @@ func (handler *GachaHandler) buildGachaListItem(region string, record map[string
 	})
 }
 
-func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string, record map[string]any) map[string]any {
+func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string, record map[string]any) (map[string]any, error) {
 	result := pickFields(record, []string{
 		"id",
 		"gachaType",
@@ -349,6 +356,7 @@ func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string
 		"wishSelectCount",
 		"isShowPeriod",
 	})
+	ticketLookups := make(map[string]gachaTicketLookup)
 
 	if pickupsRaw, ok := record["gachaPickups"]; ok {
 		if pickups, ok := pickupsRaw.([]any); ok {
@@ -379,12 +387,16 @@ func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string
 			items := make([]map[string]any, 0, len(behaviors))
 			for _, behaviorRaw := range behaviors {
 				if behavior, ok := behaviorRaw.(map[string]any); ok {
-					items = append(items, pickFields(behavior, []string{
+					item := pickFields(behavior, []string{
 						"id", "gachaBehaviorType", "gachaSpinnableType",
 						"costResourceType", "costResourceQuantity", "costResourceId",
 						"resourceCategory", "spinCount", "executeLimit",
 						"priority", "groupId",
-					}))
+					})
+					if err := handler.enrichGachaTicketBehavior(ctx, region, behavior, item, ticketLookups); err != nil {
+						return nil, err
+					}
+					items = append(items, item)
 				}
 			}
 			result["gachaBehaviors"] = items
@@ -409,7 +421,116 @@ func (handler *GachaHandler) buildGachaDetail(ctx context.Context, region string
 		}
 	}
 
-	return result
+	return result, nil
+}
+
+type gachaTicketLookup struct {
+	record map[string]any
+	found  bool
+}
+
+func (handler *GachaHandler) enrichGachaTicketBehavior(
+	ctx context.Context,
+	region string,
+	behavior map[string]any,
+	result map[string]any,
+	lookups map[string]gachaTicketLookup,
+) error {
+	if handler == nil || handler.masterDataSync == nil || shared.NormalizeComparableText(behavior["costResourceType"]) != "gacha_ticket" {
+		return nil
+	}
+
+	ticketID := normalizeGachaTicketID(behavior["costResourceId"])
+	if ticketID == "" {
+		return nil
+	}
+
+	lookup, cached := lookups[ticketID]
+	if !cached {
+		ticket, found, err := handler.masterDataSync.GetByID(ctx, region, "gachatickets", ticketID)
+		if err != nil {
+			return fmt.Errorf("get gacha ticket %s: %w", ticketID, err)
+		}
+		lookup = gachaTicketLookup{record: ticket, found: found}
+		lookups[ticketID] = lookup
+	}
+	if !lookup.found || lookup.record == nil {
+		return nil
+	}
+
+	assetbundleName, ok := lookup.record["assetbundleName"].(string)
+	assetbundleName = strings.TrimSpace(assetbundleName)
+	if ok && assetbundleName != "" {
+		result["costResourceAssetbundleName"] = assetbundleName
+	}
+	return nil
+}
+
+func normalizeGachaTicketID(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return normalizeGachaTicketIntegerText(typed)
+	case json.Number:
+		return normalizeGachaTicketIntegerText(typed.String())
+	case int:
+		return normalizeGachaTicketSignedInteger(int64(typed))
+	case int8:
+		return normalizeGachaTicketSignedInteger(int64(typed))
+	case int16:
+		return normalizeGachaTicketSignedInteger(int64(typed))
+	case int32:
+		return normalizeGachaTicketSignedInteger(int64(typed))
+	case int64:
+		return normalizeGachaTicketSignedInteger(typed)
+	case uint:
+		return strconv.FormatUint(uint64(typed), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(typed), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(typed), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(typed), 10)
+	case uint64:
+		return strconv.FormatUint(typed, 10)
+	case float32:
+		return normalizeGachaTicketFloat(float64(typed), 32)
+	case float64:
+		return normalizeGachaTicketFloat(typed, 64)
+	default:
+		return ""
+	}
+}
+
+func normalizeGachaTicketIntegerText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return ""
+		}
+	}
+
+	parsed, ok := new(big.Int).SetString(value, 10)
+	if !ok || parsed.Sign() < 0 {
+		return ""
+	}
+	return parsed.String()
+}
+
+func normalizeGachaTicketSignedInteger(value int64) string {
+	if value < 0 {
+		return ""
+	}
+	return strconv.FormatInt(value, 10)
+}
+
+func normalizeGachaTicketFloat(value float64, bitSize int) string {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || math.Trunc(value) != value {
+		return ""
+	}
+	return normalizeGachaTicketIntegerText(strconv.FormatFloat(value, 'f', -1, bitSize))
 }
 
 func pickFields(record map[string]any, fields []string) map[string]any {

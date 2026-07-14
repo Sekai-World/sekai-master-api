@@ -4082,6 +4082,9 @@ const docTemplate = `{
         "shared.GachaBehaviorResponse": {
             "type": "object",
             "properties": {
+                "costResourceAssetbundleName": {
+                    "type": "string"
+                },
                 "costResourceId": {},
                 "costResourceQuantity": {},
                 "costResourceType": {},
