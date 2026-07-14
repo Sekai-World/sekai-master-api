@@ -1,6 +1,20 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    ":enableVulnerabilityAlerts"
+  ],
+  "docker-compose": {
+    "fileMatch": [
+      "(^|/|\\.)compose[^/]*\\.ya?ml$",
+      "(^|/|\\.)docker-compose[^/]*\\.ya?ml$",
+      "^deploy/compose/dev-compose\\.yaml$"
+    ]
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "constraintsFiltering": "strict"
+    }
   ]
 }
