@@ -163,6 +163,18 @@ type CardItemsResponse struct {
 	Items []CardObjectResponse `json:"items"`
 }
 
+type CardBatchItemResponse struct {
+	ID              any `json:"id"`
+	Prefix          any `json:"prefix"`
+	AssetbundleName any `json:"assetbundleName"`
+	Attr            any `json:"attr"`
+	RarityType      any `json:"rarityType"`
+}
+
+type CardBatchItemsResponse struct {
+	Items []CardBatchItemResponse `json:"items"`
+}
+
 type CardParamsResponse struct {
 	ID                              any                     `json:"id,omitempty"`
 	SpecialTrainingPower1BonusFixed any                     `json:"specialTrainingPower1BonusFixed,omitempty"`

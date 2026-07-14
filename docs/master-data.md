@@ -71,6 +71,7 @@ Search indexes are scoped to fields used by API search paths instead of every sc
 Query behavior:
 
 - Card by-id reads from Redis hash cache.
+- Card metadata batch reads perform direct persisted by-id lookups only, return `id`, `prefix`, `assetbundleName`, `attr`, and `rarityType`, and omit missing cards.
 - Card list pagination follows real `cards.json` array order, not contiguous IDs.
 - Card params reuses the cached card record and returns params-related fields only.
 - Music responses expand `creatorArtistId` and `liveStageId` and hide the raw ids.

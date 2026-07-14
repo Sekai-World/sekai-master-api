@@ -19,6 +19,7 @@ coverage/
 # Runtime/temp data
 tmp/
 *.log
+.slim/deepwork/
 
 # Editor / IDE
 .vscode/

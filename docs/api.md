@@ -22,6 +22,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/gameCharacters/:region/list?page=1&page_size=20`
 - `GET /api/v1/gameCharacters/:region/:id`
 - `GET /api/v1/cards/:region/list?page=1&page_size=20`
+- `GET /api/v1/cards/:region/batch?ids=1,2,3` (up to 100 positive integer IDs; missing cards are omitted and items preserve first-seen request order)
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/cards/:region/:id/episodes`

@@ -39,6 +39,21 @@ definitions:
       updated_at:
         type: string
     type: object
+  shared.CardBatchItemResponse:
+    properties:
+      assetbundleName: {}
+      attr: {}
+      id: {}
+      prefix: {}
+      rarityType: {}
+    type: object
+  shared.CardBatchItemsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.CardBatchItemResponse'
+        type: array
+    type: object
   shared.CardDetailResponse:
     properties:
       card:
@@ -1586,6 +1601,41 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get card params by id
+      tags:
+      - cards
+  /cards/{region}/batch:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Comma-separated card IDs (up to 100)
+        in: query
+        name: ids
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CardBatchItemsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get card metadata by IDs
       tags:
       - cards
   /cards/{region}/list:

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +27,7 @@ type fakeCardHandlerCache struct {
 	searchMatches []masterdata.SearchMatch
 	rarityMatches []masterdata.SearchMatch
 	searchCalls   []fakeCardSearchCall
+	getByIDCalls  []fakeCardGetByIDCall
 	listAllCalls  map[string]int
 	lastSearch    struct {
 		region string
@@ -41,6 +44,12 @@ type fakeCardSearchCall struct {
 	query  string
 	fields []string
 	limit  int
+}
+
+type fakeCardGetByIDCall struct {
+	region string
+	entity string
+	id     string
 }
 
 type fakeCardHandlerStatusStore struct {
@@ -71,6 +80,7 @@ func (cache *fakeCardHandlerCache) StoreRegion(_ context.Context, _ string, _ ma
 }
 
 func (cache *fakeCardHandlerCache) GetByID(_ context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	cache.getByIDCalls = append(cache.getByIDCalls, fakeCardGetByIDCall{region: region, entity: entity, id: id})
 	regionData, ok := cache.byID[region]
 	if !ok {
 		return nil, false, nil
@@ -84,6 +94,117 @@ func (cache *fakeCardHandlerCache) GetByID(_ context.Context, region string, ent
 		return nil, false, nil
 	}
 	return record, true, nil
+}
+
+func TestCardBatchEndpointReturnsRequestedMetadataInFirstSeenRequestOrder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"cards": {
+					"1": {"id": 1, "prefix": "one", "assetbundleName": "asset-one", "attr": "cool", "cardRarityType": "rarity_2", "unused": "ignored"},
+					"2": {"id": 2, "prefix": "two", "assetbundleName": "asset-two", "attr": "cute", "cardRarityType": "rarity_3"},
+					"3": {"id": 3, "prefix": "three", "assetbundleName": "asset-three", "attr": "pure", "cardRarityType": "rarity_4"},
+				},
+			},
+		},
+	}
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/batch", newReadyCardHandler(cache).Batch)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/batch?ids=3,001,999,2,1", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Items) != 3 {
+		t.Fatalf("expected 3 found items, got %d", len(body.Items))
+	}
+
+	for index, expectedID := range []float64{3, 1, 2} {
+		item := body.Items[index]
+		if item["id"] != expectedID {
+			t.Fatalf("expected item %d id=%v, got %v", index, expectedID, item["id"])
+		}
+		if len(item) != 5 {
+			t.Fatalf("expected item %d to contain only 5 metadata fields, got %v", index, item)
+		}
+	}
+	if body.Items[0]["rarityType"] != "rarity_4" {
+		t.Fatalf("expected rarityType to map from cardRarityType, got %v", body.Items[0]["rarityType"])
+	}
+
+	if !reflect.DeepEqual(cache.getByIDCalls, []fakeCardGetByIDCall{
+		{region: "jp", entity: "cards", id: "3"},
+		{region: "jp", entity: "cards", id: "1"},
+		{region: "jp", entity: "cards", id: "999"},
+		{region: "jp", entity: "cards", id: "2"},
+	}) {
+		t.Fatalf("expected only direct card reads in first-seen request order, got %#v", cache.getByIDCalls)
+	}
+	if len(cache.searchCalls) != 0 || len(cache.listAllCalls) != 0 {
+		t.Fatalf("expected no search or list reads, got search=%#v list=%#v", cache.searchCalls, cache.listAllCalls)
+	}
+}
+
+func TestCardBatchEndpointRejectsInvalidIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "missing", path: "/api/v1/cards/jp/batch"},
+		{name: "empty", path: "/api/v1/cards/jp/batch?ids="},
+		{name: "empty component", path: "/api/v1/cards/jp/batch?ids=1,,2"},
+		{name: "non-numeric", path: "/api/v1/cards/jp/batch?ids=one"},
+		{name: "non-positive", path: "/api/v1/cards/jp/batch?ids=0"},
+		{name: "too many", path: "/api/v1/cards/jp/batch?ids=" + batchCardTestIDs(maxBatchCardIDs+1)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			router := gin.New()
+			router.GET("/api/v1/cards/:region/batch", newReadyCardHandler(&fakeCardHandlerCache{}).Batch)
+
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d", resp.Code)
+			}
+
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if body.Error.Code != "INVALID_REQUEST" {
+				t.Fatalf("expected INVALID_REQUEST, got %q", body.Error.Code)
+			}
+		})
+	}
+}
+
+func batchCardTestIDs(count int) string {
+	ids := make([]string, count)
+	for index := range ids {
+		ids[index] = strconv.Itoa(index + 1)
+	}
+	return strings.Join(ids, ",")
 }
 
 func (cache *fakeCardHandlerCache) ListAll(_ context.Context, _ string, entity string) ([]map[string]any, error) {

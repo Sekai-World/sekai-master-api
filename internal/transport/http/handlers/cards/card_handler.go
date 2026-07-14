@@ -21,6 +21,8 @@ type CardHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 }
 
+const maxBatchCardIDs = 100
+
 var sortableCardFields = []string{
 	"id",
 	"seq",
@@ -89,6 +91,101 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		return
 	}
 	response.JSON(c, http.StatusOK, item)
+}
+
+// Batch godoc
+// @Summary Get card metadata by IDs
+// @Tags cards
+// @Produce json
+// @Param region path string true "Region"
+// @Param ids query string true "Comma-separated card IDs (up to 100)"
+// @Success 200 {object} shared.CardBatchItemsResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cards/{region}/batch [get]
+func (handler *CardHandler) Batch(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	if region == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
+		return
+	}
+
+	ids, errMessage := parseBatchCardIDs(c)
+	if errMessage != "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", errMessage)
+		return
+	}
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "cards") {
+		return
+	}
+
+	items := make([]shared.CardBatchItemResponse, 0, len(ids))
+	for _, id := range ids {
+		record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "cards", id)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card batch")
+			return
+		}
+		if !found {
+			continue
+		}
+
+		items = append(items, shared.CardBatchItemResponse{
+			ID:              record["id"],
+			Prefix:          record["prefix"],
+			AssetbundleName: record["assetbundleName"],
+			Attr:            record["attr"],
+			RarityType:      record["cardRarityType"],
+		})
+	}
+
+	response.JSON(c, http.StatusOK, shared.CardBatchItemsResponse{Items: items})
+}
+
+func parseBatchCardIDs(c *gin.Context) ([]string, string) {
+	values := c.QueryArray("ids")
+	if len(values) == 0 {
+		return nil, "ids is required"
+	}
+
+	ids := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			rawID := strings.TrimSpace(part)
+			if rawID == "" {
+				return nil, "ids must contain positive integer IDs"
+			}
+
+			parsedID, err := strconv.ParseInt(rawID, 10, 64)
+			if err != nil || parsedID <= 0 {
+				return nil, "ids must contain positive integer IDs"
+			}
+
+			normalizedID := strconv.FormatInt(parsedID, 10)
+			if _, exists := seen[normalizedID]; exists {
+				continue
+			}
+			if len(ids) >= maxBatchCardIDs {
+				return nil, "ids must contain no more than 100 IDs"
+			}
+
+			seen[normalizedID] = struct{}{}
+			ids = append(ids, normalizedID)
+		}
+	}
+
+	if len(ids) == 0 {
+		return nil, "ids is required"
+	}
+
+	return ids, ""
 }
 
 // AvailableRegionsByID godoc
