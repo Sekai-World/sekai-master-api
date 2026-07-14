@@ -21,7 +21,7 @@ COPY .env.development .env.example .env.test /tmp/env/
 RUN mkdir -p /out/env && \
 	find /tmp/env -maxdepth 1 -type f -name '.env*' -exec cp {} /out/env/ \;
 
-FROM alpine:3.23 AS runtime-assets
+FROM alpine:3.24 AS runtime-assets
 
 RUN apk add --no-cache ca-certificates tzdata
 
