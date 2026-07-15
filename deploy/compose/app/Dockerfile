@@ -25,7 +25,7 @@ FROM alpine:3.24 AS runtime-assets
 
 RUN apk add --no-cache ca-certificates tzdata
 
-FROM busybox:1.37.0-musl
+FROM busybox:1.38.0-musl
 
 WORKDIR /app
 
