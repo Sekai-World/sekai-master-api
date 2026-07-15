@@ -4,6 +4,7 @@
     "config:recommended",
     ":enableVulnerabilityAlerts"
   ],
+  "minimumReleaseAgeBehaviour": "timestamp-required",
   "docker-compose": {
     "managerFilePatterns": [
       "/(^|/|\\.)compose[^/]*\\.ya?ml$/",
@@ -15,6 +16,20 @@
     {
       "matchManagers": ["gomod"],
       "constraintsFiltering": "strict"
+    },
+    {
+      "matchManagers": ["gomod", "dockerfile", "docker-compose", "mise", "github-actions"],
+      "minimumReleaseAge": "1 day"
+    },
+    {
+      "matchManagers": ["gomod", "dockerfile", "docker-compose", "mise", "github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["gomod", "dockerfile", "docker-compose", "mise", "github-actions"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
     }
   ]
 }
