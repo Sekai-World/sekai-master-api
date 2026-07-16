@@ -815,12 +815,6 @@ definitions:
       id: {}
       unit: {}
     type: object
-  shared.GenericItemsResponse:
-    properties:
-      items:
-        items: {}
-        type: array
-    type: object
   shared.GenericObjectResponse:
     additionalProperties: {}
     type: object
@@ -1187,6 +1181,135 @@ definitions:
       unit: {}
       unitName: {}
     type: object
+  shared.VirtualLiveAppeal:
+    properties:
+      appealText:
+        type: string
+      id:
+        type: integer
+      virtualLiveId:
+        type: integer
+      virtualLiveStageStatus:
+        type: string
+    required:
+    - appealText
+    - id
+    - virtualLiveId
+    - virtualLiveStageStatus
+    type: object
+  shared.VirtualLiveBackgroundMusic:
+    properties:
+      backgroundMusicId:
+        type: integer
+      id:
+        type: integer
+      virtualLiveId:
+        type: integer
+    required:
+    - backgroundMusicId
+    - id
+    - virtualLiveId
+    type: object
+  shared.VirtualLiveBeginnerSchedule:
+    properties:
+      dayOfWeek:
+        type: string
+      endTime:
+        type: string
+      id:
+        type: integer
+      startTime:
+        type: string
+      virtualLiveId:
+        type: integer
+    required:
+    - dayOfWeek
+    - endTime
+    - id
+    - startTime
+    - virtualLiveId
+    type: object
+  shared.VirtualLiveCharacter:
+    properties:
+      gameCharacterUnitId:
+        type: integer
+      id:
+        type: integer
+      seq:
+        type: integer
+      subGameCharacter2dId:
+        type: integer
+      virtualLiveId:
+        type: integer
+      virtualLivePerformanceType:
+        type: string
+    required:
+    - id
+    - seq
+    - virtualLiveId
+    type: object
+  shared.VirtualLiveInformation:
+    properties:
+      description:
+        type: string
+      summary:
+        type: string
+      virtualLiveId:
+        type: integer
+    type: object
+  shared.VirtualLiveItem:
+    properties:
+      assetbundleName:
+        type: string
+      cheerPoint:
+        type: integer
+      costJewel:
+        type: integer
+      costVirtualCoin:
+        type: integer
+      effectAssetbundleName:
+        type: string
+      effectExpressionType:
+        type: string
+      gameCharacterUnitId:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      priority:
+        type: integer
+      seq:
+        type: integer
+      subGameCharacterId:
+        type: integer
+      unit:
+        type: string
+      virtualItemCategory:
+        type: string
+      virtualItemLabelType:
+        type: string
+    required:
+    - assetbundleName
+    - costJewel
+    - costVirtualCoin
+    - effectAssetbundleName
+    - effectExpressionType
+    - id
+    - name
+    - priority
+    - seq
+    - virtualItemCategory
+    type: object
+  shared.VirtualLiveItemsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveItem'
+        type: array
+    required:
+    - items
+    type: object
   shared.VirtualLiveListResponse:
     properties:
       items:
@@ -1195,9 +1318,207 @@ definitions:
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
+    required:
+    - items
+    - pagination
     type: object
   shared.VirtualLiveObjectResponse:
-    additionalProperties: {}
+    properties:
+      archiveReleaseConditionId:
+        type: integer
+      assetbundleName:
+        type: string
+      endAt:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      pamphlet:
+        additionalProperties: {}
+        type: object
+        x-nullable: true
+      rankingAnnounceAt:
+        type: integer
+      screenMvMusicVocal:
+        additionalProperties: {}
+        type: object
+        x-nullable: true
+      seq:
+        type: integer
+      startAt:
+        type: integer
+      subGameCharacterPenlightColorGroupId:
+        type: integer
+      ticket:
+        additionalProperties: {}
+        type: object
+        x-nullable: true
+      virtualLiveAppeals:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveAppeal'
+        type: array
+      virtualLiveBackgroundMusics:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveBackgroundMusic'
+        type: array
+      virtualLiveBeginnerSchedules:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveBeginnerSchedule'
+        type: array
+      virtualLiveCharacters:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveCharacter'
+        type: array
+      virtualLiveCheerPointRewards:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      virtualLiveGroup:
+        additionalProperties: {}
+        type: object
+        x-nullable: true
+      virtualLiveInformation:
+        $ref: '#/definitions/shared.VirtualLiveInformation'
+      virtualLivePlatform:
+        type: string
+      virtualLiveReward:
+        $ref: '#/definitions/shared.VirtualLiveReward'
+      virtualLiveRewards:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveReward'
+        type: array
+      virtualLiveType:
+        type: string
+      virtualLiveWaitingRoom:
+        $ref: '#/definitions/shared.VirtualLiveWaitingRoom'
+    required:
+    - assetbundleName
+    - endAt
+    - id
+    - name
+    - pamphlet
+    - rankingAnnounceAt
+    - seq
+    - startAt
+    - ticket
+    - virtualLivePlatform
+    - virtualLiveType
+    type: object
+  shared.VirtualLiveReward:
+    properties:
+      id:
+        type: integer
+      resourceBoxId:
+        type: integer
+      virtualLiveId:
+        type: integer
+      virtualLiveType:
+        type: string
+    required:
+    - id
+    - resourceBoxId
+    - virtualLiveId
+    - virtualLiveType
+    type: object
+  shared.VirtualLiveSchedule:
+    properties:
+      endAt:
+        type: integer
+      id:
+        type: integer
+      isAfterEvent:
+        type: boolean
+      noticeGroupId:
+        type: integer
+      seq:
+        type: integer
+      startAt:
+        type: integer
+      virtualLiveId:
+        type: integer
+    required:
+    - endAt
+    - id
+    - seq
+    - startAt
+    - virtualLiveId
+    type: object
+  shared.VirtualLiveSchedulesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveSchedule'
+        type: array
+    required:
+    - items
+    type: object
+  shared.VirtualLiveSetlist:
+    properties:
+      assetbundleName:
+        type: string
+      character3dId1:
+        type: integer
+      character3dId2:
+        type: integer
+      character3dId3:
+        type: integer
+      character3dId4:
+        type: integer
+      character3dId5:
+        type: integer
+      character3dId6:
+        type: integer
+      id:
+        type: integer
+      musicId:
+        type: integer
+      musicVocalId:
+        type: integer
+      seq:
+        type: integer
+      virtualLiveId:
+        type: integer
+      virtualLiveSetlistType:
+        type: string
+      virtualLiveStageId:
+        type: integer
+    required:
+    - id
+    - seq
+    - virtualLiveId
+    - virtualLiveSetlistType
+    type: object
+  shared.VirtualLiveSetlistsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveSetlist'
+        type: array
+    required:
+    - items
+    type: object
+  shared.VirtualLiveWaitingRoom:
+    properties:
+      assetbundleName:
+        type: string
+      endAt:
+        type: integer
+      id:
+        type: integer
+      lobbyAssetbundleName:
+        type: string
+      startAt:
+        type: integer
+      virtualLiveId:
+        type: integer
+    required:
+    - assetbundleName
+    - endAt
+    - id
+    - startAt
+    - virtualLiveId
     type: object
 info:
   contact: {}
@@ -3109,7 +3430,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.GenericItemsResponse'
+            $ref: '#/definitions/shared.VirtualLiveItemsResponse'
         "400":
           description: Bad Request
           schema:
@@ -3148,7 +3469,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.GenericItemsResponse'
+            $ref: '#/definitions/shared.VirtualLiveSchedulesResponse'
         "400":
           description: Bad Request
           schema:
@@ -3187,7 +3508,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shared.GenericItemsResponse'
+            $ref: '#/definitions/shared.VirtualLiveSetlistsResponse'
         "400":
           description: Bad Request
           schema:
@@ -3234,6 +3555,20 @@ paths:
       - description: Sort order (asc|desc)
         in: query
         name: sort_order
+        type: string
+      - description: Case-insensitive (trimmed) substring match against the virtual
+          live name
+        in: query
+        name: name
+        type: string
+      - description: Exact virtual live id
+        in: query
+        name: id
+        type: integer
+      - description: Comma-separated virtual live types (OR within parameter, AND
+          combined with other filters)
+        in: query
+        name: virtual_live_type
         type: string
       produces:
       - application/json

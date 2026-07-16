@@ -167,7 +167,19 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 						"virtualLiveType":      "normal",
 						"virtualLiveGroupId":   77,
 						"virtualItems": []any{
-							map[string]any{"virtualItemId": 1, "quantity": 2},
+							map[string]any{
+								"id":                    1,
+								"name":                  "Confetti",
+								"assetbundleName":       "cracker_001",
+								"effectAssetbundleName": "cracker_001",
+								"effectExpressionType":  "throw_effect",
+								"virtualItemCategory":   "normal",
+								"virtualItemLabelType":  "normal",
+								"priority":              10,
+								"seq":                   10,
+								"costJewel":             10,
+								"costVirtualCoin":       30,
+							},
 						},
 						"virtualLiveSchedules": []any{
 							map[string]any{"id": 10, "startAt": 1000},
@@ -304,8 +316,32 @@ func TestVirtualLiveItemsByIDEndpointReturnsItems(t *testing.T) {
 						"id":   501,
 						"name": "after live",
 						"virtualItems": []any{
-							map[string]any{"virtualItemId": 1, "quantity": 2},
-							map[string]any{"virtualItemId": 2, "quantity": 1},
+							map[string]any{
+								"id":                    1,
+								"name":                  "Confetti",
+								"assetbundleName":       "cracker_001",
+								"effectAssetbundleName": "cracker_001",
+								"effectExpressionType":  "throw_effect",
+								"virtualItemCategory":   "normal",
+								"virtualItemLabelType":  "normal",
+								"priority":              10,
+								"seq":                   10,
+								"costJewel":             10,
+								"costVirtualCoin":       30,
+							},
+							map[string]any{
+								"id":                    2,
+								"name":                  "Balloon",
+								"assetbundleName":       "baloon_001",
+								"effectAssetbundleName": "baloon_001",
+								"effectExpressionType":  "throw_effect",
+								"virtualItemCategory":   "normal",
+								"virtualItemLabelType":  "normal",
+								"priority":              20,
+								"seq":                   20,
+								"costJewel":             30,
+								"costVirtualCoin":       90,
+							},
 						},
 					},
 				},
@@ -559,7 +595,19 @@ func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 				"assetbundleName": "vl_501",
 				"virtualLiveType": "normal",
 				"virtualItems": []any{
-					map[string]any{"virtualItemId": 1, "quantity": 2},
+					map[string]any{
+						"id":                    1,
+						"name":                  "Confetti",
+						"assetbundleName":       "cracker_001",
+						"effectAssetbundleName": "cracker_001",
+						"effectExpressionType":  "throw_effect",
+						"virtualItemCategory":   "normal",
+						"virtualItemLabelType":  "normal",
+						"priority":              10,
+						"seq":                   10,
+						"costJewel":             10,
+						"costVirtualCoin":       30,
+					},
 				},
 				"virtualLiveSchedules": []any{
 					map[string]any{"id": 10, "startAt": 1000},
@@ -648,7 +696,19 @@ func TestVirtualLivePersistedRecordsReturnDataWhenIndexMissing(t *testing.T) {
 						"virtualLiveGroupId":   77,
 						"screenMvMusicVocalId": 29,
 						"virtualItems": []any{
-							map[string]any{"virtualItemId": 1, "quantity": 2},
+							map[string]any{
+								"id":                    1,
+								"name":                  "Confetti",
+								"assetbundleName":       "cracker_001",
+								"effectAssetbundleName": "cracker_001",
+								"effectExpressionType":  "throw_effect",
+								"virtualItemCategory":   "normal",
+								"virtualItemLabelType":  "normal",
+								"priority":              10,
+								"seq":                   10,
+								"costJewel":             10,
+								"costVirtualCoin":       30,
+							},
 						},
 						"virtualLiveSchedules": []any{
 							map[string]any{"id": 10, "startAt": 1000},
@@ -667,7 +727,19 @@ func TestVirtualLivePersistedRecordsReturnDataWhenIndexMissing(t *testing.T) {
 				"assetbundleName": "vl_501",
 				"virtualLiveType": "normal",
 				"virtualItems": []any{
-					map[string]any{"virtualItemId": 1, "quantity": 2},
+					map[string]any{
+						"id":                    1,
+						"name":                  "Confetti",
+						"assetbundleName":       "cracker_001",
+						"effectAssetbundleName": "cracker_001",
+						"effectExpressionType":  "throw_effect",
+						"virtualItemCategory":   "normal",
+						"virtualItemLabelType":  "normal",
+						"priority":              10,
+						"seq":                   10,
+						"costJewel":             10,
+						"costVirtualCoin":       30,
+					},
 				},
 				"virtualLiveSchedules": []any{
 					map[string]any{"id": 10, "startAt": 1000},
@@ -714,5 +786,333 @@ func TestVirtualLivePersistedRecordsReturnDataWhenIndexMissing(t *testing.T) {
 				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 			}
 		})
+	}
+}
+
+func virtualLiveListFixture() []map[string]any {
+	return []map[string]any{
+		{
+			"id":              501,
+			"name":            "After Live Concert",
+			"assetbundleName": "vl_501",
+			"virtualLiveType": "normal",
+		},
+		{
+			"id":              502,
+			"name":            "Beginner Live Show",
+			"assetbundleName": "vl_502",
+			"virtualLiveType": "beginner",
+		},
+		{
+			"id":              503,
+			"name":            "Cheerful Carnival",
+			"assetbundleName": "vl_503",
+			"virtualLiveType": "cheerful_carnival",
+		},
+	}
+}
+
+func TestVirtualLiveListFilterByNameMatchesNormalizedSubstring(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		listItems: virtualLiveListFixture(),
+		listTotal: 3,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?name=after%20live&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	items := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item matching name filter, got %d", len(items))
+	}
+	item := items[0].(map[string]any)
+	if item["id"] != float64(501) {
+		t.Fatalf("expected matched id=501, got %v", item["id"])
+	}
+}
+
+func TestVirtualLiveListFilterByExactID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		listItems: virtualLiveListFixture(),
+		listTotal: 3,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	// id is parsed as a numeric value, so zero-padded (+501, 0501) and plain
+	// (502) forms must match the underlying record id exactly.
+	cases := []struct {
+		name   string
+		query  string
+		wantID float64
+	}{
+		{"plain", "id=502", 502},
+		{"zero-padded", "id=0501", 501},
+		{"explicit-plus", "id=%2B501", 501},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?"+tc.query+"&page=1&page_size=20", nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			var body map[string]any
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			items := body["items"].([]any)
+			if len(items) != 1 || items[0].(map[string]any)["id"] != tc.wantID {
+				t.Fatalf("expected exactly id=%v, got %v", tc.wantID, body["items"])
+			}
+		})
+	}
+}
+
+func TestVirtualLiveListFilterByTypeUsesORWithinParameterAndANDWithOthers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		listItems: virtualLiveListFixture(),
+		listTotal: 3,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	// Comma-separated OR within the type parameter; trims and de-duplicates.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?virtual_live_type=normal,%20beginner%20,normal&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	items := body["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items from OR'd types, got %d", len(items))
+	}
+	for _, it := range items {
+		typ := it.(map[string]any)["virtualLiveType"]
+		if typ != "normal" && typ != "beginner" {
+			t.Fatalf("unexpected type in OR result: %v", typ)
+		}
+	}
+}
+
+func TestVirtualLiveListFilterByUnknownTypeReturnsNoMatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		listItems: virtualLiveListFixture(),
+		listTotal: 3,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?virtual_live_type=does_not_exist&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	items := body["items"].([]any)
+	if len(items) != 0 {
+		t.Fatalf("expected 0 items for unknown type, got %d", len(items))
+	}
+}
+
+func TestVirtualLiveListFilterRejectsNonNumericID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		listItems: virtualLiveListFixture(),
+		listTotal: 3,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?id=abc&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for non-numeric id, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestVirtualLiveListCombinesFiltersWithAND(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		listItems: virtualLiveListFixture(),
+		listTotal: 3,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	// name "live" matches all three; type filter restricts to beginner only.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?name=live&virtual_live_type=beginner&page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	items := body["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["id"] != float64(502) {
+		t.Fatalf("expected exactly id=502 from combined filters, got %v", body["items"])
+	}
+}
+
+func TestVirtualLiveListDefaultBranchPreservedWhenNoNewFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		listItems: virtualLiveListFixture(),
+		listTotal: 3,
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/list", handler.List)
+
+	// No name/id/type filter; spoiler=true (default) and no sort => index-page branch.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	items := body["items"].([]any)
+	if len(items) != 3 {
+		t.Fatalf("expected default branch to return all 3 items, got %d", len(items))
+	}
+	pagination := body["pagination"].(map[string]any)
+	if int(pagination["total"].(float64)) != 3 {
+		t.Fatalf("expected pagination.total=3, got %v", pagination["total"])
+	}
+}
+
+func TestVirtualLiveItemsEndpointPassesThroughRawPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Item includes a sentinel field NOT modeled by VirtualLiveItem DTO plus a
+	// zero value, proving the endpoint forwards raw payloads unchanged.
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":   501,
+						"name": "after live",
+						"virtualItems": []any{
+							map[string]any{
+								"id":                    1,
+								"name":                  "Confetti",
+								"assetbundleName":       "cracker_001",
+								"effectAssetbundleName": "cracker_001",
+								"effectExpressionType":  "throw_effect",
+								"virtualItemCategory":   "normal",
+								"virtualItemLabelType":  "normal",
+								"priority":              10,
+								"seq":                   10,
+								"costJewel":             10,
+								"costVirtualCoin":       30,
+								"cheerPoint":            5,
+								"unit":                  "",
+								"unmodeledSentinel":     "keep-me",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id/items", handler.ItemsByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501/items", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(body.Items))
+	}
+	item := body.Items[0]
+	if item["name"] != "Confetti" {
+		t.Fatalf("expected name=Confetti, got %v", item["name"])
+	}
+	if int(item["cheerPoint"].(float64)) != 5 {
+		t.Fatalf("expected cheerPoint=5, got %v", item["cheerPoint"])
+	}
+	if item["unmodeledSentinel"] != "keep-me" {
+		t.Fatalf("expected passthrough of unmodeled sentinel field, got %v", item["unmodeledSentinel"])
+	}
+	if item["unit"] != "" {
+		t.Fatalf("expected zero-value unit to be preserved, got %v", item["unit"])
 	}
 }
