@@ -45,8 +45,15 @@ func setupRouterWithEnv(t *testing.T, appEnv string) http.Handler {
 func setupRouterWithEnvAndStartupReady(t *testing.T, appEnv string, ready bool) http.Handler {
 	t.Helper()
 
+	return setupRouterWithRoleAndStartupReady(t, appEnv, config.AppRoleStandalone, ready)
+}
+
+func setupRouterWithRoleAndStartupReady(t *testing.T, appEnv string, role config.AppRole, ready bool) http.Handler {
+	t.Helper()
+
 	cfg := config.Config{
 		Port:               "8080",
+		Role:               role,
 		AppEnv:             appEnv,
 		OIDCIssuerURL:      "https://auth.example.com",
 		OIDCInternalURL:    "https://auth-internal.example.com",
@@ -82,6 +89,7 @@ func setupRouterWithEnvAndAdminClaim(t *testing.T, appEnv string, claim string, 
 
 	cfg := config.Config{
 		Port:                 "8080",
+		Role:                 config.AppRoleStandalone,
 		AppEnv:               appEnv,
 		OIDCIssuerURL:        "https://auth.example.com",
 		OIDCInternalURL:      "https://auth-internal.example.com",
@@ -789,5 +797,141 @@ func TestAdminLoginCallbackInvalidState(t *testing.T) {
 
 	if location := resp.Header().Get("Location"); location != "/admin/login?error=oauth_state_mismatch" {
 		t.Fatalf("expected redirect to login error page, got %q", location)
+	}
+}
+
+// expectStatusForRoles asserts that a GET request to path returns want across the
+// provided roles (used to prove a route is present or absent per role).
+func expectStatusForRoles(t *testing.T, path string, roles []config.AppRole, want int) {
+	t.Helper()
+	for _, role := range roles {
+		router := setupRouterWithRoleAndStartupReady(t, "test", role, true)
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != want {
+			t.Fatalf("role=%s path=%s: expected %d, got %d", role, path, want, resp.Code)
+		}
+	}
+}
+
+func TestStandaloneRoleExposesPublicAndAdmin(t *testing.T) {
+	expectStatusForRoles(t, "/api/v1/health", []config.AppRole{config.AppRoleStandalone}, http.StatusOK)
+	expectStatusForRoles(t, "/api/v1/admin/profile", []config.AppRole{config.AppRoleStandalone}, http.StatusUnauthorized)
+	expectStatusForRoles(t, "/admin/login", []config.AppRole{config.AppRoleStandalone}, http.StatusOK)
+}
+
+func TestServeRoleExposesPublicButNotAdmin(t *testing.T) {
+	router := setupRouterWithRoleAndStartupReady(t, "test", config.AppRoleServe, true)
+
+	// Public read routes must be present.
+	publicReq := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	publicResp := httptest.NewRecorder()
+	router.ServeHTTP(publicResp, publicReq)
+	if publicResp.Code != http.StatusOK {
+		t.Fatalf("serve role: expected /api/v1/health 200, got %d", publicResp.Code)
+	}
+
+	// Admin UI / API must not be reachable.
+	for _, path := range []string{
+		"/admin/login",
+		"/admin",
+		"/api/v1/admin/profile",
+		"/api/v1/admin/master-data/status",
+		"/api/v1/admin/master-data/sync",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("serve role: expected %s 404, got %d", path, resp.Code)
+		}
+	}
+
+	// Internal write-triggering webhook must not be exposed by serve.
+	webhook := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(`{}`))
+	webhook.Header.Set("X-GitHub-Event", "push")
+	webhookResp := httptest.NewRecorder()
+	router.ServeHTTP(webhookResp, webhook)
+	if webhookResp.Code != http.StatusNotFound {
+		t.Fatalf("serve role: expected internal webhook 404, got %d", webhookResp.Code)
+	}
+}
+
+func TestControlRoleExposesAdminButNotPublicQueries(t *testing.T) {
+	router := setupRouterWithRoleAndStartupReady(t, "test", config.AppRoleControl, true)
+
+	// Admin surface must be present.
+	loginReq := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
+	loginResp := httptest.NewRecorder()
+	router.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("control role: expected /admin/login 200, got %d", loginResp.Code)
+	}
+
+	profileReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/profile", nil)
+	profileResp := httptest.NewRecorder()
+	router.ServeHTTP(profileResp, profileReq)
+	if profileResp.Code != http.StatusUnauthorized {
+		t.Fatalf("control role: expected /api/v1/admin/profile 401 (no token), got %d", profileResp.Code)
+	}
+
+	// Public data query endpoints must not be exposed by control.
+	publicPaths := []string{
+		"/api/v1/versions/jp",
+		"/api/v1/cards/jp/1001",
+		"/api/v1/musics/jp/list",
+	}
+	for _, path := range publicPaths {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("control role: expected %s 404, got %d", path, resp.Code)
+		}
+	}
+
+	// The control role still exposes /api/v1/health for orchestration checks.
+	healthReq := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	healthResp := httptest.NewRecorder()
+	router.ServeHTTP(healthResp, healthReq)
+	if healthResp.Code != http.StatusOK {
+		t.Fatalf("control role: expected /api/v1/health 200, got %d", healthResp.Code)
+	}
+}
+
+func TestControlRoleExposesHealthAndInternalWebhook(t *testing.T) {
+	// Control owns sync, so the internal webhook and admin sync endpoints must be present.
+	router := setupRouterWithRoleAndStartupReady(t, "test", config.AppRoleControl, true)
+
+	webhook := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(`{}`))
+	webhook.Header.Set("X-GitHub-Event", "push")
+	webhookResp := httptest.NewRecorder()
+	router.ServeHTTP(webhookResp, webhook)
+	// No sync service wired in tests => 503, but the route exists (not 404).
+	if webhookResp.Code == http.StatusNotFound {
+		t.Fatalf("control role: expected internal webhook to be registered, got 404")
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/master-data/status", nil)
+	statusResp := httptest.NewRecorder()
+	router.ServeHTTP(statusResp, statusReq)
+	if statusResp.Code != http.StatusUnauthorized {
+		t.Fatalf("control role: expected /api/v1/admin/master-data/status 401 (no token), got %d", statusResp.Code)
+	}
+}
+
+func TestAppRoleResolutionDefaultsToStandalone(t *testing.T) {
+	if got := config.ResolveAppRole(""); got != config.AppRoleStandalone {
+		t.Fatalf("expected empty role to resolve to standalone, got %q", got)
+	}
+	if got := config.ResolveAppRole("garbage"); got != config.AppRoleStandalone {
+		t.Fatalf("expected invalid role to resolve to standalone, got %q", got)
+	}
+	if got := config.ResolveAppRole("serve"); got != config.AppRoleServe {
+		t.Fatalf("expected serve to resolve, got %q", got)
+	}
+	if got := config.ResolveAppRole("CONTROL"); got != config.AppRoleControl {
+		t.Fatalf("expected CONTROL (case-insensitive) to resolve, got %q", got)
 	}
 }

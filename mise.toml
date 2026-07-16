@@ -62,3 +62,32 @@ else
   exit 1
 fi
 '''
+
+[tasks.run-standalone]
+description = "Run the monolithic standalone API role (public + admin) on APP_PORT (default 18080)"
+run = "go run -buildvcs=false ./cmd/api standalone"
+
+[tasks.run-serve]
+description = "Run the public read/query role (no admin UI/API, no migrations/sync) on APP_PORT_SERVE (default 18080)"
+run = "APP_PORT=${APP_PORT_SERVE:-18080} go run -buildvcs=false ./cmd/api serve"
+
+[tasks.run-control]
+description = "Run the operational/admin role (admin UI/API, migrations/sync; no public queries) on APP_PORT_CONTROL (default 18081)"
+run = "APP_PORT=${APP_PORT_CONTROL:-18081} go run -buildvcs=false ./cmd/api control"
+
+[tasks.dev-split]
+description = "Run the split serve + control roles locally with the dev dependency stack"
+run = '''
+mise run --skip-tools dev-env-up
+mise run --skip-tools run-serve &
+serve_pid=$!
+mise run --skip-tools run-control &
+control_pid=$!
+
+cleanup() {
+  kill "$serve_pid" "$control_pid" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+wait "$serve_pid" "$control_pid"
+'''

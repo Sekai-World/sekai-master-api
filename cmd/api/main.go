@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -28,6 +29,8 @@ import (
 // @name Authorization
 
 func main() {
+	applyRoleSubcommandFromArgs()
+
 	cfg := config.Load()
 
 	cleanupLogger, err := logging.Setup(cfg.LogLevel, cfg.IsDevelopment(), cfg.LokiPushURL)
@@ -54,9 +57,12 @@ func main() {
 	}
 	defer db.Close()
 
-	tokenVerifier, err := auth.NewOIDCVerifier(context.Background(), cfg)
-	if err != nil {
-		logger.Fatalf("failed to initialize oidc verifier: %v", err)
+	var tokenVerifier auth.TokenVerifier
+	if cfg.NeedsAdminSurface() {
+		tokenVerifier, err = auth.NewOIDCVerifier(context.Background(), cfg)
+		if err != nil {
+			logger.Fatalf("failed to initialize oidc verifier: %v", err)
+		}
 	}
 
 	masterDataSources := buildMasterDataSources(cfg)
@@ -104,12 +110,22 @@ func main() {
 	if err != nil {
 		logger.Fatalf("failed to listen on port %s: %v", cfg.Port, err)
 	}
-	logger.Infow("api server listening", "addr", listener.Addr().String())
+	logger.Infow("api server listening", "addr", listener.Addr().String(), "role", string(cfg.Role))
 
 	serverErrCh := make(chan error, 1)
 	go func() {
 		serverErrCh <- router.RunListener(listener)
 	}()
+
+	// The `serve` role is a pure public read workload: it must not run
+	// migrations, search-index warmup, master-data sync, or interrupted-sync
+	// recovery. It is immediately ready because those lifecycle jobs are owned
+	// by the `control` (or `standalone`) role.
+	if !cfg.OwnsSyncLifecycle() {
+		startupState.MarkReady()
+		logger.Infow("serve role startup complete; public routes enabled without lifecycle jobs")
+		waitForServer(serverErrCh, logger)
+	}
 
 	go func() {
 		if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
@@ -119,7 +135,14 @@ func main() {
 		startupState.MarkReady()
 		logger.Infow("startup migrations completed; general api routes enabled")
 
-		if len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes {
+		// Search-index warmup enables persisted Redis indexes for read/search
+		// traffic. The pure `control` role never serves public read traffic, so
+		// it does not run the local decoded-index warmup; doing so would needlessly
+		// decode persisted indexes into control process memory. Persisted indexes
+		// are (re)built by sync / force-sync in `control` and by warmup in
+		// `standalone`, so this only disables the optional startup decode path for
+		// `control` and does not remove any repair behavior.
+		if len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes && cfg.Role != config.AppRoleControl {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
 				defer cancel()
@@ -142,6 +165,8 @@ func main() {
 					"rebuilt_regions", rebuiltRegions,
 				)
 			}()
+		} else if cfg.Role == config.AppRoleControl && cfg.MasterDataWarmSearchIndexes {
+			logger.Infow("control role skips local search-index warmup; persisted indexes are built during sync/force-sync")
 		}
 
 		if len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted) {
@@ -185,8 +210,29 @@ func main() {
 		}
 	}()
 
+	waitForServer(serverErrCh, logger)
+}
+
+func waitForServer(serverErrCh chan error, logger *zap.SugaredLogger) {
 	if err := <-serverErrCh; err != nil {
 		logger.Fatalf("server exited with error: %v", err)
+	}
+}
+
+// applyRoleSubcommandFromArgs lets the first positional argument select the
+// runtime role via `APP_ROLE`, so `sekai-master-api serve`/`control`/`standalone`
+// is equivalent to `APP_ROLE=serve`/`control`/`standalone`. Invocation with no
+// recognized subcommand (or no args) leaves APP_ROLE unset, which resolves to
+// the standalone default defined in config. Unknown subcommands fall back to the
+// default rather than failing, keeping current "run without args" behavior.
+func applyRoleSubcommandFromArgs() {
+	if len(os.Args) < 2 {
+		return
+	}
+
+	switch config.AppRole(os.Args[1]) {
+	case config.AppRoleServe, config.AppRoleControl, config.AppRoleStandalone:
+		_ = os.Setenv("APP_ROLE", os.Args[1])
 	}
 }
 

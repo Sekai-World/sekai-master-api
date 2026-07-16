@@ -168,7 +168,7 @@ func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 		client:                  client,
 		keyPrefix:               cfg.MasterDataRedisKeyPrefix,
 		fileConcurrency:         fileConcurrency,
-		searchIndexCacheEntries: cfg.MasterDataSearchIndexCacheEntries,
+		searchIndexCacheEntries: cfg.EffectiveSearchIndexCacheEntries(),
 		index:                   make(map[string]map[string]*entitySearchIndex),
 		indexOrder:              list.New(),
 		indexEntries:            make(map[string]*list.Element),
