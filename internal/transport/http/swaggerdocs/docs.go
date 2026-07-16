@@ -2915,6 +2915,24 @@ const docTemplate = `{
                         "description": "Sort order (asc|desc)",
                         "name": "sort_order",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive (trimmed) substring match against the virtual live name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Exact virtual live id",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated virtual live types (OR within parameter, AND combined with other filters)",
+                        "name": "virtual_live_type",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3033,7 +3051,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericItemsResponse"
+                            "$ref": "#/definitions/shared.VirtualLiveItemsResponse"
                         }
                     },
                     "400": {
@@ -3092,7 +3110,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericItemsResponse"
+                            "$ref": "#/definitions/shared.VirtualLiveSchedulesResponse"
                         }
                     },
                     "400": {
@@ -3151,7 +3169,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericItemsResponse"
+                            "$ref": "#/definitions/shared.VirtualLiveSetlistsResponse"
                         }
                     },
                     "400": {
@@ -4374,15 +4392,6 @@ const docTemplate = `{
                 "unit": {}
             }
         },
-        "shared.GenericItemsResponse": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {}
-                }
-            }
-        },
         "shared.GenericObjectResponse": {
             "type": "object",
             "additionalProperties": {}
@@ -4919,8 +4928,199 @@ const docTemplate = `{
                 "unitName": {}
             }
         },
+        "shared.VirtualLiveAppeal": {
+            "type": "object",
+            "required": [
+                "appealText",
+                "id",
+                "virtualLiveId",
+                "virtualLiveStageStatus"
+            ],
+            "properties": {
+                "appealText": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                },
+                "virtualLiveStageStatus": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.VirtualLiveBackgroundMusic": {
+            "type": "object",
+            "required": [
+                "backgroundMusicId",
+                "id",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "backgroundMusicId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.VirtualLiveBeginnerSchedule": {
+            "type": "object",
+            "required": [
+                "dayOfWeek",
+                "endTime",
+                "id",
+                "startTime",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "dayOfWeek": {
+                    "type": "string"
+                },
+                "endTime": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "startTime": {
+                    "type": "string"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.VirtualLiveCharacter": {
+            "type": "object",
+            "required": [
+                "id",
+                "seq",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "gameCharacterUnitId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "subGameCharacter2dId": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                },
+                "virtualLivePerformanceType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.VirtualLiveInformation": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.VirtualLiveItem": {
+            "type": "object",
+            "required": [
+                "assetbundleName",
+                "costJewel",
+                "costVirtualCoin",
+                "effectAssetbundleName",
+                "effectExpressionType",
+                "id",
+                "name",
+                "priority",
+                "seq",
+                "virtualItemCategory"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "cheerPoint": {
+                    "type": "integer"
+                },
+                "costJewel": {
+                    "type": "integer"
+                },
+                "costVirtualCoin": {
+                    "type": "integer"
+                },
+                "effectAssetbundleName": {
+                    "type": "string"
+                },
+                "effectExpressionType": {
+                    "type": "string"
+                },
+                "gameCharacterUnitId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "subGameCharacterId": {
+                    "type": "integer"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "virtualItemCategory": {
+                    "type": "string"
+                },
+                "virtualItemLabelType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.VirtualLiveItemsResponse": {
+            "type": "object",
+            "required": [
+                "items"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveItem"
+                    }
+                }
+            }
+        },
         "shared.VirtualLiveListResponse": {
             "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
             "properties": {
                 "items": {
                     "type": "array",
@@ -4935,7 +5135,287 @@ const docTemplate = `{
         },
         "shared.VirtualLiveObjectResponse": {
             "type": "object",
-            "additionalProperties": {}
+            "required": [
+                "assetbundleName",
+                "endAt",
+                "id",
+                "name",
+                "pamphlet",
+                "rankingAnnounceAt",
+                "seq",
+                "startAt",
+                "ticket",
+                "virtualLivePlatform",
+                "virtualLiveType"
+            ],
+            "properties": {
+                "archiveReleaseConditionId": {
+                    "type": "integer"
+                },
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "endAt": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pamphlet": {
+                    "type": "object",
+                    "additionalProperties": {},
+                    "x-nullable": true
+                },
+                "rankingAnnounceAt": {
+                    "type": "integer"
+                },
+                "screenMvMusicVocal": {
+                    "type": "object",
+                    "additionalProperties": {},
+                    "x-nullable": true
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "startAt": {
+                    "type": "integer"
+                },
+                "subGameCharacterPenlightColorGroupId": {
+                    "type": "integer"
+                },
+                "ticket": {
+                    "type": "object",
+                    "additionalProperties": {},
+                    "x-nullable": true
+                },
+                "virtualLiveAppeals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveAppeal"
+                    }
+                },
+                "virtualLiveBackgroundMusics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveBackgroundMusic"
+                    }
+                },
+                "virtualLiveBeginnerSchedules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveBeginnerSchedule"
+                    }
+                },
+                "virtualLiveCharacters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveCharacter"
+                    }
+                },
+                "virtualLiveCheerPointRewards": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "virtualLiveGroup": {
+                    "type": "object",
+                    "additionalProperties": {},
+                    "x-nullable": true
+                },
+                "virtualLiveInformation": {
+                    "$ref": "#/definitions/shared.VirtualLiveInformation"
+                },
+                "virtualLivePlatform": {
+                    "type": "string"
+                },
+                "virtualLiveReward": {
+                    "$ref": "#/definitions/shared.VirtualLiveReward"
+                },
+                "virtualLiveRewards": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveReward"
+                    }
+                },
+                "virtualLiveType": {
+                    "type": "string"
+                },
+                "virtualLiveWaitingRoom": {
+                    "$ref": "#/definitions/shared.VirtualLiveWaitingRoom"
+                }
+            }
+        },
+        "shared.VirtualLiveReward": {
+            "type": "object",
+            "required": [
+                "id",
+                "resourceBoxId",
+                "virtualLiveId",
+                "virtualLiveType"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                },
+                "virtualLiveType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.VirtualLiveSchedule": {
+            "type": "object",
+            "required": [
+                "endAt",
+                "id",
+                "seq",
+                "startAt",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "endAt": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isAfterEvent": {
+                    "type": "boolean"
+                },
+                "noticeGroupId": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "startAt": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.VirtualLiveSchedulesResponse": {
+            "type": "object",
+            "required": [
+                "items"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveSchedule"
+                    }
+                }
+            }
+        },
+        "shared.VirtualLiveSetlist": {
+            "type": "object",
+            "required": [
+                "id",
+                "seq",
+                "virtualLiveId",
+                "virtualLiveSetlistType"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "character3dId1": {
+                    "type": "integer"
+                },
+                "character3dId2": {
+                    "type": "integer"
+                },
+                "character3dId3": {
+                    "type": "integer"
+                },
+                "character3dId4": {
+                    "type": "integer"
+                },
+                "character3dId5": {
+                    "type": "integer"
+                },
+                "character3dId6": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "musicId": {
+                    "type": "integer"
+                },
+                "musicVocalId": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                },
+                "virtualLiveSetlistType": {
+                    "type": "string"
+                },
+                "virtualLiveStageId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.VirtualLiveSetlistsResponse": {
+            "type": "object",
+            "required": [
+                "items"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveSetlist"
+                    }
+                }
+            }
+        },
+        "shared.VirtualLiveWaitingRoom": {
+            "type": "object",
+            "required": [
+                "assetbundleName",
+                "endAt",
+                "id",
+                "startAt",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "endAt": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "lobbyAssetbundleName": {
+                    "type": "string"
+                },
+                "startAt": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                }
+            }
         }
     },
     "securityDefinitions": {

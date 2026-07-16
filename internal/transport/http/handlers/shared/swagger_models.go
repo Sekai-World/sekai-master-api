@@ -726,11 +726,145 @@ type EventBonusesResponse struct {
 	EventRarityBonusRates                                  []EventRarityBonusRateResponse                                  `json:"eventRarityBonusRates"`
 }
 
-type VirtualLiveObjectResponse map[string]any
+type VirtualLiveObjectResponse struct {
+	ID                                   int                           `json:"id" binding:"required"`
+	Name                                 string                        `json:"name" binding:"required"`
+	AssetbundleName                      string                        `json:"assetbundleName" binding:"required"`
+	Seq                                  int                           `json:"seq" binding:"required"`
+	VirtualLiveType                      string                        `json:"virtualLiveType" binding:"required"`
+	VirtualLivePlatform                  string                        `json:"virtualLivePlatform" binding:"required"`
+	StartAt                              int64                         `json:"startAt" binding:"required"`
+	EndAt                                int64                         `json:"endAt" binding:"required"`
+	RankingAnnounceAt                    int64                         `json:"rankingAnnounceAt" binding:"required"`
+	ArchiveReleaseConditionID            int                           `json:"archiveReleaseConditionId,omitempty"`
+	SubGameCharacterPenlightColorGroupID int                           `json:"subGameCharacterPenlightColorGroupId,omitempty"`
+	VirtualLiveAppeals                   []VirtualLiveAppeal           `json:"virtualLiveAppeals,omitempty"`
+	VirtualLiveBeginnerSchedules         []VirtualLiveBeginnerSchedule `json:"virtualLiveBeginnerSchedules,omitempty"`
+	VirtualLiveBackgroundMusics          []VirtualLiveBackgroundMusic  `json:"virtualLiveBackgroundMusics,omitempty"`
+	VirtualLiveCheerPointRewards         []map[string]any              `json:"virtualLiveCheerPointRewards,omitempty"`
+	VirtualLiveInformation               VirtualLiveInformation        `json:"virtualLiveInformation,omitempty"`
+	VirtualLiveWaitingRoom               VirtualLiveWaitingRoom        `json:"virtualLiveWaitingRoom,omitempty"`
+	VirtualLiveCharacters                []VirtualLiveCharacter        `json:"virtualLiveCharacters,omitempty"`
+	VirtualLiveRewards                   []VirtualLiveReward           `json:"virtualLiveRewards,omitempty"`
+	VirtualLiveReward                    *VirtualLiveReward            `json:"virtualLiveReward,omitempty"`
+	VirtualLiveGroup                     map[string]any                `json:"virtualLiveGroup,omitempty" extensions:"x-nullable"`
+	ScreenMvMusicVocal                   map[string]any                `json:"screenMvMusicVocal,omitempty" extensions:"x-nullable"`
+	Pamphlet                             map[string]any                `json:"pamphlet" binding:"required" extensions:"x-nullable"`
+	Ticket                               map[string]any                `json:"ticket" binding:"required" extensions:"x-nullable"`
+}
 
 type VirtualLiveListResponse struct {
-	Items      []VirtualLiveObjectResponse `json:"items"`
-	Pagination PaginationResponse          `json:"pagination"`
+	Items      []VirtualLiveObjectResponse `json:"items" binding:"required"`
+	Pagination PaginationResponse          `json:"pagination" binding:"required"`
+}
+
+type VirtualLiveInformation struct {
+	Summary       string `json:"summary,omitempty"`
+	Description   string `json:"description,omitempty"`
+	VirtualLiveID int    `json:"virtualLiveId,omitempty"`
+}
+
+type VirtualLiveWaitingRoom struct {
+	ID                   int    `json:"id" binding:"required"`
+	AssetbundleName      string `json:"assetbundleName" binding:"required"`
+	LobbyAssetbundleName string `json:"lobbyAssetbundleName,omitempty"`
+	StartAt              int64  `json:"startAt" binding:"required"`
+	EndAt                int64  `json:"endAt" binding:"required"`
+	VirtualLiveID        int    `json:"virtualLiveId" binding:"required"`
+}
+
+type VirtualLiveCharacter struct {
+	ID                         int    `json:"id" binding:"required"`
+	Seq                        int    `json:"seq" binding:"required"`
+	GameCharacterUnitID        int    `json:"gameCharacterUnitId,omitempty"`
+	SubGameCharacter2dID       int    `json:"subGameCharacter2dId,omitempty"`
+	VirtualLivePerformanceType string `json:"virtualLivePerformanceType,omitempty"`
+	VirtualLiveID              int    `json:"virtualLiveId" binding:"required"`
+}
+
+type VirtualLiveReward struct {
+	ID              int    `json:"id" binding:"required"`
+	ResourceBoxID   int    `json:"resourceBoxId" binding:"required"`
+	VirtualLiveID   int    `json:"virtualLiveId" binding:"required"`
+	VirtualLiveType string `json:"virtualLiveType" binding:"required"`
+}
+
+type VirtualLiveAppeal struct {
+	ID                     int    `json:"id" binding:"required"`
+	AppealText             string `json:"appealText" binding:"required"`
+	VirtualLiveStageStatus string `json:"virtualLiveStageStatus" binding:"required"`
+	VirtualLiveID          int    `json:"virtualLiveId" binding:"required"`
+}
+
+type VirtualLiveBeginnerSchedule struct {
+	ID            int    `json:"id" binding:"required"`
+	DayOfWeek     string `json:"dayOfWeek" binding:"required"`
+	StartTime     string `json:"startTime" binding:"required"`
+	EndTime       string `json:"endTime" binding:"required"`
+	VirtualLiveID int    `json:"virtualLiveId" binding:"required"`
+}
+
+type VirtualLiveBackgroundMusic struct {
+	ID                int `json:"id" binding:"required"`
+	BackgroundMusicID int `json:"backgroundMusicId" binding:"required"`
+	VirtualLiveID     int `json:"virtualLiveId" binding:"required"`
+}
+
+type VirtualLiveItemsResponse struct {
+	Items []VirtualLiveItem `json:"items" binding:"required"`
+}
+
+type VirtualLiveItem struct {
+	ID                    int    `json:"id" binding:"required"`
+	Name                  string `json:"name" binding:"required"`
+	AssetbundleName       string `json:"assetbundleName" binding:"required"`
+	EffectAssetbundleName string `json:"effectAssetbundleName" binding:"required"`
+	EffectExpressionType  string `json:"effectExpressionType" binding:"required"`
+	VirtualItemCategory   string `json:"virtualItemCategory" binding:"required"`
+	VirtualItemLabelType  string `json:"virtualItemLabelType,omitempty"`
+	Priority              int    `json:"priority" binding:"required"`
+	Seq                   int    `json:"seq" binding:"required"`
+	CostJewel             int    `json:"costJewel" binding:"required"`
+	CostVirtualCoin       int    `json:"costVirtualCoin" binding:"required"`
+	Unit                  string `json:"unit,omitempty"`
+	GameCharacterUnitID   int    `json:"gameCharacterUnitId,omitempty"`
+	SubGameCharacterID    int    `json:"subGameCharacterId,omitempty"`
+	CheerPoint            int    `json:"cheerPoint,omitempty"`
+}
+
+type VirtualLiveSchedulesResponse struct {
+	Items []VirtualLiveSchedule `json:"items" binding:"required"`
+}
+
+type VirtualLiveSchedule struct {
+	ID            int   `json:"id" binding:"required"`
+	Seq           int   `json:"seq" binding:"required"`
+	StartAt       int64 `json:"startAt" binding:"required"`
+	EndAt         int64 `json:"endAt" binding:"required"`
+	IsAfterEvent  bool  `json:"isAfterEvent,omitempty"`
+	NoticeGroupID int   `json:"noticeGroupId,omitempty"`
+	VirtualLiveID int   `json:"virtualLiveId" binding:"required"`
+}
+
+type VirtualLiveSetlistsResponse struct {
+	Items []VirtualLiveSetlist `json:"items" binding:"required"`
+}
+
+type VirtualLiveSetlist struct {
+	ID                     int    `json:"id" binding:"required"`
+	Seq                    int    `json:"seq" binding:"required"`
+	AssetbundleName        string `json:"assetbundleName,omitempty"`
+	VirtualLiveSetlistType string `json:"virtualLiveSetlistType" binding:"required"`
+	VirtualLiveStageID     int    `json:"virtualLiveStageId,omitempty"`
+	MusicID                int    `json:"musicId,omitempty"`
+	MusicVocalID           int    `json:"musicVocalId,omitempty"`
+	VirtualLiveID          int    `json:"virtualLiveId" binding:"required"`
+	Character3dID1         int    `json:"character3dId1,omitempty"`
+	Character3dID2         int    `json:"character3dId2,omitempty"`
+	Character3dID3         int    `json:"character3dId3,omitempty"`
+	Character3dID4         int    `json:"character3dId4,omitempty"`
+	Character3dID5         int    `json:"character3dId5,omitempty"`
+	Character3dID6         int    `json:"character3dId6,omitempty"`
 }
 
 type MasterDataStatusListResponse struct {

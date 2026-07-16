@@ -34,7 +34,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/events/:region/:id`
 - `GET /api/v1/events/:region/:id/detail`
 - `GET /api/v1/events/:region/:id/rewards`
-- `GET /api/v1/virtualLives/:region/list?page=1&page_size=20`
+- `GET /api/v1/virtualLives/:region/list?page=1&page_size=20&id=<id>&name=<kw>&virtual_live_type=<kw>&sort_by=id|startAt&sort_order=asc|desc`
 - `GET /api/v1/virtualLives/:region/:id`
 - `GET /api/v1/virtualLives/:region/:id/items`
 - `GET /api/v1/virtualLives/:region/:id/schedules`
@@ -43,6 +43,8 @@ Swagger UI is available only in `development` and `test`:
 List endpoints hide spoiler content by default. Pass `spoiler=true` to include records with a future `releaseAt` or `startAt`.
 
 Event list filters are optional and matched together. `id` is an exact match; `name`, `unit`, and `event_type` are case-insensitive partial matches. `unit` and `event_type` accept comma-separated multiple values, and `unit` is matched against `eventStoryUnits.unit`.
+
+Virtual Live list filters are optional and matched together. `id` is an exact numeric match; `name` is a case-insensitive (trimmed) substring match; `virtual_live_type` is a comma-separated list of virtual live types combined with OR within the parameter and AND combined with other filters. `sort_by` accepts `id` or `startAt`; `sort_order` accepts `asc` or `desc`. The dedicated detail sub-resources (`/items`, `/schedules`, `/setlists`) and `/regions/:id/availability` are also available for virtual lives.
 
 ## Admin Endpoints
 

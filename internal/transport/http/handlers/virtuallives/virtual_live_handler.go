@@ -77,7 +77,7 @@ func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, handler.buildVirtualLive(c.Request.Context(), region, record))
+	response.JSON(c, http.StatusOK, handler.buildVirtualLiveObject(c.Request.Context(), region, record))
 }
 
 // ItemsByID godoc
@@ -86,7 +86,7 @@ func (handler *VirtualLiveHandler) ByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} shared.GenericItemsResponse
+// @Success 200 {object} shared.VirtualLiveItemsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -102,7 +102,7 @@ func (handler *VirtualLiveHandler) ItemsByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} shared.GenericItemsResponse
+// @Success 200 {object} shared.VirtualLiveSchedulesResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -118,7 +118,7 @@ func (handler *VirtualLiveHandler) SchedulesByID(c *gin.Context) {
 // @Produce json
 // @Param region path string true "Region"
 // @Param id path string true "Virtual Live ID"
-// @Success 200 {object} shared.GenericItemsResponse
+// @Success 200 {object} shared.VirtualLiveSetlistsResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 404 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -169,6 +169,9 @@ func (handler *VirtualLiveHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
+// @Param name query string false "Case-insensitive (trimmed) substring match against the virtual live name"
+// @Param id query int false "Exact virtual live id"
+// @Param virtual_live_type query string false "Comma-separated virtual live types (OR within parameter, AND combined with other filters)"
 // @Success 200 {object} shared.VirtualLiveListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -219,50 +222,177 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 		return
 	}
 
-	if !includeSpoilers || sortOptions.Enabled {
-		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "virtuallives")
+	filters, filterOK := parseVirtualLiveListFilters(c)
+	if !filterOK {
+		return
+	}
+
+	hasNewFilter := filters.Name != "" || filters.HasID || len(filters.VirtualLiveTypes) > 0
+	usesIndexPage := !hasNewFilter && includeSpoilers && !sortOptions.Enabled
+
+	if usesIndexPage {
+		records, total, err := handler.masterDataSync.ListByPage(c.Request.Context(), region, "virtuallives", page, pageSize)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to list virtual lives")
 			return
 		}
-		if !includeSpoilers {
-			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+
+		totalPages := 0
+		if pageSize > 0 {
+			totalPages = (total + pageSize - 1) / pageSize
 		}
-		if sortOptions.Enabled {
-			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
-				return
-			}
-			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
-		}
-		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
+
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),
-			"pagination": pagination,
+			"items": handler.buildVirtualLiveList(c.Request.Context(), region, records),
+			"pagination": gin.H{
+				"page":        page,
+				"page_size":   pageSize,
+				"total":       total,
+				"total_pages": totalPages,
+				"has_next":    page < totalPages,
+			},
 		})
 		return
 	}
 
-	records, total, err := handler.masterDataSync.ListByPage(c.Request.Context(), region, "virtuallives", page, pageSize)
+	records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "virtuallives")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to list virtual lives")
 		return
 	}
 
-	totalPages := 0
-	if pageSize > 0 {
-		totalPages = (total + pageSize - 1) / pageSize
+	if !includeSpoilers {
+		records = shared.FilterSpoilerItems(records, time.Now().UTC())
 	}
 
+	records = applyVirtualLiveListFilters(records, filters)
+
+	if sortOptions.Enabled {
+		if !shared.ValidateSortField(c, sortOptions.Field, records, sortableVirtualLiveFields) {
+			return
+		}
+		shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+	}
+
+	pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 	response.JSON(c, http.StatusOK, gin.H{
-		"items": handler.buildVirtualLiveList(c.Request.Context(), region, records),
-		"pagination": gin.H{
-			"page":        page,
-			"page_size":   pageSize,
-			"total":       total,
-			"total_pages": totalPages,
-			"has_next":    page < totalPages,
-		},
+		"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),
+		"pagination": pagination,
 	})
+}
+
+type virtualLiveListFilters struct {
+	Name             string
+	ID               int64
+	HasID            bool
+	VirtualLiveTypes []string
+}
+
+// normalizeIDValue parses a record id field into a normalized int64.
+// Returns false if the value is not a numeric id (e.g. missing or malformed).
+func normalizeIDValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int64:
+		return typed, true
+	case int:
+		return int64(typed), true
+	case int32:
+		return int64(typed), true
+	case float64:
+		return int64(typed), true
+	case float32:
+		return int64(typed), true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return 0, false
+		}
+		if parsed, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+			return parsed, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+func parseVirtualLiveListFilters(c *gin.Context) (virtualLiveListFilters, bool) {
+	filters := virtualLiveListFilters{}
+
+	if rawName := strings.TrimSpace(c.Query("name")); rawName != "" {
+		filters.Name = shared.NormalizeComparableText(rawName)
+	}
+
+	if rawID := strings.TrimSpace(c.Query("id")); rawID != "" {
+		parsedID, err := strconv.ParseInt(rawID, 10, 64)
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "id must be a numeric virtual live id")
+			return filters, false
+		}
+		filters.ID = parsedID
+		filters.HasID = true
+	}
+
+	if rawTypes := strings.TrimSpace(c.Query("virtual_live_type")); rawTypes != "" {
+		seen := map[string]struct{}{}
+		for _, part := range strings.Split(rawTypes, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			filters.VirtualLiveTypes = append(filters.VirtualLiveTypes, trimmed)
+		}
+	}
+
+	return filters, true
+}
+
+func applyVirtualLiveListFilters(records []map[string]any, filters virtualLiveListFilters) []map[string]any {
+	if len(records) == 0 {
+		return records
+	}
+	if filters.Name == "" && !filters.HasID && len(filters.VirtualLiveTypes) == 0 {
+		return records
+	}
+
+	matched := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		if filters.Name != "" {
+			name := shared.NormalizeComparableText(record["name"])
+			if !strings.Contains(name, filters.Name) {
+				continue
+			}
+		}
+		if filters.HasID {
+			recordID, ok := normalizeIDValue(record["id"])
+			if !ok || recordID != filters.ID {
+				continue
+			}
+		}
+		if len(filters.VirtualLiveTypes) > 0 {
+			recordType := shared.NormalizeAnyID(record["virtualLiveType"])
+			found := false
+			for _, want := range filters.VirtualLiveTypes {
+				if recordType == want {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		matched = append(matched, record)
+	}
+
+	return matched
 }
 
 func (handler *VirtualLiveHandler) buildVirtualLiveList(ctx context.Context, region string, records []map[string]any) []map[string]any {
@@ -275,7 +405,7 @@ func (handler *VirtualLiveHandler) buildVirtualLiveList(ctx context.Context, reg
 	return items
 }
 
-func (handler *VirtualLiveHandler) buildVirtualLive(ctx context.Context, region string, record map[string]any) map[string]any {
+func (handler *VirtualLiveHandler) buildVirtualLiveObject(ctx context.Context, region string, record map[string]any) map[string]any {
 	return handler.buildVirtualLiveWithRelated(ctx, region, record, virtualLiveRelatedData{})
 }
 
