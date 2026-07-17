@@ -1,0 +1,71 @@
+{{- if and .Values.ingress.public.enabled .Values.ingress.control.enabled (eq .Values.ingress.public.host .Values.ingress.control.host) }}
+{{- fail "ingress.public.host and ingress.control.host must differ when both ingresses are enabled" }}
+{{- end }}
+{{- if .Values.ingress.public.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "sekai-master-api.fullname" . }}-public
+  labels:
+    {{- include "sekai-master-api.labels" . | nindent 4 }}
+  {{- with .Values.ingress.public.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.public.tls.enabled }}
+  tls:
+    - hosts: [{{ .Values.ingress.public.host | quote }}]
+      secretName: {{ .Values.ingress.public.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.public.host | quote }}
+      http:
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "sekai-master-api.fullname" . }}-serve
+                port: { name: http }
+{{- end }}
+{{- if .Values.ingress.control.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "sekai-master-api.fullname" . }}-control
+  labels:
+    {{- include "sekai-master-api.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.control.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.control.tls.enabled }}
+  tls:
+    - hosts: [{{ .Values.ingress.control.host | quote }}]
+      secretName: {{ .Values.ingress.control.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.control.host | quote }}
+      http:
+        paths:
+          - path: /admin
+            pathType: Prefix
+            backend: &controlBackend
+              service:
+                name: {{ include "sekai-master-api.fullname" . }}-control
+                port: { name: http }
+          - path: /api/v1/admin
+            pathType: Prefix
+            backend: *controlBackend
+          - path: /api/v1/internal/github/webhooks/master-data
+            pathType: Exact
+            backend: *controlBackend
+          {{- if .Values.ingress.control.exposeDocs }}
+          - path: /docs
+            pathType: Prefix
+            backend: *controlBackend
+          {{- end }}
+{{- end }}

@@ -821,6 +821,30 @@ func TestStandaloneRoleExposesPublicAndAdmin(t *testing.T) {
 	expectStatusForRoles(t, "/admin/login", []config.AppRole{config.AppRoleStandalone}, http.StatusOK)
 }
 
+func TestProbeEndpointsAreAvailableAcrossRoles(t *testing.T) {
+	for _, role := range []config.AppRole{config.AppRoleStandalone, config.AppRoleServe, config.AppRoleControl} {
+		readyRouter := setupRouterWithRoleAndStartupReady(t, "test", role, true)
+		for _, path := range []string{"/livez", "/startupz", "/readyz"} {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			resp := httptest.NewRecorder()
+			readyRouter.ServeHTTP(resp, req)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("role=%s path=%s: expected 200, got %d", role, path, resp.Code)
+			}
+		}
+
+		startingRouter := setupRouterWithRoleAndStartupReady(t, "test", role, false)
+		for _, path := range []string{"/startupz", "/readyz"} {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			resp := httptest.NewRecorder()
+			startingRouter.ServeHTTP(resp, req)
+			if resp.Code != http.StatusServiceUnavailable {
+				t.Fatalf("role=%s path=%s: expected 503 during startup, got %d", role, path, resp.Code)
+			}
+		}
+	}
+}
+
 func TestServeRoleExposesPublicButNotAdmin(t *testing.T) {
 	router := setupRouterWithRoleAndStartupReady(t, "test", config.AppRoleServe, true)
 

@@ -37,7 +37,7 @@ func startupRouteAllowed(request *http.Request) bool {
 	}
 
 	switch path {
-	case "/api/v1/health", "/admin", "/admin/login", "/api/v1/admin/login", "/api/v1/admin/login/callback", "/api/v1/admin/profile", "/api/v1/admin/master-data/status":
+	case "/livez", "/startupz", "/readyz", "/api/v1/health", "/admin", "/admin/login", "/api/v1/admin/login", "/api/v1/admin/login/callback", "/api/v1/admin/profile", "/api/v1/admin/master-data/status":
 		return true
 	}
 

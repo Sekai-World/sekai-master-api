@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "serve": {
+      "type": "object",
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "autoscaling": {
+          "type": "object",
+          "required": ["enabled", "minReplicas", "maxReplicas"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPUUtilizationPercentage": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 },
+            "targetMemoryUtilizationPercentage": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 },
+            "behavior": { "type": "object" },
+            "additionalMetrics": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "properties": { "replicaCount": { "type": "integer", "const": 1 } }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "className": { "type": "string", "minLength": 1 },
+        "public": { "$ref": "#/$defs/ingress" },
+        "control": { "$ref": "#/$defs/ingress" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "serve": {
+            "properties": { "autoscaling": { "properties": { "enabled": { "const": true } } } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "serve": {
+            "properties": {
+              "autoscaling": {
+                "properties": {
+                  "maxReplicas": { "minimum": 2 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "host": { "type": "string", "minLength": 1 },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "secretName": { "type": "string" }
+          },
+          "if": { "properties": { "enabled": { "const": true } } },
+          "then": { "properties": { "secretName": { "minLength": 1 } }, "required": ["secretName"] }
+        }
+      }
+    }
+  }
+}

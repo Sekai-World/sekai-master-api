@@ -70,6 +70,7 @@ mise run dev-full
 - [Master Data](docs/master-data.md)
 - [Auth and Admin](docs/auth-admin.md)
 - [Production Observability on K3s](docs/production-observability-k3s.md)
+- [Kubernetes Helm chart](deploy/helm/sekai-master-api/README.md)
 
 ## Swagger
 

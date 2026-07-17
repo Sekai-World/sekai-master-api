@@ -1,0 +1,46 @@
+{{- if .Values.serve.autoscaling.enabled }}
+{{- if gt (int .Values.serve.autoscaling.minReplicas) (int .Values.serve.autoscaling.maxReplicas) }}
+{{- fail "serve.autoscaling.minReplicas must not exceed serve.autoscaling.maxReplicas" }}
+{{- end }}
+{{- if and (not .Values.serve.autoscaling.targetCPUUtilizationPercentage) (not .Values.serve.autoscaling.targetMemoryUtilizationPercentage) (empty .Values.serve.autoscaling.additionalMetrics) }}
+{{- fail "serve autoscaling requires at least one CPU, memory, or additional metric" }}
+{{- end }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "sekai-master-api.fullname" . }}-serve
+  labels:
+    {{- include "sekai-master-api.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serve
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "sekai-master-api.fullname" . }}-serve
+  minReplicas: {{ .Values.serve.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.serve.autoscaling.maxReplicas }}
+  metrics:
+    {{- with .Values.serve.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+    {{- with .Values.serve.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+    {{- with .Values.serve.autoscaling.additionalMetrics }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.serve.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

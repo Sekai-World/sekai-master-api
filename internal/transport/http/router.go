@@ -50,7 +50,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	router.Use(middleware.StartupGate(startupState))
 	router.Use(middleware.RecoveryLog())
 
-	healthHandler := systemhandlers.NewHealthHandler(db)
+	healthHandler := systemhandlers.NewHealthHandler(db, cfg.Role, startupState, masterDataSync)
 	versionsHandler := systemhandlers.NewVersionsHandler(masterDataSync)
 	gitHubWebhookHandler := systemhandlers.NewGitHubWebhookHandler(
 		cfg.MasterDataSources,
@@ -88,6 +88,10 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	if isSwaggerEnabledEnv(cfg.AppEnv) {
 		router.GET("/docs/*any", swaggerHandler())
 	}
+
+	router.GET("/livez", healthHandler.Live)
+	router.GET("/startupz", healthHandler.Startup)
+	router.GET("/readyz", healthHandler.Ready)
 
 	v1 := router.Group("/api/v1")
 
