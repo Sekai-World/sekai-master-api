@@ -1,0 +1,8 @@
+sekai-master-api has been installed in split-role mode.
+
+Public API:  {{ if .Values.ingress.public.enabled }}{{ ternary "https" "http" .Values.ingress.public.tls.enabled }}://{{ .Values.ingress.public.host }}{{ else }}Ingress disabled{{ end }}
+Control UI: {{ if .Values.ingress.control.enabled }}{{ ternary "https" "http" .Values.ingress.control.tls.enabled }}://{{ .Values.ingress.control.host }}/admin{{ else }}Ingress disabled{{ end }}
+
+The health endpoint checks the process and database only. It does not confirm
+that Redis contains region data. Populate persistent Redis from the control
+role before routing production traffic to serve.

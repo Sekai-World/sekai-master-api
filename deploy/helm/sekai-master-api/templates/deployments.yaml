@@ -1,0 +1,101 @@
+{{- range $component := list "serve" "control" }}
+{{- $role := index $.Values $component }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sekai-master-api.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "sekai-master-api.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  {{- if not (and (eq $component "serve") $role.autoscaling.enabled) }}
+  replicas: {{ $role.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ $.Values.common.revisionHistoryLimit }}
+  strategy:
+    {{- if eq $component "control" }}
+    type: Recreate
+    {{- else }}
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "sekai-master-api.selectorLabels" (dict "Chart" $.Chart "Release" $.Release "Values" $.Values "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      {{- $annotations := mergeOverwrite (dict) $.Values.common.podAnnotations $role.podAnnotations }}
+      {{- with $annotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $podLabels := mergeOverwrite (dict) $.Values.common.podLabels $role.podLabels }}
+      {{- $_ := set $podLabels "app.kubernetes.io/name" (include "sekai-master-api.name" $) }}
+      {{- $_ := set $podLabels "app.kubernetes.io/instance" $.Release.Name }}
+      {{- $_ := set $podLabels "app.kubernetes.io/component" $component }}
+      labels:
+        {{- toYaml $podLabels | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "sekai-master-api.serviceAccountName" $ }}
+      automountServiceAccountToken: {{ $.Values.serviceAccount.automount }}
+      terminationGracePeriodSeconds: {{ $.Values.common.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml $.Values.common.podSecurityContext | nindent 8 }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $component }}
+          image: {{ printf "%s:%s" $.Values.image.repository $.Values.image.tag | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: ["/usr/local/bin/sekai-master-api"]
+          args: [{{ $component | quote }}]
+          securityContext:
+            {{- toYaml $.Values.common.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- include "sekai-master-api.env" (dict "Values" $.Values "role" $role) | nindent 12 }}
+          {{- if or $.Values.common.envFrom.configMaps $.Values.common.envFrom.secrets $role.envFrom.configMaps $role.envFrom.secrets }}
+          envFrom:
+            {{- include "sekai-master-api.envFrom" (dict "Values" $.Values "role" $role) | nindent 12 }}
+          {{- end }}
+          {{- include "sekai-master-api.probes" (dict "probes" $role.probes) | nindent 10 }}
+          resources:
+            {{- toYaml $role.resources | nindent 12 }}
+          {{- if eq $component "control" }}
+          volumeMounts:
+            - name: master-data-backup
+              mountPath: /app/tmp/master-data-backup
+          {{- end }}
+      {{- if eq $component "control" }}
+      volumes:
+        - name: master-data-backup
+          {{- if $role.backupVolume.persistentVolumeClaim }}
+          persistentVolumeClaim:
+            claimName: {{ $role.backupVolume.persistentVolumeClaim | quote }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- end }}
+      {{- with $.Values.common.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.common.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.common.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.common.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

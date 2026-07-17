@@ -1,0 +1,138 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: sekai-master-api
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+common:
+  podAnnotations: {}
+  podLabels: {}
+  env:
+    APP_ENV: production
+    DATABASE_DRIVER: pgx
+  envFrom:
+    configMaps: []
+    secrets: []
+  extraEnv: []
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+  terminationGracePeriodSeconds: 30
+  revisionHistoryLimit: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+serve:
+  replicaCount: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: null
+    behavior: {}
+    additionalMetrics: []
+  podAnnotations: {}
+  podLabels: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  env: {}
+  envFrom:
+    configMaps: []
+    secrets: []
+  extraEnv: []
+  service:
+    type: ClusterIP
+    port: 80
+  probes:
+    startup:
+      enabled: true
+      failureThreshold: 30
+      periodSeconds: 5
+    liveness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+
+control:
+  replicaCount: 1
+  podAnnotations: {}
+  podLabels: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  env: {}
+  envFrom:
+    configMaps: []
+    secrets: []
+  extraEnv: []
+  service:
+    type: ClusterIP
+    port: 80
+  probes:
+    startup:
+      enabled: true
+      failureThreshold: 60
+      periodSeconds: 5
+    liveness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readiness:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+  backupVolume:
+    persistentVolumeClaim: ""
+
+ingress:
+  className: nginx
+  public:
+    enabled: true
+    host: master-api.example.com
+    annotations: {}
+    tls:
+      enabled: false
+      secretName: ""
+  control:
+    enabled: true
+    host: master-api-admin.example.com
+    exposeDocs: false
+    annotations:
+      nginx.org/proxy-buffering: "False"
+      nginx.org/proxy-read-timeout: "3600s"
+      nginx.org/proxy-send-timeout: "3600s"
+    tls:
+      enabled: false
+      secretName: ""
