@@ -52,14 +52,6 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 
 	healthHandler := systemhandlers.NewHealthHandler(db)
 	versionsHandler := systemhandlers.NewVersionsHandler(masterDataSync)
-	adminClaimAuthorizer := auth.NewAdminClaimAuthorizer(cfg.OIDCAdminClaim, cfg.OIDCAdminClaimValues)
-	profileHandler := adminhandlers.NewProfileHandler(cfg.AppEnv, adminClaimAuthorizer)
-	adminUIHandler := adminhandlers.NewAdminUIHandler(cfg)
-	adminLoginHandler, err := adminhandlers.NewAdminLoginHandler(cfg)
-	if err != nil {
-		return nil, err
-	}
-	masterDataEventHandler := adminhandlers.NewMasterDataEventHandler(masterDataEvents)
 	gitHubWebhookHandler := systemhandlers.NewGitHubWebhookHandler(
 		cfg.MasterDataSources,
 		masterDataSync,
@@ -74,25 +66,63 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	virtualLiveHandler := virtuallivehandlers.NewVirtualLiveHandler(masterDataSync)
 	masterDataAdminHandler := adminhandlers.NewMasterDataAdminHandler(masterDataSync, startupState)
 
+	role := cfg.Role
+	var (
+		adminClaimAuthorizer   *auth.AdminClaimAuthorizer
+		profileHandler         *adminhandlers.ProfileHandler
+		adminUIHandler         *adminhandlers.AdminUIHandler
+		adminLoginHandler      *adminhandlers.AdminLoginHandler
+		masterDataEventHandler *adminhandlers.MasterDataEventHandler
+	)
+	if role == config.AppRoleStandalone || role == config.AppRoleControl {
+		adminClaimAuthorizer = auth.NewAdminClaimAuthorizer(cfg.OIDCAdminClaim, cfg.OIDCAdminClaimValues)
+		profileHandler = adminhandlers.NewProfileHandler(cfg.AppEnv, adminClaimAuthorizer)
+		adminUIHandler = adminhandlers.NewAdminUIHandler(cfg)
+		adminLoginHandler, err = adminhandlers.NewAdminLoginHandler(cfg)
+		if err != nil {
+			return nil, err
+		}
+		masterDataEventHandler = adminhandlers.NewMasterDataEventHandler(masterDataEvents)
+	}
+
 	if isSwaggerEnabledEnv(cfg.AppEnv) {
 		router.GET("/docs/*any", swaggerHandler())
 	}
 
 	v1 := router.Group("/api/v1")
-	registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, gachaHandler, lookupHandler, virtualLiveHandler)
-	registerInternalRoutes(v1, gitHubWebhookHandler)
 
-	registerAdminRoutes(
-		router,
-		v1,
-		tokenVerifier,
-		adminClaimAuthorizer,
-		adminUIHandler,
-		adminLoginHandler,
-		profileHandler,
-		masterDataEventHandler,
-		masterDataAdminHandler,
-	)
+	// Public read/query workload.
+	if role == config.AppRoleStandalone || role == config.AppRoleServe {
+		registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, gachaHandler, lookupHandler, virtualLiveHandler)
+	}
+
+	// The control (operational) role must not expose general public data/query
+	// endpoints, but it still exposes /api/v1/health for orchestration health
+	// checks.
+	if role == config.AppRoleControl {
+		v1.GET("/health", healthHandler.Check)
+	}
+
+	// Internal write-triggering surface (GitHub webhook sync). Exposed only by
+	// standalone and the control (operational) role that owns sync.
+	if role == config.AppRoleStandalone || role == config.AppRoleControl {
+		registerInternalRoutes(v1, gitHubWebhookHandler)
+	}
+
+	// Operational/admin workload.
+	if role == config.AppRoleStandalone || role == config.AppRoleControl {
+		registerAdminRoutes(
+			router,
+			v1,
+			tokenVerifier,
+			adminClaimAuthorizer,
+			adminUIHandler,
+			adminLoginHandler,
+			profileHandler,
+			masterDataEventHandler,
+			masterDataAdminHandler,
+		)
+	}
 
 	return router, nil
 }

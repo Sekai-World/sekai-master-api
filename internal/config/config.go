@@ -10,8 +10,82 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// AppRole selects the runtime workload composition.
+//
+//   - AppRoleStandalone is the monolithic default: it exposes both the public
+//     read/query API and the operational/admin surface, and owns migrations,
+//     search-index warmup, master-data auto-sync, and interrupted-sync recovery.
+//   - AppRoleServe is the public read/query workload. It must not expose admin
+//     API/UI routes, the internal sync-triggering webhook, or any write surface,
+//     and it must not run migrations, warmup, auto-sync, or recovery.
+//   - AppRoleControl is the operational/admin workload. It hosts the admin UI,
+//     the OIDC-protected admin API (including sync endpoints), health/status,
+//     and docs, and owns migrations, auto-sync, and interrupted-sync recovery.
+//     It builds persisted search indexes during sync but does not warm a local
+//     decoded-index cache or expose public data query endpoints.
+type AppRole string
+
+const (
+	AppRoleStandalone AppRole = "standalone"
+	AppRoleServe      AppRole = "serve"
+	AppRoleControl    AppRole = "control"
+)
+
+func (role AppRole) IsValid() bool {
+	switch role {
+	case AppRoleStandalone, AppRoleServe, AppRoleControl:
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveAppRole(raw string) AppRole {
+	return ResolveAppRole(raw)
+}
+
+// ResolveAppRole normalizes a raw role string into a valid AppRole. Unknown or
+// empty values fall back to AppRoleStandalone (the monolithic default).
+func ResolveAppRole(raw string) AppRole {
+	normalized := AppRole(strings.TrimSpace(strings.ToLower(raw)))
+	if normalized.IsValid() {
+		return normalized
+	}
+	return AppRoleStandalone
+}
+
+// EffectiveSearchIndexCacheEntries returns the in-process decoded search-index
+// LRU capacity for the configured runtime role. The pure `control` role hosts
+// the admin/operational surface and owns sync, but it never serves public
+// read/search traffic, so its local decoded-index LRU is disabled (0): those
+// decoded indexes are only a bounded local read cache for `serve`/`standalone`.
+// Disabling it avoids needlessly decoding persisted Redis indexes into the
+// control process memory. `serve` and `standalone` keep the configured capacity.
+func (cfg Config) EffectiveSearchIndexCacheEntries() int {
+	if cfg.Role == AppRoleControl {
+		return 0
+	}
+	return cfg.MasterDataSearchIndexCacheEntries
+}
+
+// OwnsSyncLifecycle reports whether the role owns migrations, master-data
+// auto-sync, and interrupted-sync recovery. Only `standalone` and `control` own
+// these lifecycle jobs; `serve` is a pure public read workload and must not run
+// them. Standalone additionally warms its local decoded search-index cache.
+func (cfg Config) OwnsSyncLifecycle() bool {
+	return cfg.Role == AppRoleStandalone || cfg.Role == AppRoleControl
+}
+
+// NeedsAdminSurface reports whether the role mounts the admin UI, the
+// OIDC-protected admin API, and the internal sync-triggering webhook. `serve`
+// exposes only the public read/query API and therefore returns false.
+func (cfg Config) NeedsAdminSurface() bool {
+	return cfg.Role == AppRoleStandalone || cfg.Role == AppRoleControl
+}
+
 type Config struct {
 	Port                              string
+	Role                              AppRole
 	AppEnv                            string
 	LogLevel                          string
 	LokiPushURL                       string
@@ -76,6 +150,7 @@ func Load() Config {
 
 	return Config{
 		Port:                              port,
+		Role:                              resolveAppRole(getEnv("APP_ROLE", "")),
 		AppEnv:                            appEnv,
 		LogLevel:                          logLevel,
 		LokiPushURL:                       strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),

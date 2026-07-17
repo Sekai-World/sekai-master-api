@@ -403,3 +403,45 @@ func writeFile(t *testing.T, path string, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+func TestEffectiveSearchIndexCacheEntriesDisablesForControl(t *testing.T) {
+	standalone := Config{Role: AppRoleStandalone, MasterDataSearchIndexCacheEntries: 32}
+	serve := Config{Role: AppRoleServe, MasterDataSearchIndexCacheEntries: 32}
+	control := Config{Role: AppRoleControl, MasterDataSearchIndexCacheEntries: 32}
+
+	if got := standalone.EffectiveSearchIndexCacheEntries(); got != 32 {
+		t.Fatalf("standalone: expected 32, got %d", got)
+	}
+	if got := serve.EffectiveSearchIndexCacheEntries(); got != 32 {
+		t.Fatalf("serve: expected 32, got %d", got)
+	}
+	if got := control.EffectiveSearchIndexCacheEntries(); got != 0 {
+		t.Fatalf("control: expected decoded-index LRU disabled (0), got %d", got)
+	}
+}
+
+func TestOwnsSyncLifecycleAndNeedsAdminSurface(t *testing.T) {
+	standalone := Config{Role: AppRoleStandalone}
+	control := Config{Role: AppRoleControl}
+	serve := Config{Role: AppRoleServe}
+
+	if !standalone.OwnsSyncLifecycle() {
+		t.Fatalf("standalone should own sync lifecycle")
+	}
+	if !control.OwnsSyncLifecycle() {
+		t.Fatalf("control should own sync lifecycle")
+	}
+	if serve.OwnsSyncLifecycle() {
+		t.Fatalf("serve must not own sync lifecycle")
+	}
+
+	if !standalone.NeedsAdminSurface() {
+		t.Fatalf("standalone should mount admin surface")
+	}
+	if !control.NeedsAdminSurface() {
+		t.Fatalf("control should mount admin surface")
+	}
+	if serve.NeedsAdminSurface() {
+		t.Fatalf("serve must not mount admin surface")
+	}
+}

@@ -67,6 +67,7 @@ mkdir -p /app/tmp
   fi
   printf 'APP_ENV=development\n'
   printf 'APP_PORT=8080\n'
+  printf 'APP_ROLE=standalone\n'
   printf 'DATABASE_DRIVER=pgx\n'
   printf 'DATABASE_URL=postgres://postgres:postgres@postgres:5432/sekai?sslmode=disable\n'
   printf 'SQLITE_PATH=/app/tmp/dev.db\n'
