@@ -867,6 +867,18 @@ type VirtualLiveSetlist struct {
 	Character3dID6         int    `json:"character3dId6,omitempty"`
 }
 
+type Character3DBatchItem struct {
+	ID              int64  `json:"id" binding:"required"`
+	GameCharacterID int64  `json:"gameCharacterId" binding:"required"`
+	Unit            string `json:"unit,omitempty"`
+	Name            string `json:"name,omitempty"`
+}
+
+type Character3DBatchResponse struct {
+	Items      []Character3DBatchItem `json:"items" binding:"required"`
+	MissingIDs []int64                `json:"missingIds" binding:"required"`
+}
+
 type MasterDataStatusListResponse struct {
 	Items []masterdata.SyncStatus `json:"items"`
 }

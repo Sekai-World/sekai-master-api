@@ -207,6 +207,34 @@ definitions:
       id:
         type: integer
     type: object
+  shared.Character3DBatchItem:
+    properties:
+      gameCharacterId:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      unit:
+        type: string
+    required:
+    - gameCharacterId
+    - id
+    type: object
+  shared.Character3DBatchResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.Character3DBatchItem'
+        type: array
+      missingIds:
+        items:
+          type: integer
+        type: array
+    required:
+    - items
+    - missingIds
+    type: object
   shared.CharacterResponse:
     properties:
       firstName:
@@ -2071,6 +2099,41 @@ paths:
       summary: Get available regions for a card id
       tags:
       - cards
+  /character3ds/{region}/batch:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Comma-separated Character3D IDs (up to 100)
+        in: query
+        name: ids
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.Character3DBatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get Character3D mappings by IDs
+      tags:
+      - character3ds
   /events/{region}/{id}:
     get:
       parameters:
