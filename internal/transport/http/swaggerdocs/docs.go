@@ -5357,6 +5357,9 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "resourceBox": {
+                    "$ref": "#/definitions/shared.VirtualLiveRewardResourceBox"
+                },
                 "resourceBoxId": {
                     "type": "integer"
                 },
@@ -5365,6 +5368,49 @@ const docTemplate = `{
                 },
                 "virtualLiveType": {
                     "type": "string"
+                }
+            }
+        },
+        "shared.VirtualLiveRewardResourceBox": {
+            "type": "object",
+            "properties": {
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveRewardResourceBoxDetail"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceBoxType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.VirtualLiveRewardResourceBoxDetail": {
+            "type": "object",
+            "properties": {
+                "honor": {
+                    "$ref": "#/definitions/shared.EventRewardHonorResponse"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "resourceLevel": {
+                    "type": "integer"
+                },
+                "resourceQuantity": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
                 }
             }
         },

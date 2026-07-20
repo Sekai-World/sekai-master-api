@@ -305,6 +305,400 @@ func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
 	}
 }
 
+func TestVirtualLiveByIDExpandsVirtualLiveRewardResourceBox(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":              501,
+						"name":            "after live",
+						"virtualLiveType": "normal",
+						"virtualLiveRewards": []any{
+							map[string]any{
+								"id":              1,
+								"resourceBoxId":   7001,
+								"virtualLiveId":   501,
+								"virtualLiveType": "normal",
+							},
+						},
+					},
+				},
+				"resourceboxes": {
+					"7001": {
+						"id":                 7001,
+						"resourceBoxPurpose": "virtual_live_reward",
+						"resourceBoxType":    "material",
+						"details": []any{
+							map[string]any{
+								"resourceType":     "honor",
+								"resourceId":       8801,
+								"resourceLevel":    1,
+								"resourceQuantity": 1,
+								"seq":              1,
+							},
+						},
+					},
+				},
+				"honors": {
+					"8801": {
+						"id":          8801,
+						"groupId":     9901,
+						"honorRarity": "rarity_normal",
+						"honorType":   "type_normal",
+						"name":        "Test Honor",
+						"levels":      []any{},
+					},
+				},
+				"honorgroups": {
+					"9901": {
+						"id":   9901,
+						"name": "Test Honor Group",
+					},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"resourceboxes": {
+				{
+					"id":                 7001,
+					"resourceBoxPurpose": "virtual_live_reward",
+					"resourceBoxType":    "material",
+					"details": []any{
+						map[string]any{
+							"resourceType":     "honor",
+							"resourceId":       8801,
+							"resourceLevel":    1,
+							"resourceQuantity": 1,
+							"seq":              1,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	rewardsRaw, ok := body["virtualLiveRewards"]
+	if !ok {
+		t.Fatalf("expected virtualLiveRewards in response")
+	}
+	rewards, ok := rewardsRaw.([]any)
+	if !ok || len(rewards) != 1 {
+		t.Fatalf("expected 1 reward, got %T len=%d", rewardsRaw, len(rewards))
+	}
+	reward, ok := rewards[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected reward object, got %T", rewards[0])
+	}
+	boxRaw, ok := reward["resourceBox"]
+	if !ok || boxRaw == nil {
+		t.Fatalf("expected resourceBox to be expanded for virtual_live_reward purpose")
+	}
+	box, ok := boxRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected resourceBox object, got %T", boxRaw)
+	}
+	if box["resourceBoxPurpose"] != "virtual_live_reward" {
+		t.Fatalf("expected resourceBoxPurpose=virtual_live_reward, got %v", box["resourceBoxPurpose"])
+	}
+	detailsRaw, ok := box["details"]
+	if !ok {
+		t.Fatalf("expected details in resourceBox")
+	}
+	details, ok := detailsRaw.([]any)
+	if !ok || len(details) != 1 {
+		t.Fatalf("expected 1 detail, got %T len=%d", detailsRaw, len(details))
+	}
+	detail, ok := details[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected detail object, got %T", details[0])
+	}
+	if detail["resourceType"] != "honor" {
+		t.Fatalf("expected detail.resourceType=honor, got %v", detail["resourceType"])
+	}
+	if detail["resourceId"] != float64(8801) {
+		t.Fatalf("expected detail.resourceId=8801, got %v", detail["resourceId"])
+	}
+	if detail["resourceLevel"] != float64(1) {
+		t.Fatalf("expected detail.resourceLevel=1, got %v", detail["resourceLevel"])
+	}
+	if detail["resourceQuantity"] != float64(1) {
+		t.Fatalf("expected detail.resourceQuantity=1, got %v", detail["resourceQuantity"])
+	}
+	if detail["seq"] != float64(1) {
+		t.Fatalf("expected detail.seq=1, got %v", detail["seq"])
+	}
+	honorRaw, ok := detail["honor"]
+	if !ok || honorRaw == nil {
+		t.Fatalf("expected honor to be expanded for honor detail")
+	}
+	honor, ok := honorRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected honor object, got %T", honorRaw)
+	}
+	if honor["id"] != float64(8801) {
+		t.Fatalf("expected honor.id=8801, got %v", honor["id"])
+	}
+	if honor["name"] != "Test Honor" {
+		t.Fatalf("expected honor.name=Test Honor, got %v", honor["name"])
+	}
+}
+
+func TestVirtualLiveByIDSameIDWrongPurposeDoesNotExpandResourceBox(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":              501,
+						"name":            "after live",
+						"virtualLiveType": "normal",
+						"virtualLiveRewards": []any{
+							map[string]any{
+								"id":              1,
+								"resourceBoxId":   7001,
+								"virtualLiveId":   501,
+								"virtualLiveType": "normal",
+							},
+						},
+					},
+				},
+				"resourceboxes": {
+					"7001": {
+						"id":                 7001,
+						"resourceBoxPurpose": "event_ranking_reward",
+						"resourceBoxType":    "material",
+						"details": []any{
+							map[string]any{
+								"resourceType":     "honor",
+								"resourceId":       8801,
+								"resourceLevel":    1,
+								"resourceQuantity": 1,
+								"seq":              1,
+							},
+						},
+					},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"resourceboxes": {
+				{
+					"id":                 7001,
+					"resourceBoxPurpose": "event_ranking_reward",
+					"resourceBoxType":    "material",
+					"details": []any{
+						map[string]any{
+							"resourceType":     "honor",
+							"resourceId":       8801,
+							"resourceLevel":    1,
+							"resourceQuantity": 1,
+							"seq":              1,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	rewards := body["virtualLiveRewards"].([]any)
+	reward := rewards[0].(map[string]any)
+	if _, ok := reward["resourceBox"]; ok {
+		t.Fatalf("expected resourceBox to be absent for wrong-purpose box, got %v", reward["resourceBox"])
+	}
+}
+
+func TestVirtualLiveByIDMissingResourceBoxStaysSparse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":              501,
+						"name":            "after live",
+						"virtualLiveType": "normal",
+						"virtualLiveRewards": []any{
+							map[string]any{
+								"id":              1,
+								"resourceBoxId":   7001,
+								"virtualLiveId":   501,
+								"virtualLiveType": "normal",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	rewards := body["virtualLiveRewards"].([]any)
+	reward := rewards[0].(map[string]any)
+	if _, ok := reward["resourceBox"]; ok {
+		t.Fatalf("expected resourceBox to be absent when box missing, got %v", reward["resourceBox"])
+	}
+}
+
+func TestVirtualLiveByIDSameIDMultiplePurposesSelectsVirtualLiveReward(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// resourceboxes IDs are NOT unique across resourceBoxPurpose. The reward
+	// references resourceBoxId=1, which exists for both event_ranking_reward and
+	// virtual_live_reward. The resolver must select the virtual_live_reward one
+	// (jewel x300), never the colliding event_ranking_reward record.
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {
+					"501": {
+						"id":              501,
+						"name":            "after live",
+						"virtualLiveType": "normal",
+						"virtualLiveRewards": []any{
+							map[string]any{
+								"id":              1,
+								"resourceBoxId":   1,
+								"virtualLiveId":   501,
+								"virtualLiveType": "normal",
+							},
+						},
+					},
+				},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"resourceboxes": {
+				{
+					"id":                 1,
+					"resourceBoxPurpose": "event_ranking_reward",
+					"resourceBoxType":    "material",
+					"details": []any{
+						map[string]any{
+							"resourceType":     "jewel",
+							"resourceId":       0,
+							"resourceLevel":    0,
+							"resourceQuantity": 999,
+							"seq":              1,
+						},
+					},
+				},
+				{
+					"id":                 1,
+					"resourceBoxPurpose": "virtual_live_reward",
+					"resourceBoxType":    "material",
+					"details": []any{
+						map[string]any{
+							"resourceType":     "jewel",
+							"resourceId":       0,
+							"resourceLevel":    0,
+							"resourceQuantity": 300,
+							"seq":              1,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyVirtualLiveHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	rewards := body["virtualLiveRewards"].([]any)
+	if len(rewards) != 1 {
+		t.Fatalf("expected 1 reward, got %d", len(rewards))
+	}
+	reward := rewards[0].(map[string]any)
+	boxRaw, ok := reward["resourceBox"]
+	if !ok || boxRaw == nil {
+		t.Fatalf("expected resourceBox to be expanded for virtual_live_reward purpose")
+	}
+	box := boxRaw.(map[string]any)
+	if box["resourceBoxPurpose"] != "virtual_live_reward" {
+		t.Fatalf("expected resourceBoxPurpose=virtual_live_reward, got %v", box["resourceBoxPurpose"])
+	}
+	details := box["details"].([]any)
+	if len(details) != 1 {
+		t.Fatalf("expected 1 detail, got %d", len(details))
+	}
+	detail := details[0].(map[string]any)
+	if detail["resourceType"] != "jewel" {
+		t.Fatalf("expected detail.resourceType=jewel, got %v", detail["resourceType"])
+	}
+	if int(detail["resourceQuantity"].(float64)) != 300 {
+		t.Fatalf("expected detail.resourceQuantity=300 (virtual_live_reward box), got %v", detail["resourceQuantity"])
+	}
+}
+
 func TestVirtualLiveItemsByIDEndpointReturnsItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -427,6 +427,11 @@ func (handler *VirtualLiveHandler) buildVirtualLiveWithRelated(
 		result[key] = value
 	}
 
+	if rawRewards, hasRewards := record["virtualLiveRewards"]; hasRewards {
+		resourceBoxes := handler.loadResourceBoxes(ctx, region)
+		result["virtualLiveRewards"] = handler.buildVirtualLiveRewards(ctx, region, rawRewards, resourceBoxes)
+	}
+
 	if rawVirtualLiveGroupID, hasVirtualLiveGroupID := record["virtualLiveGroupId"]; hasVirtualLiveGroupID {
 		delete(result, "virtualLiveGroupId")
 
@@ -461,6 +466,47 @@ func (handler *VirtualLiveHandler) buildVirtualLiveWithRelated(
 	}
 
 	return result
+}
+
+func (handler *VirtualLiveHandler) buildVirtualLiveRewards(ctx context.Context, region string, rawRewards any, resourceBoxes []map[string]any) []map[string]any {
+	items, ok := rawRewards.([]any)
+	if !ok {
+		return []map[string]any{}
+	}
+
+	rewards := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		rewardRecord, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		reward := make(map[string]any, len(rewardRecord)+1)
+		for key, value := range rewardRecord {
+			reward[key] = value
+		}
+		if resourceBox := handler.resolveVirtualLiveRewardResourceBox(ctx, region, rewardRecord, resourceBoxes); resourceBox != nil {
+			reward["resourceBox"] = resourceBox
+		}
+		rewards = append(rewards, reward)
+	}
+
+	return rewards
+}
+
+// loadResourceBoxes returns the region's full resourceboxes list. resourceboxes
+// IDs are not unique across resourceBoxPurpose, so callers must select by both
+// id and purpose rather than relying on GetByID.
+func (handler *VirtualLiveHandler) loadResourceBoxes(ctx context.Context, region string) []map[string]any {
+	if handler == nil || handler.masterDataSync == nil {
+		return nil
+	}
+
+	boxes, err := handler.masterDataSync.ListAll(ctx, region, "resourceboxes")
+	if err != nil {
+		return nil
+	}
+	return boxes
 }
 
 func (handler *VirtualLiveHandler) preloadVirtualLiveRelatedData(

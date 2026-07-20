@@ -783,10 +783,27 @@ type VirtualLiveCharacter struct {
 }
 
 type VirtualLiveReward struct {
-	ID              int    `json:"id" binding:"required"`
-	ResourceBoxID   int    `json:"resourceBoxId" binding:"required"`
-	VirtualLiveID   int    `json:"virtualLiveId" binding:"required"`
-	VirtualLiveType string `json:"virtualLiveType" binding:"required"`
+	ID              int                           `json:"id" binding:"required"`
+	ResourceBoxID   int                           `json:"resourceBoxId" binding:"required"`
+	VirtualLiveID   int                           `json:"virtualLiveId" binding:"required"`
+	VirtualLiveType string                        `json:"virtualLiveType" binding:"required"`
+	ResourceBox     *VirtualLiveRewardResourceBox `json:"resourceBox,omitempty"`
+}
+
+type VirtualLiveRewardResourceBox struct {
+	ID                 int                                  `json:"id,omitempty"`
+	ResourceBoxPurpose string                               `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxType    string                               `json:"resourceBoxType,omitempty"`
+	Details            []VirtualLiveRewardResourceBoxDetail `json:"details,omitempty"`
+}
+
+type VirtualLiveRewardResourceBoxDetail struct {
+	ResourceType     string                    `json:"resourceType,omitempty"`
+	ResourceID       int                       `json:"resourceId,omitempty"`
+	ResourceLevel    int                       `json:"resourceLevel,omitempty"`
+	ResourceQuantity int                       `json:"resourceQuantity,omitempty"`
+	Seq              int                       `json:"seq,omitempty"`
+	Honor            *EventRewardHonorResponse `json:"honor,omitempty"`
 }
 
 type VirtualLiveAppeal struct {

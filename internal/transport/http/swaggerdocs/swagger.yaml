@@ -1438,6 +1438,8 @@ definitions:
     properties:
       id:
         type: integer
+      resourceBox:
+        $ref: '#/definitions/shared.VirtualLiveRewardResourceBox'
       resourceBoxId:
         type: integer
       virtualLiveId:
@@ -1449,6 +1451,34 @@ definitions:
     - resourceBoxId
     - virtualLiveId
     - virtualLiveType
+    type: object
+  shared.VirtualLiveRewardResourceBox:
+    properties:
+      details:
+        items:
+          $ref: '#/definitions/shared.VirtualLiveRewardResourceBoxDetail'
+        type: array
+      id:
+        type: integer
+      resourceBoxPurpose:
+        type: string
+      resourceBoxType:
+        type: string
+    type: object
+  shared.VirtualLiveRewardResourceBoxDetail:
+    properties:
+      honor:
+        $ref: '#/definitions/shared.EventRewardHonorResponse'
+      resourceId:
+        type: integer
+      resourceLevel:
+        type: integer
+      resourceQuantity:
+        type: integer
+      resourceType:
+        type: string
+      seq:
+        type: integer
     type: object
   shared.VirtualLiveSchedule:
     properties:
