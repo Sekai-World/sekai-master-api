@@ -456,12 +456,19 @@ type GameCharacterUnitListResponse struct {
 }
 
 type GameCharacterObjectResponse struct {
-	ID        any `json:"id,omitempty"`
-	Seq       any `json:"seq,omitempty"`
-	FirstName any `json:"firstName,omitempty"`
-	GivenName any `json:"givenName,omitempty"`
-	Unit      any `json:"unit,omitempty"`
-	Height    any `json:"height,omitempty"`
+	ID               int     `json:"id,omitempty"`
+	Seq              int     `json:"seq,omitempty"`
+	ResourceID       int     `json:"resourceId,omitempty"`
+	FirstName        *string `json:"firstName,omitempty" extensions:"x-nullable"`
+	GivenName        *string `json:"givenName,omitempty" extensions:"x-nullable"`
+	FirstNameRuby    *string `json:"firstNameRuby,omitempty" extensions:"x-nullable"`
+	GivenNameRuby    *string `json:"givenNameRuby,omitempty" extensions:"x-nullable"`
+	FirstNameEnglish *string `json:"firstNameEnglish,omitempty" extensions:"x-nullable"`
+	GivenNameEnglish *string `json:"givenNameEnglish,omitempty" extensions:"x-nullable"`
+	Gender           *string `json:"gender,omitempty" extensions:"x-nullable"`
+	Unit             *string `json:"unit,omitempty" extensions:"x-nullable"`
+	Height           float64 `json:"height,omitempty"`
+	SupportUnitType  *string `json:"supportUnitType,omitempty" extensions:"x-nullable"`
 }
 
 type GameCharacterListResponse struct {

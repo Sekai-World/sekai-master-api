@@ -4456,12 +4456,54 @@ const docTemplate = `{
         "shared.GameCharacterObjectResponse": {
             "type": "object",
             "properties": {
-                "firstName": {},
-                "givenName": {},
-                "height": {},
-                "id": {},
-                "seq": {},
-                "unit": {}
+                "firstName": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "firstNameEnglish": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "firstNameRuby": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "gender": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "givenName": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "givenNameEnglish": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "givenNameRuby": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "supportUnitType": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "unit": {
+                    "type": "string",
+                    "x-nullable": true
+                }
             }
         },
         "shared.GameCharacterUnitListResponse": {
