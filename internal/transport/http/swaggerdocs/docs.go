@@ -2120,6 +2120,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/gameCharacters/{region}/{id}/profile": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gameCharacters"
+                ],
+                "summary": "Get game character profile by character id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Game Character ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GameCharacterProfileResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "produces": [
@@ -4503,6 +4562,44 @@ const docTemplate = `{
                 "unit": {
                     "type": "string",
                     "x-nullable": true
+                }
+            }
+        },
+        "shared.GameCharacterProfileResponse": {
+            "type": "object",
+            "properties": {
+                "birthday": {
+                    "type": "string"
+                },
+                "characterVoice": {
+                    "type": "string"
+                },
+                "favoriteFood": {
+                    "type": "string"
+                },
+                "hatedFood": {
+                    "type": "string"
+                },
+                "height": {
+                    "type": "string"
+                },
+                "hobby": {
+                    "type": "string"
+                },
+                "introduction": {
+                    "type": "string"
+                },
+                "school": {
+                    "type": "string"
+                },
+                "schoolYear": {
+                    "type": "string"
+                },
+                "specialSkill": {
+                    "type": "string"
+                },
+                "weak": {
+                    "type": "string"
                 }
             }
         },

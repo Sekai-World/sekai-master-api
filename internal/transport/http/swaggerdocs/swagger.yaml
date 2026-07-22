@@ -856,6 +856,31 @@ definitions:
         type: string
         x-nullable: true
     type: object
+  shared.GameCharacterProfileResponse:
+    properties:
+      birthday:
+        type: string
+      characterVoice:
+        type: string
+      favoriteFood:
+        type: string
+      hatedFood:
+        type: string
+      height:
+        type: string
+      hobby:
+        type: string
+      introduction:
+        type: string
+      school:
+        type: string
+      schoolYear:
+        type: string
+      specialSkill:
+        type: string
+      weak:
+        type: string
+    type: object
   shared.GameCharacterUnitListResponse:
     properties:
       items:
@@ -2912,6 +2937,45 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get game character by id
+      tags:
+      - gameCharacters
+  /gameCharacters/{region}/{id}/profile:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Game Character ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GameCharacterProfileResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get game character profile by character id
       tags:
       - gameCharacters
   /gameCharacters/{region}/list:

@@ -50,6 +50,13 @@ var gameCharactersConfig = lookupResourceConfig{
 	sortableFields: []string{"id", "seq", "firstName", "givenName", "unit", "height"},
 }
 
+var gameCharacterProfilesConfig = lookupResourceConfig{
+	entity:         "characterprofiles",
+	queryErrorCode: "GAME_CHARACTER_PROFILE_QUERY_ERROR",
+	notFoundCode:   "GAME_CHARACTER_PROFILE_NOT_FOUND",
+	resourceLabel:  "game character profile",
+}
+
 func NewLookupHandler(masterDataSync *usecase.MasterDataSyncUsecase) *LookupHandler {
 	return &LookupHandler{masterDataSync: masterDataSync}
 }
@@ -220,6 +227,70 @@ func (handler *LookupHandler) GameCharacterUnitsList(c *gin.Context) {
 // @Router /gameCharacters/{region}/{id} [get]
 func (handler *LookupHandler) GameCharactersByID(c *gin.Context) {
 	handler.byID(c, gameCharactersConfig)
+}
+
+// GameCharacterProfilesByID godoc
+// @Summary Get game character profile by character id
+// @Tags gameCharacters
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path string true "Game Character ID"
+// @Success 200 {object} shared.GameCharacterProfileResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /gameCharacters/{region}/{id}/profile [get]
+func (handler *LookupHandler) GameCharacterProfilesByID(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if region == "" || id == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+		return
+	}
+	characterID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || characterID <= 0 {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "id must be a positive integer")
+		return
+	}
+	id = strconv.FormatInt(characterID, 10)
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, gameCharacterProfilesConfig.entity) {
+		return
+	}
+
+	records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, gameCharacterProfilesConfig.entity)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, gameCharacterProfilesConfig.queryErrorCode, "failed to query "+gameCharacterProfilesConfig.resourceLabel)
+		return
+	}
+
+	for _, record := range records {
+		if shared.NormalizeAnyID(record["characterId"]) != id {
+			continue
+		}
+
+		response.JSON(c, http.StatusOK, shared.GameCharacterProfileResponse{
+			Birthday:       shared.NormalizeAnyID(record["birthday"]),
+			CharacterVoice: shared.NormalizeAnyID(record["characterVoice"]),
+			FavoriteFood:   shared.NormalizeAnyID(record["favoriteFood"]),
+			HatedFood:      shared.NormalizeAnyID(record["hatedFood"]),
+			Height:         shared.NormalizeAnyID(record["height"]),
+			Hobby:          shared.NormalizeAnyID(record["hobby"]),
+			Introduction:   shared.NormalizeAnyID(record["introduction"]),
+			School:         shared.NormalizeAnyID(record["school"]),
+			SchoolYear:     shared.NormalizeAnyID(record["schoolYear"]),
+			SpecialSkill:   shared.NormalizeAnyID(record["specialSkill"]),
+			Weak:           shared.NormalizeAnyID(record["weak"]),
+		})
+		return
+	}
+
+	response.Error(c, http.StatusNotFound, gameCharacterProfilesConfig.notFoundCode, gameCharacterProfilesConfig.resourceLabel+" not found")
 }
 
 // GameCharactersAvailableRegionsByID godoc

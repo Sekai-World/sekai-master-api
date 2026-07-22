@@ -476,6 +476,20 @@ type GameCharacterListResponse struct {
 	Pagination PaginationResponse            `json:"pagination"`
 }
 
+type GameCharacterProfileResponse struct {
+	Birthday       string `json:"birthday,omitempty"`
+	CharacterVoice string `json:"characterVoice,omitempty"`
+	FavoriteFood   string `json:"favoriteFood,omitempty"`
+	HatedFood      string `json:"hatedFood,omitempty"`
+	Height         string `json:"height,omitempty"`
+	Hobby          string `json:"hobby,omitempty"`
+	Introduction   string `json:"introduction,omitempty"`
+	School         string `json:"school,omitempty"`
+	SchoolYear     string `json:"schoolYear,omitempty"`
+	SpecialSkill   string `json:"specialSkill,omitempty"`
+	Weak           string `json:"weak,omitempty"`
+}
+
 type EventUnitResponse struct {
 	Unit      any `json:"unit,omitempty"`
 	UnitName  any `json:"unitName,omitempty"`

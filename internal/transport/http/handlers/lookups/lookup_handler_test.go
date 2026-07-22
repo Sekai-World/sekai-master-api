@@ -368,6 +368,133 @@ func TestGameCharactersByIDEndpointPreservesProfileFields(t *testing.T) {
 	}
 }
 
+func TestGameCharacterProfilesByIDEndpointReturnsRequestedCharacterProfileOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"characterprofiles": {
+					{
+						"characterId":    6,
+						"birthday":       "December 5",
+						"characterVoice": "野口瑠璃子",
+						"favoriteFood":   "うどん",
+						"hatedFood":      "なし",
+						"height":         "161cm",
+						"hobby":          "散歩",
+						"introduction":   "プロフィール紹介",
+						"school":         "宮益坂女子学園",
+						"schoolYear":     "1-A",
+						"specialSkill":   "ピアノ",
+						"weak":           "高いところ",
+						"scenarioId":     "hidden-scenario-id",
+					},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/gameCharacters/:region/:id/profile", handler.GameCharacterProfilesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/gameCharacters/jp/6/profile", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["birthday"] != "December 5" {
+		t.Fatalf("expected birthday to be returned, got %v", body["birthday"])
+	}
+	if _, found := body["scenarioId"]; found {
+		t.Fatal("response must not expose scenarioId")
+	}
+	if _, found := body["characterId"]; found {
+		t.Fatal("response must not expose characterId")
+	}
+	if len(body) != 11 {
+		t.Fatalf("expected exactly 11 profile fields, got %d: %v", len(body), body)
+	}
+}
+
+func TestGameCharacterProfilesByIDEndpointReturnsNotFoundWhenCharacterProfileIsMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"characterprofiles": {
+					{"characterId": 6, "birthday": "December 5"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/gameCharacters/:region/:id/profile", handler.GameCharacterProfilesByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/gameCharacters/jp/25/profile", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body.Error.Code != "GAME_CHARACTER_PROFILE_NOT_FOUND" {
+		t.Fatalf("expected GAME_CHARACTER_PROFILE_NOT_FOUND, got %q", body.Error.Code)
+	}
+}
+
+func TestGameCharacterProfilesByIDEndpointRejectsInvalidIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := newReadyLookupHandler(&fakeLookupCache{})
+	router := gin.New()
+	router.GET("/api/v1/gameCharacters/:region/:id/profile", handler.GameCharacterProfilesByID)
+
+	for _, id := range []string{"not-a-number", "0", "-1"} {
+		t.Run(id, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/gameCharacters/jp/"+id+"/profile", nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if body.Error.Code != "INVALID_REQUEST" {
+				t.Fatalf("expected INVALID_REQUEST, got %q", body.Error.Code)
+			}
+		})
+	}
+}
+
 func TestGameCharactersListInvalidSortByReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
