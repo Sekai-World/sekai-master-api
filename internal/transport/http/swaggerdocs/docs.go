@@ -2120,6 +2120,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/gameCharacters/{region}/{id}/profile": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gameCharacters"
+                ],
+                "summary": "Get game character profile by character id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Game Character ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GameCharacterProfileResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "produces": [
@@ -4456,12 +4515,92 @@ const docTemplate = `{
         "shared.GameCharacterObjectResponse": {
             "type": "object",
             "properties": {
-                "firstName": {},
-                "givenName": {},
-                "height": {},
-                "id": {},
-                "seq": {},
-                "unit": {}
+                "firstName": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "firstNameEnglish": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "firstNameRuby": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "gender": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "givenName": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "givenNameEnglish": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "givenNameRuby": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "supportUnitType": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "unit": {
+                    "type": "string",
+                    "x-nullable": true
+                }
+            }
+        },
+        "shared.GameCharacterProfileResponse": {
+            "type": "object",
+            "properties": {
+                "birthday": {
+                    "type": "string"
+                },
+                "characterVoice": {
+                    "type": "string"
+                },
+                "favoriteFood": {
+                    "type": "string"
+                },
+                "hatedFood": {
+                    "type": "string"
+                },
+                "height": {
+                    "type": "string"
+                },
+                "hobby": {
+                    "type": "string"
+                },
+                "introduction": {
+                    "type": "string"
+                },
+                "school": {
+                    "type": "string"
+                },
+                "schoolYear": {
+                    "type": "string"
+                },
+                "specialSkill": {
+                    "type": "string"
+                },
+                "weak": {
+                    "type": "string"
+                }
             }
         },
         "shared.GameCharacterUnitListResponse": {
