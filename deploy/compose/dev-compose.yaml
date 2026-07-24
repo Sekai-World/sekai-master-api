@@ -32,7 +32,7 @@ services:
       - dev
 
   loki:
-    image: grafana/loki:3.7.3
+    image: grafana/loki:3.7.4
     restart: unless-stopped
     command:
       - -config.file=/etc/loki/local-config.yaml
