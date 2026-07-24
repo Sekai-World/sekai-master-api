@@ -657,7 +657,7 @@ func TestDashboardStatusKeepsSuccessfulStatusWhenRuntimeIndexMissing(t *testing.
 	}
 }
 
-func TestReadyRegionsSkipsSuccessfulStatusWhenRedisCacheMissing(t *testing.T) {
+func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusWhenRedisCacheMissing(t *testing.T) {
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
 		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
 	})
@@ -668,7 +668,7 @@ func TestReadyRegionsSkipsSuccessfulStatusWhenRedisCacheMissing(t *testing.T) {
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 
-	regions, err := usecase.ReadyRegions(context.Background())
+	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
 	if err != nil {
 		t.Fatalf("expected ready regions success, got %v", err)
 	}
@@ -683,7 +683,7 @@ func TestReadyRegionsSkipsSuccessfulStatusWhenRedisCacheMissing(t *testing.T) {
 	}
 }
 
-func TestReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanLoad(t *testing.T) {
+func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanLoad(t *testing.T) {
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
 		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
 	})
@@ -695,7 +695,7 @@ func TestReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanLoad(t *testing.T
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 
-	regions, err := usecase.ReadyRegions(context.Background())
+	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
 	if err != nil {
 		t.Fatalf("expected ready regions success, got %v", err)
 	}
@@ -707,7 +707,7 @@ func TestReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanLoad(t *testing.T
 	}
 }
 
-func TestReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanRebuild(t *testing.T) {
+func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanRebuild(t *testing.T) {
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
 		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
 	})
@@ -719,7 +719,7 @@ func TestReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanRebuild(t *testin
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 
-	regions, err := usecase.ReadyRegions(context.Background())
+	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
 	if err != nil {
 		t.Fatalf("expected ready regions success, got %v", err)
 	}
@@ -731,7 +731,7 @@ func TestReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanRebuild(t *testin
 	}
 }
 
-func TestReadyRegionsIncludesSuccessfulStatusWhenRuntimeIndexIsRetained(t *testing.T) {
+func TestRuntimeSearchIndexReadyRegionsIncludesSuccessfulStatusWhenRuntimeIndexIsRetained(t *testing.T) {
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
 		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
 	})
@@ -742,7 +742,7 @@ func TestReadyRegionsIncludesSuccessfulStatusWhenRuntimeIndexIsRetained(t *testi
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 
-	regions, err := usecase.ReadyRegions(context.Background())
+	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
 	if err != nil {
 		t.Fatalf("expected ready regions success, got %v", err)
 	}

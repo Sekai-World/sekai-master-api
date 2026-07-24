@@ -343,6 +343,41 @@ func TestRegionHasEntityRecordsOrReady_returns_error_when_entity_record_check_fa
 	}
 }
 
+func TestAvailableRegionsByID_uses_successful_status_and_direct_records_without_runtime_index(t *testing.T) {
+	t.Parallel()
+
+	// Given
+	masterDataSync := usecase.NewMasterDataSyncUsecase(
+		nil,
+		nil,
+		&fakeMasterDataRegionHelperCache{
+			records: map[string]map[string]map[string]map[string]any{
+				"jp": {"cards": {"42": {"id": "42"}}},
+				"en": {"cards": {"42": {"id": "42"}}},
+			},
+		},
+		&fakeMasterDataRegionHelperStatusStore{
+			statuses: []masterdata.SyncStatus{
+				{Region: "jp", Status: "success"},
+				{Region: "en", Status: "failed"},
+			},
+		},
+		nil,
+		1,
+	)
+
+	// When
+	regions, err := AvailableRegionsByID(context.Background(), masterDataSync, "cards", "42")
+
+	// Then
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(regions) != 1 || regions[0] != "jp" {
+		t.Fatalf("expected only the successful region with a direct record, got %v", regions)
+	}
+}
+
 func TestRegionHasEntityRecordsOrReady_returns_false_for_empty_region_or_entity(t *testing.T) {
 	t.Parallel()
 
@@ -390,14 +425,19 @@ type fakeMasterDataRegionHelperCache struct {
 	hasRecords     map[string]map[string]bool
 	hasRecordsErr  error
 	hasRegionIndex map[string]bool
+	records        map[string]map[string]map[string]map[string]any
 }
 
 func (cache *fakeMasterDataRegionHelperCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
 	return nil
 }
 
-func (cache *fakeMasterDataRegionHelperCache) GetByID(_ context.Context, _, _, _ string) (map[string]any, bool, error) {
-	return nil, false, nil
+func (cache *fakeMasterDataRegionHelperCache) GetByID(_ context.Context, region string, entity string, id string) (map[string]any, bool, error) {
+	if cache.records == nil || cache.records[region] == nil || cache.records[region][entity] == nil {
+		return nil, false, nil
+	}
+	record, found := cache.records[region][entity][id]
+	return record, found, nil
 }
 
 func (cache *fakeMasterDataRegionHelperCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {

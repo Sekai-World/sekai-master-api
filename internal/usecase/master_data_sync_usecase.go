@@ -858,7 +858,7 @@ func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.
 	return usecase.statusStore.List(ctx)
 }
 
-func (usecase *MasterDataSyncUsecase) ReadyRegions(ctx context.Context) ([]string, error) {
+func (usecase *MasterDataSyncUsecase) RuntimeSearchIndexReadyRegions(ctx context.Context) ([]string, error) {
 	statuses, err := usecase.Status(ctx)
 	if err != nil {
 		return nil, err

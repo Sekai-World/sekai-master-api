@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -11,12 +12,12 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func ReadyMasterDataRegions(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase) ([]string, error) {
+func RuntimeSearchIndexReadyRegions(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase) ([]string, error) {
 	if masterDataSync == nil {
 		return nil, nil
 	}
 
-	return masterDataSync.ReadyRegions(ctx)
+	return masterDataSync.RuntimeSearchIndexReadyRegions(ctx)
 }
 
 func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) (bool, error) {
@@ -44,7 +45,7 @@ func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.
 		}
 	}
 
-	readyRegions, err := ReadyMasterDataRegions(ctx, masterDataSync)
+	readyRegions, err := RuntimeSearchIndexReadyRegions(ctx, masterDataSync)
 	if err != nil {
 		return false, err
 	}
@@ -77,21 +78,40 @@ func EnsureRegionReadyForEntityRecords(c *gin.Context, masterDataSync *usecase.M
 }
 
 func AvailableRegionsByID(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, entity string, id string) ([]string, error) {
-	readyRegions, err := ReadyMasterDataRegions(ctx, masterDataSync)
+	if masterDataSync == nil {
+		return nil, nil
+	}
+
+	statuses, err := masterDataSync.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	regions := make([]string, 0, len(readyRegions))
-	for _, region := range readyRegions {
+	regions := make([]string, 0, len(statuses))
+	seen := make(map[string]struct{}, len(statuses))
+	for _, status := range statuses {
+		if !strings.EqualFold(strings.TrimSpace(status.Status), "success") {
+			continue
+		}
+
+		region := strings.ToLower(strings.TrimSpace(status.Region))
+		if region == "" {
+			continue
+		}
+		if _, exists := seen[region]; exists {
+			continue
+		}
+
 		_, found, err := masterDataSync.GetByID(ctx, region, entity, id)
 		if err != nil {
 			return nil, err
 		}
 		if found {
+			seen[region] = struct{}{}
 			regions = append(regions, region)
 		}
 	}
 
+	sort.Strings(regions)
 	return regions, nil
 }

@@ -543,7 +543,7 @@ func TestCardByIDEndpointMapsCardSupply(t *testing.T) {
 	}
 }
 
-func TestCardAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestCardAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{
@@ -601,7 +601,7 @@ func TestCardAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.
 	}
 }
 
-func TestCardAvailabilityEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *testing.T) {
+func TestCardAvailabilityEndpointUsesPersistedCardDataWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{
@@ -637,8 +637,8 @@ func TestCardAvailabilityEndpointRequiresRuntimeIndexWhenOnlyCardDataExists(t *t
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if len(body.Regions) != 0 {
-		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+	if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
+		t.Fatalf("expected persisted card region jp without runtime index, got %v", body.Regions)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -485,7 +486,7 @@ func TestGachaRecordEndpointsPreserveNotReadyResponseContract(t *testing.T) {
 	}
 }
 
-func TestGachaAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestGachaAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeGachaHandlerCache{
@@ -521,8 +522,8 @@ func TestGachaAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if len(body.Regions) != 0 {
-		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+	if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
+		t.Fatalf("expected persisted gacha region jp without runtime index, got %v", body.Regions)
 	}
 }
 

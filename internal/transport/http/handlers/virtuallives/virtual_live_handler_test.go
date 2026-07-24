@@ -879,7 +879,7 @@ func TestVirtualLiveSetlistsByIDEndpointReturnsItems(t *testing.T) {
 	}
 }
 
-func TestVirtualLiveAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestVirtualLiveAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeVirtualLiveHandlerCache{
@@ -937,7 +937,7 @@ func TestVirtualLiveAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *t
 	}
 }
 
-func TestVirtualLiveAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestVirtualLiveAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeVirtualLiveHandlerCache{
@@ -973,8 +973,8 @@ func TestVirtualLiveAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecord
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if len(body.Regions) != 0 {
-		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+	if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
+		t.Fatalf("expected persisted virtual live region jp without runtime index, got %v", body.Regions)
 	}
 }
 

@@ -300,7 +300,7 @@ func TestMusicByIDEndpointReturnsMusic(t *testing.T) {
 	}
 }
 
-func TestMusicAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestMusicAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{
@@ -626,7 +626,7 @@ func TestMusicEndpointsWithoutMusicRecordsStillRequireRuntimeIndexEvenIfRelatedR
 	}
 }
 
-func TestMusicAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestMusicAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{
@@ -662,8 +662,8 @@ func TestMusicAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if len(body.Regions) != 0 {
-		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+	if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
+		t.Fatalf("expected persisted music region jp without runtime index, got %v", body.Regions)
 	}
 }
 
