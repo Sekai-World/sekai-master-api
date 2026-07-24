@@ -282,7 +282,7 @@ func TestEventByIDEndpointMapsEventPointAssetbundleNameToIcon(t *testing.T) {
 	}
 }
 
-func TestEventAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestEventAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -687,7 +687,7 @@ func TestEventListAndCurrentUsePersistedEventRecordsWhenRuntimeIndexMissing(t *t
 	}
 }
 
-func TestEventAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestEventAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -723,8 +723,8 @@ func TestEventAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if len(body.Regions) != 0 {
-		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+	if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
+		t.Fatalf("expected persisted event region jp without runtime index, got %v", body.Regions)
 	}
 }
 
@@ -1015,8 +1015,8 @@ func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecordsWith
 	}
 
 	availableRegions := body["availableRegions"].([]any)
-	if len(availableRegions) != 0 {
-		t.Fatalf("expected no available regions without runtime indexes, got %v", availableRegions)
+	if !reflect.DeepEqual(availableRegions, []any{"en", "jp"}) {
+		t.Fatalf("expected persisted event regions without runtime indexes, got %v", availableRegions)
 	}
 	if body["isCurrentEvent"] != true {
 		t.Fatalf("expected isCurrentEvent=true, got %v", body["isCurrentEvent"])

@@ -169,7 +169,7 @@ func TestUnitProfilesByUnitEndpointReturnsRecord(t *testing.T) {
 	}
 }
 
-func TestUnitProfilesAvailableRegionsByUnitEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestUnitProfilesAvailableRegionsByUnitEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeLookupCache{
@@ -258,7 +258,7 @@ func TestGameCharacterUnitsListEndpointSupportsSorting(t *testing.T) {
 	}
 }
 
-func TestGameCharactersAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestGameCharactersAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeLookupCache{
@@ -593,7 +593,7 @@ func TestLookupRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t
 	}
 }
 
-func TestLookupAvailabilityEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeLookupCache{
@@ -650,8 +650,12 @@ func TestLookupAvailabilityEndpointsRequireRuntimeIndexWhenOnlyEntityRecordsExis
 			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 				t.Fatalf("unmarshal response: %v", err)
 			}
-			if len(body.Regions) != 0 {
-				t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
+			if testCase.name == "generic by-id availability" {
+				if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
+					t.Fatalf("expected persisted record region jp without runtime index, got %v", body.Regions)
+				}
+			} else if len(body.Regions) != 0 {
+				t.Fatalf("expected no available regions without a matching persisted record, got %v", body.Regions)
 			}
 		})
 	}
