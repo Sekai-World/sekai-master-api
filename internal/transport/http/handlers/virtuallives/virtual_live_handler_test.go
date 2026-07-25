@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/transport/http/handlers/testutil"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -963,19 +964,7 @@ func TestVirtualLiveAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntime
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-
-	var body struct {
-		Regions []string `json:"regions"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
-		t.Fatalf("expected persisted virtual live region jp without runtime index, got %v", body.Regions)
-	}
+	testutil.AssertRegionAvailabilityResponse(t, resp, []string{"jp"})
 }
 
 func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
