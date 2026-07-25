@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please do not report security vulnerabilities in a public issue. Follow [SECURITY.md](../../SECURITY.md) instead.
+        Please do not report security vulnerabilities in a public issue. Follow [SECURITY.md](https://github.com/Sekai-World/sekai-master-api/blob/main/SECURITY.md) instead.
   - type: textarea
     id: description
     attributes:
