@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/transport/http/handlers/testutil"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -879,7 +880,7 @@ func TestVirtualLiveSetlistsByIDEndpointReturnsItems(t *testing.T) {
 	}
 }
 
-func TestVirtualLiveAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestVirtualLiveAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeVirtualLiveHandlerCache{
@@ -937,7 +938,7 @@ func TestVirtualLiveAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *t
 	}
 }
 
-func TestVirtualLiveAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestVirtualLiveAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeVirtualLiveHandlerCache{
@@ -963,19 +964,7 @@ func TestVirtualLiveAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecord
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-
-	var body struct {
-		Regions []string `json:"regions"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(body.Regions) != 0 {
-		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
-	}
+	testutil.AssertRegionAvailabilityResponse(t, resp, []string{"jp"})
 }
 
 func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {

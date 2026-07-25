@@ -16,6 +16,7 @@ import (
 
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/transport/http/handlers/shared"
+	"sekai-master-api/internal/transport/http/handlers/testutil"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -282,7 +283,7 @@ func TestEventByIDEndpointMapsEventPointAssetbundleNameToIcon(t *testing.T) {
 	}
 }
 
-func TestEventAvailableRegionsByIDEndpointReturnsReadyRegionsWithData(t *testing.T) {
+func TestEventAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -687,7 +688,7 @@ func TestEventListAndCurrentUsePersistedEventRecordsWhenRuntimeIndexMissing(t *t
 	}
 }
 
-func TestEventAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestEventAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -713,19 +714,7 @@ func TestEventAvailabilityEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-
-	var body struct {
-		Regions []string `json:"regions"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(body.Regions) != 0 {
-		t.Fatalf("expected no available regions without runtime index, got %v", body.Regions)
-	}
+	testutil.AssertRegionAvailabilityResponse(t, resp, []string{"jp"})
 }
 
 func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
@@ -1015,8 +1004,8 @@ func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecordsWith
 	}
 
 	availableRegions := body["availableRegions"].([]any)
-	if len(availableRegions) != 0 {
-		t.Fatalf("expected no available regions without runtime indexes, got %v", availableRegions)
+	if !reflect.DeepEqual(availableRegions, []any{"en", "jp"}) {
+		t.Fatalf("expected persisted event regions without runtime indexes, got %v", availableRegions)
 	}
 	if body["isCurrentEvent"] != true {
 		t.Fatalf("expected isCurrentEvent=true, got %v", body["isCurrentEvent"])

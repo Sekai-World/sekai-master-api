@@ -1095,7 +1095,7 @@ func (handler *EventHandler) ensureRegionReady(c *gin.Context, region string) bo
 		return true
 	}
 
-	readyRegions, err := shared.ReadyMasterDataRegions(c.Request.Context(), handler.masterDataSync)
+	readyRegions, err := shared.RuntimeSearchIndexReadyRegions(c.Request.Context(), handler.masterDataSync)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
