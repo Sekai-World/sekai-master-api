@@ -60,7 +60,7 @@ Responsible for database connections, dialect compatibility, and the data access
   - If `DATABASE_DRIVER` is explicitly set to `sqlite` or `pgx`, that value takes precedence.
   - Do not break existing configuration names.
   - Store by-id data and order indexes in Redis; pagination order comes from the order index.
-  - Keep Redis search-index repair side-effectful only in sync/ensure/search-miss flows; `DashboardStatus`, `ReadyRegions`, admin dashboard reads, available-region helper reads, and observability callbacks must remain read-only.
+  - Keep Redis search-index repair side-effectful only in sync/ensure/search-miss flows; `DashboardStatus`, `RuntimeSearchIndexReadyRegions`, admin dashboard reads, available-region helper reads, and observability callbacks must remain read-only.
   - When rebuilding Redis search indexes, remove stale `:search-index-version` keys together with stale `:search-index` keys and clear persisted search-index artifacts when a region no longer has records.
   - Keep field constraints stable for the separate `cards` basic-info and params endpoints.
   - Relaxed persisted-record reads must not call `Search` for enrichment because search misses may repair Redis indexes. Use direct persisted-record reads and return the endpoint query error when required enrichment storage reads fail.

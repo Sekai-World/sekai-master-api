@@ -11,12 +11,12 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func ReadyMasterDataRegions(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase) ([]string, error) {
+func RuntimeSearchIndexReadyRegions(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase) ([]string, error) {
 	if masterDataSync == nil {
 		return nil, nil
 	}
 
-	return masterDataSync.ReadyRegions(ctx)
+	return masterDataSync.RuntimeSearchIndexReadyRegions(ctx)
 }
 
 func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) (bool, error) {
@@ -44,7 +44,7 @@ func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.
 		}
 	}
 
-	readyRegions, err := ReadyMasterDataRegions(ctx, masterDataSync)
+	readyRegions, err := RuntimeSearchIndexReadyRegions(ctx, masterDataSync)
 	if err != nil {
 		return false, err
 	}
@@ -77,21 +77,25 @@ func EnsureRegionReadyForEntityRecords(c *gin.Context, masterDataSync *usecase.M
 }
 
 func AvailableRegionsByID(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, entity string, id string) ([]string, error) {
-	readyRegions, err := ReadyMasterDataRegions(ctx, masterDataSync)
+	if masterDataSync == nil {
+		return nil, nil
+	}
+
+	regions, err := masterDataSync.SuccessfulSyncRegions(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	regions := make([]string, 0, len(readyRegions))
-	for _, region := range readyRegions {
+	availableRegions := make([]string, 0, len(regions))
+	for _, region := range regions {
 		_, found, err := masterDataSync.GetByID(ctx, region, entity, id)
 		if err != nil {
 			return nil, err
 		}
 		if found {
-			regions = append(regions, region)
+			availableRegions = append(availableRegions, region)
 		}
 	}
 
-	return regions, nil
+	return availableRegions, nil
 }
