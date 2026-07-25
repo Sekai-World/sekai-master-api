@@ -80,3 +80,11 @@ Swagger UI is exposed only in `development` and `test`:
 - `GET /docs/openapi.json`
 
 Generated Swagger files live in `internal/transport/http/swaggerdocs`; root `docs/` is reserved for project documents.
+
+## Community
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Apache-2.0 License](LICENSE)
