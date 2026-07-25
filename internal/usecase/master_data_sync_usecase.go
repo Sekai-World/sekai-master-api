@@ -859,7 +859,30 @@ func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.
 }
 
 func (usecase *MasterDataSyncUsecase) RuntimeSearchIndexReadyRegions(ctx context.Context) ([]string, error) {
-	statuses, err := usecase.Status(ctx)
+	regions, err := usecase.SuccessfulSyncRegions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	readyRegions := make([]string, 0, len(regions))
+	for _, region := range regions {
+		cacheReady := usecase.regionCacheReadySnapshot(region)
+		if !cacheReady {
+			continue
+		}
+
+		readyRegions = append(readyRegions, region)
+	}
+
+	return readyRegions, nil
+}
+
+func (usecase *MasterDataSyncUsecase) SuccessfulSyncRegions(ctx context.Context) ([]string, error) {
+	if usecase == nil || usecase.statusStore == nil {
+		return nil, nil
+	}
+
+	statuses, err := usecase.statusStore.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -876,11 +899,6 @@ func (usecase *MasterDataSyncUsecase) RuntimeSearchIndexReadyRegions(ctx context
 			continue
 		}
 		if _, exists := seen[region]; exists {
-			continue
-		}
-
-		cacheReady := usecase.regionCacheReadySnapshot(region)
-		if !cacheReady {
 			continue
 		}
 

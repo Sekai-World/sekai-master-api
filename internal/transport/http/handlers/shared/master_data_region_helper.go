@@ -3,7 +3,6 @@ package shared
 import (
 	"context"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -82,36 +81,21 @@ func AvailableRegionsByID(ctx context.Context, masterDataSync *usecase.MasterDat
 		return nil, nil
 	}
 
-	statuses, err := masterDataSync.Status(ctx)
+	regions, err := masterDataSync.SuccessfulSyncRegions(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	regions := make([]string, 0, len(statuses))
-	seen := make(map[string]struct{}, len(statuses))
-	for _, status := range statuses {
-		if !strings.EqualFold(strings.TrimSpace(status.Status), "success") {
-			continue
-		}
-
-		region := strings.ToLower(strings.TrimSpace(status.Region))
-		if region == "" {
-			continue
-		}
-		if _, exists := seen[region]; exists {
-			continue
-		}
-
+	availableRegions := make([]string, 0, len(regions))
+	for _, region := range regions {
 		_, found, err := masterDataSync.GetByID(ctx, region, entity, id)
 		if err != nil {
 			return nil, err
 		}
 		if found {
-			seen[region] = struct{}{}
-			regions = append(regions, region)
+			availableRegions = append(availableRegions, region)
 		}
 	}
 
-	sort.Strings(regions)
-	return regions, nil
+	return availableRegions, nil
 }

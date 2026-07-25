@@ -683,6 +683,26 @@ func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusWhenRedisCacheMissin
 	}
 }
 
+func TestSuccessfulSyncRegionsNormalizesDeduplicatesAndSorts(t *testing.T) {
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: " JP ", Status: "SUCCESS"},
+		{Region: "en", Status: "failed"},
+		{Region: "jp", Status: "success"},
+		{Region: " EN ", Status: " success "},
+		{Region: "  ", Status: "success"},
+	})
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, nil, statusStore, nil, 1)
+
+	regions, err := usecase.SuccessfulSyncRegions(context.Background())
+	if err != nil {
+		t.Fatalf("expected successful sync regions, got %v", err)
+	}
+	if len(regions) != 2 || regions[0] != "en" || regions[1] != "jp" {
+		t.Fatalf("expected normalized, unique, sorted successful regions, got %v", regions)
+	}
+}
+
 func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanLoad(t *testing.T) {
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
 		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},

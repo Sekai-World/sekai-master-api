@@ -346,7 +346,6 @@ func TestRegionHasEntityRecordsOrReady_returns_error_when_entity_record_check_fa
 func TestAvailableRegionsByID_uses_successful_status_and_direct_records_without_runtime_index(t *testing.T) {
 	t.Parallel()
 
-	// Given
 	masterDataSync := usecase.NewMasterDataSyncUsecase(
 		nil,
 		nil,
@@ -366,10 +365,8 @@ func TestAvailableRegionsByID_uses_successful_status_and_direct_records_without_
 		1,
 	)
 
-	// When
 	regions, err := AvailableRegionsByID(context.Background(), masterDataSync, "cards", "42")
 
-	// Then
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
