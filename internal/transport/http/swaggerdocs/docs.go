@@ -2983,6 +2983,7 @@ const docTemplate = `{
         },
         "/virtualLives/{region}/list": {
             "get": {
+                "description": "Returns only id, name, virtualLiveType, assetbundleName, startAt, and endAt for each virtual live.",
                 "produces": [
                     "application/json"
                 ],
@@ -5349,6 +5350,37 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.VirtualLiveListItemResponse": {
+            "type": "object",
+            "required": [
+                "assetbundleName",
+                "endAt",
+                "id",
+                "name",
+                "startAt",
+                "virtualLiveType"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "endAt": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "startAt": {
+                    "type": "integer"
+                },
+                "virtualLiveType": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.VirtualLiveListResponse": {
             "type": "object",
             "required": [
@@ -5359,7 +5391,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/shared.VirtualLiveObjectResponse"
+                        "$ref": "#/definitions/shared.VirtualLiveListItemResponse"
                     }
                 },
                 "pagination": {

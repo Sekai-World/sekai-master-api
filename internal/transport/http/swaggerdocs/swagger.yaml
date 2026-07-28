@@ -1392,11 +1392,33 @@ definitions:
     required:
     - items
     type: object
+  shared.VirtualLiveListItemResponse:
+    properties:
+      assetbundleName:
+        type: string
+      endAt:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      startAt:
+        type: integer
+      virtualLiveType:
+        type: string
+    required:
+    - assetbundleName
+    - endAt
+    - id
+    - name
+    - startAt
+    - virtualLiveType
+    type: object
   shared.VirtualLiveListResponse:
     properties:
       items:
         items:
-          $ref: '#/definitions/shared.VirtualLiveObjectResponse'
+          $ref: '#/definitions/shared.VirtualLiveListItemResponse'
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
@@ -3716,6 +3738,8 @@ paths:
       - virtualLives
   /virtualLives/{region}/list:
     get:
+      description: Returns only id, name, virtualLiveType, assetbundleName, startAt,
+        and endAt for each virtual live.
       parameters:
       - description: Region
         in: path

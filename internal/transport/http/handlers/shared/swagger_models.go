@@ -775,8 +775,17 @@ type VirtualLiveObjectResponse struct {
 }
 
 type VirtualLiveListResponse struct {
-	Items      []VirtualLiveObjectResponse `json:"items" binding:"required"`
-	Pagination PaginationResponse          `json:"pagination" binding:"required"`
+	Items      []VirtualLiveListItemResponse `json:"items" binding:"required"`
+	Pagination PaginationResponse            `json:"pagination" binding:"required"`
+}
+
+type VirtualLiveListItemResponse struct {
+	ID              int    `json:"id" binding:"required"`
+	Name            string `json:"name" binding:"required"`
+	VirtualLiveType string `json:"virtualLiveType" binding:"required"`
+	AssetbundleName string `json:"assetbundleName" binding:"required"`
+	StartAt         int64  `json:"startAt" binding:"required"`
+	EndAt           int64  `json:"endAt" binding:"required"`
 }
 
 type VirtualLiveInformation struct {
