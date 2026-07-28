@@ -1040,17 +1040,7 @@ func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 		t.Fatalf("expected item object, got %T", items[0])
 	}
 
-	expected := map[string]any{
-		"id":              float64(501),
-		"name":            "after live",
-		"virtualLiveType": "normal",
-		"assetbundleName": "vl_501",
-		"startAt":         float64(1000),
-		"endAt":           float64(2000),
-	}
-	if !reflect.DeepEqual(first, expected) {
-		t.Fatalf("expected exact minimal list item %v, got %v", expected, first)
-	}
+	assertExactMinimalVirtualLiveListItem(t, first)
 }
 
 func TestVirtualLiveListFilteredBranchReturnsExactMinimalItemsWithoutRelatedData(t *testing.T) {
@@ -1096,6 +1086,14 @@ func TestVirtualLiveListFilteredBranchReturnsExactMinimalItemsWithoutRelatedData
 	if len(body.Items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(body.Items))
 	}
+	assertExactMinimalVirtualLiveListItem(t, body.Items[0])
+	if !reflect.DeepEqual(cache.listAllCalls, []string{"virtuallives"}) {
+		t.Fatalf("expected list branch to load only virtual lives, got %v", cache.listAllCalls)
+	}
+}
+
+func assertExactMinimalVirtualLiveListItem(t *testing.T, item map[string]any) {
+	t.Helper()
 	expected := map[string]any{
 		"id":              float64(501),
 		"name":            "after live",
@@ -1104,11 +1102,8 @@ func TestVirtualLiveListFilteredBranchReturnsExactMinimalItemsWithoutRelatedData
 		"startAt":         float64(1000),
 		"endAt":           float64(2000),
 	}
-	if !reflect.DeepEqual(body.Items[0], expected) {
-		t.Fatalf("expected exact minimal list item %v, got %v", expected, body.Items[0])
-	}
-	if !reflect.DeepEqual(cache.listAllCalls, []string{"virtuallives"}) {
-		t.Fatalf("expected list branch to load only virtual lives, got %v", cache.listAllCalls)
+	if !reflect.DeepEqual(item, expected) {
+		t.Fatalf("expected exact minimal list item %v, got %v", expected, item)
 	}
 }
 
