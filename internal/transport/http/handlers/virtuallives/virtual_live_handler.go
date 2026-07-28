@@ -172,6 +172,7 @@ func (handler *VirtualLiveHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param name query string false "Case-insensitive (trimmed) substring match against the virtual live name"
 // @Param id query int false "Exact virtual live id"
 // @Param virtual_live_type query string false "Comma-separated virtual live types (OR within parameter, AND combined with other filters)"
+// @Description Returns only id, name, virtualLiveType, assetbundleName, startAt, and endAt for each virtual live.
 // @Success 200 {object} shared.VirtualLiveListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -243,7 +244,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 		}
 
 		response.JSON(c, http.StatusOK, gin.H{
-			"items": handler.buildVirtualLiveList(c.Request.Context(), region, records),
+			"items": buildVirtualLiveList(records),
 			"pagination": gin.H{
 				"page":        page,
 				"page_size":   pageSize,
@@ -276,7 +277,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 
 	pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 	response.JSON(c, http.StatusOK, gin.H{
-		"items":      handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords),
+		"items":      buildVirtualLiveList(pagedRecords),
 		"pagination": pagination,
 	})
 }
@@ -395,14 +396,30 @@ func applyVirtualLiveListFilters(records []map[string]any, filters virtualLiveLi
 	return matched
 }
 
-func (handler *VirtualLiveHandler) buildVirtualLiveList(ctx context.Context, region string, records []map[string]any) []map[string]any {
-	related := handler.preloadVirtualLiveRelatedData(ctx, region, records)
+func buildVirtualLiveList(records []map[string]any) []map[string]any {
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, handler.buildVirtualLiveWithRelated(ctx, region, record, related))
+		items = append(items, buildVirtualLiveListItem(record))
 	}
 
 	return items
+}
+
+func buildVirtualLiveListItem(record map[string]any) map[string]any {
+	item := make(map[string]any, 6)
+	for _, field := range []string{
+		"id",
+		"name",
+		"virtualLiveType",
+		"assetbundleName",
+		"startAt",
+		"endAt",
+	} {
+		if value, ok := record[field]; ok {
+			item[field] = value
+		}
+	}
+	return item
 }
 
 func (handler *VirtualLiveHandler) buildVirtualLiveObject(ctx context.Context, region string, record map[string]any) map[string]any {

@@ -21,6 +21,7 @@ type fakeVirtualLiveHandlerCache struct {
 	listByEntity          map[string][]map[string]any
 	listItems             []map[string]any
 	listTotal             int
+	listAllCalls          []string
 	hasRecords            map[string]map[string]bool
 	hasIndex              bool
 	hasIndexSet           bool
@@ -79,6 +80,7 @@ func (cache *fakeVirtualLiveHandlerCache) GetByID(_ context.Context, region stri
 }
 
 func (cache *fakeVirtualLiveHandlerCache) ListAll(_ context.Context, _ string, entity string) ([]map[string]any, error) {
+	cache.listAllCalls = append(cache.listAllCalls, entity)
 	source := cache.listItems
 	if cache.listByEntity != nil {
 		if entityItems, ok := cache.listByEntity[strings.ToLower(strings.TrimSpace(entity))]; ok {
@@ -970,96 +972,118 @@ func TestVirtualLiveAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntime
 func TestVirtualLiveListEndpointReturnsItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &fakeVirtualLiveHandlerCache{
-		listItems: []map[string]any{
-			{
-				"id":              501,
-				"name":            "after live",
-				"assetbundleName": "vl_501",
-				"virtualLiveType": "normal",
-				"virtualItems": []any{
-					map[string]any{
-						"id":                    1,
-						"name":                  "Confetti",
-						"assetbundleName":       "cracker_001",
-						"effectAssetbundleName": "cracker_001",
-						"effectExpressionType":  "throw_effect",
-						"virtualItemCategory":   "normal",
-						"virtualItemLabelType":  "normal",
-						"priority":              10,
-						"seq":                   10,
-						"costJewel":             10,
-						"costVirtualCoin":       30,
+	t.Run("index branch", func(t *testing.T) {
+		cache := &fakeVirtualLiveHandlerCache{
+			listItems: []map[string]any{
+				{
+					"id":              501,
+					"name":            "after live",
+					"assetbundleName": "vl_501",
+					"startAt":         1000,
+					"endAt":           2000,
+					"virtualLiveType": "normal",
+					"virtualItems": []any{
+						map[string]any{
+							"id":                    1,
+							"name":                  "Confetti",
+							"assetbundleName":       "cracker_001",
+							"effectAssetbundleName": "cracker_001",
+							"effectExpressionType":  "throw_effect",
+							"virtualItemCategory":   "normal",
+							"virtualItemLabelType":  "normal",
+							"priority":              10,
+							"seq":                   10,
+							"costJewel":             10,
+							"costVirtualCoin":       30,
+						},
+					},
+					"virtualLiveSchedules": []any{
+						map[string]any{"id": 10, "startAt": 1000},
+					},
+					"virtualLiveSetlists": []any{
+						map[string]any{"musicId": 1, "seq": 1},
 					},
 				},
-				"virtualLiveSchedules": []any{
-					map[string]any{"id": 10, "startAt": 1000},
-				},
-				"virtualLiveSetlists": []any{
-					map[string]any{"musicId": 1, "seq": 1},
+			},
+			listTotal: 1,
+		}
+
+		assertExactMinimalVirtualLiveListItem(t, requestVirtualLiveListItem(t, cache, "?page=1&page_size=20"))
+	})
+
+	t.Run("filtered branch", func(t *testing.T) {
+		cache := &fakeVirtualLiveHandlerCache{
+			listItems: []map[string]any{
+				{
+					"id":                   501,
+					"name":                 "after live",
+					"virtualLiveType":      "normal",
+					"assetbundleName":      "vl_501",
+					"startAt":              1000,
+					"endAt":                2000,
+					"virtualLiveGroupId":   77,
+					"screenMvMusicVocalId": 29,
+					"virtualLiveRewards": []any{
+						map[string]any{"resourceBoxId": 7001},
+					},
 				},
 			},
-		},
-		listTotal: 1,
+		}
+
+		assertExactMinimalVirtualLiveListItem(t, requestVirtualLiveListItem(t, cache, "?name=after&page=1&page_size=20"))
+		if !reflect.DeepEqual(cache.listAllCalls, []string{"virtuallives"}) {
+			t.Fatalf("expected list branch to load only virtual lives, got %v", cache.listAllCalls)
+		}
+	})
+}
+
+func assertExactMinimalVirtualLiveListItem(t *testing.T, item map[string]any) {
+	t.Helper()
+	expected := map[string]any{
+		"id":              float64(501),
+		"name":            "after live",
+		"virtualLiveType": "normal",
+		"assetbundleName": "vl_501",
+		"startAt":         float64(1000),
+		"endAt":           float64(2000),
 	}
+	if !reflect.DeepEqual(item, expected) {
+		t.Fatalf("expected exact minimal list item %v, got %v", expected, item)
+	}
+}
+
+func requestVirtualLiveListItem(t *testing.T, cache *fakeVirtualLiveHandlerCache, query string) map[string]any {
+	t.Helper()
 
 	handler := newReadyVirtualLiveHandler(cache)
-
 	router := gin.New()
 	router.GET("/api/v1/virtualLives/:region/list", handler.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list?page=1&page_size=20", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/list"+query, nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 
 	var body map[string]any
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-
 	itemsRaw, ok := body["items"]
 	if !ok {
 		t.Fatalf("expected items in response")
 	}
-
 	items, ok := itemsRaw.([]any)
 	if !ok || len(items) != 1 {
 		t.Fatalf("expected 1 item, got %T len=%d", itemsRaw, len(items))
 	}
-
-	first, ok := items[0].(map[string]any)
+	item, ok := items[0].(map[string]any)
 	if !ok {
 		t.Fatalf("expected item object, got %T", items[0])
 	}
-
-	if first["name"] != "after live" {
-		t.Fatalf("expected first.name=after live, got %v", first["name"])
-	}
-	if _, exists := first["virtualItems"]; exists {
-		t.Fatalf("expected virtualItems to be omitted from list response")
-	}
-	if _, exists := first["virtualLiveSchedules"]; exists {
-		t.Fatalf("expected virtualLiveSchedules to be omitted from list response")
-	}
-	if _, exists := first["virtualLiveSetlists"]; exists {
-		t.Fatalf("expected virtualLiveSetlists to be omitted from list response")
-	}
-	if virtualLiveGroup, exists := first["virtualLiveGroup"]; exists && virtualLiveGroup != nil {
-		t.Fatalf("expected virtualLiveGroup to be absent or null when not found, got %v", first["virtualLiveGroup"])
-	}
-	if screenMvMusicVocal, exists := first["screenMvMusicVocal"]; exists && screenMvMusicVocal != nil {
-		t.Fatalf("expected screenMvMusicVocal to be absent or null when not found, got %v", first["screenMvMusicVocal"])
-	}
-	if pamphlet, exists := first["pamphlet"]; !exists || pamphlet != nil {
-		t.Fatalf("expected pamphlet to be null when not found, got %v", first["pamphlet"])
-	}
-	if ticket, exists := first["ticket"]; !exists || ticket != nil {
-		t.Fatalf("expected ticket to be null when not found, got %v", first["ticket"])
-	}
+	return item
 }
 
 func TestVirtualLivePersistedRecordsReturnDataWhenIndexMissing(t *testing.T) {
