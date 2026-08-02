@@ -313,4 +313,6 @@ Set `SMOKE_CHECK_PROTECTED=true`, `SMOKE_CONTROL_BASE_URL`, and
 `ADMIN_BEARER_TOKEN` only when real OIDC configuration is available. This adds
 serve/control public-route separation, unauthenticated admin-SSE and webhook
 rejection checks, and an authenticated admin profile request; it does not invent
-a dummy OIDC issuer.
+a dummy OIDC issuer. Both the smoke check and recovery drill use
+`CURL_CONNECT_TIMEOUT_SECONDS` (default `5`) and `CURL_MAX_TIME_SECONDS`
+(default `15`) to bound individual HTTP requests.

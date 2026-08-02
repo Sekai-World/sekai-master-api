@@ -74,7 +74,7 @@
           "required": ["enabled", "minAvailable"],
           "properties": {
             "enabled": { "type": "boolean" },
-            "minAvailable": { "type": ["integer", "string"], "minLength": 1 }
+            "minAvailable": { "$ref": "#/$defs/nonNegativeIntOrPercent" }
           }
         },
         "control": {
@@ -83,7 +83,7 @@
           "required": ["enabled", "maxUnavailable"],
           "properties": {
             "enabled": { "type": "boolean" },
-            "maxUnavailable": { "type": ["integer", "string"], "minLength": 1 }
+            "maxUnavailable": { "$ref": "#/$defs/nonNegativeIntOrPercent" }
           }
         }
       }
@@ -132,6 +132,12 @@
     }
   ],
   "$defs": {
+    "nonNegativeIntOrPercent": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^[0-9]+%$" }
+      ]
+    },
     "ingress": {
       "type": "object",
       "properties": {

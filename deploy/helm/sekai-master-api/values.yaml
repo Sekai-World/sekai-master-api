@@ -134,8 +134,10 @@ migration:
   resources:
     requests:
       cpu: 100m
+      ephemeral-storage: 128Mi
       memory: 128Mi
     limits:
+      ephemeral-storage: 256Mi
       memory: 256Mi
 
 podDisruptionBudget:

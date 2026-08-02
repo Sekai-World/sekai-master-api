@@ -222,7 +222,7 @@ func main() {
 	waitForServer(serverErrCh, logger)
 }
 
-func runMigrationCommand(args []string) error {
+func runMigrationCommand(args []string) (err error) {
 	if len(args) > 0 {
 		return fmt.Errorf("usage: sekai-master-api migrate")
 	}
@@ -238,7 +238,15 @@ func runMigrationCommand(args []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize database for migrations: %w", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			if err == nil {
+				err = fmt.Errorf("close migration database: %w", closeErr)
+			} else {
+				err = fmt.Errorf("%w; additionally failed to close migration database: %v", err, closeErr)
+			}
+		}
+	}()
 
 	if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)

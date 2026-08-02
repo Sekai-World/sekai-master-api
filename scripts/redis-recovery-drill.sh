@@ -17,13 +17,25 @@ fi
 
 REDIS_CLI="${REDIS_CLI:-redis-cli}"
 export REDISCLI_AUTH="${REDIS_PASSWORD:-}"
+CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
+CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-15}"
+CURL_STATUS_FORMAT='%{http_code}'
+scan_file="$(mktemp)"
+
+cleanup() {
+  rm -f "${scan_file}"
+}
+
+trap cleanup EXIT HUP INT TERM
 
 redis() {
   "${REDIS_CLI}" -u "redis://${REDIS_ADDR}" "$@"
 }
 
 status() {
-  curl -sS -o /dev/null -w '%{http_code}' "$1" || true
+  endpoint="$1"
+  curl -sS --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" --max-time "${CURL_MAX_TIME_SECONDS}" \
+    -o /dev/null -w "${CURL_STATUS_FORMAT}" "${endpoint}" || true
 }
 
 wait_for_status() {
@@ -47,18 +59,25 @@ if [ "$(status "${REDIS_RECOVERY_PUBLIC_URL}")" != "200" ]; then
   exit 1
 fi
 
+if ! redis --scan >"${scan_file}"; then
+  echo "[redis-recovery-drill] failed to scan Redis keys"
+  exit 1
+fi
+
 deleted=0
-"${REDIS_CLI}" -u "redis://${REDIS_ADDR}" --scan --pattern "${MASTER_DATA_REDIS_KEY_PREFIX}*" |
-while IFS= read -r key; do
+prefix_length=${#MASTER_DATA_REDIS_KEY_PREFIX}
+while IFS= read -r key || [ -n "${key}" ]; do
   [ -n "${key}" ] || continue
+  key_prefix="$(printf '%s' "${key}" | cut -c "1-${prefix_length}")"
+  [ "${key_prefix}" = "${MASTER_DATA_REDIS_KEY_PREFIX}" ] || continue
   redis UNLINK "${key}" >/dev/null
   deleted=$((deleted + 1))
-done
+done <"${scan_file}"
 
-echo "[redis-recovery-drill] removed all keys with configured prefix"
+echo "[redis-recovery-drill] removed ${deleted} keys with configured prefix"
 wait_for_status 503 "${REDIS_RECOVERY_SERVE_URL}/readyz"
 
-curl -fsS -X POST \
+curl -fsS --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" --max-time "${CURL_MAX_TIME_SECONDS}" -X POST \
   -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" \
   "${REDIS_RECOVERY_CONTROL_URL}/api/v1/admin/master-data/sync/force" >/dev/null
 

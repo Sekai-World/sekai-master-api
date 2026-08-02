@@ -9,6 +9,17 @@ SMOKE_CONTROL_BASE_URL="${SMOKE_CONTROL_BASE_URL:-}"
 SMOKE_PUBLIC_PATH="${SMOKE_PUBLIC_PATH:-}"
 ADMIN_BEARER_TOKEN="${ADMIN_BEARER_TOKEN:-}"
 SMOKE_CHECK_PROTECTED="${SMOKE_CHECK_PROTECTED:-false}"
+CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
+CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-15}"
+CURL_STATUS_FORMAT='%{http_code}'
+
+request_status() {
+  method="$1"
+  endpoint="$2"
+  shift 2
+  curl -sS --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" --max-time "${CURL_MAX_TIME_SECONDS}" \
+    -o /dev/null -w "${CURL_STATUS_FORMAT}" -X "${method}" "$@" "${endpoint}" || true
+}
 
 wait_for_status() {
   expected_status="$1"
@@ -16,7 +27,7 @@ wait_for_status() {
   attempt=0
 
   while :; do
-    status="$(curl -sS -o /dev/null -w '%{http_code}' "${endpoint}" || true)"
+    status="$(request_status GET "${endpoint}")"
     [ "${status}" = "${expected_status}" ] && return 0
 
     attempt=$((attempt + 1))
@@ -31,7 +42,7 @@ wait_for_status() {
 require_status() {
   expected_status="$1"
   endpoint="$2"
-  status="$(curl -sS -o /dev/null -w '%{http_code}' "${endpoint}" || true)"
+  status="$(request_status GET "${endpoint}")"
   if [ "${status}" != "${expected_status}" ]; then
     echo "[smoke] expected HTTP ${expected_status} from ${endpoint}, got ${status}"
     exit 1
@@ -41,10 +52,11 @@ require_status() {
 require_rejected() {
   method="$1"
   endpoint="$2"
-  status="$(curl -sS -o /dev/null -w '%{http_code}' -X "${method}" "${endpoint}" || true)"
+  status="$(request_status "${method}" "${endpoint}")"
   case "${status}" in
-    2??)
-      echo "[smoke] expected ${endpoint} to reject an unauthenticated request, got HTTP ${status}"
+    401|503) ;;
+    *)
+      echo "[smoke] expected ${endpoint} to reject an unauthenticated request with HTTP 401 or 503, got ${status}"
       exit 1
       ;;
   esac
@@ -70,7 +82,7 @@ if [ "${SMOKE_CHECK_PROTECTED}" = "true" ]; then
   require_status 404 "${SMOKE_CONTROL_BASE_URL}${SMOKE_PUBLIC_PATH}"
   require_status 401 "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/master-data/events"
   require_rejected POST "${SMOKE_CONTROL_BASE_URL}/api/v1/internal/github/webhooks/master-data"
-  protected_status="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/profile" || true)"
+  protected_status="$(request_status GET "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/profile" -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}")"
   if [ "${protected_status}" != "200" ]; then
     echo "[smoke] expected authenticated admin profile to return HTTP 200, got ${protected_status}"
     exit 1
