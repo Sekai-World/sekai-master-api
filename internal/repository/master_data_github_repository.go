@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -45,9 +46,16 @@ const defaultGitHubBaseURL = "https://github.com"
 const defaultGitHubRawBaseURL = "https://raw.githubusercontent.com"
 const defaultMasterDataResumeBaseDir = "tmp/master-data-sync-resume"
 
-type MasterDataSourceVersionManifestLoader interface {
-	LoadVersionManifest(ctx context.Context, source masterdata.Source) (map[string]any, bool, error)
-}
+const (
+	githubUserAgentHeader     = "User-Agent"
+	githubUserAgentValue      = "sekai-master-api/1.0"
+	githubAuthorizationHeader = "Authorization"
+	githubBearerPrefix        = "Bearer "
+	versionManifestFileName   = "versions.json"
+
+	gitUploadPackAdvertisementMediaType = "application/x-git-upload-pack-advertisement"
+	gitUploadPackServiceAdvertisement   = "# service=git-upload-pack\n"
+)
 
 type gitCommitResponse struct {
 	SHA string `json:"sha"`
@@ -217,13 +225,13 @@ func (repository *GitHubMasterDataRepository) rawContentBaseURL() string {
 func versionManifestPath(sourcePath string) string {
 	trimmedPath := strings.Trim(strings.TrimSpace(sourcePath), "/")
 	if trimmedPath == "" {
-		return "versions.json"
+		return versionManifestFileName
 	}
-	if strings.EqualFold(path.Base(trimmedPath), "versions.json") {
+	if strings.EqualFold(path.Base(trimmedPath), versionManifestFileName) {
 		return trimmedPath
 	}
 
-	return path.Join(trimmedPath, "versions.json")
+	return path.Join(trimmedPath, versionManifestFileName)
 }
 
 func escapeRawPath(rawPath string) string {
@@ -267,10 +275,7 @@ func (repository *GitHubMasterDataRepository) getGitUploadPackRefs(ctx context.C
 	}
 
 	request.Header.Set("Accept", "application/x-git-upload-pack-advertisement")
-	request.Header.Set("User-Agent", "sekai-master-api/1.0")
-	if repository.token != "" {
-		request.Header.Set("Authorization", "Bearer "+repository.token)
-	}
+	repository.applyRequestHeaders(request)
 
 	resp, err := repository.httpClient.Do(request)
 	if err != nil {
@@ -287,39 +292,113 @@ func (repository *GitHubMasterDataRepository) getGitUploadPackRefs(ctx context.C
 		return nil, &httpStatusError{statusCode: resp.StatusCode, body: strings.TrimSpace(string(body))}
 	}
 
+	if err := validateGitUploadPackResponse(resp.Header.Get("Content-Type"), body); err != nil {
+		return nil, err
+	}
+
 	return parseGitUploadPackRefs(body)
+}
+
+type gitPktLineKind uint8
+
+const (
+	gitPktLineData gitPktLineKind = iota
+	gitPktLineFlush
+	gitPktLineResponseEnd
+	gitPktLineDelimiter
+)
+
+type gitPktLineReader struct {
+	body   []byte
+	offset int
+}
+
+func (reader *gitPktLineReader) read() ([]byte, gitPktLineKind, error) {
+	if len(reader.body)-reader.offset < 4 {
+		return nil, gitPktLineData, fmt.Errorf("truncated git pkt-line header")
+	}
+
+	packetLength, err := strconv.ParseUint(string(reader.body[reader.offset:reader.offset+4]), 16, 16)
+	if err != nil {
+		return nil, gitPktLineData, fmt.Errorf("parse git pkt-line length: %w", err)
+	}
+	reader.offset += 4
+
+	switch packetLength {
+	case 0:
+		return nil, gitPktLineFlush, nil
+	case 1:
+		return nil, gitPktLineResponseEnd, nil
+	case 2:
+		return nil, gitPktLineDelimiter, nil
+	case 3:
+		return nil, gitPktLineData, fmt.Errorf("invalid git pkt-line length %04x", packetLength)
+	}
+
+	if packetLength < 4 {
+		return nil, gitPktLineData, fmt.Errorf("invalid git pkt-line length %04x", packetLength)
+	}
+	packetPayloadLength := int(packetLength) - 4
+	if packetPayloadLength > len(reader.body)-reader.offset {
+		return nil, gitPktLineData, fmt.Errorf("truncated git pkt-line payload")
+	}
+
+	payload := reader.body[reader.offset : reader.offset+packetPayloadLength]
+	reader.offset += packetPayloadLength
+	return payload, gitPktLineData, nil
+}
+
+func validateGitUploadPackResponse(contentType string, body []byte) error {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return fmt.Errorf("parse git smart HTTP response content type %q: %w", contentType, err)
+	}
+	if mediaType != gitUploadPackAdvertisementMediaType {
+		return fmt.Errorf("unexpected git smart HTTP response content type %q, want %q", mediaType, gitUploadPackAdvertisementMediaType)
+	}
+	if !hasGitPktLineServicePrefix(body) {
+		return fmt.Errorf("git smart HTTP response does not begin with a valid pkt-line service advertisement")
+	}
+
+	reader := gitPktLineReader{body: body}
+	payload, kind, err := reader.read()
+	if err != nil {
+		return fmt.Errorf("read git smart HTTP service advertisement: %w", err)
+	}
+	if kind != gitPktLineData || string(payload) != gitUploadPackServiceAdvertisement {
+		return fmt.Errorf("git smart HTTP response first pkt-line payload was %q, want %q", payload, gitUploadPackServiceAdvertisement)
+	}
+
+	return nil
+}
+
+func hasGitPktLineServicePrefix(body []byte) bool {
+	if len(body) < 5 || body[4] != '#' {
+		return false
+	}
+
+	for _, char := range body[:4] {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+
+	return true
 }
 
 func parseGitUploadPackRefs(body []byte) (map[string]string, error) {
 	refs := make(map[string]string)
-	for offset := 0; offset < len(body); {
-		if len(body)-offset < 4 {
-			return nil, fmt.Errorf("truncated git pkt-line header")
-		}
-
-		packetLength, err := strconv.ParseUint(string(body[offset:offset+4]), 16, 16)
+	reader := gitPktLineReader{body: body}
+	for reader.offset < len(body) {
+		payload, kind, err := reader.read()
 		if err != nil {
-			return nil, fmt.Errorf("parse git pkt-line length: %w", err)
+			return nil, err
 		}
-		offset += 4
-
-		switch packetLength {
-		case 0, 1, 2:
+		if kind != gitPktLineData {
 			continue
-		case 3:
-			return nil, fmt.Errorf("invalid git pkt-line length %04x", packetLength)
 		}
 
-		if packetLength < 4 {
-			return nil, fmt.Errorf("invalid git pkt-line length %04x", packetLength)
-		}
-		packetPayloadLength := int(packetLength) - 4
-		if packetPayloadLength > len(body)-offset {
-			return nil, fmt.Errorf("truncated git pkt-line payload")
-		}
-
-		packet := strings.TrimSuffix(string(body[offset:offset+packetPayloadLength]), "\n")
-		offset += packetPayloadLength
+		packet := strings.TrimSuffix(string(payload), "\n")
 
 		if strings.HasPrefix(packet, "# service=") || packet == "version 2" {
 			continue
@@ -595,10 +674,7 @@ func (repository *GitHubMasterDataRepository) streamArchiveToFile(ctx context.Co
 		return fmt.Errorf("build request: %w", err)
 	}
 
-	request.Header.Set("User-Agent", "sekai-master-api/1.0")
-	if repository.token != "" {
-		request.Header.Set("Authorization", "Bearer "+repository.token)
-	}
+	repository.applyRequestHeaders(request)
 
 	resp, err := repository.httpClient.Do(request)
 	if err != nil {
@@ -673,10 +749,7 @@ func (repository *GitHubMasterDataRepository) doJSONRequest(ctx context.Context,
 	}
 
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "sekai-master-api/1.0")
-	if repository.token != "" {
-		request.Header.Set("Authorization", "Bearer "+repository.token)
-	}
+	repository.applyRequestHeaders(request)
 
 	resp, err := repository.httpClient.Do(request)
 	if err != nil {
@@ -698,6 +771,13 @@ func (repository *GitHubMasterDataRepository) doJSONRequest(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (repository *GitHubMasterDataRepository) applyRequestHeaders(request *http.Request) {
+	request.Header.Set(githubUserAgentHeader, githubUserAgentValue)
+	if repository.token != "" {
+		request.Header.Set(githubAuthorizationHeader, githubBearerPrefix+repository.token)
+	}
 }
 
 func (repository *GitHubMasterDataRepository) waitRetryBackoff(ctx context.Context, attempt int) error {

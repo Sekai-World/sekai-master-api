@@ -581,7 +581,18 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 						}
 
 						if hasPreviousStatus && strings.EqualFold(strings.TrimSpace(previous.Status), "success") && strings.TrimSpace(previous.SourceCommit) != "" && resolvedCommit != "" && strings.TrimSpace(previous.SourceCommit) != resolvedCommit {
-							skipped, skipErr := usecase.trySkipRegionWithUnchangedManifest(regionCtx, source, previous, resolvedCommit, cacheReady, step, totalSteps, now)
+							skipped, skipErr := usecase.trySkipRegionWithUnchangedManifest(
+								regionCtx,
+								source,
+								previous,
+								resolvedCommit,
+								cacheReady,
+								manifestSkipProgress{
+									currentStep: step,
+									totalSteps:  totalSteps,
+									updatedAt:   now,
+								},
+							)
 							if skipErr != nil {
 								recordFailure(source.Region, fmt.Errorf("persist manifest skip status for region %s: %w", source.Region, skipErr))
 								return
@@ -829,7 +840,13 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 	return nil
 }
 
-func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, resolvedCommit string, cacheReady bool, currentStep int, totalSteps int, now time.Time) (bool, error) {
+type manifestSkipProgress struct {
+	currentStep int
+	totalSteps  int
+	updatedAt   time.Time
+}
+
+func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, resolvedCommit string, cacheReady bool, progress manifestSkipProgress) (bool, error) {
 	manifestLoader, ok := usecase.loader.(MasterDataSourceVersionManifestLoader)
 	if !ok || usecase.backupStore == nil {
 		return false, nil
@@ -841,24 +858,40 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 	}
 
 	localManifest, _, _, localFound, err := versionStore.LoadLatestRegionVersionPayload(ctx, source)
-	if err != nil || !localFound {
+	if err != nil {
+		usecase.logf("sync compare region=%s commit=%s reason=local_manifest_load_error error=%v", source.Region, resolvedCommit, err)
+		return false, nil
+	}
+	if !localFound {
 		return false, nil
 	}
 
 	manifestSource := source
 	manifestSource.Ref = resolvedCommit
 	remoteManifest, remoteFound, err := manifestLoader.LoadVersionManifest(ctx, manifestSource)
-	if err != nil || !remoteFound {
+	if err != nil {
+		usecase.logf("sync compare region=%s commit=%s reason=remote_manifest_load_error error=%v", source.Region, resolvedCommit, err)
+		return false, nil
+	}
+	if !remoteFound {
 		return false, nil
 	}
 
 	matched, err := jsonValuesEqual(localManifest, remoteManifest)
-	if err != nil || !matched {
+	if err != nil {
+		usecase.logf("sync compare region=%s commit=%s reason=json_comparison_error error=%v", source.Region, resolvedCommit, err)
+		return false, nil
+	}
+	if !matched {
 		return false, nil
 	}
 
 	latestPayload, _, _, payloadFound, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
-	if err != nil || !payloadFound {
+	if err != nil {
+		usecase.logf("sync compare region=%s commit=%s reason=latest_payload_load_error error=%v", source.Region, resolvedCommit, err)
+		return false, nil
+	}
+	if !payloadFound {
 		return false, nil
 	}
 
@@ -872,14 +905,15 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 			Region:         source.Region,
 			Phase:          "cache",
 			Message:        "restoring cache from local backup",
-			CurrentStep:    currentStep,
-			TotalSteps:     totalSteps,
+			CurrentStep:    progress.currentStep,
+			TotalSteps:     progress.totalSteps,
 			FileCount:      len(latestPayload),
 			ProcessedFiles: 0,
 			TotalFiles:     len(latestPayload),
 			UpdatedAt:      time.Now().UTC(),
 		})
 		if err := usecase.cache.StoreRegion(ctx, source.Region, latestPayload); err != nil {
+			usecase.logf("sync compare region=%s commit=%s reason=cache_store_region_error error=%v", source.Region, resolvedCommit, err)
 			return false, nil
 		}
 		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
@@ -888,8 +922,8 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 			Region:         source.Region,
 			Phase:          "cache",
 			Message:        "local backup cache restore completed",
-			CurrentStep:    currentStep,
-			TotalSteps:     totalSteps,
+			CurrentStep:    progress.currentStep,
+			TotalSteps:     progress.totalSteps,
 			FileCount:      len(latestPayload),
 			ProcessedFiles: len(latestPayload),
 			TotalFiles:     len(latestPayload),
@@ -898,6 +932,7 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 	}
 
 	if err := usecase.backupStore.SaveRegionPayload(ctx, source, resolvedCommit, latestPayload); err != nil {
+		usecase.logf("sync compare region=%s commit=%s reason=backup_rebase_error error=%v", source.Region, resolvedCommit, err)
 		return false, nil
 	}
 
@@ -905,7 +940,7 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 	if err := usecase.saveStatus(ctx, masterdata.SyncStatus{
 		Region:         previous.Region,
 		Status:         "success",
-		FileCount:      previous.FileCount,
+		FileCount:      len(latestPayload),
 		SyncDurationMS: 0,
 		LastSyncedAt:   previous.LastSyncedAt,
 		SourceCommit:   resolvedCommit,
@@ -923,10 +958,10 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 		Region:      source.Region,
 		Phase:       "compare",
 		Message:     "versions manifest unchanged, reused local backup and skipped sync",
-		CurrentStep: currentStep,
-		TotalSteps:  totalSteps,
+		CurrentStep: progress.currentStep,
+		TotalSteps:  progress.totalSteps,
 		FileCount:   len(latestPayload),
-		UpdatedAt:   now,
+		UpdatedAt:   progress.updatedAt,
 	})
 
 	return true, nil

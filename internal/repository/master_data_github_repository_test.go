@@ -31,12 +31,15 @@ func TestLoadRegionDownloadsArchiveAndFiltersBasePath(t *testing.T) {
 		requestCount++
 		mu.Unlock()
 
-		writeTarball(t, writer, map[string]string{
+		if err := writeTarball(writer, map[string]string{
 			"repo-commit/data/file-a.json":  `{"id":1}`,
 			"repo-commit/data/file-b.json":  `{"id":2}`,
 			"repo-commit/data/readme.txt":   `skip`,
 			"repo-commit/other/file-c.json": `{"id":3}`,
-		})
+		}); err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = writer.Write([]byte(err.Error()))
+		}
 	}))
 	defer server.Close()
 
@@ -95,9 +98,12 @@ func TestLoadRegionRetriesArchiveDownload(t *testing.T) {
 			return
 		}
 
-		writeTarball(t, writer, map[string]string{
+		if err := writeTarball(writer, map[string]string{
 			"repo-commit/data/file-a.json": `{"ok":true}`,
-		})
+		}); err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = writer.Write([]byte(err.Error()))
+		}
 	}))
 	defer server.Close()
 
@@ -177,6 +183,9 @@ func TestResolveRegionVersionRetriesTransientFailure(t *testing.T) {
 func TestResolveRegionVersionFallsBackToGitSmartHTTP(t *testing.T) {
 	const mainSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const headSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	var mu sync.Mutex
+	var smartRequestPath string
+	var smartRequestQuery string
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -184,9 +193,11 @@ func TestResolveRegionVersionFallsBackToGitSmartHTTP(t *testing.T) {
 			writer.WriteHeader(http.StatusTooManyRequests)
 			_, _ = writer.Write([]byte("rate limit exceeded"))
 		case "/owner/repo.git/info/refs":
-			if request.URL.Query().Get("service") != "git-upload-pack" {
-				t.Fatalf("expected git-upload-pack service query, got %q", request.URL.RawQuery)
-			}
+			mu.Lock()
+			smartRequestPath = request.URL.Path
+			smartRequestQuery = request.URL.RawQuery
+			mu.Unlock()
+			writer.Header().Set("Content-Type", "application/x-git-upload-pack-advertisement; charset=binary")
 			_, _ = writer.Write([]byte(
 				gitPktLine("# service=git-upload-pack\n") +
 					"0000" +
@@ -214,6 +225,62 @@ func TestResolveRegionVersionFallsBackToGitSmartHTTP(t *testing.T) {
 	}
 	if version != mainSHA {
 		t.Fatalf("expected %s, got %s", mainSHA, version)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if smartRequestPath != "/owner/repo.git/info/refs" {
+		t.Fatalf("expected smart HTTP request path, got %q", smartRequestPath)
+	}
+	if smartRequestQuery != "service=git-upload-pack" {
+		t.Fatalf("expected git-upload-pack service query, got %q", smartRequestQuery)
+	}
+}
+
+func TestGetGitUploadPackRefsValidatesResponse(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+		wantError   string
+	}{
+		{
+			name:        "invalid content type",
+			contentType: "application/json",
+			body:        gitPktLine("# service=git-upload-pack\n"),
+			wantError:   "unexpected git smart HTTP response content type",
+		},
+		{
+			name:        "invalid pkt-line prefix",
+			contentType: "application/x-git-upload-pack-advertisement",
+			body:        "zzzz# service=git-upload-pack\n",
+			wantError:   "does not begin with a valid pkt-line service advertisement",
+		},
+		{
+			name:        "invalid service advertisement",
+			contentType: "application/x-git-upload-pack-advertisement",
+			body:        gitPktLine("# service=git-receive-pack\n"),
+			wantError:   "first pkt-line payload",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", test.contentType)
+				_, _ = writer.Write([]byte(test.body))
+			}))
+			defer server.Close()
+
+			repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+			_, err := repository.getGitUploadPackRefs(context.Background(), server.URL)
+			if err == nil {
+				t.Fatal("expected smart HTTP response validation failure")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("expected error containing %q, got %v", test.wantError, err)
+			}
+		})
 	}
 }
 
@@ -292,10 +359,12 @@ func TestResolveRegionVersionReturnsRESTAndSmartHTTPFailure(t *testing.T) {
 
 func TestLoadVersionManifestUsesPinnedRefAndDecodesPayload(t *testing.T) {
 	const pinnedRef = "0123456789abcdef0123456789abcdef01234567"
+	var mu sync.Mutex
+	var manifestRequestPath string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/owner/repo/"+pinnedRef+"/data/versions.json" {
-			t.Fatalf("expected pinned manifest path, got %s", request.URL.Path)
-		}
+		mu.Lock()
+		manifestRequestPath = request.URL.Path
+		mu.Unlock()
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"appVersion":  "3.2.1",
 			"dataVersion": "20260802",
@@ -321,6 +390,12 @@ func TestLoadVersionManifestUsesPinnedRefAndDecodesPayload(t *testing.T) {
 	}
 	if manifest["appVersion"] != "3.2.1" || manifest["dataVersion"] != "20260802" {
 		t.Fatalf("unexpected decoded manifest: %#v", manifest)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if manifestRequestPath != "/owner/repo/"+pinnedRef+"/data/versions.json" {
+		t.Fatalf("expected pinned manifest path, got %s", manifestRequestPath)
 	}
 }
 
@@ -378,9 +453,7 @@ func TestArchiveRelativeJSONPathRejectsTraversal(t *testing.T) {
 	}
 }
 
-func writeTarball(t *testing.T, writer http.ResponseWriter, files map[string]string) {
-	t.Helper()
-
+func writeTarball(writer http.ResponseWriter, files map[string]string) error {
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
 	tarWriter := tar.NewWriter(gzipWriter)
@@ -392,22 +465,26 @@ func writeTarball(t *testing.T, writer http.ResponseWriter, files map[string]str
 			Size: int64(len(content)),
 		}
 		if err := tarWriter.WriteHeader(header); err != nil {
-			t.Fatalf("write tar header: %v", err)
+			return fmt.Errorf("write tar header: %w", err)
 		}
 		if _, err := tarWriter.Write([]byte(content)); err != nil {
-			t.Fatalf("write tar content: %v", err)
+			return fmt.Errorf("write tar content: %w", err)
 		}
 	}
 
 	if err := tarWriter.Close(); err != nil {
-		t.Fatalf("close tar writer: %v", err)
+		return fmt.Errorf("close tar writer: %w", err)
 	}
 	if err := gzipWriter.Close(); err != nil {
-		t.Fatalf("close gzip writer: %v", err)
+		return fmt.Errorf("close gzip writer: %w", err)
 	}
 
 	writer.Header().Set("Content-Type", "application/gzip")
-	_, _ = writer.Write(buffer.Bytes())
+	if _, err := writer.Write(buffer.Bytes()); err != nil {
+		return fmt.Errorf("write tarball response: %w", err)
+	}
+
+	return nil
 }
 
 func gitPktLine(payload string) string {

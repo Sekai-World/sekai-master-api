@@ -954,7 +954,7 @@ func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) 
 	previousStatus := masterdata.SyncStatus{
 		Region:       "jp",
 		Status:       "success",
-		FileCount:    2,
+		FileCount:    99,
 		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
 		SourceCommit: "old-commit",
 		Source:       source,
@@ -1008,8 +1008,8 @@ func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) 
 	if latest.Status != "success" || latest.SourceCommit != "new-commit" {
 		t.Fatalf("expected successful status pinned to new-commit, got %#v", latest)
 	}
-	if latest.FileCount != previousStatus.FileCount {
-		t.Fatalf("expected file count to remain %d, got %d", previousStatus.FileCount, latest.FileCount)
+	if latest.FileCount != len(latestPayload) {
+		t.Fatalf("expected file count to equal reusable payload count %d, got %d", len(latestPayload), latest.FileCount)
 	}
 
 	_, rebasedCommit, _, found, err := backupStore.LoadLatestRegionPayload(context.Background(), source)
@@ -1018,6 +1018,61 @@ func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) 
 	}
 	if !found || rebasedCommit != "new-commit" {
 		t.Fatalf("expected local backup to be rebased to new-commit, found=%t commit=%q", found, rebasedCommit)
+	}
+}
+
+func TestSyncAllRestoresManifestMatchToCacheWhenCacheIsNotReady(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    99,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "old-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+	manifest := map[string]any{"dataVersion": "20260802"}
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "new-commit"},
+		manifestByZone: map[string]map[string]any{
+			"jp": manifest,
+		},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-load"}}},
+		},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	latestPayload := map[string]any{
+		"data/versions.json": manifest,
+		"cards.json":         []any{map[string]any{"id": 1, "prefix": "from-backup"}},
+	}
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "old-commit", latestPayload); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	usecase.SetBackupStore(backupStore)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 0 {
+		t.Fatalf("expected archive load to be skipped, got loadCalls=%d", loader.loadCalls)
+	}
+	if cache.storeCalls != 1 {
+		t.Fatalf("expected exactly one cache restore, got storeCalls=%d", cache.storeCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected latest jp status")
+	}
+	if latest.Status != "success" || latest.SourceCommit != "new-commit" {
+		t.Fatalf("expected successful status pinned to new-commit, got %#v", latest)
 	}
 }
 
