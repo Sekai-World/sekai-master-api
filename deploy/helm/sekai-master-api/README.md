@@ -128,6 +128,88 @@ Redis is the shared data plane. Use persistent or managed Redis with backups.
 `serve` cannot repair an empty Redis; after Redis loss, trigger force sync on
 `control` to rebuild records and persisted search indexes.
 
+### Redis durability and recovery
+
+Production Redis must be managed/highly available or use durable storage with
+both RDB snapshots and AOF persistence. For AOF, use `appendfsync everysec` or a
+provider-equivalent policy; this deployment's recovery objective is **RPO ≤ 60
+seconds** and **RTO ≤ 30 minutes** for the Redis master-data data plane. Keep
+encrypted backups outside the Redis node/PVC, retain daily backups for at least
+30 days, and test a restore at least quarterly.
+
+Before re-enabling public traffic after a Redis replacement or restore:
+
+1. Verify PostgreSQL and Redis connectivity, capacity/saturation, and error-rate
+   alerts are healthy in the managed-dependency dashboards.
+2. Verify the restored Redis keyspace/version state against the expected release
+   and configured `MASTER_DATA_REDIS_KEY_PREFIX`.
+3. Run force sync through `control` when the cache is absent, stale, or cannot
+   be verified; wait for `serve /readyz` and a representative public read to
+   return `200`.
+4. Record the recovery duration and data/version outcome in the drill record.
+
+Alert on Redis/PostgreSQL connectivity failures, connection saturation, memory
+or storage saturation, dependency error rates, and `serve` readiness failures.
+The application exposes Redis usage metrics; managed-service metrics should be
+scraped from the selected provider or exporter. This chart deliberately does not
+embed provider-specific credentials or monitoring resources.
+
+### Schema migration hook
+
+The chart runs a `batch/v1` migration Job before each install and upgrade by
+default. The Job runs `sekai-master-api migrate`, waits for the embedded Goose
+migrations to finish, and blocks the Helm operation if it fails. Inspect a
+failed hook with the release's migration Job and Pod logs before retrying the
+release:
+
+```sh
+kubectl get jobs -l app.kubernetes.io/instance=<release>,app.kubernetes.io/component=migration
+kubectl logs job/<release>-sekai-master-api-migrate
+```
+
+Configure bounded hook retries and execution time through `migration`:
+
+```yaml
+migration:
+  enabled: true
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 300
+  envFrom:
+    secrets: [master-api-database]
+```
+
+The hook does not use the chart-created ServiceAccount because pre-install hooks
+run before ordinary release resources exist. It disables token automounting by
+default; set `migration.serviceAccountName` only to an already-existing account.
+`migration.envFrom` is intentionally separate from `control.envFrom`, so the
+Job receives database configuration without unrelated OIDC, GitHub, or webhook
+credentials.
+
+Use expand/contract migrations: release additive, backward-compatible schema
+changes before application code that requires them; defer destructive cleanup to
+a later release after all old application versions are gone. Helm rollback does
+not run Goose down migrations, because an already-applied schema change may be
+shared by the restored application version.
+
+### Optional disruption and network controls
+
+Enable PodDisruptionBudgets after selecting values appropriate for the cluster's
+capacity. The chart keeps them disabled by default so an existing one-replica
+control workload is not made unevictable unexpectedly:
+
+```yaml
+podDisruptionBudget:
+  serve: { enabled: true, minAvailable: 1 }
+  control: { enabled: true, maxUnavailable: 0 }
+```
+
+`networkPolicy` is also opt-in because each cluster has different ingress,
+PostgreSQL, Redis, OIDC, GitHub, DNS, telemetry, and backup destinations. When
+enabled, it selects both application roles and applies the explicitly supplied
+native Kubernetes ingress/egress rules. Verify all required dependency traffic
+before enabling it in production.
+
 `control.replicaCount` is schema-constrained to `1` and its Deployment uses
 `Recreate`, because active-sync locking and state are process-local. Do not make
 it horizontally scalable until distributed locking and fencing are implemented.

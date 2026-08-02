@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"time"
@@ -29,6 +30,14 @@ import (
 // @name Authorization
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		if err := runMigrationCommand(os.Args[2:]); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	applyRoleSubcommandFromArgs()
 
 	cfg := config.Load()
@@ -211,6 +220,32 @@ func main() {
 	}()
 
 	waitForServer(serverErrCh, logger)
+}
+
+func runMigrationCommand(args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("usage: sekai-master-api migrate")
+	}
+
+	cfg := config.Load()
+	cleanupLogger, err := logging.Setup(cfg.LogLevel, cfg.IsDevelopment(), cfg.LokiPushURL)
+	if err != nil {
+		return fmt.Errorf("initialize logging: %w", err)
+	}
+	defer cleanupLogger()
+
+	db, err := storage.OpenDB(cfg)
+	if err != nil {
+		return fmt.Errorf("initialize database for migrations: %w", err)
+	}
+	defer db.Close()
+
+	if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
+		return fmt.Errorf("run database migrations: %w", err)
+	}
+
+	zap.S().Infow("database migrations completed")
+	return nil
 }
 
 func waitForServer(serverErrCh chan error, logger *zap.SugaredLogger) {

@@ -35,6 +35,69 @@
       "type": "object",
       "properties": { "replicaCount": { "type": "integer", "const": 1 } }
     },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "hookWeight", "hookDeletePolicy", "backoffLimit", "activeDeadlineSeconds", "ttlSecondsAfterFinished", "serviceAccountName", "env", "envFrom", "extraEnv", "resources"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "hookWeight": { "type": "integer" },
+        "hookDeletePolicy": { "type": "string", "minLength": 1 },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+        "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 },
+        "serviceAccountName": { "type": "string" },
+        "podAnnotations": { "type": "object" },
+        "podLabels": { "type": "object" },
+        "env": { "type": "object" },
+        "envFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["configMaps", "secrets"],
+          "properties": {
+            "configMaps": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "secrets": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "extraEnv": { "type": "array", "items": { "type": "object" } },
+        "resources": { "type": "object" }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serve", "control"],
+      "properties": {
+        "serve": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "minAvailable"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "type": ["integer", "string"], "minLength": 1 }
+          }
+        },
+        "control": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "maxUnavailable"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "maxUnavailable": { "type": ["integer", "string"], "minLength": 1 }
+          }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "ingress", "egress"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingress": { "type": "array", "items": { "type": "object" } },
+        "egress": { "type": "array", "items": { "type": "object" } }
+      }
+    },
     "ingress": {
       "type": "object",
       "properties": {

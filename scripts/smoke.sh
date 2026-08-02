@@ -3,56 +3,78 @@
 set -eu
 
 APP_PORT="${APP_PORT:-18080}"
-APP_ENV="${APP_ENV:-test}"
-DATABASE_URL="${DATABASE_URL:-postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable}"
-OIDC_ISSUER_URL="${OIDC_ISSUER_URL:-https://auth.example.com}"
-OIDC_AUDIENCE="${OIDC_AUDIENCE:-https://api.example.com}"
+SMOKE_BASE_URL="${SMOKE_BASE_URL:-http://localhost:${APP_PORT}}"
+SMOKE_SERVE_BASE_URL="${SMOKE_SERVE_BASE_URL:-${SMOKE_BASE_URL}}"
+SMOKE_CONTROL_BASE_URL="${SMOKE_CONTROL_BASE_URL:-}"
+SMOKE_PUBLIC_PATH="${SMOKE_PUBLIC_PATH:-}"
 ADMIN_BEARER_TOKEN="${ADMIN_BEARER_TOKEN:-}"
+SMOKE_CHECK_PROTECTED="${SMOKE_CHECK_PROTECTED:-false}"
 
-API_PID=""
+wait_for_status() {
+  expected_status="$1"
+  endpoint="$2"
+  attempt=0
 
-cleanup() {
-  if [ -n "${API_PID}" ]; then
-    kill "${API_PID}" >/dev/null 2>&1 || true
-    wait "${API_PID}" 2>/dev/null || true
+  while :; do
+    status="$(curl -sS -o /dev/null -w '%{http_code}' "${endpoint}" || true)"
+    [ "${status}" = "${expected_status}" ] && return 0
+
+    attempt=$((attempt + 1))
+    if [ "${attempt}" -ge 60 ]; then
+      echo "[smoke] expected HTTP ${expected_status} from ${endpoint}, got ${status}"
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+require_status() {
+  expected_status="$1"
+  endpoint="$2"
+  status="$(curl -sS -o /dev/null -w '%{http_code}' "${endpoint}" || true)"
+  if [ "${status}" != "${expected_status}" ]; then
+    echo "[smoke] expected HTTP ${expected_status} from ${endpoint}, got ${status}"
+    exit 1
   fi
 }
 
-trap cleanup EXIT INT TERM
+require_rejected() {
+  method="$1"
+  endpoint="$2"
+  status="$(curl -sS -o /dev/null -w '%{http_code}' -X "${method}" "${endpoint}" || true)"
+  case "${status}" in
+    2??)
+      echo "[smoke] expected ${endpoint} to reject an unauthenticated request, got HTTP ${status}"
+      exit 1
+      ;;
+  esac
+}
 
-echo "[smoke] starting api"
-if curl -fsS "http://localhost:${APP_PORT}/api/v1/health" >/dev/null 2>&1; then
-  echo "[smoke] api port ${APP_PORT} is already in use, stop existing process or set APP_PORT"
-  exit 1
+echo "[smoke] waiting for startup and readiness"
+wait_for_status 200 "${SMOKE_SERVE_BASE_URL}/startupz"
+wait_for_status 200 "${SMOKE_SERVE_BASE_URL}/readyz"
+
+if [ -z "${SMOKE_PUBLIC_PATH}" ]; then
+  echo "[smoke] SMOKE_PUBLIC_PATH is required, for example /api/v1/versions/jp"
+  exit 2
 fi
 
-APP_ENV="${APP_ENV}" \
-DATABASE_URL="${DATABASE_URL}" \
-OIDC_ISSUER_URL="${OIDC_ISSUER_URL}" \
-OIDC_AUDIENCE="${OIDC_AUDIENCE}" \
-APP_PORT="${APP_PORT}" \
-go run ./cmd/api >/tmp/sekai-smoke-api.log 2>&1 &
-API_PID=$!
+require_status 200 "${SMOKE_SERVE_BASE_URL}${SMOKE_PUBLIC_PATH}"
 
-echo "[smoke] waiting api ready"
-attempt=0
-until curl -fsS "http://localhost:${APP_PORT}/api/v1/health" >/dev/null 2>&1; do
-  attempt=$((attempt + 1))
-  if [ "${attempt}" -ge 60 ]; then
-    echo "[smoke] api not ready in time"
-    cat /tmp/sekai-smoke-api.log || true
+if [ "${SMOKE_CHECK_PROTECTED}" = "true" ]; then
+  if [ -z "${ADMIN_BEARER_TOKEN}" ] || [ -z "${SMOKE_CONTROL_BASE_URL}" ]; then
+    echo "[smoke] ADMIN_BEARER_TOKEN and SMOKE_CONTROL_BASE_URL are required when SMOKE_CHECK_PROTECTED=true"
+    exit 2
+  fi
+
+  require_status 404 "${SMOKE_CONTROL_BASE_URL}${SMOKE_PUBLIC_PATH}"
+  require_status 401 "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/master-data/events"
+  require_rejected POST "${SMOKE_CONTROL_BASE_URL}/api/v1/internal/github/webhooks/master-data"
+  protected_status="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/profile" || true)"
+  if [ "${protected_status}" != "200" ]; then
+    echo "[smoke] expected authenticated admin profile to return HTTP 200, got ${protected_status}"
     exit 1
   fi
-  sleep 1
-done
-
-if [ -z "${ADMIN_BEARER_TOKEN}" ]; then
-  echo "[smoke] ADMIN_BEARER_TOKEN is required for protected endpoint verification"
-  exit 1
 fi
 
-echo "[smoke] calling protected endpoint"
-profile_response="$(curl -fsS -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" "http://localhost:${APP_PORT}/api/v1/admin/profile")"
-
 echo "[smoke] success"
-printf '%s\n' "${profile_response}"
