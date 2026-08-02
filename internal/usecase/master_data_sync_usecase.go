@@ -30,6 +30,10 @@ type MasterDataSourceVersionResolver interface {
 	ResolveRegionVersion(ctx context.Context, source masterdata.Source) (string, error)
 }
 
+type MasterDataSourceVersionManifestLoader interface {
+	LoadVersionManifest(ctx context.Context, source masterdata.Source) (map[string]any, bool, error)
+}
+
 type MasterDataCache interface {
 	StoreRegion(ctx context.Context, region string, payload map[string]any) error
 	GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error)
@@ -573,6 +577,18 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 									usecase.logf("sync compare region=%s commit=%s local_backup=missing fallback=full_sync", source.Region, resolvedCommit)
 								}
 							}
+
+						}
+
+						if hasPreviousStatus && strings.EqualFold(strings.TrimSpace(previous.Status), "success") && strings.TrimSpace(previous.SourceCommit) != "" && resolvedCommit != "" && strings.TrimSpace(previous.SourceCommit) != resolvedCommit {
+							skipped, skipErr := usecase.trySkipRegionWithUnchangedManifest(regionCtx, source, previous, resolvedCommit, cacheReady, step, totalSteps, now)
+							if skipErr != nil {
+								recordFailure(source.Region, fmt.Errorf("persist manifest skip status for region %s: %w", source.Region, skipErr))
+								return
+							}
+							if skipped {
+								return
+							}
 						}
 					}
 				}
@@ -811,6 +827,109 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 	}
 
 	return nil
+}
+
+func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, resolvedCommit string, cacheReady bool, currentStep int, totalSteps int, now time.Time) (bool, error) {
+	manifestLoader, ok := usecase.loader.(MasterDataSourceVersionManifestLoader)
+	if !ok || usecase.backupStore == nil {
+		return false, nil
+	}
+
+	versionStore, ok := usecase.backupStore.(MasterDataVersionBackupStore)
+	if !ok {
+		return false, nil
+	}
+
+	localManifest, _, _, localFound, err := versionStore.LoadLatestRegionVersionPayload(ctx, source)
+	if err != nil || !localFound {
+		return false, nil
+	}
+
+	manifestSource := source
+	manifestSource.Ref = resolvedCommit
+	remoteManifest, remoteFound, err := manifestLoader.LoadVersionManifest(ctx, manifestSource)
+	if err != nil || !remoteFound {
+		return false, nil
+	}
+
+	matched, err := jsonValuesEqual(localManifest, remoteManifest)
+	if err != nil || !matched {
+		return false, nil
+	}
+
+	latestPayload, _, _, payloadFound, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
+	if err != nil || !payloadFound {
+		return false, nil
+	}
+
+	if !cacheReady {
+		if usecase.cache == nil {
+			return false, nil
+		}
+		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+			Event:          "master_data_sync_progress",
+			Status:         "running",
+			Region:         source.Region,
+			Phase:          "cache",
+			Message:        "restoring cache from local backup",
+			CurrentStep:    currentStep,
+			TotalSteps:     totalSteps,
+			FileCount:      len(latestPayload),
+			ProcessedFiles: 0,
+			TotalFiles:     len(latestPayload),
+			UpdatedAt:      time.Now().UTC(),
+		})
+		if err := usecase.cache.StoreRegion(ctx, source.Region, latestPayload); err != nil {
+			return false, nil
+		}
+		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+			Event:          "master_data_sync_progress",
+			Status:         "running",
+			Region:         source.Region,
+			Phase:          "cache",
+			Message:        "local backup cache restore completed",
+			CurrentStep:    currentStep,
+			TotalSteps:     totalSteps,
+			FileCount:      len(latestPayload),
+			ProcessedFiles: len(latestPayload),
+			TotalFiles:     len(latestPayload),
+			UpdatedAt:      time.Now().UTC(),
+		})
+	}
+
+	if err := usecase.backupStore.SaveRegionPayload(ctx, source, resolvedCommit, latestPayload); err != nil {
+		return false, nil
+	}
+
+	skippedAt := time.Now().UTC()
+	if err := usecase.saveStatus(ctx, masterdata.SyncStatus{
+		Region:         previous.Region,
+		Status:         "success",
+		FileCount:      previous.FileCount,
+		SyncDurationMS: 0,
+		LastSyncedAt:   previous.LastSyncedAt,
+		SourceCommit:   resolvedCommit,
+		ErrorMessage:   "",
+		Source:         source,
+		UpdatedAt:      skippedAt,
+	}); err != nil {
+		return true, err
+	}
+
+	usecase.logf("sync skipped region=%s reason=versions_manifest_unchanged previous_commit=%s commit=%s", source.Region, strings.TrimSpace(previous.SourceCommit), resolvedCommit)
+	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+		Event:       "master_data_sync_progress",
+		Status:      "success",
+		Region:      source.Region,
+		Phase:       "compare",
+		Message:     "versions manifest unchanged, reused local backup and skipped sync",
+		CurrentStep: currentStep,
+		TotalSteps:  totalSteps,
+		FileCount:   len(latestPayload),
+		UpdatedAt:   now,
+	})
+
+	return true, nil
 }
 
 func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[string]masterdata.SyncStatus {

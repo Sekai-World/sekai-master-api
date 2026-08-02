@@ -29,6 +29,7 @@ Set `MASTER_DATA_GITHUB_TOKEN` if higher GitHub API rate limits are needed.
 
 - Startup sync compares the configured source commit with the latest successful sync record.
 - Commit comparison uses the GitHub REST API first and falls back to Git smart HTTP ref advertisement when the REST lookup is unavailable, so anonymous API rate limits do not force every region into a full archive sync.
+- For a normal sync after resolving a distinct remote commit, the upstream-complete `versions.json` manifest is fetched at that exact commit. Because the upstream contract includes every API-relevant synchronized data change, an equivalent local backup manifest allows the archive load to be skipped; `SourceCommit` remains pinned to the resolved commit as the local snapshot identity.
 - Unchanged regions validate persisted Redis search indexes and rebuild missing or stale persisted indexes when needed.
 - Admin dashboard status items are read-only views of persisted sync status. They do not downgrade a successful sync to `pending` just because the current process has not retained a decoded runtime cache/index after restart.
 - Available-region reads, dashboard readiness region lists, and observability metric callbacks are read-only runtime readiness snapshots. They report whether the current process has retained usable runtime cache/index state, but they do not load, rebuild, rewrite, or repair Redis search indexes.

@@ -290,6 +290,87 @@ func TestResolveRegionVersionReturnsRESTAndSmartHTTPFailure(t *testing.T) {
 	}
 }
 
+func TestLoadVersionManifestUsesPinnedRefAndDecodesPayload(t *testing.T) {
+	const pinnedRef = "0123456789abcdef0123456789abcdef01234567"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/owner/repo/"+pinnedRef+"/data/versions.json" {
+			t.Fatalf("expected pinned manifest path, got %s", request.URL.Path)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"appVersion":  "3.2.1",
+			"dataVersion": "20260802",
+		})
+	}))
+	defer server.Close()
+
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository.rawBaseURL = server.URL
+
+	manifest, found, err := repository.loadVersionManifest(context.Background(), masterdata.Source{
+		Region: "jp",
+		Owner:  "owner",
+		Repo:   "repo",
+		Ref:    pinnedRef,
+		Path:   "data",
+	})
+	if err != nil {
+		t.Fatalf("expected manifest load success, got %v", err)
+	}
+	if !found {
+		t.Fatal("expected manifest to be found")
+	}
+	if manifest["appVersion"] != "3.2.1" || manifest["dataVersion"] != "20260802" {
+		t.Fatalf("unexpected decoded manifest: %#v", manifest)
+	}
+}
+
+func TestLoadVersionManifestReturnsAbsentForMissingManifest(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository.rawBaseURL = server.URL
+
+	manifest, found, err := repository.loadVersionManifest(context.Background(), masterdata.Source{
+		Owner: "owner",
+		Repo:  "repo",
+		Ref:   "pinned-ref",
+	})
+	if err != nil {
+		t.Fatalf("expected missing manifest without error, got %v", err)
+	}
+	if found || manifest != nil {
+		t.Fatalf("expected missing manifest, got found=%t payload=%#v", found, manifest)
+	}
+}
+
+func TestLoadVersionManifestReturnsRequestFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusBadGateway)
+		_, _ = writer.Write([]byte("upstream unavailable"))
+	}))
+	defer server.Close()
+
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository.rawBaseURL = server.URL
+
+	_, found, err := repository.loadVersionManifest(context.Background(), masterdata.Source{
+		Region: "jp",
+		Owner:  "owner",
+		Repo:   "repo",
+		Ref:    "pinned-ref",
+	})
+	if err == nil {
+		t.Fatal("expected manifest request failure")
+	}
+	if found {
+		t.Fatal("did not expect manifest to be found after request failure")
+	}
+	if !strings.Contains(err.Error(), "status 502") {
+		t.Fatalf("expected upstream status in error, got %v", err)
+	}
+}
+
 func TestArchiveRelativeJSONPathRejectsTraversal(t *testing.T) {
 	relativePath, ok := archiveRelativeJSONPath("repo-commit/../evil.json", "")
 	if ok {

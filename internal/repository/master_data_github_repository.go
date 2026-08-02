@@ -36,12 +36,18 @@ type GitHubMasterDataRepository struct {
 	retryBackoff    time.Duration
 	apiBaseURL      string
 	gitBaseURL      string
+	rawBaseURL      string
 	resumeBaseDir   string
 }
 
 const defaultGitHubAPIBaseURL = "https://api.github.com"
 const defaultGitHubBaseURL = "https://github.com"
+const defaultGitHubRawBaseURL = "https://raw.githubusercontent.com"
 const defaultMasterDataResumeBaseDir = "tmp/master-data-sync-resume"
+
+type MasterDataSourceVersionManifestLoader interface {
+	LoadVersionManifest(ctx context.Context, source masterdata.Source) (map[string]any, bool, error)
+}
 
 type gitCommitResponse struct {
 	SHA string `json:"sha"`
@@ -73,6 +79,7 @@ func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConc
 		retryCount:      retryCount,
 		retryBackoff:    retryBackoff,
 		apiBaseURL:      defaultGitHubAPIBaseURL,
+		rawBaseURL:      defaultGitHubRawBaseURL,
 		resumeBaseDir:   defaultMasterDataResumeBaseDir,
 	}
 }
@@ -173,6 +180,60 @@ func (repository *GitHubMasterDataRepository) ResolveRegionVersion(ctx context.C
 	}
 
 	return strings.TrimSpace(commitResp.SHA), nil
+}
+
+func (repository *GitHubMasterDataRepository) loadVersionManifest(ctx context.Context, source masterdata.Source) (map[string]any, bool, error) {
+	manifestURL := fmt.Sprintf(
+		"%s/%s",
+		strings.TrimRight(repository.rawContentBaseURL(), "/"),
+		escapeRawPath(strings.Join([]string{source.Owner, source.Repo, source.Ref, versionManifestPath(source.Path)}, "/")),
+	)
+
+	var manifest map[string]any
+	if err := repository.getJSON(ctx, manifestURL, &manifest); err != nil {
+		var statusErr *httpStatusError
+		if errors.As(err, &statusErr) && statusErr.statusCode == http.StatusNotFound {
+			return nil, false, nil
+		}
+
+		return nil, false, fmt.Errorf("load versions manifest for region %s: %w", source.Region, err)
+	}
+
+	return manifest, true, nil
+}
+
+func (repository *GitHubMasterDataRepository) LoadVersionManifest(ctx context.Context, source masterdata.Source) (map[string]any, bool, error) {
+	return repository.loadVersionManifest(ctx, source)
+}
+
+func (repository *GitHubMasterDataRepository) rawContentBaseURL() string {
+	if baseURL := strings.TrimRight(strings.TrimSpace(repository.rawBaseURL), "/"); baseURL != "" {
+		return baseURL
+	}
+
+	return defaultGitHubRawBaseURL
+}
+
+func versionManifestPath(sourcePath string) string {
+	trimmedPath := strings.Trim(strings.TrimSpace(sourcePath), "/")
+	if trimmedPath == "" {
+		return "versions.json"
+	}
+	if strings.EqualFold(path.Base(trimmedPath), "versions.json") {
+		return trimmedPath
+	}
+
+	return path.Join(trimmedPath, "versions.json")
+}
+
+func escapeRawPath(rawPath string) string {
+	parts := strings.Split(strings.Trim(rawPath, "/"), "/")
+	escaped := make([]string, 0, len(parts))
+	for _, part := range parts {
+		escaped = append(escaped, url.PathEscape(part))
+	}
+
+	return strings.Join(escaped, "/")
 }
 
 func (repository *GitHubMasterDataRepository) resolveRegionVersionFromGitSmartHTTP(ctx context.Context, source masterdata.Source) (string, error) {

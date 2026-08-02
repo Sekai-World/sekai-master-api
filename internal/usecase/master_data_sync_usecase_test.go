@@ -19,12 +19,16 @@ import (
 )
 
 type fakeSyncLoader struct {
-	mu             sync.Mutex
-	resolvedByZone map[string]string
-	payloadByZone  map[string]map[string]any
-	loadErrByZone  map[string]error
-	loadCalls      int
-	resolveCalls   int
+	mu                 sync.Mutex
+	resolvedByZone     map[string]string
+	payloadByZone      map[string]map[string]any
+	loadErrByZone      map[string]error
+	manifestByZone     map[string]map[string]any
+	manifestErrByZone  map[string]error
+	manifestRefsByZone map[string]string
+	loadCalls          int
+	resolveCalls       int
+	manifestCalls      int
 }
 
 type timedSyncLoader struct {
@@ -57,6 +61,22 @@ func (loader *fakeSyncLoader) ResolveRegionVersion(_ context.Context, source mas
 
 	loader.resolveCalls++
 	return loader.resolvedByZone[source.Region], nil
+}
+
+func (loader *fakeSyncLoader) LoadVersionManifest(_ context.Context, source masterdata.Source) (map[string]any, bool, error) {
+	loader.mu.Lock()
+	defer loader.mu.Unlock()
+
+	loader.manifestCalls++
+	if loader.manifestRefsByZone == nil {
+		loader.manifestRefsByZone = make(map[string]string)
+	}
+	loader.manifestRefsByZone[source.Region] = source.Ref
+	if err, exists := loader.manifestErrByZone[source.Region]; exists && err != nil {
+		return nil, false, err
+	}
+	manifest, found := loader.manifestByZone[source.Region]
+	return manifest, found, nil
 }
 
 func (loader *timedSyncLoader) LoadRegion(ctx context.Context, source masterdata.Source) (map[string]any, error) {
@@ -929,6 +949,152 @@ func TestSyncAllLoadsRegionWhenCommitChanged(t *testing.T) {
 	}
 }
 
+func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    2,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "old-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+	manifest := map[string]any{"dataVersion": "20260802"}
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "new-commit"},
+		manifestByZone: map[string]map[string]any{
+			"jp": manifest,
+		},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-load"}}},
+		},
+	}
+	cache := &fakeSyncCache{loadFromRedisOK: true}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	latestPayload := map[string]any{
+		"data/versions.json": manifest,
+		"cards.json":         []any{map[string]any{"id": 1, "prefix": "from-backup"}},
+	}
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "old-commit", latestPayload); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	usecase.SetBackupStore(backupStore)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 0 {
+		t.Fatalf("expected archive load to be skipped, got loadCalls=%d", loader.loadCalls)
+	}
+	if loader.manifestCalls != 1 {
+		t.Fatalf("expected one manifest load, got manifestCalls=%d", loader.manifestCalls)
+	}
+	if loader.manifestRefsByZone["jp"] != "new-commit" {
+		t.Fatalf("expected manifest ref to be pinned to new-commit, got %q", loader.manifestRefsByZone["jp"])
+	}
+	if cache.storeCalls != 0 {
+		t.Fatalf("expected ready cache not to be restored, got storeCalls=%d", cache.storeCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected latest jp status")
+	}
+	if latest.Status != "success" || latest.SourceCommit != "new-commit" {
+		t.Fatalf("expected successful status pinned to new-commit, got %#v", latest)
+	}
+	if latest.FileCount != previousStatus.FileCount {
+		t.Fatalf("expected file count to remain %d, got %d", previousStatus.FileCount, latest.FileCount)
+	}
+
+	_, rebasedCommit, _, found, err := backupStore.LoadLatestRegionPayload(context.Background(), source)
+	if err != nil {
+		t.Fatalf("load rebased local backup: %v", err)
+	}
+	if !found || rebasedCommit != "new-commit" {
+		t.Fatalf("expected local backup to be rebased to new-commit, found=%t commit=%q", found, rebasedCommit)
+	}
+}
+
+func TestSyncAllLoadsRegionWhenChangedCommitManifestDiffers(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    1,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "old-commit",
+		Source:       source,
+	}
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "new-commit"},
+		manifestByZone: map[string]map[string]any{
+			"jp": {"dataVersion": "new"},
+		},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1}}},
+		},
+	}
+	cache := &fakeSyncCache{loadFromRedisOK: true}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "old-commit", map[string]any{
+		"data/versions.json": map[string]any{"dataVersion": "old"},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	usecase.SetBackupStore(backupStore)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected changed manifest to use archive load, got loadCalls=%d", loader.loadCalls)
+	}
+}
+
+func TestSyncAllLoadsRegionWhenChangedCommitManifestLoadFails(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		SourceCommit: "old-commit",
+		Source:       source,
+	}
+	loader := &fakeSyncLoader{
+		resolvedByZone:    map[string]string{"jp": "new-commit"},
+		manifestErrByZone: map[string]error{"jp": errors.New("manifest unavailable")},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1}}},
+		},
+	}
+	cache := &fakeSyncCache{loadFromRedisOK: true}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "old-commit", map[string]any{
+		"data/versions.json": map[string]any{"dataVersion": "old"},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	usecase.SetBackupStore(backupStore)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected manifest failure to use archive load, got loadCalls=%d", loader.loadCalls)
+	}
+}
+
 func TestSyncAllAppliesTimeoutPerRegion(t *testing.T) {
 	sources := []masterdata.Source{
 		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
@@ -1013,6 +1179,46 @@ func TestSyncAllForceLoadsWhenCommitUnchanged(t *testing.T) {
 	}
 	if latest.SourceCommit != "same-commit" {
 		t.Fatalf("expected source_commit same-commit, got %s", latest.SourceCommit)
+	}
+}
+
+func TestSyncAllForceLoadsWhenChangedCommitManifestIsUnchanged(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		SourceCommit: "old-commit",
+		Source:       source,
+	}
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "new-commit"},
+		manifestByZone: map[string]map[string]any{
+			"jp": {"dataVersion": "same"},
+		},
+		payloadByZone: map[string]map[string]any{
+			"jp": {"cards.json": []any{map[string]any{"id": 1}}},
+		},
+	}
+	cache := &fakeSyncCache{loadFromRedisOK: true}
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "old-commit", map[string]any{
+		"data/versions.json": map[string]any{"dataVersion": "same"},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	usecase.SetBackupStore(backupStore)
+
+	if err := usecase.SyncAllForce(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected force sync to use archive load, got loadCalls=%d", loader.loadCalls)
+	}
+	if loader.manifestCalls != 0 {
+		t.Fatalf("expected force sync not to load manifest, got manifestCalls=%d", loader.manifestCalls)
 	}
 }
 
