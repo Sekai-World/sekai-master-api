@@ -315,4 +315,6 @@ serve/control public-route separation, unauthenticated admin-SSE and webhook
 rejection checks, and an authenticated admin profile request; it does not invent
 a dummy OIDC issuer. Both the smoke check and recovery drill use
 `CURL_CONNECT_TIMEOUT_SECONDS` (default `5`) and `CURL_MAX_TIME_SECONDS`
-(default `15`) to bound individual HTTP requests.
+(default `15`) to bound individual HTTP requests. Each value must be a positive
+whole-second number from `1` through `60`; the scripts reject invalid or larger
+values.

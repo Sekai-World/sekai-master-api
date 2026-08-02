@@ -13,6 +13,34 @@ CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-15}"
 CURL_STATUS_FORMAT='%{http_code}'
 
+validate_curl_timeout() {
+  timeout_name="$1"
+  timeout_value="$2"
+
+  case "${timeout_value}" in
+    ''|*[!0-9]*)
+      echo "[smoke] ${timeout_name} must be a positive whole-second value from 1 through 60"
+      exit 2
+      ;;
+  esac
+
+  normalized_timeout="${timeout_value}"
+  while [ "${normalized_timeout#0}" != "${normalized_timeout}" ]; do
+    normalized_timeout="${normalized_timeout#0}"
+  done
+
+  case "${normalized_timeout}" in
+    [1-9]|[1-5][0-9]|60) ;;
+    *)
+      echo "[smoke] ${timeout_name} must be a positive whole-second value from 1 through 60"
+      exit 2
+      ;;
+  esac
+}
+
+validate_curl_timeout CURL_CONNECT_TIMEOUT_SECONDS "${CURL_CONNECT_TIMEOUT_SECONDS}"
+validate_curl_timeout CURL_MAX_TIME_SECONDS "${CURL_MAX_TIME_SECONDS}"
+
 request_status() {
   method="$1"
   endpoint="$2"
@@ -82,7 +110,7 @@ if [ "${SMOKE_CHECK_PROTECTED}" = "true" ]; then
   require_status 404 "${SMOKE_CONTROL_BASE_URL}${SMOKE_PUBLIC_PATH}"
   require_status 401 "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/master-data/events"
   require_rejected POST "${SMOKE_CONTROL_BASE_URL}/api/v1/internal/github/webhooks/master-data"
-  protected_status="$(request_status GET "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/profile" -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}")"
+  protected_status="$(printf 'Authorization: Bearer %s\n' "${ADMIN_BEARER_TOKEN}" | request_status GET "${SMOKE_CONTROL_BASE_URL}/api/v1/admin/profile" -H @-)"
   if [ "${protected_status}" != "200" ]; then
     echo "[smoke] expected authenticated admin profile to return HTTP 200, got ${protected_status}"
     exit 1

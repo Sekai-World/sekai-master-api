@@ -20,6 +20,34 @@ export REDISCLI_AUTH="${REDIS_PASSWORD:-}"
 CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-15}"
 CURL_STATUS_FORMAT='%{http_code}'
+
+validate_curl_timeout() {
+  timeout_name="$1"
+  timeout_value="$2"
+
+  case "${timeout_value}" in
+    ''|*[!0-9]*)
+      echo "[redis-recovery-drill] ${timeout_name} must be a positive whole-second value from 1 through 60"
+      exit 2
+      ;;
+  esac
+
+  normalized_timeout="${timeout_value}"
+  while [ "${normalized_timeout#0}" != "${normalized_timeout}" ]; do
+    normalized_timeout="${normalized_timeout#0}"
+  done
+
+  case "${normalized_timeout}" in
+    [1-9]|[1-5][0-9]|60) ;;
+    *)
+      echo "[redis-recovery-drill] ${timeout_name} must be a positive whole-second value from 1 through 60"
+      exit 2
+      ;;
+  esac
+}
+
+validate_curl_timeout CURL_CONNECT_TIMEOUT_SECONDS "${CURL_CONNECT_TIMEOUT_SECONDS}"
+validate_curl_timeout CURL_MAX_TIME_SECONDS "${CURL_MAX_TIME_SECONDS}"
 scan_file="$(mktemp)"
 
 cleanup() {
