@@ -30,6 +30,7 @@ validate_curl_timeout() {
       echo "[redis-recovery-drill] ${timeout_name} must be a positive whole-second value from 1 through 60"
       exit 2
       ;;
+    *) ;;
   esac
 
   normalized_timeout="${timeout_value}"
