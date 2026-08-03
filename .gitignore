@@ -20,6 +20,8 @@ coverage/
 tmp/
 *.log
 .slim/deepwork/
+.slim/worktrees/
+.slim/worktrees.json
 
 # Editor / IDE
 .vscode/
