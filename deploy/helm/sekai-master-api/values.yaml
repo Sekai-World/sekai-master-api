@@ -116,6 +116,43 @@ control:
   backupVolume:
     persistentVolumeClaim: ""
 
+migration:
+  enabled: true
+  hookWeight: -5
+  hookDeletePolicy: before-hook-creation,hook-succeeded
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 300
+  serviceAccountName: ""
+  podAnnotations: {}
+  podLabels: {}
+  env: {}
+  envFrom:
+    configMaps: []
+    secrets: []
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 100m
+      ephemeral-storage: 128Mi
+      memory: 128Mi
+    limits:
+      ephemeral-storage: 256Mi
+      memory: 256Mi
+
+podDisruptionBudget:
+  serve:
+    enabled: false
+    minAvailable: 1
+  control:
+    enabled: false
+    maxUnavailable: 0
+
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
+
 ingress:
   className: nginx
   public:

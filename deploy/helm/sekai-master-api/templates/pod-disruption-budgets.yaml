@@ -1,0 +1,22 @@
+{{- range $component := list "serve" "control" }}
+{{- $pdb := index $.Values.podDisruptionBudget $component }}
+{{- if $pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "sekai-master-api.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "sekai-master-api.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "sekai-master-api.selectorLabels" (dict "Chart" $.Chart "Release" $.Release "Values" $.Values "component" $component) | nindent 6 }}
+  {{- if eq $component "serve" }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  {{- end }}
+{{- end }}
+{{- end }}

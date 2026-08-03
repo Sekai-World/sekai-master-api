@@ -21,6 +21,7 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     expose:
       - "6379"
     healthcheck:
@@ -28,6 +29,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    volumes:
+      - redis-data:/data
     networks:
       - dev
 
@@ -186,6 +189,7 @@ services:
 
 volumes:
   pg-data:
+  redis-data:
   prometheus-data:
   tempo-data:
   alloy-data:
