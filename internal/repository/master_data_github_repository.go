@@ -404,19 +404,9 @@ func parseGitUploadPackRefs(body []byte) (map[string]string, error) {
 			continue
 		}
 
-		separator := strings.IndexByte(packet, ' ')
-		if separator <= 0 {
-			return nil, fmt.Errorf("invalid git ref advertisement packet")
-		}
-
-		sha := strings.TrimSpace(packet[:separator])
-		refName := packet[separator+1:]
-		if capabilitiesSeparator := strings.IndexByte(refName, '\x00'); capabilitiesSeparator >= 0 {
-			refName = refName[:capabilitiesSeparator]
-		}
-		refName = strings.TrimSpace(refName)
-		if sha == "" || refName == "" {
-			return nil, fmt.Errorf("invalid git ref advertisement packet")
+		sha, refName, err := parseGitRefAdvertisementPacket(packet)
+		if err != nil {
+			return nil, err
 		}
 
 		refs[refName] = sha
@@ -427,6 +417,25 @@ func parseGitUploadPackRefs(body []byte) (map[string]string, error) {
 	}
 
 	return refs, nil
+}
+
+func parseGitRefAdvertisementPacket(packet string) (string, string, error) {
+	separator := strings.IndexByte(packet, ' ')
+	if separator <= 0 {
+		return "", "", fmt.Errorf("invalid git ref advertisement packet")
+	}
+
+	sha := strings.TrimSpace(packet[:separator])
+	refName := packet[separator+1:]
+	if capabilitiesSeparator := strings.IndexByte(refName, '\x00'); capabilitiesSeparator >= 0 {
+		refName = refName[:capabilitiesSeparator]
+	}
+	refName = strings.TrimSpace(refName)
+	if sha == "" || refName == "" {
+		return "", "", fmt.Errorf("invalid git ref advertisement packet")
+	}
+
+	return sha, refName, nil
 }
 
 func selectGitUploadPackRef(refs map[string]string, requestedRef string) (string, error) {

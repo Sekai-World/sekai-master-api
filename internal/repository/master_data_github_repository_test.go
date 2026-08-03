@@ -321,6 +321,29 @@ func TestParseGitUploadPackRefsSelectsRequestedRefOrHead(t *testing.T) {
 	}
 }
 
+func TestParseGitRefAdvertisementPacket(t *testing.T) {
+	sha, refName, err := parseGitRefAdvertisementPacket("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  refs/heads/main \x00symref=HEAD:refs/heads/main")
+	if err != nil {
+		t.Fatalf("expected ref advertisement packet parsing success, got %v", err)
+	}
+	if sha != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("expected SHA, got %q", sha)
+	}
+	if refName != "refs/heads/main" {
+		t.Fatalf("expected ref name without capabilities, got %q", refName)
+	}
+
+	for _, packet := range []string{"", "sha", " sha", "sha ", " \x00capability"} {
+		_, _, err := parseGitRefAdvertisementPacket(packet)
+		if err == nil {
+			t.Fatalf("expected invalid ref advertisement packet error for %q", packet)
+		}
+		if err.Error() != "invalid git ref advertisement packet" {
+			t.Fatalf("expected invalid advertisement error for %q, got %v", packet, err)
+		}
+	}
+}
+
 func TestResolveRegionVersionReturnsRESTAndSmartHTTPFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
