@@ -62,6 +62,8 @@ mise run dev-full
 - `mise run dev-env-down`: stop local dependencies
 - `mise run migrate-up`: run migrations up
 - `mise run migrate-down`: run migrations down
+- `mise run redis-recovery-drill`: verify prefix-scoped Redis loss and control force-sync recovery (destructive; see Development)
+- `sekai-master-api migrate`: run embedded Goose migrations without starting an API role
 
 ## Documentation
 

@@ -227,9 +227,10 @@ read/search traffic:
 `/api/v1/health` checks process liveness and database connectivity only; it does
 **not** verify that region master-data / Redis indexes are ready. In a split
 deployment, `control` must populate data (sync or auto-sync) before `serve`
-receives traffic — `serve` becomes ready immediately but will return data errors
-until Redis is populated. Coordinate rollout so `control` completes (or at least
-begins) sync before routing public traffic to `serve`.
+receives traffic. Although `serve` completes its process startup immediately,
+its `/readyz` probe remains `503` until every configured region has a successful
+persisted sync and Redis-backed card records. Coordinate rollout around
+`/startupz` followed by `/readyz`, not `/api/v1/health`.
 
 ### `control` must remain a single replica
 
@@ -268,9 +269,52 @@ sync; `serve` is stateless with respect to those lifecycle jobs.
 
 ### Local dependency reset and re-sync
 
-`mise run dev-env-down` removes the **non-persistent** Redis container and its
-data, while the Postgres data volume persists. After a Redis reset, `serve`
-would see an empty Redis while Postgres still reports prior versions — a mismatch
-that resolves only after `control` re-populates Redis. Run force sync from
-`control` (`POST /api/v1/admin/master-data/sync/force`) to rebuild persisted
-records and search indexes, or bring Redis back before tearing down Postgres.
+Local Redis uses an AOF-backed `redis-data` named volume with
+`appendfsync everysec`. Therefore `mise run dev-env-down` preserves Redis data
+alongside the Postgres volume. Removing the project volumes is an explicit purge
+operation and requires force sync afterwards because `serve` never rebuilds an
+empty Redis.
+
+Use the opt-in recovery drill to verify that a prefix-scoped Redis loss can be
+recovered through `control` force sync. It requires an already-running split
+deployment, a representative public read URL, a valid admin Bearer token, and a
+real configured master-data region:
+
+```sh
+REDIS_RECOVERY_DRILL_CONFIRM=DELETE_PREFIXED_REDIS_DATA \
+REDIS_ADDR=localhost:6379 \
+MASTER_DATA_REDIS_KEY_PREFIX=sekai:master-data: \
+REDIS_RECOVERY_REGION=jp \
+REDIS_RECOVERY_PUBLIC_URL=http://localhost:18080/api/v1/versions/jp \
+REDIS_RECOVERY_SERVE_URL=http://localhost:18080 \
+REDIS_RECOVERY_CONTROL_URL=http://localhost:18081 \
+ADMIN_BEARER_TOKEN=<admin-token> \
+mise run redis-recovery-drill
+```
+
+The drill deletes only keys matching `MASTER_DATA_REDIS_KEY_PREFIX` through
+`redis-cli --scan` and `UNLINK`; it never uses `KEYS` or `FLUSHALL`. It verifies
+that `serve /readyz` degrades, triggers
+`POST /api/v1/admin/master-data/sync/force` on `control`, then waits for both
+readiness and the representative public read to recover. Run it only against a
+deliberately disposable environment.
+
+For a deployed smoke check, supply an already-running endpoint and a concrete
+public data path. The script waits on `/startupz` and `/readyz` before checking
+the public read:
+
+```sh
+SMOKE_SERVE_BASE_URL=http://localhost:18080 \
+SMOKE_PUBLIC_PATH=/api/v1/versions/jp \
+mise run smoke
+```
+
+Set `SMOKE_CHECK_PROTECTED=true`, `SMOKE_CONTROL_BASE_URL`, and
+`ADMIN_BEARER_TOKEN` only when real OIDC configuration is available. This adds
+serve/control public-route separation, unauthenticated admin-SSE and webhook
+rejection checks, and an authenticated admin profile request; it does not invent
+a dummy OIDC issuer. Both the smoke check and recovery drill use
+`CURL_CONNECT_TIMEOUT_SECONDS` (default `5`) and `CURL_MAX_TIME_SECONDS`
+(default `15`) to bound individual HTTP requests. Each value must be a positive
+whole-second number from `1` through `60`; the scripts reject invalid or larger
+values.

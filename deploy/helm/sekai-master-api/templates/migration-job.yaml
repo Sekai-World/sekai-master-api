@@ -1,0 +1,72 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "sekai-master-api.fullname" . }}-migrate
+  labels:
+    {{- include "sekai-master-api.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": {{ .Values.migration.hookWeight | quote }}
+    "helm.sh/hook-delete-policy": {{ .Values.migration.hookDeletePolicy | quote }}
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.migration.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      {{- with .Values.migration.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "sekai-master-api.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "migration") | nindent 8 }}
+        {{- with .Values.migration.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.migration.serviceAccountName }}
+      serviceAccountName: {{ . | quote }}
+      {{- end }}
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.common.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/sekai-master-api"]
+          args: ["migrate"]
+          securityContext:
+            {{- toYaml .Values.common.securityContext | nindent 12 }}
+          env:
+            {{- include "sekai-master-api.env" (dict "Values" .Values "role" .Values.migration) | nindent 12 }}
+          {{- if or .Values.common.envFrom.configMaps .Values.common.envFrom.secrets .Values.migration.envFrom.configMaps .Values.migration.envFrom.secrets }}
+          envFrom:
+            {{- include "sekai-master-api.envFrom" (dict "Values" .Values "role" .Values.migration) | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+      {{- with .Values.common.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.common.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.common.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.common.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
