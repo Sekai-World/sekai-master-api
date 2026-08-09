@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -114,6 +115,10 @@ var relationshipSearchableFields = map[string]struct{}{
 	"unit":           {},
 	"virtualliveid":  {},
 }
+
+const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
+
+const maxRedisEntityRecordBodySize = 64 << 20
 
 func (index *entitySearchIndex) idsValue(idIndex uint32) string {
 	if index == nil {
@@ -276,7 +281,12 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 				continue
 			}
 
-			nextRecords[id] = string(body)
+			storedBody, err := marshalRedisEntityRecord(body)
+			if err != nil {
+				return fmt.Errorf("compress record region %s entity %s id %s: %w", regionName, entity, id, err)
+			}
+
+			nextRecords[id] = storedBody
 			orderedIDs = append(orderedIDs, id)
 			recordMaps = append(recordMaps, recordMap)
 		}
@@ -995,6 +1005,29 @@ func (cache *RedisMasterDataCache) getEntityRecordsByIDsMapped(ctx context.Conte
 }
 
 func unmarshalRedisEntityRecord(raw any, region string, entity string, id string) (map[string]any, error) {
+	body, err := redisEntityRecordBody(raw, region, entity, id)
+	if err != nil {
+		return nil, err
+	}
+
+	var record map[string]any
+	if err := json.Unmarshal(body, &record); err != nil {
+		return nil, fmt.Errorf("unmarshal record region %s entity %s id %s: %w", region, entity, id, err)
+	}
+
+	return record, nil
+}
+
+func marshalRedisEntityRecord(body []byte) (string, error) {
+	encoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		return "", fmt.Errorf("create zstd encoder: %w", err)
+	}
+	compressed := encoder.EncodeAll(body, nil)
+	return redisEntityRecordZstdV1Prefix + string(compressed), nil
+}
+
+func redisEntityRecordBody(raw any, region string, entity string, id string) ([]byte, error) {
 	var body []byte
 	switch typed := raw.(type) {
 	case string:
@@ -1005,12 +1038,24 @@ func unmarshalRedisEntityRecord(raw any, region string, entity string, id string
 		return nil, fmt.Errorf("unexpected record type region %s entity %s id %s: %T", region, entity, id, raw)
 	}
 
-	var record map[string]any
-	if err := json.Unmarshal(body, &record); err != nil {
-		return nil, fmt.Errorf("unmarshal record region %s entity %s id %s: %w", region, entity, id, err)
+	if !strings.HasPrefix(string(body), redisEntityRecordZstdV1Prefix) {
+		return body, nil
 	}
 
-	return record, nil
+	decoder, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxRedisEntityRecordBodySize))
+	if err != nil {
+		return nil, fmt.Errorf("create zstd decoder region %s entity %s id %s: %w", region, entity, id, err)
+	}
+	decompressed, err := decoder.DecodeAll([]byte(strings.TrimPrefix(string(body), redisEntityRecordZstdV1Prefix)), nil)
+	decoder.Close()
+	if err != nil {
+		if errors.Is(err, zstd.ErrDecoderSizeExceeded) {
+			return nil, fmt.Errorf("compressed record exceeds %d byte limit region %s entity %s id %s: %w", maxRedisEntityRecordBodySize, region, entity, id, err)
+		}
+		return nil, fmt.Errorf("decode compressed record region %s entity %s id %s: %w", region, entity, id, err)
+	}
+
+	return decompressed, nil
 }
 
 func (cache *RedisMasterDataCache) rebuildEntityOrderFromByID(ctx context.Context, region string, entity string) ([]string, error) {
@@ -1082,9 +1127,9 @@ func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, e
 		return nil, false, fmt.Errorf("hget region %s entity %s id %s: %w", regionName, entityName, recordIDValue, err)
 	}
 
-	var record map[string]any
-	if err := json.Unmarshal(body, &record); err != nil {
-		return nil, false, fmt.Errorf("unmarshal record region %s entity %s id %s: %w", regionName, entityName, recordIDValue, err)
+	record, err := unmarshalRedisEntityRecord(body, regionName, entityName, recordIDValue)
+	if err != nil {
+		return nil, false, err
 	}
 
 	span.SetAttributes(attribute.Bool("cache.hit", true))
@@ -1280,10 +1325,10 @@ func (cache *RedisMasterDataCache) rebuildEntityIndexFromRedis(
 	}
 
 	records := make([]map[string]any, 0, len(recordMap))
-	for _, raw := range recordMap {
-		var record map[string]any
-		if err := json.Unmarshal([]byte(raw), &record); err != nil {
-			return nil, false, fmt.Errorf("decode redis record region %s entity %s: %w", regionName, entityName, err)
+	for id, raw := range recordMap {
+		record, err := unmarshalRedisEntityRecord(raw, regionName, entityName, id)
+		if err != nil {
+			return nil, false, err
 		}
 		records = append(records, record)
 	}
@@ -1418,9 +1463,9 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 				continue
 			}
 
-			var record map[string]any
-			if err := json.Unmarshal([]byte(raw), &record); err != nil {
-				return false, fmt.Errorf("decode redis record region %s entity %s: %w", regionName, entity, err)
+			record, err := unmarshalRedisEntityRecord(raw, regionName, entity, id)
+			if err != nil {
+				return false, err
 			}
 
 			searchable := searchableFields(entity, record)

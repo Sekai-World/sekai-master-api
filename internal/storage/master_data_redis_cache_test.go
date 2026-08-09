@@ -18,6 +18,78 @@ import (
 
 var redisSearchIndexBenchmarkSink *RedisMasterDataCache
 
+func TestRedisEntityRecordCompressedRoundTrip(t *testing.T) {
+	body := []byte(`{"id":1,"name":"compressed"}`)
+	stored, err := marshalRedisEntityRecord(body)
+	if err != nil {
+		t.Fatalf("marshal compressed record: %v", err)
+	}
+	if !strings.HasPrefix(stored, redisEntityRecordZstdV1Prefix) {
+		t.Fatalf("expected versioned compressed prefix, got %q", stored)
+	}
+
+	record, err := unmarshalRedisEntityRecord(stored, "jp", "cards", "1")
+	if err != nil {
+		t.Fatalf("unmarshal compressed record: %v", err)
+	}
+	if record["name"] != "compressed" {
+		t.Fatalf("expected compressed record name, got %v", record["name"])
+	}
+}
+
+func TestRedisEntityRecordCompressesRepetitiveMasterData(t *testing.T) {
+	body := []byte(`{
+			"id":100001,
+			"name":"A recurring event title",
+			"assetbundleName":"event_story_recurring_event_title",
+			"bannerAssetbundleName":"event_story_recurring_event_title_banner",
+			"logoAssetbundleName":"event_story_recurring_event_title_logo",
+			"bgmAssetbundleName":"event_story_recurring_event_title_bgm",
+			"eventStoryUnit":"recurring_event_title",
+			"eventStoryUnitName":"Recurring Event Title",
+			"description":"Recurring Event Title brings the recurring event title story to the recurring event title unit.",
+			"summary":"Recurring Event Title brings the recurring event title story to the recurring event title unit.",
+			"notice":"Recurring Event Title brings the recurring event title story to the recurring event title unit."
+		}`)
+
+	stored, err := marshalRedisEntityRecord(body)
+	if err != nil {
+		t.Fatalf("marshal repetitive record: %v", err)
+	}
+	if len(stored) >= len(body)*85/100 {
+		t.Fatalf("expected compressed stored record (%d bytes including prefix) to be at least 15%% smaller than JSON body (%d bytes)", len(stored), len(body))
+	}
+}
+
+func TestRedisEntityRecordSupportsLegacyPlainJSON(t *testing.T) {
+	record, err := unmarshalRedisEntityRecord(`{"id":2,"name":"legacy"}`, "jp", "cards", "2")
+	if err != nil {
+		t.Fatalf("unmarshal legacy record: %v", err)
+	}
+	if record["name"] != "legacy" {
+		t.Fatalf("expected legacy record name, got %v", record["name"])
+	}
+}
+
+func TestRedisEntityRecordRejectsMalformedCompressedPayload(t *testing.T) {
+	_, err := unmarshalRedisEntityRecord(redisEntityRecordZstdV1Prefix+"not-zstd", "jp", "cards", "3")
+	if err == nil || !strings.Contains(err.Error(), "decode compressed record region jp entity cards id 3") {
+		t.Fatalf("expected useful malformed compressed payload error, got %v", err)
+	}
+}
+
+func TestRedisEntityRecordRejectsOversizedDecompressedPayload(t *testing.T) {
+	stored, err := marshalRedisEntityRecord([]byte(strings.Repeat("x", maxRedisEntityRecordBodySize+1)))
+	if err != nil {
+		t.Fatalf("marshal oversized record: %v", err)
+	}
+
+	_, err = redisEntityRecordBody(stored, "jp", "cards", "4")
+	if err == nil || !strings.Contains(err.Error(), "compressed record exceeds 67108864 byte limit region jp entity cards id 4") {
+		t.Fatalf("expected contextual oversized record error, got %v", err)
+	}
+}
+
 func TestStoreRegionIncrementalUpdate(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {
@@ -52,6 +124,14 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 
 	if err := cache.StoreRegion(ctx, "jp", initialPayload); err != nil {
 		t.Fatalf("store initial payload: %v", err)
+	}
+
+	persisted, err := cache.client.HGet(ctx, cache.redisEntityKey("jp", "cards"), "1").Result()
+	if err != nil {
+		t.Fatalf("read persisted card: %v", err)
+	}
+	if !strings.HasPrefix(persisted, redisEntityRecordZstdV1Prefix) {
+		t.Fatalf("expected StoreRegion to persist a versioned compressed record, got %q", persisted)
 	}
 
 	updatedPayload := map[string]any{
