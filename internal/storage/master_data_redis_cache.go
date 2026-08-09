@@ -118,8 +118,6 @@ var relationshipSearchableFields = map[string]struct{}{
 
 const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
 
-// Master-data source JSON files are capped at 64 MiB, so an individual record
-// cannot legitimately exceed this size.
 const maxRedisEntityRecordBodySize = 64 << 20
 
 func (index *entitySearchIndex) idsValue(idIndex uint32) string {
@@ -1025,8 +1023,6 @@ func marshalRedisEntityRecord(body []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create zstd encoder: %w", err)
 	}
-	defer encoder.Close()
-
 	compressed := encoder.EncodeAll(body, nil)
 	return redisEntityRecordZstdV1Prefix + string(compressed), nil
 }
