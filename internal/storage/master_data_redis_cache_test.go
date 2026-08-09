@@ -25,7 +25,7 @@ func TestRedisEntityRecordEncoding(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal compressed record: %v", err)
 		}
-		if !strings.HasPrefix(stored, redisEntityRecordGzipV1Prefix) {
+		if !strings.HasPrefix(stored, redisEntityRecordZstdV1Prefix) {
 			t.Fatalf("expected versioned compressed prefix, got %q", stored)
 		}
 
@@ -73,8 +73,8 @@ func TestRedisEntityRecordEncoding(t *testing.T) {
 	})
 
 	t.Run("malformed compressed payload", func(t *testing.T) {
-		_, err := unmarshalRedisEntityRecord(redisEntityRecordGzipV1Prefix+"not-gzip", "jp", "cards", "3")
-		if err == nil || !strings.Contains(err.Error(), "open compressed record region jp entity cards id 3") {
+		_, err := unmarshalRedisEntityRecord(redisEntityRecordZstdV1Prefix+"not-zstd", "jp", "cards", "3")
+		if err == nil || !strings.Contains(err.Error(), "decode compressed record region jp entity cards id 3") {
 			t.Fatalf("expected useful malformed compressed payload error, got %v", err)
 		}
 	})
@@ -120,7 +120,7 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read persisted card: %v", err)
 	}
-	if !strings.HasPrefix(persisted, redisEntityRecordGzipV1Prefix) {
+	if !strings.HasPrefix(persisted, redisEntityRecordZstdV1Prefix) {
 		t.Fatalf("expected StoreRegion to persist a versioned compressed record, got %q", persisted)
 	}
 

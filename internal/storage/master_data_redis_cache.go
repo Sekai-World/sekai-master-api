@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"compress/gzip"
 	"container/list"
 	"context"
 	"crypto/sha1"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"path/filepath"
 	"sort"
@@ -19,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -117,7 +116,7 @@ var relationshipSearchableFields = map[string]struct{}{
 	"virtualliveid":  {},
 }
 
-const redisEntityRecordGzipV1Prefix = "sekai-master-data:gzip:v1:"
+const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
 
 func (index *entitySearchIndex) idsValue(idIndex uint32) string {
 	if index == nil {
@@ -1018,18 +1017,14 @@ func unmarshalRedisEntityRecord(raw any, region string, entity string, id string
 }
 
 func marshalRedisEntityRecord(body []byte) (string, error) {
-	var compressed strings.Builder
-	compressed.WriteString(redisEntityRecordGzipV1Prefix)
-
-	writer := gzip.NewWriter(&compressed)
-	if _, err := writer.Write(body); err != nil {
-		return "", fmt.Errorf("write gzip record: %w", err)
+	encoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		return "", fmt.Errorf("create zstd encoder: %w", err)
 	}
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("close gzip record: %w", err)
-	}
+	defer encoder.Close()
 
-	return compressed.String(), nil
+	compressed := encoder.EncodeAll(body, nil)
+	return redisEntityRecordZstdV1Prefix + string(compressed), nil
 }
 
 func redisEntityRecordBody(raw any, region string, entity string, id string) ([]byte, error) {
@@ -1043,21 +1038,18 @@ func redisEntityRecordBody(raw any, region string, entity string, id string) ([]
 		return nil, fmt.Errorf("unexpected record type region %s entity %s id %s: %T", region, entity, id, raw)
 	}
 
-	if !strings.HasPrefix(string(body), redisEntityRecordGzipV1Prefix) {
+	if !strings.HasPrefix(string(body), redisEntityRecordZstdV1Prefix) {
 		return body, nil
 	}
 
-	reader, err := gzip.NewReader(strings.NewReader(strings.TrimPrefix(string(body), redisEntityRecordGzipV1Prefix)))
+	decoder, err := zstd.NewReader(nil)
 	if err != nil {
-		return nil, fmt.Errorf("open compressed record region %s entity %s id %s: %w", region, entity, id, err)
+		return nil, fmt.Errorf("create zstd decoder region %s entity %s id %s: %w", region, entity, id, err)
 	}
-	decompressed, readErr := io.ReadAll(reader)
-	closeErr := reader.Close()
-	if readErr != nil {
-		return nil, fmt.Errorf("read compressed record region %s entity %s id %s: %w", region, entity, id, readErr)
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close compressed record region %s entity %s id %s: %w", region, entity, id, closeErr)
+	decompressed, err := decoder.DecodeAll([]byte(strings.TrimPrefix(string(body), redisEntityRecordZstdV1Prefix)), nil)
+	decoder.Close()
+	if err != nil {
+		return nil, fmt.Errorf("decode compressed record region %s entity %s id %s: %w", region, entity, id, err)
 	}
 
 	return decompressed, nil
