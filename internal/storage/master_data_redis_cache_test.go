@@ -18,28 +18,27 @@ import (
 
 var redisSearchIndexBenchmarkSink *RedisMasterDataCache
 
-func TestRedisEntityRecordEncoding(t *testing.T) {
-	t.Run("compressed round trip", func(t *testing.T) {
-		body := []byte(`{"id":1,"name":"compressed"}`)
-		stored, err := marshalRedisEntityRecord(body)
-		if err != nil {
-			t.Fatalf("marshal compressed record: %v", err)
-		}
-		if !strings.HasPrefix(stored, redisEntityRecordZstdV1Prefix) {
-			t.Fatalf("expected versioned compressed prefix, got %q", stored)
-		}
+func TestRedisEntityRecordCompressedRoundTrip(t *testing.T) {
+	body := []byte(`{"id":1,"name":"compressed"}`)
+	stored, err := marshalRedisEntityRecord(body)
+	if err != nil {
+		t.Fatalf("marshal compressed record: %v", err)
+	}
+	if !strings.HasPrefix(stored, redisEntityRecordZstdV1Prefix) {
+		t.Fatalf("expected versioned compressed prefix, got %q", stored)
+	}
 
-		record, err := unmarshalRedisEntityRecord(stored, "jp", "cards", "1")
-		if err != nil {
-			t.Fatalf("unmarshal compressed record: %v", err)
-		}
-		if record["name"] != "compressed" {
-			t.Fatalf("expected compressed record name, got %v", record["name"])
-		}
-	})
+	record, err := unmarshalRedisEntityRecord(stored, "jp", "cards", "1")
+	if err != nil {
+		t.Fatalf("unmarshal compressed record: %v", err)
+	}
+	if record["name"] != "compressed" {
+		t.Fatalf("expected compressed record name, got %v", record["name"])
+	}
+}
 
-	t.Run("compresses repetitive master data record", func(t *testing.T) {
-		body := []byte(`{
+func TestRedisEntityRecordCompressesRepetitiveMasterData(t *testing.T) {
+	body := []byte(`{
 			"id":100001,
 			"name":"A recurring event title",
 			"assetbundleName":"event_story_recurring_event_title",
@@ -53,31 +52,42 @@ func TestRedisEntityRecordEncoding(t *testing.T) {
 			"notice":"Recurring Event Title brings the recurring event title story to the recurring event title unit."
 		}`)
 
-		stored, err := marshalRedisEntityRecord(body)
-		if err != nil {
-			t.Fatalf("marshal repetitive record: %v", err)
-		}
-		if len(stored) >= len(body)*85/100 {
-			t.Fatalf("expected compressed stored record (%d bytes including prefix) to be at least 15%% smaller than JSON body (%d bytes)", len(stored), len(body))
-		}
-	})
+	stored, err := marshalRedisEntityRecord(body)
+	if err != nil {
+		t.Fatalf("marshal repetitive record: %v", err)
+	}
+	if len(stored) >= len(body)*85/100 {
+		t.Fatalf("expected compressed stored record (%d bytes including prefix) to be at least 15%% smaller than JSON body (%d bytes)", len(stored), len(body))
+	}
+}
 
-	t.Run("legacy plain JSON", func(t *testing.T) {
-		record, err := unmarshalRedisEntityRecord(`{"id":2,"name":"legacy"}`, "jp", "cards", "2")
-		if err != nil {
-			t.Fatalf("unmarshal legacy record: %v", err)
-		}
-		if record["name"] != "legacy" {
-			t.Fatalf("expected legacy record name, got %v", record["name"])
-		}
-	})
+func TestRedisEntityRecordSupportsLegacyPlainJSON(t *testing.T) {
+	record, err := unmarshalRedisEntityRecord(`{"id":2,"name":"legacy"}`, "jp", "cards", "2")
+	if err != nil {
+		t.Fatalf("unmarshal legacy record: %v", err)
+	}
+	if record["name"] != "legacy" {
+		t.Fatalf("expected legacy record name, got %v", record["name"])
+	}
+}
 
-	t.Run("malformed compressed payload", func(t *testing.T) {
-		_, err := unmarshalRedisEntityRecord(redisEntityRecordZstdV1Prefix+"not-zstd", "jp", "cards", "3")
-		if err == nil || !strings.Contains(err.Error(), "decode compressed record region jp entity cards id 3") {
-			t.Fatalf("expected useful malformed compressed payload error, got %v", err)
-		}
-	})
+func TestRedisEntityRecordRejectsMalformedCompressedPayload(t *testing.T) {
+	_, err := unmarshalRedisEntityRecord(redisEntityRecordZstdV1Prefix+"not-zstd", "jp", "cards", "3")
+	if err == nil || !strings.Contains(err.Error(), "decode compressed record region jp entity cards id 3") {
+		t.Fatalf("expected useful malformed compressed payload error, got %v", err)
+	}
+}
+
+func TestRedisEntityRecordRejectsOversizedDecompressedPayload(t *testing.T) {
+	stored, err := marshalRedisEntityRecord([]byte(strings.Repeat("x", maxRedisEntityRecordBodySize+1)))
+	if err != nil {
+		t.Fatalf("marshal oversized record: %v", err)
+	}
+
+	_, err = redisEntityRecordBody(stored, "jp", "cards", "4")
+	if err == nil || !strings.Contains(err.Error(), "compressed record exceeds 67108864 byte limit region jp entity cards id 4") {
+		t.Fatalf("expected contextual oversized record error, got %v", err)
+	}
 }
 
 func TestStoreRegionIncrementalUpdate(t *testing.T) {
