@@ -104,7 +104,10 @@ func main() {
 		masterDataEventHub,
 		cfg.MasterDataSyncConcurrency,
 	)
-	masterDataSyncUsecase.SetRegionTimeout(time.Duration(cfg.MasterDataSyncTimeout) * time.Second)
+	if cfg.MasterDataSyncTimeout > 0 {
+		masterDataSyncUsecase.SetRegionTimeout(time.Duration(cfg.MasterDataSyncTimeout) * time.Second)
+	}
+	masterDataSyncUsecase.SetJobTimeout(time.Duration(cfg.MasterDataSyncJobTimeout) * time.Second)
 	masterDataSyncUsecase.EnableDevelopmentBackupBootstrap(cfg.IsDevelopment())
 	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase, masterDataCache); err != nil {
 		logger.Fatalf("failed to register master data metrics: %v", err)
@@ -153,7 +156,11 @@ func main() {
 		// `control` and does not remove any repair behavior.
 		if len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes && cfg.Role != config.AppRoleControl {
 			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.MasterDataSyncTimeout)*time.Second)
+				warmupTimeout := cfg.MasterDataSyncJobTimeout
+				if warmupTimeout <= 0 {
+					warmupTimeout = 120
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(warmupTimeout)*time.Second)
 				defer cancel()
 
 				logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))

@@ -21,6 +21,7 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
+    mem_limit: ${DEV_REDIS_MEMORY:-2g}
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     expose:
       - "6379"

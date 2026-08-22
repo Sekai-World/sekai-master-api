@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -116,6 +117,14 @@ var relationshipSearchableFields = map[string]struct{}{
 	"virtualliveid":  {},
 }
 
+var redisEntityEncoderPool = sync.Pool{New: func() any {
+	encoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		panic(err)
+	}
+	return encoder
+}}
+
 const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
 
 const maxRedisEntityRecordBodySize = 64 << 20
@@ -181,6 +190,10 @@ func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 }
 
 func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region string, payload map[string]any) error {
+	return cache.StoreRegionWithSourceDigests(ctx, region, payload, nil)
+}
+
+func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Context, region string, payload map[string]any, fileDigests map[string]string) error {
 	ctx, span := tracing.StartSpan(ctx, "redis.master_data.store_region", attribute.String("region", normalizeKey(region)), attribute.Int("file.count", len(payload)))
 	var err error
 	defer func() {
@@ -250,20 +263,44 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 
 		key := cache.redisEntityKey(regionName, entity)
 		orderKey := cache.redisEntityOrderKey(regionName, entity)
-
-		existingRecords, err := cache.client.HGetAll(ctx, key).Result()
-		if err != nil {
-			return fmt.Errorf("hgetall redis key for region %s entity %s: %w", regionName, entity, err)
+		revisionKey := cache.redisEntityRevisionKey(regionName, entity)
+		sourceDigestKey := cache.redisEntitySourceDigestKey(regionName, entity)
+		incomingDigest, hasDigest := fileDigests[filePath]
+		if hasDigest && incomingDigest != "" && !masterdata.ForceFullStoreFromContext(ctx) {
+			storedDigest, digestErr := cache.client.Get(ctx, sourceDigestKey).Result()
+			if digestErr != nil && !errors.Is(digestErr, redis.Nil) {
+				return fmt.Errorf("get redis source digest for region %s entity %s: %w", regionName, entity, digestErr)
+			}
+			_, revisionErr := cache.client.Get(ctx, revisionKey).Result()
+			if digestErr == nil && revisionErr == nil && storedDigest == incomingDigest {
+				found, indexErr := cache.persistedEntitySearchIndexExists(ctx, regionName, entity)
+				if indexErr != nil {
+					return indexErr
+				}
+				if found {
+					reportProgress(filePath)
+					return nil
+				}
+			}
 		}
-
-		existingOrder, err := cache.client.LRange(ctx, orderKey, 0, -1).Result()
-		if err != nil {
-			return fmt.Errorf("lrange redis order key for region %s entity %s: %w", regionName, entity, err)
+		forceFullStore := masterdata.ForceFullStoreFromContext(ctx)
+		existingRevision := ""
+		var err error
+		revisionMissing := true
+		if !forceFullStore {
+			existingRevision, err = cache.client.Get(ctx, revisionKey).Result()
+			if err != nil && !errors.Is(err, redis.Nil) {
+				return fmt.Errorf("get redis revision for region %s entity %s: %w", regionName, entity, err)
+			}
+			revisionMissing = errors.Is(err, redis.Nil)
 		}
+		existingRecords := map[string]string(nil)
+		existingOrder := []string(nil)
 
 		orderedIDs := make([]string, 0, len(records))
 		nextRecords := make(map[string]string, len(records))
 		recordMaps := make([]map[string]any, 0, len(records))
+		digest := sha256.New()
 
 		for _, record := range records {
 			recordMap, ok := record.(map[string]any)
@@ -289,10 +326,27 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 			nextRecords[id] = storedBody
 			orderedIDs = append(orderedIDs, id)
 			recordMaps = append(recordMaps, recordMap)
+			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
+		}
+		_, _ = digest.Write([]byte("|order:"))
+		for _, id := range orderedIDs {
+			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ";"))
+		}
+		revision := hex.EncodeToString(digest.Sum(nil))
+		revisionMatches := !forceFullStore && !revisionMissing && existingRevision == revision
+		if !forceFullStore && !revisionMatches {
+			existingRecords, err = cache.client.HGetAll(ctx, key).Result()
+			if err != nil {
+				return fmt.Errorf("hgetall redis key for region %s entity %s: %w", regionName, entity, err)
+			}
+			existingOrder, err = cache.client.LRange(ctx, orderKey, 0, -1).Result()
+			if err != nil {
+				return fmt.Errorf("lrange redis order key for region %s entity %s: %w", regionName, entity, err)
+			}
 		}
 
-		recordsChanged := !equalStringMaps(existingRecords, nextRecords)
-		orderChanged := !equalStringSlices(existingOrder, orderedIDs)
+		recordsChanged := forceFullStore || (!revisionMatches && !equalStringMaps(existingRecords, nextRecords))
+		orderChanged := forceFullStore || (!revisionMatches && !equalStringSlices(existingOrder, orderedIDs))
 		entityChanged := recordsChanged || orderChanged
 		persistIndexChanged := entityChanged
 		var updatedIndex *entitySearchIndex
@@ -348,6 +402,12 @@ func (cache *RedisMasterDataCache) StoreRegion(ctx context.Context, region strin
 		}
 		if persistIndexChanged {
 			updatedIndexVersion = cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, updatedIndex)
+		}
+		if !revisionMatches {
+			pipe.Set(ctx, revisionKey, revision, 0)
+		}
+		if hasDigest && incomingDigest != "" {
+			pipe.Set(ctx, sourceDigestKey, incomingDigest, 0)
 		}
 		if _, err := pipe.Exec(ctx); err != nil {
 			return fmt.Errorf("incremental update region %s entity %s: %w", regionName, entity, err)
@@ -1019,10 +1079,8 @@ func unmarshalRedisEntityRecord(raw any, region string, entity string, id string
 }
 
 func marshalRedisEntityRecord(body []byte) (string, error) {
-	encoder, err := zstd.NewWriter(nil)
-	if err != nil {
-		return "", fmt.Errorf("create zstd encoder: %w", err)
-	}
+	encoder := redisEntityEncoderPool.Get().(*zstd.Encoder)
+	defer redisEntityEncoderPool.Put(encoder)
 	compressed := encoder.EncodeAll(body, nil)
 	return redisEntityRecordZstdV1Prefix + string(compressed), nil
 }
@@ -1795,11 +1853,19 @@ func (cache *RedisMasterDataCache) redisEntityKey(region string, entity string) 
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":by-id"
 }
 
-func (cache *RedisMasterDataCache) redisEntityOrderKey(region string, entity string) string {
+func (cache *RedisMasterDataCache) redisEntityOrderKey(region, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":order"
 }
 
-func (cache *RedisMasterDataCache) redisEntitySearchIndexKey(region string, entity string) string {
+func (cache *RedisMasterDataCache) redisEntityRevisionKey(region, entity string) string {
+	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":revision"
+}
+
+func (cache *RedisMasterDataCache) redisEntitySourceDigestKey(region, entity string) string {
+	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":source-digest"
+}
+
+func (cache *RedisMasterDataCache) redisEntitySearchIndexKey(region, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":search-index"
 }
 
@@ -2089,8 +2155,40 @@ func recordStorageID(record map[string]any, body []byte) string {
 		return ""
 	}
 
-	sum := sha1.Sum(body)
+	sum := sha256.Sum256(body)
 	return "auto:" + hex.EncodeToString(sum[:])
+}
+
+func recordStorageIDFromRaw(body []byte) string {
+	var fields struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(body, &fields); err == nil && len(fields.ID) > 0 && string(fields.ID) != "null" {
+		var value any
+		if json.Unmarshal(fields.ID, &value) == nil {
+			if id := strings.TrimSpace(fmt.Sprintf("%v", value)); id != "" {
+				return id
+			}
+		}
+	}
+	if len(body) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(body)
+	return "auto:" + hex.EncodeToString(sum[:])
+}
+
+func rawRecordHasSearchableField(entity string, body []byte) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return false
+	}
+	for field := range fields {
+		if isSearchableField(entity, field) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeSearchText(value string) string {
