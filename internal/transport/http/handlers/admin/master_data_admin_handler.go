@@ -102,14 +102,7 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 	}
 
 	region := strings.TrimSpace(request.Region)
-	ctx := c.Request.Context()
-
-	var err error
-	if region == "" {
-		err = handler.masterDataSync.SyncAll(ctx)
-	} else {
-		err = handler.masterDataSync.SyncRegion(ctx, region)
-	}
+	err := handler.masterDataSync.StartSync(c.Request.Context(), region, false)
 	if err != nil {
 		if errors.Is(err, usecase.ErrRegionNotFound) {
 			response.Error(c, http.StatusNotFound, "MASTER_DATA_REGION_NOT_FOUND", "target region is not configured")
@@ -123,7 +116,7 @@ func (handler *MasterDataAdminHandler) Sync(c *gin.Context) {
 		return
 	}
 
-	handler.writeStatusResponse(c, ctx)
+	handler.writeAcceptedResponse(c)
 }
 
 // ForceSync godoc
@@ -158,14 +151,7 @@ func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 	}
 
 	region := strings.TrimSpace(request.Region)
-	ctx := c.Request.Context()
-
-	var err error
-	if region == "" {
-		err = handler.masterDataSync.SyncAllForce(ctx)
-	} else {
-		err = handler.masterDataSync.SyncRegionForce(ctx, region)
-	}
+	err := handler.masterDataSync.StartSync(c.Request.Context(), region, true)
 	if err != nil {
 		if errors.Is(err, usecase.ErrRegionNotFound) {
 			response.Error(c, http.StatusNotFound, "MASTER_DATA_REGION_NOT_FOUND", "target region is not configured")
@@ -179,7 +165,17 @@ func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 		return
 	}
 
-	handler.writeStatusResponse(c, ctx)
+	handler.writeAcceptedResponse(c)
+}
+
+func (handler *MasterDataAdminHandler) writeAcceptedResponse(c *gin.Context) {
+	response.JSON(c, http.StatusOK, gin.H{
+		"status":        "ok",
+		"items":         []any{},
+		"regions":       handler.masterDataSync.ConfiguredRegions(),
+		"sync_running":  true,
+		"startup_ready": true,
+	})
 }
 
 func (handler *MasterDataAdminHandler) writeStatusResponse(c *gin.Context, ctx context.Context) {

@@ -3,6 +3,7 @@ set -eu
 
 . ./.mise/lib/tasks.sh
 load_development_env
+export DEV_REDIS_MEMORY
 
 cmd="$(compose_cmd)"
 set -- $(compose_project_args)

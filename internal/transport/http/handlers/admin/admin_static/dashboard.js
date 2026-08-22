@@ -386,7 +386,9 @@ export const initDashboardPage = async () => {
       return;
     }
 
-    syncButton.disabled = false;
+    const syncRunning = statusResult.payload?.sync_running === true;
+    syncButton.disabled = syncRunning;
+    syncButton.classList.toggle("is-loading", syncRunning);
     setStatusItems(statusResult.payload?.items ?? []);
     refreshSyncRegionOptions(statusResult.payload?.regions ?? []);
     renderStatusFromMap();
@@ -509,10 +511,10 @@ export const initDashboardPage = async () => {
     }
 
     syncMessage.classList.add("is-success");
-    syncMessage.textContent = forceSync ? `强制同步完成${scopeText}` : `同步完成${scopeText}`;
+    syncMessage.textContent = forceSync ? `已接受强制同步${scopeText}，正在后台执行` : `已接受同步${scopeText}，正在后台执行`;
     pushProgressHistory(syncMessage.textContent, false);
-    await loadMasterDataStatus();
-    syncButton.disabled = false;
-    syncButton.classList.remove("is-loading");
+    syncButton.disabled = true;
+    syncButton.classList.add("is-loading");
+    void loadMasterDataStatus();
   });
 };

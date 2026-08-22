@@ -212,6 +212,94 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 	}
 }
 
+func TestStoreRegionRevisionTracksDataAndOrderChanges(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+	cache, err := NewRedisMasterDataCache(config.Config{RedisAddr: miniRedis.Addr(), MasterDataRedisKeyPrefix: "test:master-data:"})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer cache.Close()
+	ctx := context.Background()
+	first := map[string]any{"cards.json": []any{map[string]any{"id": 1, "name": "one"}, map[string]any{"id": 2, "name": "two"}}}
+	if err := cache.StoreRegion(ctx, "jp", first); err != nil {
+		t.Fatal(err)
+	}
+	revisionKey := cache.redisEntityRevisionKey("jp", "cards")
+	firstRevision, err := cache.client.Get(ctx, revisionKey).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.StoreRegion(ctx, "jp", first); err != nil {
+		t.Fatal(err)
+	}
+	unchangedRevision, _ := cache.client.Get(ctx, revisionKey).Result()
+	if unchangedRevision != firstRevision {
+		t.Fatalf("identical store changed revision from %q to %q", firstRevision, unchangedRevision)
+	}
+
+	orderOnly := map[string]any{"cards.json": []any{map[string]any{"id": 2, "name": "two"}, map[string]any{"id": 1, "name": "one"}}}
+	if err := cache.StoreRegion(ctx, "jp", orderOnly); err != nil {
+		t.Fatal(err)
+	}
+	orderRevision, _ := cache.client.Get(ctx, revisionKey).Result()
+	if orderRevision == firstRevision {
+		t.Fatal("order-only change did not change revision")
+	}
+	ids, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", "cards"), 0, -1).Result()
+	if err != nil || strings.Join(ids, ",") != "2,1" {
+		t.Fatalf("expected persisted order 2,1, got %v, err=%v", ids, err)
+	}
+
+	changed := map[string]any{"cards.json": []any{map[string]any{"id": 2, "name": "two-updated"}, map[string]any{"id": 1, "name": "one"}}}
+	if err := cache.StoreRegion(ctx, "jp", changed); err != nil {
+		t.Fatal(err)
+	}
+	changedRevision, _ := cache.client.Get(ctx, revisionKey).Result()
+	if changedRevision == orderRevision {
+		t.Fatal("record change did not change revision")
+	}
+	record, found, err := cache.GetByID(ctx, "jp", "cards", "2")
+	if err != nil || !found || record["name"] != "two-updated" {
+		t.Fatalf("changed record not persisted: record=%v found=%t err=%v", record, found, err)
+	}
+}
+
+func TestStoreRegionRepairsMissingSearchIndexOnRevisionMatch(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+	cache, err := NewRedisMasterDataCache(config.Config{RedisAddr: miniRedis.Addr(), MasterDataRedisKeyPrefix: "test:master-data:"})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer cache.Close()
+	ctx := context.Background()
+	payload := map[string]any{"cards.json": []any{map[string]any{"id": 1, "name": "search me"}}}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatal(err)
+	}
+	indexKey := cache.redisEntitySearchIndexKey("jp", "cards")
+	if err := cache.client.Del(ctx, indexKey, cache.redisEntitySearchIndexVersionKey("jp", "cards")).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatal(err)
+	}
+	if exists, _ := cache.client.Exists(ctx, indexKey).Result(); exists != 1 {
+		t.Fatal("expected identical store to repair missing persisted search index")
+	}
+	matches, err := cache.Search(ctx, "jp", "cards", "search me", nil, 10)
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("expected repaired search index match, got %d matches err=%v", len(matches), err)
+	}
+}
+
 func TestSearchIndexPersistsOnlySearchableFields(t *testing.T) {
 	miniRedis, err := miniredis.Run()
 	if err != nil {

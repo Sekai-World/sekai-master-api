@@ -42,6 +42,10 @@ type MasterDataCache interface {
 	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
 
+type MasterDataCacheSourceDigestStore interface {
+	StoreRegionWithSourceDigests(ctx context.Context, region string, payload map[string]any, fileDigests map[string]string) error
+}
+
 type MasterDataCacheIndexRebuilder interface {
 	RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error)
 }
@@ -94,6 +98,7 @@ type MasterDataSyncUsecase struct {
 	backupStore                         MasterDataPayloadBackupStore
 	concurrency                         int
 	regionTimeout                       time.Duration
+	jobTimeout                          time.Duration
 	restoreFromLocalBackupWithoutStatus bool
 	statusMu                            sync.Mutex
 	syncRunning                         atomic.Bool
@@ -156,11 +161,67 @@ func (usecase *MasterDataSyncUsecase) SetRegionTimeout(timeout time.Duration) {
 	usecase.regionTimeout = timeout
 }
 
+// SetJobTimeout limits the complete sync run without changing the existing
+// per-region timeout semantics used by blocking callers and their tests.
+func (usecase *MasterDataSyncUsecase) SetJobTimeout(timeout time.Duration) {
+	if usecase == nil {
+		return
+	}
+	if timeout < 0 {
+		timeout = 0
+	}
+	usecase.jobTimeout = timeout
+}
+
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 	ctx, span := tracing.StartSpan(ctx, "master_data.sync_all", attribute.Int("region.count", len(usecase.sources)))
 	err := usecase.sync(ctx, false, usecase.sources)
 	tracing.EndSpan(span, err)
 	return err
+}
+
+// StartSync admits an administrator-triggered sync and returns without waiting
+// for the work to finish. The admission happens before the goroutine is
+// started, so concurrent requests cannot both be accepted. The worker is
+// detached from the request context and bounded by jobTimeout; regionTimeout
+// remains an optional per-region diagnostic/test limit.
+func (usecase *MasterDataSyncUsecase) StartSync(ctx context.Context, region string, force bool) error {
+	if usecase == nil {
+		return ErrRegionNotFound
+	}
+
+	targetRegion := strings.ToLower(strings.TrimSpace(region))
+	targetSources := usecase.sources
+	if targetRegion != "" {
+		targetSources = nil
+		for _, source := range usecase.sources {
+			if strings.EqualFold(strings.TrimSpace(source.Region), targetRegion) {
+				targetSources = []masterdata.Source{source}
+				break
+			}
+		}
+		if len(targetSources) == 0 {
+			return ErrRegionNotFound
+		}
+	}
+
+	if !usecase.syncRunning.CompareAndSwap(false, true) {
+		usecase.logf("sync skipped reason=already_running")
+		return ErrSyncInProgress
+	}
+
+	workerContext := logging.DetachedTraceContext(ctx)
+	go func() {
+		defer usecase.syncRunning.Store(false)
+		err := usecase.syncClaimed(workerContext, force, targetSources)
+		if err != nil {
+			usecase.logf("admin sync worker failed region=%s force=%t error=%v", targetRegion, force, err)
+			return
+		}
+		usecase.logf("admin sync worker completed region=%s force=%t", targetRegion, force)
+	}()
+
+	return nil
 }
 
 func (usecase *MasterDataSyncUsecase) SyncAllForce(ctx context.Context) error {
@@ -303,18 +364,26 @@ func (usecase *MasterDataSyncUsecase) RecoverInterruptedSync(ctx context.Context
 }
 
 func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sources []masterdata.Source) error {
+	if !usecase.syncRunning.CompareAndSwap(false, true) {
+		usecase.logf("sync skipped reason=already_running")
+		return ErrSyncInProgress
+	}
+	defer usecase.syncRunning.Store(false)
+	return usecase.syncClaimed(ctx, force, sources)
+}
+
+func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force bool, sources []masterdata.Source) error {
+	if usecase.jobTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, usecase.jobTimeout)
+		defer cancel()
+	}
+
 	ctx, span := tracing.StartSpan(ctx, "master_data.sync", attribute.Bool("force", force), attribute.Int("region.count", len(sources)))
 	var err error
 	defer func() {
 		tracing.EndSpan(span, err)
 	}()
-
-	if !usecase.syncRunning.CompareAndSwap(false, true) {
-		usecase.logf("sync skipped reason=already_running")
-		err = ErrSyncInProgress
-		return ErrSyncInProgress
-	}
-	defer usecase.syncRunning.Store(false)
 
 	syncStartedAt := time.Now()
 	effectiveConcurrency := usecase.concurrency
@@ -661,13 +730,17 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 
 				usecase.publishSyncEvent(ctx, event)
 			})
+			collectorCtx := masterdata.NewSourceFileDigestCollector(progressCtx)
+			if force {
+				collectorCtx = masterdata.WithForceFullStore(collectorCtx)
+			}
 
 			loadSource := source
 			if resolvedCommit != "" {
 				loadSource.Ref = resolvedCommit
 			}
 
-			payload, err := usecase.loader.LoadRegion(progressCtx, loadSource)
+			payload, err := usecase.loader.LoadRegion(collectorCtx, loadSource)
 			if err != nil {
 				duration := time.Since(startedAt).Milliseconds()
 				if isRateLimitError(err) {
@@ -740,7 +813,15 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 				UpdatedAt:      time.Now().UTC(),
 			})
 
-			if err := usecase.cache.StoreRegion(progressCtx, source.Region, payload); err != nil {
+			storeCtx := collectorCtx
+			fileDigests := masterdata.SourceFileDigestsFromContext(collectorCtx).Snapshot()
+			var storeErr error
+			if digestStore, ok := usecase.cache.(MasterDataCacheSourceDigestStore); ok && len(fileDigests) > 0 {
+				storeErr = digestStore.StoreRegionWithSourceDigests(storeCtx, source.Region, payload, fileDigests)
+			} else {
+				storeErr = usecase.cache.StoreRegion(storeCtx, source.Region, payload)
+			}
+			if err := storeErr; err != nil {
 				duration := time.Since(startedAt).Milliseconds()
 				usecase.logf("sync failed region=%s phase=cache files=%d duration_ms=%d error=%v", source.Region, len(payload), duration, err)
 				usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{

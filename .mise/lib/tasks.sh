@@ -18,6 +18,10 @@ load_defaults() {
   DEV_APP_VOLUME="${DEV_APP_VOLUME:-sekai-master-api-dev-data}"
   DEV_APP_NETWORK="${DEV_APP_NETWORK:-sekai-dev}"
   DEV_APP_INTERNAL_PORT="${DEV_APP_INTERNAL_PORT:-8080}"
+  DEV_APP_MEMORY="${DEV_APP_MEMORY:-2g}"
+  # Soft limit sits below the 2g container hard limit; keep ~256MiB headroom for stacks/cgo to avoid GC thrash during syncs.
+  DEV_APP_GOMEMLIMIT="${DEV_APP_GOMEMLIMIT:-1792MiB}"
+  DEV_REDIS_MEMORY="${DEV_REDIS_MEMORY:-2g}"
   DEV_MASTER_DATA_AUTO_SYNC="${DEV_MASTER_DATA_AUTO_SYNC:-false}"
   DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC="${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC:-false}"
   DEV_OBSERVABILITY_MODE="${DEV_OBSERVABILITY_MODE:-off}"
