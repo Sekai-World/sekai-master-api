@@ -1853,19 +1853,19 @@ func (cache *RedisMasterDataCache) redisEntityKey(region string, entity string) 
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":by-id"
 }
 
-func (cache *RedisMasterDataCache) redisEntityOrderKey(region string, entity string) string {
+func (cache *RedisMasterDataCache) redisEntityOrderKey(region, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":order"
 }
 
-func (cache *RedisMasterDataCache) redisEntityRevisionKey(region string, entity string) string {
+func (cache *RedisMasterDataCache) redisEntityRevisionKey(region, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":revision"
 }
 
-func (cache *RedisMasterDataCache) redisEntitySourceDigestKey(region string, entity string) string {
+func (cache *RedisMasterDataCache) redisEntitySourceDigestKey(region, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":source-digest"
 }
 
-func (cache *RedisMasterDataCache) redisEntitySearchIndexKey(region string, entity string) string {
+func (cache *RedisMasterDataCache) redisEntitySearchIndexKey(region, entity string) string {
 	return cache.redisKey(region) + ":" + normalizeKey(entity) + ":search-index"
 }
 

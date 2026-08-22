@@ -42,7 +42,7 @@ type MasterDataCache interface {
 	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
 
-type MasterDataCacheSourceDigestStore interface {
+type MasterDataCacheSourceDigestStorer interface {
 	StoreRegionWithSourceDigests(ctx context.Context, region string, payload map[string]any, fileDigests map[string]string) error
 }
 
@@ -816,7 +816,7 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 			storeCtx := collectorCtx
 			fileDigests := masterdata.SourceFileDigestsFromContext(collectorCtx).Snapshot()
 			var storeErr error
-			if digestStore, ok := usecase.cache.(MasterDataCacheSourceDigestStore); ok && len(fileDigests) > 0 {
+			if digestStore, ok := usecase.cache.(MasterDataCacheSourceDigestStorer); ok && len(fileDigests) > 0 {
 				storeErr = digestStore.StoreRegionWithSourceDigests(storeCtx, source.Region, payload, fileDigests)
 			} else {
 				storeErr = usecase.cache.StoreRegion(storeCtx, source.Region, payload)
