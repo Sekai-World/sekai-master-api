@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -299,7 +300,7 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 		orderedIDs := make([]string, 0, len(records))
 		nextRecords := make(map[string]string, len(records))
 		recordMaps := make([]map[string]any, 0, len(records))
-		digest := sha1.New()
+		digest := sha256.New()
 
 		for _, record := range records {
 			recordMap, ok := record.(map[string]any)
@@ -2154,7 +2155,7 @@ func recordStorageID(record map[string]any, body []byte) string {
 		return ""
 	}
 
-	sum := sha1.Sum(body)
+	sum := sha256.Sum256(body)
 	return "auto:" + hex.EncodeToString(sum[:])
 }
 
@@ -2173,7 +2174,7 @@ func recordStorageIDFromRaw(body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
-	sum := sha1.Sum(body)
+	sum := sha256.Sum256(body)
 	return "auto:" + hex.EncodeToString(sum[:])
 }
 
