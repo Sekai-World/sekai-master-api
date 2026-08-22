@@ -4,6 +4,13 @@
 
 This file defines collaboration boundaries, execution order, and acceptance criteria for AI/automation agents in this repository.
 
+Before writing or moving documentation, follow the Documentation Placement
+rules in the root workspace `AGENTS.md`: cross-repository knowledge belongs in
+the workspace `docs/`, and repository-specific documentation belongs here in
+`docs/`. Update existing documents instead of creating duplicates, never keep
+copies of the same content in multiple places, and ask the user when document
+ownership is unclear.
+
 ## Project Context
 
 - Project type: Golang RESTful API using Gin.
