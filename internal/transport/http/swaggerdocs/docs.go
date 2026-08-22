@@ -3311,6 +3311,82 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/worldBlooms/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worldBlooms"
+                ],
+                "summary": "List world blooms by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include spoiler content",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc|desc)",
+                        "name": "sort_order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.WorldBloomListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -5726,6 +5802,21 @@ const docTemplate = `{
                 },
                 "virtualLiveId": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.WorldBloomListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
                 }
             }
         }

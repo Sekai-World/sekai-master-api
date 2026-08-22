@@ -1654,6 +1654,16 @@ definitions:
     - startAt
     - virtualLiveId
     type: object
+  shared.WorldBloomListResponse:
+    properties:
+      items:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
 info:
   contact: {}
   description: API for master data sync and card querying.
@@ -3832,6 +3842,56 @@ paths:
       summary: Get available regions for a virtual live id
       tags:
       - virtualLives
+  /worldBlooms/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.WorldBloomListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List world blooms by page
+      tags:
+      - worldBlooms
 securityDefinitions:
   BearerAuth:
     in: header

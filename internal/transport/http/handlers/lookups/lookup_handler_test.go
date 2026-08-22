@@ -258,6 +258,53 @@ func TestGameCharacterUnitsListEndpointSupportsSorting(t *testing.T) {
 	}
 }
 
+func TestWorldBloomsListEndpointReturnsPaginatedRecords(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"worldblooms": {
+					{"id": 1, "eventId": 101, "startAt": 100},
+					{"id": 2, "eventId": 102, "startAt": 200},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/worldBlooms/:region/list", handler.WorldBloomsList)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/worldBlooms/jp/list?page=2&page_size=1", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Items      []map[string]any `json:"items"`
+		Pagination struct {
+			Page       int  `json:"page"`
+			PageSize   int  `json:"page_size"`
+			Total      int  `json:"total"`
+			TotalPages int  `json:"total_pages"`
+			HasNext    bool `json:"has_next"`
+		} `json:"pagination"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0]["id"] != float64(2) {
+		t.Fatalf("expected page 2 to contain world bloom id=2, got %#v", body.Items)
+	}
+	if body.Pagination.Page != 2 || body.Pagination.PageSize != 1 || body.Pagination.Total != 2 || body.Pagination.TotalPages != 2 || body.Pagination.HasNext {
+		t.Fatalf("unexpected pagination: %+v", body.Pagination)
+	}
+}
+
 func TestGameCharactersAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
