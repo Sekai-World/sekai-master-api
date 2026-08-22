@@ -16,5 +16,4 @@ configuration checks in addition to the repository CI suite.
   `field compactor not found in type app.Config` for the top-level `compactor`
   block. Migrate and re-verify the Tempo configuration before adopting Tempo 3.
 
-Source: runtime Docker smoke tests performed while reviewing Renovate PRs #33,
-#31, and #32 on 2026-07-17.
+Source: runtime Docker smoke tests performed while reviewing Renovate PRs #33, #31, and #32 on 2026-07-17.
