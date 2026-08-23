@@ -38,6 +38,7 @@ type timedSyncLoader struct {
 	loadCallsByZone    map[string]int
 	activeLoads        int
 	maxConcurrentLoads int
+	canceledLoads      int
 }
 
 func (loader *fakeSyncLoader) LoadRegion(_ context.Context, source masterdata.Source) (map[string]any, error) {
@@ -105,6 +106,9 @@ func (loader *timedSyncLoader) LoadRegion(ctx context.Context, source masterdata
 
 		select {
 		case <-ctx.Done():
+			loader.mu.Lock()
+			loader.canceledLoads++
+			loader.mu.Unlock()
 			return nil, ctx.Err()
 		case <-timer.C:
 		}
@@ -122,6 +126,12 @@ func (loader *timedSyncLoader) MaxConcurrentLoads() int {
 	defer loader.mu.Unlock()
 
 	return loader.maxConcurrentLoads
+}
+
+func (loader *timedSyncLoader) CanceledLoads() int {
+	loader.mu.Lock()
+	defer loader.mu.Unlock()
+	return loader.canceledLoads
 }
 
 type fakeSyncCache struct {
@@ -1230,6 +1240,29 @@ func TestSyncAllAppliesTimeoutPerRegion(t *testing.T) {
 	}
 }
 
+func TestSyncAllAppliesSeparateJobTimeout(t *testing.T) {
+	source := masterdata.Source{Region: "en", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	loader := &timedSyncLoader{
+		payloadByZone:   map[string]map[string]any{"en": {"cards.json": []any{map[string]any{"id": 1}}}},
+		loadDelayByZone: map[string]time.Duration{"en": 100 * time.Millisecond},
+	}
+	statusStore := newFakeSyncStatusStore(nil)
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, &fakeSyncCache{}, statusStore, nil, 1)
+	usecase.SetRegionTimeout(time.Second)
+	usecase.SetJobTimeout(20 * time.Millisecond)
+
+	err := usecase.SyncAll(context.Background())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected job timeout error, got %v", err)
+	}
+	if usecase.IsSyncRunning() {
+		t.Fatal("expected running state to be released after job timeout")
+	}
+	if loader.CanceledLoads() != 1 {
+		t.Fatalf("expected loader cancellation at job deadline, got %d cancellations", loader.CanceledLoads())
+	}
+}
+
 func TestSyncAllForceLoadsWhenCommitUnchanged(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
@@ -1870,6 +1903,85 @@ func TestSyncRegionReturnsNotFoundForUnknownRegion(t *testing.T) {
 	err := usecase.SyncRegion(context.Background(), "unknown")
 	if !errors.Is(err, ErrRegionNotFound) {
 		t.Fatalf("expected ErrRegionNotFound, got %v", err)
+	}
+}
+
+func TestStartSyncDetachesFromCanceledRequestContext(t *testing.T) {
+	loader := &timedSyncLoader{
+		payloadByZone:   map[string]map[string]any{"jp": {}},
+		loadDelayByZone: map[string]time.Duration{"jp": 20 * time.Millisecond},
+	}
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{{Region: "jp"}}, loader, &fakeSyncCache{}, newFakeSyncStatusStore(nil), nil, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := usecase.StartSync(ctx, "jp", false); err != nil {
+		t.Fatalf("StartSync() error = %v", err)
+	}
+	cancel()
+
+	deadline := time.Now().Add(time.Second)
+	for usecase.IsSyncRunning() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if usecase.IsSyncRunning() {
+		t.Fatal("detached worker did not complete after request cancellation")
+	}
+}
+
+func TestStartSyncAdmitsExactlyOneConcurrentJob(t *testing.T) {
+	loader := &timedSyncLoader{
+		payloadByZone:   map[string]map[string]any{"jp": {}},
+		loadDelayByZone: map[string]time.Duration{"jp": 50 * time.Millisecond},
+	}
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{{Region: "jp"}}, loader, &fakeSyncCache{}, newFakeSyncStatusStore(nil), nil, 1)
+
+	const callers = 8
+	results := make(chan error, callers)
+	var group sync.WaitGroup
+	for range callers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			results <- usecase.StartSync(context.Background(), "jp", false)
+		}()
+	}
+	group.Wait()
+	close(results)
+
+	accepted := 0
+	for err := range results {
+		if err == nil {
+			accepted++
+		} else if !errors.Is(err, ErrSyncInProgress) {
+			t.Errorf("StartSync() unexpected error = %v", err)
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("accepted jobs = %d, want 1", accepted)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for usecase.IsSyncRunning() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if usecase.IsSyncRunning() {
+		t.Fatal("worker did not release running state")
+	}
+}
+
+func TestStartSyncReleasesRunningStateAfterFailure(t *testing.T) {
+	loader := &fakeSyncLoader{loadErrByZone: map[string]error{"jp": errors.New("load failed")}}
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{{Region: "jp"}}, loader, &fakeSyncCache{}, newFakeSyncStatusStore(nil), nil, 1)
+
+	if err := usecase.StartSync(context.Background(), "jp", false); err != nil {
+		t.Fatalf("StartSync() error = %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for usecase.IsSyncRunning() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if usecase.IsSyncRunning() {
+		t.Fatal("failed worker did not release running state")
 	}
 }
 

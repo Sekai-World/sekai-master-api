@@ -2,6 +2,7 @@ package masterdata
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -71,4 +72,61 @@ func ProgressReporterFromContext(ctx context.Context) ProgressReporter {
 
 	reporter, _ := ctx.Value(progressReporterContextKey{}).(ProgressReporter)
 	return reporter
+}
+
+type SourceFileDigests struct {
+	mu      sync.RWMutex
+	digests map[string]string
+}
+
+type sourceFileDigestCollectorContextKey struct{}
+type forceFullStoreContextKey struct{}
+
+func NewSourceFileDigestCollector(ctx context.Context) context.Context {
+	return context.WithValue(ctx, sourceFileDigestCollectorContextKey{}, &SourceFileDigests{digests: make(map[string]string)})
+}
+
+func SourceFileDigestsFromContext(ctx context.Context) *SourceFileDigests {
+	if ctx == nil {
+		return nil
+	}
+	collector, _ := ctx.Value(sourceFileDigestCollectorContextKey{}).(*SourceFileDigests)
+	return collector
+}
+
+func (collector *SourceFileDigests) Set(filePath, digest string) {
+	if collector == nil {
+		return
+	}
+	collector.mu.Lock()
+	defer collector.mu.Unlock()
+	if collector.digests == nil {
+		collector.digests = make(map[string]string)
+	}
+	collector.digests[filePath] = digest
+}
+
+func (collector *SourceFileDigests) Snapshot() map[string]string {
+	if collector == nil {
+		return nil
+	}
+	collector.mu.RLock()
+	defer collector.mu.RUnlock()
+	snapshot := make(map[string]string, len(collector.digests))
+	for filePath, digest := range collector.digests {
+		snapshot[filePath] = digest
+	}
+	return snapshot
+}
+
+func WithForceFullStore(ctx context.Context) context.Context {
+	return context.WithValue(ctx, forceFullStoreContextKey{}, true)
+}
+
+func ForceFullStoreFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	forced, _ := ctx.Value(forceFullStoreContextKey{}).(bool)
+	return forced
 }
