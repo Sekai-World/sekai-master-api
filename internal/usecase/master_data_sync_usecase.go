@@ -161,8 +161,6 @@ func (usecase *MasterDataSyncUsecase) SetRegionTimeout(timeout time.Duration) {
 	usecase.regionTimeout = timeout
 }
 
-// SetJobTimeout limits the complete sync run without changing the existing
-// per-region timeout semantics used by blocking callers and their tests.
 func (usecase *MasterDataSyncUsecase) SetJobTimeout(timeout time.Duration) {
 	if usecase == nil {
 		return
@@ -180,11 +178,6 @@ func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 	return err
 }
 
-// StartSync admits an administrator-triggered sync and returns without waiting
-// for the work to finish. The admission happens before the goroutine is
-// started, so concurrent requests cannot both be accepted. The worker is
-// detached from the request context and bounded by jobTimeout; regionTimeout
-// remains an optional per-region diagnostic/test limit.
 func (usecase *MasterDataSyncUsecase) StartSync(ctx context.Context, region string, force bool) error {
 	if usecase == nil {
 		return ErrRegionNotFound
