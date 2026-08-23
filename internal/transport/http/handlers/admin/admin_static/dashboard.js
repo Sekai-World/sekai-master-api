@@ -408,6 +408,25 @@ export const initDashboardPage = async () => {
 
   await loadMasterDataStatus();
 
+  let syncStatusPollTimer = null;
+  const stopSyncStatusPolling = () => {
+    if (syncStatusPollTimer !== null) {
+      clearInterval(syncStatusPollTimer);
+      syncStatusPollTimer = null;
+    }
+  };
+  const startSyncStatusPolling = () => {
+    stopSyncStatusPolling();
+    let attempts = 0;
+    syncStatusPollTimer = setInterval(() => {
+      attempts += 1;
+      void loadMasterDataStatus().catch(() => {});
+      if (!syncButton.disabled || attempts >= 360) {
+        stopSyncStatusPolling();
+      }
+    }, 5000);
+  };
+
   const eventSource = new EventSource(`/api/v1/admin/master-data/events?access_token=${encodeURIComponent(bearer)}`);
   eventSource.addEventListener("master_data_sync_progress", (event) => {
     let payload = null;
@@ -465,6 +484,7 @@ export const initDashboardPage = async () => {
     syncMessage.textContent = payload?.status === "failed" ? "检测到同步更新（含失败项），已刷新状态" : "检测到同步更新，已刷新状态";
     pushProgressHistory(syncMessage.textContent, payload?.status === "failed");
     await loadMasterDataStatus();
+    stopSyncStatusPolling();
   });
 
   window.addEventListener("beforeunload", () => {
@@ -476,6 +496,7 @@ export const initDashboardPage = async () => {
   });
 
   syncButton.addEventListener("click", async () => {
+    stopSyncStatusPolling();
     const forceSync = Boolean(forceSyncCheckbox.checked);
     const selectedRegion = String(syncRegionSelect.value || "").trim().toLowerCase();
     const syncEndpoint = forceSync ? "/api/v1/admin/master-data/sync/force" : "/api/v1/admin/master-data/sync";
@@ -516,5 +537,6 @@ export const initDashboardPage = async () => {
     syncButton.disabled = true;
     syncButton.classList.add("is-loading");
     void loadMasterDataStatus();
+    startSyncStatusPolling();
   });
 };
