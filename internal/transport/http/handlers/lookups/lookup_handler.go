@@ -57,6 +57,14 @@ var gameCharacterProfilesConfig = lookupResourceConfig{
 	resourceLabel:  "game character profile",
 }
 
+var worldBloomsConfig = lookupResourceConfig{
+	entity:         "worldblooms",
+	queryErrorCode: "WORLD_BLOOM_QUERY_ERROR",
+	notFoundCode:   "WORLD_BLOOM_NOT_FOUND",
+	resourceLabel:  "world bloom",
+	sortableFields: []string{"id", "eventId", "startAt", "endAt"},
+}
+
 func NewLookupHandler(masterDataSync *usecase.MasterDataSyncUsecase) *LookupHandler {
 	return &LookupHandler{masterDataSync: masterDataSync}
 }
@@ -324,6 +332,25 @@ func (handler *LookupHandler) GameCharactersAvailableRegionsByID(c *gin.Context)
 // @Router /gameCharacters/{region}/list [get]
 func (handler *LookupHandler) GameCharactersList(c *gin.Context) {
 	handler.list(c, gameCharactersConfig)
+}
+
+// WorldBloomsList godoc
+// @Summary List world blooms by page
+// @Tags worldBlooms
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.WorldBloomListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /worldBlooms/{region}/list [get]
+func (handler *LookupHandler) WorldBloomsList(c *gin.Context) {
+	handler.list(c, worldBloomsConfig)
 }
 
 func (handler *LookupHandler) byID(c *gin.Context, config lookupResourceConfig) {
