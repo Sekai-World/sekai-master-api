@@ -28,6 +28,7 @@ func registerPublicRoutes(
 	v1.GET("/versions/:region", versionsHandler.ByRegion)
 	v1.GET("/unitProfiles/regions/:unit/availability", lookupHandler.UnitProfilesAvailableRegionsByUnit)
 	v1.GET("/unitProfiles/:region/list", lookupHandler.UnitProfilesList)
+	v1.GET("/unitProfiles/:region/:unit/members", lookupHandler.UnitProfileMembers)
 	v1.GET("/unitProfiles/:region/:unit", lookupHandler.UnitProfilesByUnit)
 	v1.GET("/gameCharacterUnits/regions/:id/availability", lookupHandler.GameCharacterUnitsAvailableRegionsByID)
 	v1.GET("/gameCharacterUnits/:region/list", lookupHandler.GameCharacterUnitsList)

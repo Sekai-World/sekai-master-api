@@ -213,6 +213,76 @@ func TestUnitProfilesAvailableRegionsByUnitEndpointReturnsAvailableRegionsWithDa
 	}
 }
 
+func TestUnitProfileMembersEndpointReturnsNormalizedUnitMembersInGameCharacterIDOrder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"unitprofiles": {{"id": 1, "unit": "idol"}},
+				"gamecharacterunits": {
+					{"id": 20, "gameCharacterId": 12, "unit": " IDOL ", "colorCode": "#2"},
+					{"id": 10, "gameCharacterId": 6, "unit": "idol", "colorCode": "#1"},
+					{"id": 30, "gameCharacterId": 99, "unit": "idol", "colorCode": "#orphan"},
+				},
+				"gamecharacters": {
+					{"id": 6, "resourceId": 106, "firstName": "Kiritani", "givenName": "Haruka", "firstNameEnglish": "HARUKA", "givenNameEnglish": "KIRITANI"},
+					{"id": 12, "resourceId": 112, "firstName": "Aoyagi", "givenName": "Toya"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/unitProfiles/:region/:unit/members", handler.UnitProfileMembers)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/unitProfiles/jp/%20idol%20/members", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Items) != 2 {
+		t.Fatalf("expected orphan membership to be excluded, got %#v", body.Items)
+	}
+	if body.Items[0]["gameCharacterId"] != float64(6) || body.Items[1]["gameCharacterId"] != float64(12) {
+		t.Fatalf("expected ascending gameCharacterId order, got %#v", body.Items)
+	}
+	if body.Items[0]["id"] != float64(10) || body.Items[0]["resourceId"] != float64(106) || body.Items[0]["firstNameEnglish"] != "HARUKA" {
+		t.Fatalf("expected joined frontend fields, got %#v", body.Items[0])
+	}
+}
+
+func TestUnitProfileMembersEndpointReturnsNotFoundForUnknownUnit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {"unitprofiles": {{"id": 1, "unit": "idol"}}},
+		},
+	}
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/unitProfiles/:region/:unit/members", handler.UnitProfileMembers)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/unitProfiles/jp/street/members", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestGameCharacterUnitsListEndpointSupportsSorting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

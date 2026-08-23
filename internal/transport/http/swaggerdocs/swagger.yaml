@@ -1256,6 +1256,26 @@ definitions:
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
     type: object
+  shared.UnitProfileMemberResponse:
+    properties:
+      colorCode: {}
+      firstName: {}
+      firstNameEnglish: {}
+      gameCharacterId:
+        type: integer
+      givenName: {}
+      givenNameEnglish: {}
+      id: {}
+      resourceId: {}
+      unit: {}
+    type: object
+  shared.UnitProfileMembersResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.UnitProfileMemberResponse'
+        type: array
+    type: object
   shared.UnitProfileObjectResponse:
     properties:
       colorCode: {}
@@ -3454,6 +3474,45 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get unit profile by unit
+      tags:
+      - unitProfiles
+  /unitProfiles/{region}/{unit}/members:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Unit
+        in: path
+        name: unit
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.UnitProfileMembersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List members for a unit profile
       tags:
       - unitProfiles
   /unitProfiles/{region}/list:

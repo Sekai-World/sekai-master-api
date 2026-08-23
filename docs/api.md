@@ -15,6 +15,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/unitProfiles/regions/:unit/availability`
 - `GET /api/v1/unitProfiles/:region/list?page=1&page_size=20`
 - `GET /api/v1/unitProfiles/:region/:unit`
+- `GET /api/v1/unitProfiles/:region/:unit/members`
 - `GET /api/v1/gameCharacterUnits/regions/:id/availability`
 - `GET /api/v1/gameCharacterUnits/:region/list?page=1&page_size=20`
 - `GET /api/v1/gameCharacterUnits/:region/:id`
@@ -41,6 +42,8 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/virtualLives/:region/:id/setlists`
 
 List endpoints hide spoiler content by default. Pass `spoiler=true` to include records with a future `releaseAt` or `startAt`.
+
+The unit profile members endpoint resolves the unit profile using the trimmed, normalized `unit` value and returns an `items` envelope. Each usable member includes the membership `id`, `gameCharacterId`, `unit`, `colorCode`, and joined character fields when present: `firstName`, `givenName`, `firstNameEnglish`, `givenNameEnglish`, and `resourceId`. Items are ordered by ascending numeric `gameCharacterId`. Membership records whose referenced game character is missing are excluded.
 
 Event list filters are optional and matched together. `id` is an exact match; `name`, `unit`, and `event_type` are case-insensitive partial matches. `unit` and `event_type` accept comma-separated multiple values, and `unit` is matched against `eventStoryUnits.unit`.
 

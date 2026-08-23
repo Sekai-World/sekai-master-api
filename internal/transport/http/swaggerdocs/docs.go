@@ -2852,6 +2852,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/unitProfiles/{region}/{unit}/members": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "unitProfiles"
+                ],
+                "summary": "List members for a unit profile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Unit",
+                        "name": "unit",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.UnitProfileMembersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/versions": {
             "get": {
                 "produces": [
@@ -5227,6 +5286,33 @@ const docTemplate = `{
                 },
                 "pagination": {
                     "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.UnitProfileMemberResponse": {
+            "type": "object",
+            "properties": {
+                "colorCode": {},
+                "firstName": {},
+                "firstNameEnglish": {},
+                "gameCharacterId": {
+                    "type": "integer"
+                },
+                "givenName": {},
+                "givenNameEnglish": {},
+                "id": {},
+                "resourceId": {},
+                "unit": {}
+            }
+        },
+        "shared.UnitProfileMembersResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.UnitProfileMemberResponse"
+                    }
                 }
             }
         },

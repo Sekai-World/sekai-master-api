@@ -448,6 +448,22 @@ type UnitProfileListResponse struct {
 	Pagination PaginationResponse          `json:"pagination"`
 }
 
+type UnitProfileMemberResponse struct {
+	ID               any   `json:"id,omitempty"`
+	GameCharacterID  int64 `json:"gameCharacterId,omitempty"`
+	Unit             any   `json:"unit,omitempty"`
+	ColorCode        any   `json:"colorCode,omitempty"`
+	FirstName        any   `json:"firstName,omitempty"`
+	GivenName        any   `json:"givenName,omitempty"`
+	FirstNameEnglish any   `json:"firstNameEnglish,omitempty"`
+	GivenNameEnglish any   `json:"givenNameEnglish,omitempty"`
+	ResourceID       any   `json:"resourceId,omitempty"`
+}
+
+type UnitProfileMembersResponse struct {
+	Items []UnitProfileMemberResponse `json:"items"`
+}
+
 type GameCharacterUnitObjectResponse struct {
 	ID              any `json:"id,omitempty"`
 	GameCharacterID any `json:"gameCharacterId,omitempty"`
