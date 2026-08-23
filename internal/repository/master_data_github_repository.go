@@ -2,9 +2,11 @@ package repository
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -605,6 +607,10 @@ func (repository *GitHubMasterDataRepository) extractArchivePayload(ctx context.
 		if err != nil {
 			return nil, fmt.Errorf("read archive file %s: %w", relativePath, err)
 		}
+		if collector := masterdata.SourceFileDigestsFromContext(ctx); collector != nil {
+			digest := sha256.Sum256(body)
+			collector.Set(relativePath, hex.EncodeToString(digest[:]))
+		}
 
 		semaphore <- struct{}{}
 		wg.Go(func() {
@@ -612,8 +618,8 @@ func (repository *GitHubMasterDataRepository) extractArchivePayload(ctx context.
 				<-semaphore
 			}()
 
-			var parsed any
-			if err := json.Unmarshal(body, &parsed); err != nil {
+			parsed, err := splitCompactJSONArray(body)
+			if err != nil {
 				recordDecodeErr(fmt.Errorf("decode archive file %s: %w", relativePath, err))
 				return
 			}
@@ -631,6 +637,37 @@ func (repository *GitHubMasterDataRepository) extractArchivePayload(ctx context.
 
 	span.SetAttributes(attribute.Int("file.count", len(files)))
 	return files, nil
+}
+
+func splitCompactJSONArray(body []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '[' {
+		var value any
+		if err := json.Unmarshal(body, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	}
+	records := make([]json.RawMessage, 0)
+	for decoder.More() {
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return nil, err
+		}
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, raw); err != nil {
+			return nil, err
+		}
+		records = append(records, append(json.RawMessage(nil), compact.Bytes()...))
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func archiveRelativeJSONPath(entryName string, basePath string) (string, bool) {

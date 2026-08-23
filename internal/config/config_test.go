@@ -13,6 +13,8 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 		"APP_PORT",
 		"MASTER_DATA_RECOVER_INTERRUPTED_SYNC",
 		"MASTER_DATA_SYNC_CONCURRENCY",
+		"MASTER_DATA_SYNC_TIMEOUT_SECONDS",
+		"MASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS",
 		"MASTER_DATA_REGION_FILE_CONCURRENCY",
 		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES",
 		"MASTER_DATA_WARM_SEARCH_INDEXES",
@@ -40,6 +42,9 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	if cfg.MasterDataSyncConcurrency != 1 {
 		t.Fatalf("expected development master data sync concurrency to default to 1, got %d", cfg.MasterDataSyncConcurrency)
 	}
+	if cfg.MasterDataSyncTimeout != 0 || cfg.MasterDataSyncJobTimeout != 1800 {
+		t.Fatalf("expected sync timeout defaults region=0 job=1800, got region=%d job=%d", cfg.MasterDataSyncTimeout, cfg.MasterDataSyncJobTimeout)
+	}
 	if cfg.MasterDataFileConcurrency != 2 {
 		t.Fatalf("expected development master data file concurrency to default to 2, got %d", cfg.MasterDataFileConcurrency)
 	}
@@ -51,6 +56,18 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	}
 	if cfg.OTELEnabled {
 		t.Fatalf("expected OTel to default disabled in development")
+	}
+}
+
+func TestLoadMasterDataTimeoutOverrides(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "MASTER_DATA_SYNC_TIMEOUT_SECONDS", "MASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS")
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nMASTER_DATA_SYNC_TIMEOUT_SECONDS=45\nMASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS=2400\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.MasterDataSyncTimeout != 45 || cfg.MasterDataSyncJobTimeout != 2400 {
+		t.Fatalf("expected timeout overrides, got region=%d job=%d", cfg.MasterDataSyncTimeout, cfg.MasterDataSyncJobTimeout)
 	}
 }
 
