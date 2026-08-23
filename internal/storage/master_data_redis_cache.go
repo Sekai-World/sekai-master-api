@@ -302,6 +302,20 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 		nextRecords := make(map[string]string, len(rawRecords)+len(legacyRecords))
 		recordMaps := make([]map[string]any, 0, len(legacyRecords))
 		digest := sha256.New()
+		appendStoredRecord := func(id string, body []byte, recordMap map[string]any) error {
+			storedBody, err := marshalRedisEntityRecord(body)
+			if err != nil {
+				return fmt.Errorf("compress record region %s entity %s id %s: %w", regionName, entity, id, err)
+			}
+
+			nextRecords[id] = storedBody
+			orderedIDs = append(orderedIDs, id)
+			if recordMap != nil {
+				recordMaps = append(recordMaps, recordMap)
+			}
+			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
+			return nil
+		}
 
 		for _, record := range legacyRecords {
 			recordMap, ok := record.(map[string]any)
@@ -319,15 +333,9 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 				continue
 			}
 
-			storedBody, err := marshalRedisEntityRecord(body)
-			if err != nil {
-				return fmt.Errorf("compress record region %s entity %s id %s: %w", regionName, entity, id, err)
+			if err := appendStoredRecord(id, body, recordMap); err != nil {
+				return err
 			}
-
-			nextRecords[id] = storedBody
-			orderedIDs = append(orderedIDs, id)
-			recordMaps = append(recordMaps, recordMap)
-			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
 		}
 
 		for _, rawRecord := range rawRecords {
@@ -340,14 +348,9 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 				continue
 			}
 
-			storedBody, err := marshalRedisEntityRecord(rawRecord)
-			if err != nil {
-				return fmt.Errorf("compress raw record region %s entity %s id %s: %w", regionName, entity, id, err)
+			if err := appendStoredRecord(id, rawRecord, nil); err != nil {
+				return err
 			}
-
-			nextRecords[id] = storedBody
-			orderedIDs = append(orderedIDs, id)
-			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
 		}
 		_, _ = digest.Write([]byte("|order:"))
 		for _, id := range orderedIDs {

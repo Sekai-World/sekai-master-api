@@ -214,26 +214,38 @@ func TestStoreRegionIncrementalUpdate(t *testing.T) {
 	}
 }
 
-func TestStoreRegionPersistsCompactRawJSONRecords(t *testing.T) {
+func startTestMiniRedis(t *testing.T) *miniredis.Miniredis {
+	t.Helper()
+
 	miniRedis, err := miniredis.Run()
 	if err != nil {
 		t.Fatalf("start miniredis: %v", err)
 	}
-	defer miniRedis.Close()
+	t.Cleanup(miniRedis.Close)
+	return miniRedis
+}
+
+func newStoreRegionTestCache(t *testing.T, miniRedis *miniredis.Miniredis) *RedisMasterDataCache {
+	t.Helper()
 
 	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                         miniRedis.Addr(),
-		MasterDataRedisKeyPrefix:          "test:master-data:",
-		MasterDataSearchIndexCacheEntries: 0,
+		RedisAddr:                miniRedis.Addr(),
+		MasterDataRedisKeyPrefix: "test:master-data:",
 	})
 	if err != nil {
 		t.Fatalf("new redis cache: %v", err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		if closeErr := cache.Close(); closeErr != nil {
 			t.Errorf("close redis cache: %v", closeErr)
 		}
-	}()
+	})
+	return cache
+}
+
+func TestStoreRegionPersistsCompactRawJSONRecords(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
 
 	ctx := context.Background()
 	payload := map[string]any{
@@ -260,53 +272,27 @@ func TestStoreRegionPersistsCompactRawJSONRecords(t *testing.T) {
 	}
 
 	cardOne, found, err := cache.GetByID(ctx, "jp", "cards", "1")
-	if err != nil {
-		t.Fatalf("get card 1: %v", err)
-	}
-	if !found || cardOne["prefix"] != "alpha" {
-		t.Fatalf("expected card id=1 prefix alpha, got found=%v value=%v", found, cardOne)
+	if err != nil || !found || cardOne["prefix"] != "alpha" {
+		t.Fatalf("expected card id=1 prefix alpha, got found=%v value=%v err=%v", found, cardOne, err)
 	}
 
 	noID, found, err := cache.GetByID(ctx, "jp", "cards", autoID)
-	if err != nil {
-		t.Fatalf("get auto-id card: %v", err)
-	}
-	if !found || noID["prefix"] != "no-id" {
-		t.Fatalf("expected auto-id card prefix no-id, got found=%v value=%v", found, noID)
+	if err != nil || !found || noID["prefix"] != "no-id" {
+		t.Fatalf("expected auto-id card prefix no-id, got found=%v value=%v err=%v", found, noID, err)
 	}
 
 	cards, total, err := cache.ListByPage(ctx, "jp", "cards", 1, 10)
-	if err != nil {
-		t.Fatalf("list cards page: %v", err)
-	}
-	if total != 3 || len(cards) != 3 {
-		t.Fatalf("expected 3 cards, got total=%d len=%d", total, len(cards))
+	if err != nil || total != 3 || len(cards) != 3 {
+		t.Fatalf("expected 3 cards, got total=%d len=%d err=%v", total, len(cards), err)
 	}
 	if cards[0]["id"] != float64(1) || cards[1]["id"] != float64(2) {
 		t.Fatalf("unexpected card order: %v %v", cards[0]["id"], cards[1]["id"])
 	}
-
-	revision, err := cache.client.Get(ctx, cache.redisEntityRevisionKey("jp", "cards")).Result()
-	if err != nil || revision == "" {
-		t.Fatalf("expected revision key to be set, got %q err=%v", revision, err)
-	}
 }
 
 func TestStoreRegionRevisionTracksDataAndOrderChanges(t *testing.T) {
-	miniRedis, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
-	}
-	defer miniRedis.Close()
-	cache, err := NewRedisMasterDataCache(config.Config{RedisAddr: miniRedis.Addr(), MasterDataRedisKeyPrefix: "test:master-data:"})
-	if err != nil {
-		t.Fatalf("new redis cache: %v", err)
-	}
-	defer func() {
-		if closeErr := cache.Close(); closeErr != nil {
-			t.Errorf("close redis cache: %v", closeErr)
-		}
-	}()
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
 	ctx := context.Background()
 	first := map[string]any{"cards.json": []any{map[string]any{"id": 1, "name": "one"}, map[string]any{"id": 2, "name": "two"}}}
 	if err := cache.StoreRegion(ctx, "jp", first); err != nil {
@@ -353,20 +339,8 @@ func TestStoreRegionRevisionTracksDataAndOrderChanges(t *testing.T) {
 }
 
 func TestStoreRegionRepairsMissingSearchIndexOnRevisionMatch(t *testing.T) {
-	miniRedis, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
-	}
-	defer miniRedis.Close()
-	cache, err := NewRedisMasterDataCache(config.Config{RedisAddr: miniRedis.Addr(), MasterDataRedisKeyPrefix: "test:master-data:"})
-	if err != nil {
-		t.Fatalf("new redis cache: %v", err)
-	}
-	defer func() {
-		if closeErr := cache.Close(); closeErr != nil {
-			t.Errorf("close redis cache: %v", closeErr)
-		}
-	}()
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
 	ctx := context.Background()
 	payload := map[string]any{"cards.json": []any{map[string]any{"id": 1, "name": "search me"}}}
 	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
