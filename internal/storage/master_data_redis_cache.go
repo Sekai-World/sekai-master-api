@@ -251,8 +251,9 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 			return nil
 		}
 
-		records, ok := value.([]any)
-		if !ok {
+		rawRecords, hasRawRecords := value.([]json.RawMessage)
+		legacyRecords, hasLegacyRecords := value.([]any)
+		if !hasRawRecords && !hasLegacyRecords {
 			reportProgress(filePath)
 			return nil
 		}
@@ -297,12 +298,12 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 		existingRecords := map[string]string(nil)
 		existingOrder := []string(nil)
 
-		orderedIDs := make([]string, 0, len(records))
-		nextRecords := make(map[string]string, len(records))
-		recordMaps := make([]map[string]any, 0, len(records))
+		orderedIDs := make([]string, 0, len(rawRecords)+len(legacyRecords))
+		nextRecords := make(map[string]string, len(rawRecords)+len(legacyRecords))
+		recordMaps := make([]map[string]any, 0, len(legacyRecords))
 		digest := sha256.New()
 
-		for _, record := range records {
+		for _, record := range legacyRecords {
 			recordMap, ok := record.(map[string]any)
 			if !ok {
 				continue
@@ -328,6 +329,26 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 			recordMaps = append(recordMaps, recordMap)
 			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
 		}
+
+		for _, rawRecord := range rawRecords {
+			if len(rawRecord) == 0 {
+				continue
+			}
+
+			id := recordStorageIDFromRaw(rawRecord)
+			if id == "" {
+				continue
+			}
+
+			storedBody, err := marshalRedisEntityRecord(rawRecord)
+			if err != nil {
+				return fmt.Errorf("compress raw record region %s entity %s id %s: %w", regionName, entity, id, err)
+			}
+
+			nextRecords[id] = storedBody
+			orderedIDs = append(orderedIDs, id)
+			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
+		}
 		_, _ = digest.Write([]byte("|order:"))
 		for _, id := range orderedIDs {
 			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ";"))
@@ -351,15 +372,43 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 		persistIndexChanged := entityChanged
 		var updatedIndex *entitySearchIndex
 		updatedIndexVersion := ""
+		resolveRecordMaps := func() ([]map[string]any, error) {
+			if hasLegacyRecords {
+				return recordMaps, nil
+			}
+			maps := make([]map[string]any, 0, len(rawRecords))
+			for _, rawRecord := range rawRecords {
+				if len(rawRecord) == 0 {
+					continue
+				}
+				var recordMap map[string]any
+				if err := json.Unmarshal(rawRecord, &recordMap); err != nil {
+					continue
+				}
+				if len(recordMap) == 0 {
+					continue
+				}
+				maps = append(maps, recordMap)
+			}
+			return maps, nil
+		}
 		if entityChanged {
-			updatedIndex = buildEntitySearchIndex(entity, recordMaps)
+			maps, mapErr := resolveRecordMaps()
+			if mapErr != nil {
+				return mapErr
+			}
+			updatedIndex = buildEntitySearchIndex(entity, maps)
 		} else {
 			found, err := cache.persistedEntitySearchIndexExists(ctx, regionName, entity)
 			if err != nil {
 				return fmt.Errorf("check persisted search index region %s entity %s: %w", regionName, entity, err)
 			}
 			if !found {
-				updatedIndex = buildEntitySearchIndex(entity, recordMaps)
+				maps, mapErr := resolveRecordMaps()
+				if mapErr != nil {
+					return mapErr
+				}
+				updatedIndex = buildEntitySearchIndex(entity, maps)
 				persistIndexChanged = true
 			}
 		}
@@ -2176,19 +2225,6 @@ func recordStorageIDFromRaw(body []byte) string {
 	}
 	sum := sha256.Sum256(body)
 	return "auto:" + hex.EncodeToString(sum[:])
-}
-
-func rawRecordHasSearchableField(entity string, body []byte) bool {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(body, &fields) != nil {
-		return false
-	}
-	for field := range fields {
-		if isSearchableField(entity, field) {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeSearchText(value string) string {
