@@ -41,6 +41,15 @@ func newReadyLookupHandler(cache *fakeLookupCache) *LookupHandler {
 	return NewLookupHandler(syncUsecase)
 }
 
+func serveLookupRequest(t *testing.T, router *gin.Engine, method string, target string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(method, target, nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	return resp
+}
+
 func (store *fakeLookupStatusStore) Save(_ context.Context, _ masterdata.SyncStatus) error {
 	return nil
 }
@@ -237,10 +246,7 @@ func TestUnitProfileMembersEndpointReturnsNormalizedUnitMembersInGameCharacterID
 	router := gin.New()
 	router.GET("/api/v1/unitProfiles/:region/:unit/members", handler.UnitProfileMembers)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/unitProfiles/jp/%20idol%20/members", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
+	resp := serveLookupRequest(t, router, http.MethodGet, "/api/v1/unitProfiles/jp/%20idol%20/members")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
@@ -274,10 +280,7 @@ func TestUnitProfileMembersEndpointReturnsNotFoundForUnknownUnit(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/unitProfiles/:region/:unit/members", handler.UnitProfileMembers)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/unitProfiles/jp/street/members", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
+	resp := serveLookupRequest(t, router, http.MethodGet, "/api/v1/unitProfiles/jp/street/members")
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
 	}
