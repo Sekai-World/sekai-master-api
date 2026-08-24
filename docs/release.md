@@ -1,11 +1,10 @@
 # Release Process
 
 How `sekai-master-api` container images and GitHub Releases are produced. The
-pipeline is defined in `.github/workflows/release.yml`, runs on the trusted
-organization self-hosted runner (`rarecloud`), and is triggered only by `v*`
-tag pushes. Registry credentials on that runner are allowed for trusted events
-(tag push qualifies) and must never run on `pull_request` events; see
-`docs/cross-repository/trusted-self-hosted-runner.md` in the workspace root.
+pipeline is defined in `.github/workflows/release.yml`, runs on GitHub-hosted
+runners (this is a public repository, so self-hosted runners must not be used),
+and is triggered only by `v*` tag pushes. The tag-only trigger keeps untrusted
+code out of jobs that hold registry credentials for `docker.dnaroma.eu`.
 
 ## Prerequisites
 

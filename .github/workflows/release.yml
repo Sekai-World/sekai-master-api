@@ -6,9 +6,10 @@
 # No other secrets are required; release creation uses the workflow GITHUB_TOKEN.
 #
 # This workflow handles registry credentials and publishes releases, so it must
-# stay on trusted tag-push events only (never pull_request) and keep the trusted
-# self-hosted runner labels below, per
-# docs/cross-repository/trusted-self-hosted-runner.md.
+# stay on trusted tag-push events only (never pull_request). It runs on
+# GitHub-hosted runners: this is a public repository, so self-hosted runners
+# must not be used here; docker.dnaroma.eu is publicly reachable and the
+# tag-only trigger keeps untrusted code out of credentialed jobs.
 # See docs/release.md for the documented release flow.
 
 name: Release
@@ -28,7 +29,7 @@ concurrency:
 jobs:
   release:
     name: Validate, test, publish image, and release
-    runs-on: [self-hosted, linux, x64, rarecloud, sekai-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     env:
