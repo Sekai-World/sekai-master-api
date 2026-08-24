@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Prepare a release: cut a release branch that bumps the Helm chart version,
+# push it, and open a Release PR. After the PR is merged, tag the merge commit
+# with vX.Y.Z to trigger .github/workflows/release.yml.
+#
+# Usage: mise run release-prep 1.2.3
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: mise run release-prep <X.Y.Z>" >&2
+  exit 1
+fi
+
+VERSION="$1"
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "error: version must be plain semver X.Y.Z (no 'v' prefix, no prerelease), got: $VERSION" >&2
+  exit 1
+fi
+TAG="v${VERSION}"
+BRANCH="release/${TAG}"
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "error: working tree is not clean; commit or stash first" >&2
+  exit 1
+fi
+
+current_branch="$(git branch --show-current)"
+if [ "$current_branch" != "main" ]; then
+  echo "error: must run on main (currently on: ${current_branch:-detached HEAD})" >&2
+  exit 1
+fi
+
+git fetch origin main --tags --quiet
+if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+  echo "error: tag ${TAG} already exists" >&2
+  exit 1
+fi
+if git rev-parse -q --verify "origin/main" >/dev/null && \
+   [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ]; then
+  echo "error: local main is out of sync with origin/main; pull/rebase first" >&2
+  exit 1
+fi
+
+CHART="deploy/helm/sekai-master-api/Chart.yaml"
+git checkout -b "$BRANCH" origin/main --quiet
+
+cleanup() {
+  if [ $? -ne 0 ]; then
+    echo "release-prep failed; switching back to main and deleting ${BRANCH}" >&2
+    git checkout main --quiet
+    git branch -D "$BRANCH" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+sed -i.bak \
+  -e "s/^version: .*/version: ${VERSION}/" \
+  -e "s/^appVersion: .*/appVersion: \"${VERSION}\"/" \
+  "$CHART"
+rm -f "${CHART}.bak"
+
+if ! grep -q "^version: ${VERSION}$" "$CHART" || \
+   ! grep -q "^appVersion: \"${VERSION}\"$" "$CHART"; then
+  echo "error: failed to update ${CHART}" >&2
+  exit 1
+fi
+
+git add "$CHART"
+git commit --quiet -m "chore(release): ${TAG}"
+git push -u origin "$BRANCH" --quiet
+
+gh pr create \
+  --title "chore(release): ${TAG}" \
+  --body "Release prep for ${TAG}.
+
+- Bumps \`deploy/helm/sekai-master-api/Chart.yaml\` to version/appVersion \`${VERSION}\`.
+
+**After merging**: from the updated main, run
+\`\`\`
+git tag -a ${TAG} -m \"release ${TAG}\" && git push origin ${TAG}
+\`\`\`
+This triggers the release workflow (lint/test → image build/push → GitHub Release with digest)." \
+  --head "$BRANCH" \
+  --base main
+
+trap - EXIT
+echo "Release PR opened for ${TAG}."
+echo "Next: merge the PR, then: git checkout main && git pull && git tag -a ${TAG} -m 'release ${TAG}' && git push origin ${TAG}"

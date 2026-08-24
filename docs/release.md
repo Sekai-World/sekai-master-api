@@ -19,9 +19,17 @@ tag pushes. Registry credentials on that runner are allowed for trusted events
 
 ## Two-step release flow
 
-1. **Release-prep PR**: update `deploy/helm/sekai-master-api/Chart.yaml`,
-   setting both `version` and `appVersion` to the target `X.Y.Z`. Merge after
-   review with CI green.
+1. **Release-prep PR**: run
+
+   ```sh
+   mise run release-prep 1.2.3
+   ```
+
+   This validates the version, cuts the `release/vX.Y.Z` branch from
+   `origin/main`, bumps `deploy/helm/sekai-master-api/Chart.yaml`
+   (`version` and `appVersion`), pushes the branch, and opens the Release PR.
+   Merge after review with CI green. (Equivalent manual path: update the chart
+   file yourself and open a PR titled `chore(release): vX.Y.Z`.)
 2. **Tag**: from the merged default branch, push an annotated tag:
 
    ```sh
