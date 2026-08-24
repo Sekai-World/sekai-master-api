@@ -274,6 +274,25 @@ const docTemplate = `{
                 }
             }
         },
+        "/build-info": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get service build metadata",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/system.BuildInfoResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/cards/regions/{id}/availability": {
             "get": {
                 "produces": [
@@ -5903,6 +5922,23 @@ const docTemplate = `{
                 },
                 "pagination": {
                     "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "system.BuildInfoResponse": {
+            "type": "object",
+            "properties": {
+                "buildDate": {
+                    "type": "string",
+                    "example": "unknown"
+                },
+                "commit": {
+                    "type": "string",
+                    "example": "unknown"
+                },
+                "version": {
+                    "type": "string",
+                    "example": "dev"
                 }
             }
         }

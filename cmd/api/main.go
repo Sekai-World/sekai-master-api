@@ -18,7 +18,9 @@ import (
 	"sekai-master-api/internal/startup"
 	"sekai-master-api/internal/storage"
 	transport "sekai-master-api/internal/transport/http"
+	"sekai-master-api/internal/transport/http/swaggerdocs"
 	"sekai-master-api/internal/usecase"
+	"sekai-master-api/internal/version"
 )
 
 // @title sekai-master-api
@@ -41,6 +43,12 @@ func main() {
 	applyRoleSubcommandFromArgs()
 
 	cfg := config.Load()
+
+	// Release builds override the generated swagger docs version (the
+	// `@version 1.0` annotation stays the generation-time default).
+	if version.IsRelease() {
+		swaggerdocs.SwaggerInfo.Version = version.Version
+	}
 
 	cleanupLogger, err := logging.Setup(cfg.LogLevel, cfg.IsDevelopment(), cfg.LokiPushURL)
 	if err != nil {

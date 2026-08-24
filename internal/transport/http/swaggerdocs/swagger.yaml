@@ -1684,6 +1684,18 @@ definitions:
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
     type: object
+  system.BuildInfoResponse:
+    properties:
+      buildDate:
+        example: unknown
+        type: string
+      commit:
+        example: unknown
+        type: string
+      version:
+        example: dev
+        type: string
+    type: object
 info:
   contact: {}
   description: API for master data sync and card querying.
@@ -1850,6 +1862,18 @@ paths:
       summary: Get admin profile
       tags:
       - admin
+  /build-info:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/system.BuildInfoResponse'
+      summary: Get service build metadata
+      tags:
+      - system
   /cards/{region}/{id}:
     get:
       parameters:

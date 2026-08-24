@@ -11,10 +11,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY cmd/ cmd/
 COPY internal/ internal/
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
 RUN --mount=type=cache,target=/go/pkg/mod \
 	--mount=type=cache,target=/root/.cache/go-build \
 	CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) \
-	go build -buildvcs=false -o /out/sekai-master-api ./cmd/api
+	go build -buildvcs=false \
+	-ldflags "-X sekai-master-api/internal/version.Version=${VERSION} -X sekai-master-api/internal/version.Commit=${COMMIT} -X sekai-master-api/internal/version.BuildDate=${BUILD_DATE}" \
+	-o /out/sekai-master-api ./cmd/api
 
 COPY .env.development .env.example .env.test /tmp/env/
 

@@ -19,6 +19,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/version"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -162,6 +163,12 @@ func shutdownProviders(meterProvider *metric.MeterProvider, tracerProvider *sdkt
 }
 
 func resolveServiceVersion(explicitVersion string) string {
+	// Release builds carry the authoritative version baked in at link time;
+	// prefer it before falling back to the explicit override and build info.
+	if version.IsRelease() {
+		return version.Version
+	}
+
 	if version := strings.TrimSpace(explicitVersion); version != "" {
 		return version
 	}

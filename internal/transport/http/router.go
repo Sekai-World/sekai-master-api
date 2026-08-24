@@ -52,6 +52,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 
 	healthHandler := systemhandlers.NewHealthHandler(db, cfg.Role, startupState, masterDataSync)
 	versionsHandler := systemhandlers.NewVersionsHandler(masterDataSync)
+	buildInfoHandler := systemhandlers.NewBuildInfoHandler()
 	gitHubWebhookHandler := systemhandlers.NewGitHubWebhookHandler(
 		cfg.MasterDataSources,
 		masterDataSync,
@@ -98,6 +99,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	// Public read/query workload.
 	if role == config.AppRoleStandalone || role == config.AppRoleServe {
 		registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, gachaHandler, lookupHandler, virtualLiveHandler)
+		v1.GET("/build-info", buildInfoHandler.BuildInfo)
 	}
 
 	// The control (operational) role must not expose general public data/query
