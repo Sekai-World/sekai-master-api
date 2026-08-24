@@ -123,8 +123,13 @@ or master-data freshness.
 
 ### 7. Delivery and recovery automation
 
-- [ ] Build immutable, versioned images with provenance and vulnerability
-  scanning.
+- [x] Build immutable, versioned images. Delivered by the Phase 1 release
+  pipeline (`docs/release.md`, `.github/workflows/release.yml`): a tag-driven
+  workflow that publishes semver, `latest`, and `sha-*` tagged images to
+  `docker.dnaroma.eu/sekai-world/sekai-master-api` with the pushed digest
+  recorded in the release notes and step summary, enabling digest-pinned
+  deployments and digest-based rollback. Provenance attestations and
+  vulnerability scanning remain open follow-ups.
 - [ ] Automate Helm validation, migration checks, deployment smoke tests, and
   rollback tests in CI/CD.
 - [ ] Define backup restore drills for PostgreSQL and Redis.

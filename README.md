@@ -65,9 +65,17 @@ mise run dev-full
 - `mise run redis-recovery-drill`: verify prefix-scoped Redis loss and control force-sync recovery (destructive; see Development)
 - `sekai-master-api migrate`: run embedded Goose migrations without starting an API role
 
+## Releasing
+
+Releases are tag-driven: merge a release-prep PR that sets the Helm chart
+`version` and `appVersion`, push an annotated `vX.Y.Z` tag, and
+`.github/workflows/release.yml` builds and publishes the image and creates the
+GitHub Release. See [Release](docs/release.md).
+
 ## Documentation
 
 - [Development](docs/development.md)
+- [Release](docs/release.md)
 - [API Reference](docs/api.md)
 - [Master Data](docs/master-data.md)
 - [Auth and Admin](docs/auth-admin.md)

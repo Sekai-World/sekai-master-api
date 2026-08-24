@@ -1,0 +1,152 @@
+# Release pipeline for sekai-master-api.
+#
+# Required secrets (repository or organization level):
+#   - REGISTRY_USERNAME: username for docker.dnaroma.eu
+#   - REGISTRY_PASSWORD: password/token for docker.dnaroma.eu
+# No other secrets are required; release creation uses the workflow GITHUB_TOKEN.
+#
+# This workflow handles registry credentials and publishes releases, so it must
+# stay on trusted tag-push events only (never pull_request) and keep the trusted
+# self-hosted runner labels below, per
+# docs/cross-repository/trusted-self-hosted-runner.md.
+# See docs/release.md for the documented release flow.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validate, test, publish image, and release
+    runs-on: [self-hosted, linux, x64, rarecloud, sekai-ci]
+    timeout-minutes: 30
+
+    env:
+      IMAGE: docker.dnaroma.eu/sekai-world/sekai-master-api
+      CHART_FILE: deploy/helm/sekai-master-api/Chart.yaml
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate tag and chart version
+        id: validate
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '${TAG}' does not match ^v[0-9]+\\.[0-9]+\\.[0-9]+\$; refusing to release." >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+
+          APP_VERSION="$(sed -n -E 's/^appVersion:[[:space:]]*"?([A-Za-z0-9._-]+)"?[[:space:]]*$/\1/p' "${CHART_FILE}")"
+          if [[ -z "${APP_VERSION}" ]]; then
+            echo "::error::Could not parse appVersion from ${CHART_FILE}." >&2
+            exit 1
+          fi
+          if [[ "${APP_VERSION}" != "${VERSION}" ]]; then
+            echo "::error::${CHART_FILE} appVersion '${APP_VERSION}' does not match tag '${TAG}' (expected '${VERSION}'). Merge a release-prep PR setting Chart.yaml version and appVersion to '${VERSION}' before tagging." >&2
+            exit 1
+          fi
+
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          {
+            echo "version=${VERSION}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "build_date=${BUILD_DATE}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Releasing ${IMAGE}:${VERSION} (chart appVersion ${APP_VERSION}, commit ${GITHUB_SHA}, built ${BUILD_DATE})"
+
+      - name: Set up mise
+        uses: jdx/mise-action@v4
+
+      - name: Run lint
+        run: mise run lint
+
+      - name: Run tests
+        run: mise run test
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker.dnaroma.eu
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/compose/app/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.validate.outputs.version }}
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:sha-${{ steps.validate.outputs.short_sha }}
+          build-args: |
+            VERSION=${{ steps.validate.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.validate.outputs.build_date }}
+
+      - name: Record pushed digest in step summary
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DIGEST}" || "${DIGEST}" == "null" ]]; then
+            echo "::error::Buildx did not report an image digest; refusing to continue." >&2
+            exit 1
+          fi
+          {
+            echo "## Release ${GITHUB_REF_NAME}"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Image | \`${IMAGE}\` |"
+            echo "| Tags | \`${{ steps.validate.outputs.version }}\`, \`latest\`, \`sha-${{ steps.validate.outputs.short_sha }}\` |"
+            echo "| Digest | \`${DIGEST}\` |"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Built (UTC) | ${{ steps.validate.outputs.build_date }} |"
+            echo
+            echo "Pin deployments by digest, e.g. \`${IMAGE}@${DIGEST}\`. See docs/release.md."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.validate.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          AUTO_NOTES="$(gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="${TAG}" --jq .body)"
+          NOTES_FILE="$(mktemp)"
+          {
+            printf '%s\n' "${AUTO_NOTES}"
+            printf '\n## Image\n\n'
+            printf '`%s:%s`\n\n' "${IMAGE}" "${VERSION}"
+            printf 'Digest: `%s`\n\n' "${DIGEST}"
+            printf 'Rollback: redeploy the previous release by immutable digest, e.g. `%s@<previous-digest>` (see docs/release.md).\n' "${IMAGE}"
+          } > "${NOTES_FILE}"
+          gh release create "${TAG}" --title "${TAG}" --notes-file "${NOTES_FILE}"
+          rm -f "${NOTES_FILE}"
