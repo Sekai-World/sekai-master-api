@@ -2,8 +2,8 @@ apiVersion: v2
 name: sekai-master-api
 description: Split-role Kubernetes deployment for sekai-master-api
 type: application
-version: 0.1.0
-appVersion: "latest"
+version: 0.0.1
+appVersion: "0.0.1"
 kubeVersion: ">=1.24.0-0"
 annotations:
   artifacthub.io/license: MIT
