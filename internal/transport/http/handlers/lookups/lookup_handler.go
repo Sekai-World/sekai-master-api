@@ -3,6 +3,7 @@ package lookups
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +109,53 @@ func (handler *LookupHandler) UnitProfilesByUnit(c *gin.Context) {
 	}
 
 	response.JSON(c, http.StatusOK, record)
+}
+
+// UnitProfileMembers godoc
+// @Summary List members for a unit profile
+// @Tags unitProfiles
+// @Produce json
+// @Param region path string true "Region"
+// @Param unit path string true "Unit"
+// @Success 200 {object} shared.UnitProfileMembersResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /unitProfiles/{region}/{unit}/members [get]
+func (handler *LookupHandler) UnitProfileMembers(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	unit := strings.TrimSpace(c.Param("unit"))
+	if region == "" || unit == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and unit are required")
+		return
+	}
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, unitProfilesConfig.entity) {
+		return
+	}
+
+	_, found, err := handler.findUnitProfileByUnit(c.Request.Context(), region, unit)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, unitProfilesConfig.queryErrorCode, "failed to query "+unitProfilesConfig.resourceLabel)
+		return
+	}
+	if !found {
+		response.Error(c, http.StatusNotFound, unitProfilesConfig.notFoundCode, unitProfilesConfig.resourceLabel+" not found")
+		return
+	}
+
+	items, err := handler.unitProfileMembers(c.Request.Context(), region, unit)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, gameCharacterUnitsConfig.queryErrorCode, "failed to query unit profile members")
+		return
+	}
+
+	response.JSON(c, http.StatusOK, shared.UnitProfileMembersResponse{Items: items})
 }
 
 // UnitProfilesAvailableRegionsByUnit godoc
@@ -530,4 +578,55 @@ func (handler *LookupHandler) findUnitProfileByUnit(ctx context.Context, region 
 	}
 
 	return nil, false, nil
+}
+
+func (handler *LookupHandler) unitProfileMembers(ctx context.Context, region string, unit string) ([]shared.UnitProfileMemberResponse, error) {
+	characterRecords, err := handler.masterDataSync.ListAll(ctx, region, gameCharactersConfig.entity)
+	if err != nil {
+		return nil, err
+	}
+	charactersByID := make(map[string]map[string]any, len(characterRecords))
+	for _, character := range characterRecords {
+		if characterID := shared.NormalizeAnyID(character["id"]); characterID != "" {
+			charactersByID[characterID] = character
+		}
+	}
+
+	membershipRecords, err := handler.masterDataSync.ListAll(ctx, region, gameCharacterUnitsConfig.entity)
+	if err != nil {
+		return nil, err
+	}
+	targetUnit := shared.NormalizeComparableText(unit)
+	items := make([]shared.UnitProfileMemberResponse, 0)
+	for _, membership := range membershipRecords {
+		if shared.NormalizeComparableText(membership["unit"]) != targetUnit {
+			continue
+		}
+
+		gameCharacterID, err := strconv.ParseInt(shared.NormalizeAnyID(membership["gameCharacterId"]), 10, 64)
+		if err != nil || gameCharacterID <= 0 {
+			continue
+		}
+		character, found := charactersByID[strconv.FormatInt(gameCharacterID, 10)]
+		if !found {
+			continue
+		}
+
+		items = append(items, shared.UnitProfileMemberResponse{
+			ID:               membership["id"],
+			GameCharacterID:  gameCharacterID,
+			Unit:             membership["unit"],
+			ColorCode:        membership["colorCode"],
+			FirstName:        character["firstName"],
+			GivenName:        character["givenName"],
+			FirstNameEnglish: character["firstNameEnglish"],
+			GivenNameEnglish: character["givenNameEnglish"],
+			ResourceID:       character["resourceId"],
+		})
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].GameCharacterID < items[j].GameCharacterID
+	})
+	return items, nil
 }
