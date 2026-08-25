@@ -54,7 +54,7 @@ Useful settings:
 
 Temporary sync workspace:
 
-- `tmp/master-data-sync-resume/`
+- `tmp/master-data-sync-resume/` (overridable via `MASTER_DATA_RESUME_BASE_DIR`)
 - `tmp/master-data-backup/<region>/latest/`
 
 ## Cache Strategy

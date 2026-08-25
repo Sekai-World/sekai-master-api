@@ -255,9 +255,17 @@ intentional and avoids local-development configuration in production.
 
 The chart uses root-level operational probe endpoints: `/livez` is process-only,
 `/startupz` waits for the role's startup lifecycle, and `/readyz` checks
-PostgreSQL. For `serve`, readiness additionally requires
-all configured regions to have successful persisted sync state and Redis-backed
-data readiness. Readiness probes are enabled by default.
+PostgreSQL. For `serve`, readiness additionally requires all configured regions
+to have persisted cards records; a failed or in-progress control sync no longer
+blocks readiness once records exist (`regions_pending_sync` in the response is
+diagnostic only). Readiness probes are enabled by default.
+
+Startup probes only gate process boot and database migrations via `/startupz`;
+they do not wait for master-data sync. The `control` role marks startup complete
+after migrations and runs sync in the background, so a long cold-start sync
+never causes container restarts. During that window `serve` pods report
+degraded through `/readyz` (readiness failures mark the pod NotReady but never
+restart it).
 
 ## Security and scheduling
 
@@ -269,3 +277,36 @@ Use role-specific `envFrom` for control-only credentials; do not expose GitHub
 or webhook credentials to public `serve` pods. Changes to externally managed
 Secrets and ConfigMaps require a pod rollout because the chart cannot checksum
 resources it does not own.
+
+## Extra volumes and volume mounts
+
+The chart supports arbitrary volume and volume-mount overrides via
+`common.extraVolumes` / `common.extraVolumeMounts` (shared by all roles) and
+per-role equivalents (`serve.extraVolumes`, `control.extraVolumes`, etc.).
+Role-level entries are appended after common-level entries using the same
+`mergeOverwrite`-style append as `podAnnotations`.
+
+The `control` role mounts two built-in writable volumes by default so the
+read-only root filesystem remains usable:
+
+- `/app/tmp/master-data-backup` — local payload snapshots. Override via
+  `control.backupVolume.persistentVolumeClaim`.
+- `/app/tmp/master-data-sync-resume` — master-data sync resume state. Disable
+  with `control.resumeVolume.enabled: false` or switch to a PVC via
+  `control.resumeVolume.persistentVolumeClaim`.
+
+## GOMEMLIMIT
+
+The chart automatically sets the `GOMEMLIMIT` environment variable at ~90% of
+the container memory limit to cap Go GC heap usage. For example, with the
+default 1Gi limit, `GOMEMLIMIT` is set to `966367641` (≈922 MiB).
+
+Supported memory-limit suffixes: plain integer bytes, `Ki`, `Mi`, `Gi`, `Ti`
+(binary, ×1024 chain) and decimal `K`, `M`, `G`, `T`. Quantities with a
+fractional numeric part (e.g. `1.5Gi`) or unknown suffixes are silently
+ignored — no `GOMEMLIMIT` is injected for invalid memory-limit values. Use
+whole-number quantities like `1536Mi` instead.
+
+To override, set `GOMEMLIMIT` explicitly in `common.env`, the role's `env`, or
+any `extraEnv` list. The auto-derived value is skipped whenever `GOMEMLIMIT` is
+already present in any of those sources.

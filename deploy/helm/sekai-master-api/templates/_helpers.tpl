@@ -85,3 +85,30 @@ readinessProbe:
   periodSeconds: {{ .probes.readiness.periodSeconds }}
 {{- end }}
 {{- end }}
+
+{{- define "sekai-master-api.gomeMemLimit" -}}
+{{- $mem := .resources.limits.memory | default "" -}}
+{{- if and $mem (regexMatch "^[0-9]+(Ki|Mi|Gi|Ti|K|M|G|T)?$" $mem) -}}
+  {{- $num := regexFind "^[0-9]+" $mem | atoi -}}
+  {{- $suffix := regexFind "[A-Za-z]+$" $mem | default "" -}}
+  {{- $factors := dict "" 1 "Ki" 1024 "Mi" 1048576 "Gi" 1073741824 "Ti" 1099511627776 "K" 1000 "M" 1000000 "G" 1000000000 "T" 1000000000000 -}}
+  {{- $bytes := mul $num (index $factors $suffix) -}}
+  {{- $limit := div (mul $bytes 9) 10 -}}
+  {{- printf "%d" $limit -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "sekai-master-api.gomeMemLimitEnv" -}}
+{{- $gomeLimit := include "sekai-master-api.gomeMemLimit" (dict "resources" .role.resources) -}}
+{{- if $gomeLimit -}}
+  {{- $alreadySet := false -}}
+  {{- if hasKey .Values.common.env "GOMEMLIMIT" }}{{ $alreadySet = true }}{{ end -}}
+  {{- if hasKey .role.env "GOMEMLIMIT" }}{{ $alreadySet = true }}{{ end -}}
+  {{- range .Values.common.extraEnv }}{{ if eq (default "" .name) "GOMEMLIMIT" }}{{ $alreadySet = true }}{{ end }}{{ end -}}
+  {{- range .role.extraEnv }}{{ if eq (default "" .name) "GOMEMLIMIT" }}{{ $alreadySet = true }}{{ end }}{{ end -}}
+  {{- if not $alreadySet }}
+- name: GOMEMLIMIT
+  value: {{ $gomeLimit | quote }}
+  {{- end -}}
+{{- end -}}
+{{- end -}}

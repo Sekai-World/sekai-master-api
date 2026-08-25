@@ -60,6 +60,8 @@ spec:
               protocol: TCP
           env:
             {{- include "sekai-master-api.env" (dict "Values" $.Values "role" $role) | nindent 12 }}
+            {{- $gomeLimit := include "sekai-master-api.gomeMemLimitEnv" (dict "Values" $.Values "role" $role) -}}
+            {{- if $gomeLimit }}{{ $gomeLimit | nindent 12 }}{{ end -}}
           {{- if or $.Values.common.envFrom.configMaps $.Values.common.envFrom.secrets $role.envFrom.configMaps $role.envFrom.secrets }}
           envFrom:
             {{- include "sekai-master-api.envFrom" (dict "Values" $.Values "role" $role) | nindent 12 }}
@@ -67,20 +69,37 @@ spec:
           {{- include "sekai-master-api.probes" (dict "probes" $role.probes) | nindent 10 }}
           resources:
             {{- toYaml $role.resources | nindent 12 }}
-          {{- if eq $component "control" }}
+          {{- $baseMounts := list -}}
+          {{- if eq $component "control" -}}
+            {{- $baseMounts = append $baseMounts (dict "name" "master-data-backup" "mountPath" "/app/tmp/master-data-backup") -}}
+            {{- if or (not (hasKey $role.resumeVolume "enabled")) $role.resumeVolume.enabled -}}
+              {{- $baseMounts = append $baseMounts (dict "name" "master-data-sync-resume" "mountPath" (default "/app/tmp/master-data-sync-resume" $role.resumeVolume.mountPath)) -}}
+            {{- end -}}
+          {{- end -}}
+          {{- $allMounts := concat $baseMounts (default list $.Values.common.extraVolumeMounts) (default list $role.extraVolumeMounts) -}}
+          {{- with $allMounts }}
           volumeMounts:
-            - name: master-data-backup
-              mountPath: /app/tmp/master-data-backup
+            {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if eq $component "control" }}
+      {{- $baseVolumes := list -}}
+      {{- if eq $component "control" -}}
+        {{- if $role.backupVolume.persistentVolumeClaim -}}
+          {{- $baseVolumes = append $baseVolumes (dict "name" "master-data-backup" "persistentVolumeClaim" (dict "claimName" $role.backupVolume.persistentVolumeClaim)) -}}
+        {{- else -}}
+          {{- $baseVolumes = append $baseVolumes (dict "name" "master-data-backup" "emptyDir" (dict)) -}}
+        {{- end -}}
+        {{- if or (not (hasKey $role.resumeVolume "enabled")) $role.resumeVolume.enabled -}}
+          {{- if $role.resumeVolume.persistentVolumeClaim -}}
+            {{- $baseVolumes = append $baseVolumes (dict "name" "master-data-sync-resume" "persistentVolumeClaim" (dict "claimName" $role.resumeVolume.persistentVolumeClaim)) -}}
+          {{- else -}}
+            {{- $baseVolumes = append $baseVolumes (dict "name" "master-data-sync-resume" "emptyDir" (dict)) -}}
+          {{- end -}}
+        {{- end -}}
+      {{- end -}}
+      {{- $allVolumes := concat $baseVolumes (default list $.Values.common.extraVolumes) (default list $role.extraVolumes) -}}
+      {{- with $allVolumes }}
       volumes:
-        - name: master-data-backup
-          {{- if $role.backupVolume.persistentVolumeClaim }}
-          persistentVolumeClaim:
-            claimName: {{ $role.backupVolume.persistentVolumeClaim | quote }}
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with $.Values.common.nodeSelector }}
       nodeSelector:

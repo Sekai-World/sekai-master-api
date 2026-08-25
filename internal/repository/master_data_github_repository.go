@@ -65,7 +65,7 @@ type gitCommitResponse struct {
 
 const maxArchiveJSONFileSize = 64 << 20
 
-func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConcurrency int, retryCount int, retryBackoff time.Duration) *GitHubMasterDataRepository {
+func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConcurrency int, retryCount int, retryBackoff time.Duration, resumeBaseDir string) *GitHubMasterDataRepository {
 	if timeout <= 0 {
 		timeout = 20 * time.Second
 	}
@@ -79,6 +79,11 @@ func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConc
 		retryBackoff = 300 * time.Millisecond
 	}
 
+	effectiveResumeDir := strings.TrimSpace(resumeBaseDir)
+	if effectiveResumeDir == "" {
+		effectiveResumeDir = defaultMasterDataResumeBaseDir
+	}
+
 	return &GitHubMasterDataRepository{
 		httpClient: &http.Client{
 			Timeout:   timeout,
@@ -90,7 +95,7 @@ func NewGitHubMasterDataRepository(timeout time.Duration, token string, fileConc
 		retryBackoff:    retryBackoff,
 		apiBaseURL:      defaultGitHubAPIBaseURL,
 		rawBaseURL:      defaultGitHubRawBaseURL,
-		resumeBaseDir:   defaultMasterDataResumeBaseDir,
+		resumeBaseDir:   effectiveResumeDir,
 	}
 }
 
