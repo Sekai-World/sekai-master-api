@@ -63,6 +63,9 @@ spec:
           - path: /api/v1/internal/github/webhooks/master-data
             pathType: Exact
             backend: *controlBackend
+          - path: /api/v1/health
+            pathType: Prefix
+            backend: *controlBackend
           {{- if .Values.ingress.control.exposeDocs }}
           - path: /docs
             pathType: Prefix

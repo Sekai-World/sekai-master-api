@@ -97,8 +97,8 @@ helm template sekai-master-api deploy/helm/sekai-master-api -f production-values
 The chart uses separate hosts by default:
 
 - Public host: `/api/v1` to `serve`.
-- Control host: `/admin`, `/api/v1/admin`, the exact GitHub master-data webhook,
-  and optionally `/docs` to `control`.
+- Control host: `/admin`, `/api/v1/admin`, `/api/v1/health`, the exact GitHub
+  master-data webhook, and optionally `/docs` to `control`.
 
 The hosts must remain distinct. Otherwise the public `/api/v1` prefix could
 overlap control paths. Template rendering fails when both Ingresses are enabled
