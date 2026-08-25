@@ -57,6 +57,9 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	if cfg.OTELEnabled {
 		t.Fatalf("expected OTel to default disabled in development")
 	}
+	if cfg.MasterDataResumeBaseDir != "tmp/master-data-sync-resume" {
+		t.Fatalf("expected MasterDataResumeBaseDir default, got %q", cfg.MasterDataResumeBaseDir)
+	}
 }
 
 func TestLoadMasterDataTimeoutOverrides(t *testing.T) {
@@ -287,6 +290,20 @@ func TestLoadReadsMasterDataGitHubWebhookSecret(t *testing.T) {
 	cfg := Load()
 	if cfg.MasterDataGitHubWebhookSecret != "secret-value" {
 		t.Fatalf("expected github webhook secret to be loaded, got %q", cfg.MasterDataGitHubWebhookSecret)
+	}
+}
+
+func TestLoadReadsMasterDataResumeBaseDir(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "MASTER_DATA_RESUME_BASE_DIR")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=development\nMASTER_DATA_RESUME_BASE_DIR=/custom/resume/path\n")
+
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.MasterDataResumeBaseDir != "/custom/resume/path" {
+		t.Fatalf("expected resume base dir override, got %q", cfg.MasterDataResumeBaseDir)
 	}
 }
 

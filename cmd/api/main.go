@@ -90,6 +90,7 @@ func main() {
 		cfg.MasterDataFileConcurrency,
 		cfg.MasterDataHTTPRetryCount,
 		time.Duration(cfg.MasterDataHTTPRetryBackoffMS)*time.Millisecond,
+		cfg.MasterDataResumeBaseDir,
 	)
 	masterDataEventHub := usecase.NewMasterDataEventHub()
 	masterDataCache, err := storage.NewRedisMasterDataCache(cfg)

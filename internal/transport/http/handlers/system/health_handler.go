@@ -1,6 +1,7 @@
 package system
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
@@ -12,15 +13,28 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
+// MasterDataReadinessChecker is the subset of MasterDataSyncUsecase used by
+// the readiness probe to decide whether persisted master data is available for
+// the serve role.
+type MasterDataReadinessChecker interface {
+	ConfiguredRegions() []string
+	HasSuccessfulSync(ctx context.Context, region string) (bool, error)
+	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
+}
+
 type HealthHandler struct {
 	db             *sql.DB
 	role           config.AppRole
 	startupState   *startup.State
-	masterDataSync *usecase.MasterDataSyncUsecase
+	masterDataSync MasterDataReadinessChecker
 }
 
 func NewHealthHandler(db *sql.DB, role config.AppRole, startupState *startup.State, masterDataSync *usecase.MasterDataSyncUsecase) *HealthHandler {
-	return &HealthHandler{db: db, role: role, startupState: startupState, masterDataSync: masterDataSync}
+	h := &HealthHandler{db: db, role: role, startupState: startupState}
+	if masterDataSync != nil {
+		h.masterDataSync = masterDataSync
+	}
+	return h
 }
 
 // Check godoc
@@ -69,25 +83,31 @@ func (handler *HealthHandler) Ready(c *gin.Context) {
 	if handler.role == config.AppRoleServe && handler.masterDataSync != nil {
 		configured := handler.masterDataSync.ConfiguredRegions()
 		ready := make([]string, 0, len(configured))
+		var regionsPendingSync []string
 		for _, region := range configured {
-			hasSync, err := handler.masterDataSync.HasSuccessfulSync(c.Request.Context(), region)
-			if err != nil {
-				response.JSON(c, http.StatusServiceUnavailable, gin.H{"status": "not_ready", "reason": "master_data"})
-				return
-			}
 			hasRecords, err := handler.masterDataSync.HasEntityRecords(c.Request.Context(), region, "cards")
 			if err != nil {
 				response.JSON(c, http.StatusServiceUnavailable, gin.H{"status": "not_ready", "reason": "master_data"})
 				return
 			}
-			if hasSync && hasRecords {
+			if hasRecords {
 				ready = append(ready, region)
+				hasSync, syncErr := handler.masterDataSync.HasSuccessfulSync(c.Request.Context(), region)
+				if syncErr == nil && !hasSync {
+					regionsPendingSync = append(regionsPendingSync, region)
+				}
 			}
 		}
 		if len(ready) < len(configured) {
 			response.JSON(c, http.StatusServiceUnavailable, gin.H{"status": "not_ready", "reason": "master_data", "ready_regions": ready})
 			return
 		}
+		body := gin.H{"status": "ok", "ready_regions": ready}
+		if len(regionsPendingSync) > 0 {
+			body["regions_pending_sync"] = regionsPendingSync
+		}
+		response.JSON(c, http.StatusOK, body)
+		return
 	}
 	response.JSON(c, http.StatusOK, gin.H{"status": "ok"})
 }
