@@ -107,6 +107,7 @@ type Config struct {
 	MasterDataSyncJobTimeout          int
 	MasterDataSyncConcurrency         int
 	MasterDataFileConcurrency         int
+	MasterDataResumeBaseDir           string
 	MasterDataGitHubToken             string
 	MasterDataHTTPTimeout             int
 	MasterDataHTTPRetryCount          int
@@ -167,6 +168,7 @@ func Load() Config {
 		SQLitePath:                        getEnv("SQLITE_PATH", "./tmp/dev.db"),
 		MasterDataAutoSync:                getEnvBool("MASTER_DATA_AUTO_SYNC", true),
 		MasterDataRecoverInterrupted:      getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
+		MasterDataResumeBaseDir:           strings.TrimSpace(getEnv("MASTER_DATA_RESUME_BASE_DIR", "tmp/master-data-sync-resume")),
 		MasterDataWarmSearchIndexes:       getEnvBool("MASTER_DATA_WARM_SEARCH_INDEXES", !isDevelopmentEnv(appEnv)),
 		MasterDataSearchIndexCacheEntries: getEnvInt("MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES", 32),
 		MasterDataSyncTimeout:             getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 0),

@@ -43,7 +43,7 @@ func TestLoadRegionDownloadsArchiveAndFiltersBasePath(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 2, 2, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 2, 2, 10*time.Millisecond, "")
 	repository.apiBaseURL = server.URL
 
 	payload, err := repository.LoadRegion(context.Background(), masterdata.Source{
@@ -107,7 +107,7 @@ func TestLoadRegionRetriesArchiveDownload(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 3, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 3, 10*time.Millisecond, "")
 	repository.apiBaseURL = server.URL
 
 	payload, err := repository.LoadRegion(context.Background(), masterdata.Source{
@@ -157,7 +157,7 @@ func TestResolveRegionVersionRetriesTransientFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 3, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 3, 10*time.Millisecond, "")
 	repository.apiBaseURL = server.URL
 
 	version, err := repository.ResolveRegionVersion(context.Background(), masterdata.Source{
@@ -210,7 +210,7 @@ func TestResolveRegionVersionFallsBackToGitSmartHTTP(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond, "")
 	repository.apiBaseURL = server.URL
 	repository.gitBaseURL = server.URL
 
@@ -272,7 +272,7 @@ func TestGetGitUploadPackRefsValidatesResponse(t *testing.T) {
 			}))
 			defer server.Close()
 
-			repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+			repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond, "")
 			_, err := repository.getGitUploadPackRefs(context.Background(), server.URL)
 			if err == nil {
 				t.Fatal("expected smart HTTP response validation failure")
@@ -359,7 +359,7 @@ func TestResolveRegionVersionReturnsRESTAndSmartHTTPFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond, "")
 	repository.apiBaseURL = server.URL
 	repository.gitBaseURL = server.URL
 
@@ -395,7 +395,7 @@ func TestLoadVersionManifestUsesPinnedRefAndDecodesPayload(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond, "")
 	repository.rawBaseURL = server.URL
 
 	manifest, found, err := repository.loadVersionManifest(context.Background(), masterdata.Source{
@@ -426,7 +426,7 @@ func TestLoadVersionManifestReturnsAbsentForMissingManifest(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond, "")
 	repository.rawBaseURL = server.URL
 
 	manifest, found, err := repository.loadVersionManifest(context.Background(), masterdata.Source{
@@ -449,7 +449,7 @@ func TestLoadVersionManifestReturnsRequestFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond)
+	repository := NewGitHubMasterDataRepository(2*time.Second, "", 1, 1, 10*time.Millisecond, "")
 	repository.rawBaseURL = server.URL
 
 	_, found, err := repository.loadVersionManifest(context.Background(), masterdata.Source{

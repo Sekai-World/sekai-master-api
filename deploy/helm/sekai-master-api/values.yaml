@@ -23,6 +23,8 @@ common:
     configMaps: []
     secrets: []
   extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 65532
@@ -65,11 +67,16 @@ serve:
     configMaps: []
     secrets: []
   extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
   service:
     type: ClusterIP
     port: 80
   probes:
     startup:
+      # /startupz only gates process boot + database migrations; it does NOT
+      # wait for master-data sync. During a cold-start sync the pod shows as
+      # degraded via /readyz (NotReady, no restarts).
       enabled: true
       failureThreshold: 30
       periodSeconds: 5
@@ -97,11 +104,16 @@ control:
     configMaps: []
     secrets: []
   extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
   service:
     type: ClusterIP
     port: 80
   probes:
     startup:
+      # /startupz only gates process boot + database migrations; master-data
+      # sync runs in the background afterwards and is surfaced as degraded via
+      # /readyz (NotReady, no restarts).
       enabled: true
       failureThreshold: 60
       periodSeconds: 5
@@ -114,6 +126,10 @@ control:
       initialDelaySeconds: 5
       periodSeconds: 10
   backupVolume:
+    persistentVolumeClaim: ""
+  resumeVolume:
+    enabled: true
+    mountPath: /app/tmp/master-data-sync-resume
     persistentVolumeClaim: ""
 
 migration:
