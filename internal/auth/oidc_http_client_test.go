@@ -94,6 +94,36 @@ func TestOIDCRoutingTransportMatchesHostOnly(t *testing.T) {
 		t.Fatalf("path = %q, want %q", gotPath, "/realms/r/protocol/openid-connect/certs")
 	}
 
+	// Port drift: issuer has an explicit port but the discovered endpoint omits
+	// it (URL.Host includes the port; Hostname() does not) — should still rewrite.
+	gotPath = ""
+	transportPortDrift, err := newOIDCHTTPTransport(config.Config{
+		OIDCIssuerURL:   "https://issuer.example.com:8443/realms/r",
+		OIDCInternalURL: server.URL,
+	}, http.DefaultTransport)
+	if err != nil {
+		t.Fatalf("newOIDCHTTPTransport() error = %v", err)
+	}
+
+	portDriftReq, err := http.NewRequest(http.MethodGet, "https://issuer.example.com/realms/r/protocol/openid-connect/token", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+
+	portDriftResp, err := (&http.Client{Transport: transportPortDrift}).Do(portDriftReq)
+	if err != nil {
+		t.Fatalf("client.Do() error = %v", err)
+	}
+	defer portDriftResp.Body.Close()
+	_, _ = io.Copy(io.Discard, portDriftResp.Body)
+
+	if portDriftResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status code = %d, want %d", portDriftResp.StatusCode, http.StatusNoContent)
+	}
+	if gotPath != "/realms/r/protocol/openid-connect/token" {
+		t.Fatalf("path = %q, want %q", gotPath, "/realms/r/protocol/openid-connect/token")
+	}
+
 	// Verify: a request to an unrelated host is NOT rewritten.
 	// Use a capturing round tripper to avoid DNS resolution of the fake host.
 	var capturedReq *http.Request

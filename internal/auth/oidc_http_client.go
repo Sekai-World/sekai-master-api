@@ -93,7 +93,7 @@ func (transport *oidcRoutingTransport) RoundTrip(req *http.Request) (*http.Respo
 }
 
 func (transport *oidcRoutingTransport) matches(target *url.URL) bool {
-	return strings.EqualFold(target.Host, transport.publicBaseURL.Host)
+	return strings.EqualFold(target.Hostname(), transport.publicBaseURL.Hostname())
 }
 
 func parseAbsoluteURL(raw string, name string) (*url.URL, error) {
