@@ -47,14 +47,28 @@ func (f *fakeReadinessChecker) HasSuccessfulSync(_ context.Context, region strin
 	return false, nil
 }
 
-func setupHealthRouter(handler *HealthHandler) *gin.Engine {
+// readyRequestResult holds the output of runReadyRequest for convenient assertions.
+type readyRequestResult struct {
+	code int
+	body map[string]any
+}
+
+// runReadyRequest wires a HealthHandler, fires GET /readyz, and returns the
+// status code plus the parsed JSON body.
+func runReadyRequest(t *testing.T, checker MasterDataReadinessChecker, role config.AppRole, ss *startup.State) readyRequestResult {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
+	handler := &HealthHandler{role: role, masterDataSync: checker, startupState: ss}
 	router := gin.New()
 	router.GET("/readyz", handler.Ready)
-	router.GET("/healthz", handler.Check)
-	router.GET("/livez", handler.Live)
-	router.GET("/startupz", handler.Startup)
-	return router
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return readyRequestResult{code: resp.Code, body: body}
 }
 
 func TestReadyReturnsOKWhenAllRegionsHaveRecords(t *testing.T) {
@@ -63,29 +77,17 @@ func TestReadyReturnsOKWhenAllRegionsHaveRecords(t *testing.T) {
 		entityRecords:     map[string]bool{"global": true, "jp": true},
 		syncStatus:        map[string]bool{"global": true, "jp": true},
 	}
+	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
-	handler := &HealthHandler{role: config.AppRoleServe, masterDataSync: fake}
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	if r.code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", r.code, r.body)
 	}
-
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if r.body["status"] != "ok" {
+		t.Fatalf("expected status ok, got %v", r.body["status"])
 	}
-	if body["status"] != "ok" {
-		t.Fatalf("expected status ok, got %v", body["status"])
-	}
-
-	readyRegions, ok := body["ready_regions"].([]any)
+	readyRegions, ok := r.body["ready_regions"].([]any)
 	if !ok {
-		t.Fatalf("expected ready_regions array, got %v", body["ready_regions"])
+		t.Fatalf("expected ready_regions array, got %v", r.body["ready_regions"])
 	}
 	if len(readyRegions) != 2 {
 		t.Fatalf("expected 2 ready regions, got %d", len(readyRegions))
@@ -100,30 +102,17 @@ func TestReadyReturnsOKWhenRecordsExistButSyncFailed(t *testing.T) {
 		entityRecords:     map[string]bool{"jp": true},
 		syncStatus:        map[string]bool{"jp": false},
 	}
+	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
-	handler := &HealthHandler{role: config.AppRoleServe, masterDataSync: fake}
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200 for records-without-sync, got %d body=%s", resp.Code, resp.Body.String())
+	if r.code != http.StatusOK {
+		t.Fatalf("expected 200 for records-without-sync, got %d body=%s", r.code, r.body)
 	}
-
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if r.body["status"] != "ok" {
+		t.Fatalf("expected status ok, got %v", r.body["status"])
 	}
-	if body["status"] != "ok" {
-		t.Fatalf("expected status ok, got %v", body["status"])
-	}
-
-	// Should report the region as pending sync in diagnostics
-	pendingSync, ok := body["regions_pending_sync"].([]any)
+	pendingSync, ok := r.body["regions_pending_sync"].([]any)
 	if !ok {
-		t.Fatalf("expected regions_pending_sync array, got %v (body=%s)", body["regions_pending_sync"], resp.Body.String())
+		t.Fatalf("expected regions_pending_sync array, got %v", r.body["regions_pending_sync"])
 	}
 	if len(pendingSync) != 1 || pendingSync[0] != "jp" {
 		t.Fatalf("expected regions_pending_sync=[jp], got %v", pendingSync)
@@ -135,27 +124,16 @@ func TestReadyReturns503WhenRegionHasNoRecords(t *testing.T) {
 		configuredRegions: []string{"jp"},
 		entityRecords:     map[string]bool{"jp": false},
 	}
+	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
-	handler := &HealthHandler{role: config.AppRoleServe, masterDataSync: fake}
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d body=%s", resp.Code, resp.Body.String())
+	if r.code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d body=%s", r.code, r.body)
 	}
-
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if r.body["status"] != "not_ready" {
+		t.Fatalf("expected status not_ready, got %v", r.body["status"])
 	}
-	if body["status"] != "not_ready" {
-		t.Fatalf("expected status not_ready, got %v", body["status"])
-	}
-	if body["reason"] != "master_data" {
-		t.Fatalf("expected reason master_data, got %v", body["reason"])
+	if r.body["reason"] != "master_data" {
+		t.Fatalf("expected reason master_data, got %v", r.body["reason"])
 	}
 }
 
@@ -166,27 +144,15 @@ func TestReadyDoesNot503WhenHasSuccessfulSyncErrors(t *testing.T) {
 		entityRecords:     map[string]bool{"jp": true},
 		syncStatusErr:     errors.New("database unavailable"),
 	}
+	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
-	handler := &HealthHandler{role: config.AppRoleServe, masterDataSync: fake}
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200 when sync status errors but records exist, got %d body=%s", resp.Code, resp.Body.String())
+	if r.code != http.StatusOK {
+		t.Fatalf("expected 200 when sync status errors but records exist, got %d body=%s", r.code, r.body)
 	}
-
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if r.body["status"] != "ok" {
+		t.Fatalf("expected status ok, got %v", r.body["status"])
 	}
-	if body["status"] != "ok" {
-		t.Fatalf("expected status ok, got %v", body["status"])
-	}
-	// When sync errors, we should not have regions_pending_sync at all
-	if _, ok := body["regions_pending_sync"]; ok {
+	if _, ok := r.body["regions_pending_sync"]; ok {
 		t.Fatalf("did not expect regions_pending_sync when sync status errors")
 	}
 }
@@ -196,49 +162,27 @@ func TestReadyReturns503WhenHasEntityRecordsErrors(t *testing.T) {
 		configuredRegions: []string{"jp"},
 		entityRecordsErr:  errors.New("redis connection refused"),
 	}
+	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
-	handler := &HealthHandler{role: config.AppRoleServe, masterDataSync: fake}
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on HasEntityRecords error, got %d body=%s", resp.Code, resp.Body.String())
+	if r.code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on HasEntityRecords error, got %d body=%s", r.code, r.body)
 	}
 }
 
 func TestReadyReturns200ForNonServeRole(t *testing.T) {
-	handler := &HealthHandler{role: config.AppRoleControl}
+	r := runReadyRequest(t, nil, config.AppRoleControl, nil)
 
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200 for control role, got %d", resp.Code)
+	if r.code != http.StatusOK {
+		t.Fatalf("expected 200 for control role, got %d", r.code)
 	}
 }
 
 func TestReadyReturns503DuringStartup(t *testing.T) {
-	startupState := startup.NewState()
-	// startupState not marked ready → 503
-	handler := &HealthHandler{
-		role:         config.AppRoleServe,
-		startupState: startupState,
-	}
+	ss := startup.NewState()
+	r := runReadyRequest(t, nil, config.AppRoleServe, ss)
 
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 during startup, got %d", resp.Code)
+	if r.code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 during startup, got %d", r.code)
 	}
 }
 
@@ -249,29 +193,17 @@ func TestReadyPartialRecordsReturns503(t *testing.T) {
 		entityRecords:     map[string]bool{"global": true, "jp": false},
 		syncStatus:        map[string]bool{"global": true},
 	}
+	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
-	handler := &HealthHandler{role: config.AppRoleServe, masterDataSync: fake}
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 for partial records, got %d body=%s", resp.Code, resp.Body.String())
+	if r.code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for partial records, got %d body=%s", r.code, r.body)
 	}
-
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if r.body["status"] != "not_ready" {
+		t.Fatalf("expected status not_ready, got %v", r.body["status"])
 	}
-	if body["status"] != "not_ready" {
-		t.Fatalf("expected status not_ready, got %v", body["status"])
-	}
-
-	readyRegions, ok := body["ready_regions"].([]any)
+	readyRegions, ok := r.body["ready_regions"].([]any)
 	if !ok {
-		t.Fatalf("expected ready_regions array, got %v", body["ready_regions"])
+		t.Fatalf("expected ready_regions array, got %v", r.body["ready_regions"])
 	}
 	if len(readyRegions) != 1 || readyRegions[0] != "global" {
 		t.Fatalf("expected ready_regions=[global], got %v", readyRegions)
@@ -284,24 +216,12 @@ func TestReadyNoRegionsPendingSyncWhenAllSyncSucceeds(t *testing.T) {
 		entityRecords:     map[string]bool{"jp": true},
 		syncStatus:        map[string]bool{"jp": true},
 	}
+	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
-	handler := &HealthHandler{role: config.AppRoleServe, masterDataSync: fake}
-	router := setupHealthRouter(handler)
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	if r.code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", r.code, r.body)
 	}
-
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	// No regions_pending_sync when all regions have successful sync
-	if _, ok := body["regions_pending_sync"]; ok {
-		t.Fatalf("did not expect regions_pending_sync when all syncs succeed, body=%s", resp.Body.String())
+	if _, ok := r.body["regions_pending_sync"]; ok {
+		t.Fatalf("did not expect regions_pending_sync when all syncs succeed, body=%s", r.body)
 	}
 }

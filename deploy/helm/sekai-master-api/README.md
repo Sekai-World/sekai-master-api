@@ -299,12 +299,13 @@ read-only root filesystem remains usable:
 
 The chart automatically sets the `GOMEMLIMIT` environment variable at ~90% of
 the container memory limit to cap Go GC heap usage. For example, with the
-default 1Gi limit, `GOMEMLIMIT` is set to `966367641` (≈966 MiB in bytes).
+default 1Gi limit, `GOMEMLIMIT` is set to `966367641` (≈922 MiB).
 
 Supported memory-limit suffixes: plain integer bytes, `Ki`, `Mi`, `Gi`, `Ti`
 (binary, ×1024 chain) and decimal `K`, `M`, `G`, `T`. Quantities with a
-fractional numeric part (e.g. `1.5Gi`) are not supported — use `1536Mi`
-instead.
+fractional numeric part (e.g. `1.5Gi`) or unknown suffixes are silently
+ignored — no `GOMEMLIMIT` is injected for invalid memory-limit values. Use
+whole-number quantities like `1536Mi` instead.
 
 To override, set `GOMEMLIMIT` explicitly in `common.env`, the role's `env`, or
 any `extraEnv` list. The auto-derived value is skipped whenever `GOMEMLIMIT` is

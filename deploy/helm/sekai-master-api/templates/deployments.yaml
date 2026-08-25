@@ -72,7 +72,7 @@ spec:
           {{- $baseMounts := list -}}
           {{- if eq $component "control" -}}
             {{- $baseMounts = append $baseMounts (dict "name" "master-data-backup" "mountPath" "/app/tmp/master-data-backup") -}}
-            {{- if default true $role.resumeVolume.enabled -}}
+            {{- if or (not (hasKey $role.resumeVolume "enabled")) $role.resumeVolume.enabled -}}
               {{- $baseMounts = append $baseMounts (dict "name" "master-data-sync-resume" "mountPath" (default "/app/tmp/master-data-sync-resume" $role.resumeVolume.mountPath)) -}}
             {{- end -}}
           {{- end -}}
@@ -88,7 +88,7 @@ spec:
         {{- else -}}
           {{- $baseVolumes = append $baseVolumes (dict "name" "master-data-backup" "emptyDir" (dict)) -}}
         {{- end -}}
-        {{- if default true $role.resumeVolume.enabled -}}
+        {{- if or (not (hasKey $role.resumeVolume "enabled")) $role.resumeVolume.enabled -}}
           {{- if $role.resumeVolume.persistentVolumeClaim -}}
             {{- $baseVolumes = append $baseVolumes (dict "name" "master-data-sync-resume" "persistentVolumeClaim" (dict "claimName" $role.resumeVolume.persistentVolumeClaim)) -}}
           {{- else -}}

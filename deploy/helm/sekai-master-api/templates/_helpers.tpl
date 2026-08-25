@@ -88,7 +88,7 @@ readinessProbe:
 
 {{- define "sekai-master-api.gomeMemLimit" -}}
 {{- $mem := .resources.limits.memory | default "" -}}
-{{- if $mem -}}
+{{- if and $mem (regexMatch "^[0-9]+(Ki|Mi|Gi|Ti|K|M|G|T)?$" $mem) -}}
   {{- $num := regexFind "^[0-9]+" $mem | atoi -}}
   {{- $suffix := regexFind "[A-Za-z]+$" $mem | default "" -}}
   {{- $factors := dict "" 1 "Ki" 1024 "Mi" 1048576 "Gi" 1073741824 "Ti" 1099511627776 "K" 1000 "M" 1000000 "G" 1000000000 "T" 1000000000000 -}}
