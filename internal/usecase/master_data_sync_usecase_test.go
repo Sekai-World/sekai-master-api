@@ -2537,235 +2537,246 @@ func (cache *fakeVersionSyncCache) storeCallCount() int {
 	return cache.versionStoreCalls
 }
 
-func TestSyncSuccessPersistsVersionPayloadToCache(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+func versionCacheSource() masterdata.Source {
+	return masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+}
+
+type versionSyncTestFixture struct {
+	source      masterdata.Source
+	loader      *fakeSyncLoader
+	cache       *fakeVersionSyncCache
+	statusStore *fakeSyncStatusStore
+	publisher   *fakeSyncEventPublisher
+	backupStore MasterDataPayloadBackupStore
+	usecase     *MasterDataSyncUsecase
+}
+
+type versionSyncTestOptions struct {
+	previousCommit    string
+	previousFileCount int
+	resolvedCommit    string
+	manifest          map[string]any
+	archivePayload    map[string]any
+	backupPayload     map[string]any
+	backupCommit      string
+	cacheReady        bool
+	storeReturnErr    error
+	loadReturnErr     error
+	loadedVersions    map[string]any
+	previousStatus    string
+	publisher         *fakeSyncEventPublisher
+}
+
+func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versionSyncTestFixture {
+	t.Helper()
+
+	source := versionCacheSource()
+	if opts.previousStatus == "" {
+		opts.previousStatus = "success"
+	}
+	if opts.previousCommit == "" {
+		opts.previousCommit = "abc123"
+	}
+	if opts.previousFileCount == 0 {
+		opts.previousFileCount = 5
+	}
+
 	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    5,
+		Region:       source.Region,
+		Status:       opts.previousStatus,
+		FileCount:    opts.previousFileCount,
 		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "abc123",
+		SourceCommit: opts.previousCommit,
 		Source:       source,
 		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
 	}
+
 	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "def456"},
-		manifestByZone: map[string]map[string]any{
-			"jp": {"data/versions.json": map[string]any{
-				"data/versions.json": map[string]any{"appVersion": "4.0.0"},
-			}},
-		},
-		payloadByZone: map[string]map[string]any{
-			"jp": manifestPayload(map[string]any{
-				"data/versions.json": map[string]any{"appVersion": "4.0.0"},
-			}, "new"),
-		},
+		resolvedByZone: map[string]string{source.Region: opts.resolvedCommit},
+		manifestByZone: map[string]map[string]any{source.Region: opts.manifest},
+		payloadByZone:  map[string]map[string]any{source.Region: opts.archivePayload},
 	}
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
+
+	if opts.loadedVersions == nil {
+		opts.loadedVersions = map[string]any{}
 	}
+	cache := &fakeVersionSyncCache{loadedVersions: opts.loadedVersions}
+	cache.loadFromRedisOK = opts.cacheReady
+	cache.storeReturnErr = opts.storeReturnErr
+	cache.loadReturnErr = opts.loadReturnErr
+
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-	publisher := &fakeSyncEventPublisher{}
+	publisher := opts.publisher
+	if publisher == nil {
+		publisher = &fakeSyncEventPublisher{}
+	}
 	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if opts.backupPayload != nil {
+		commit := opts.backupCommit
+		if commit == "" {
+			commit = opts.previousCommit
+		}
+		if err := backupStore.SaveRegionPayload(context.Background(), source, commit, opts.backupPayload); err != nil {
+			t.Fatalf("save local backup: %v", err)
+		}
+	}
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
 	usecase.SetBackupStore(backupStore)
 
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	return &versionSyncTestFixture{
+		source:      source,
+		loader:      loader,
+		cache:       cache,
+		statusStore: statusStore,
+		publisher:   publisher,
+		backupStore: backupStore,
+		usecase:     usecase,
+	}
+}
+
+func TestSyncSuccessPersistsVersionPayloadToCache(t *testing.T) {
+	manifest := map[string]any{"data/versions.json": map[string]any{"appVersion": "4.0.0"}}
+	payload := manifestPayload(manifest, "new")
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		resolvedCommit: "def456",
+		manifest:       manifest,
+		archivePayload: payload,
+	})
+
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected sync success, got %v", err)
 	}
-	if cache.storeCallCount() != 1 {
-		t.Fatalf("expected 1 version store call, got %d", cache.storeCallCount())
+	if fixture.cache.storeCallCount() != 1 {
+		t.Fatalf("expected 1 version store call, got %d", fixture.cache.storeCallCount())
 	}
-	if !statusStore.hasSavedStatus("jp", "success") {
+	if !fixture.statusStore.hasSavedStatus("jp", "success") {
 		t.Fatalf("expected success status saved for jp")
 	}
 }
 
 func TestSyncFailsWhenVersionCacheStoreErrors(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    5,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "abc123",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "def456"},
-		manifestByZone: map[string]map[string]any{
-			"jp": {"data/versions.json": map[string]any{
-				"data/versions.json": map[string]any{"appVersion": "4.0.0"},
-			}},
-		},
-		payloadByZone: map[string]map[string]any{
-			"jp": manifestPayload(map[string]any{
-				"data/versions.json": map[string]any{"appVersion": "4.0.0"},
-			}, "new"),
-		},
-	}
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
+	manifest := map[string]any{"data/versions.json": map[string]any{"appVersion": "4.0.0"}}
+	payload := manifestPayload(manifest, "new")
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		resolvedCommit: "def456",
+		manifest:       manifest,
+		archivePayload: payload,
 		storeReturnErr: errors.New("redis connection refused"),
-	}
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-	publisher := &fakeSyncEventPublisher{}
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	})
 
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err == nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err == nil {
 		t.Fatalf("expected sync failure from version-cache store error")
 	}
-	if !statusStore.hasSavedStatus("jp", "failed") {
+	if !fixture.statusStore.hasSavedStatus("jp", "failed") {
 		t.Fatalf("expected failed status saved for jp")
 	}
-	events := publisher.listEvents()
+	events := fixture.publisher.listEvents()
 	if !containsSyncProgressEvent(events, "jp", "failed", "version-cache", "redis connection refused") {
 		t.Fatalf("expected version-cache failed event published, got %v", events)
 	}
 }
 
-func TestVersionByRegionReadsFromRedisCacheFirst(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "commit-backup", map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "backup-version"},
-	}); err != nil {
-		t.Fatalf("save backup payload: %v", err)
-	}
-
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{
-			"jp": map[string]any{"appVersion": "redis-version"},
+func TestVersionByRegionCacheAndBackupFallback(t *testing.T) {
+	source := versionCacheSource()
+	tests := []struct {
+		name           string
+		loadedVersions map[string]any
+		loadReturnErr  error
+		backupPayload  map[string]any
+		backupCommit   string
+		wantFound      bool
+		wantAppVersion string
+	}{
+		{
+			name:           "reads_from_redis_cache_first",
+			loadedVersions: map[string]any{"jp": map[string]any{"appVersion": "redis-version"}},
+			backupPayload:  map[string]any{"data/versions.json": map[string]any{"appVersion": "backup-version"}},
+			backupCommit:   "commit-backup",
+			wantFound:      true,
+			wantAppVersion: "redis-version",
+		},
+		{
+			name:           "falls_back_on_load_error",
+			loadReturnErr:  errors.New("redis connection refused"),
+			backupPayload:  map[string]any{"data/versions.json": map[string]any{"appVersion": "fallback-version"}},
+			backupCommit:   "commit-fallback",
+			wantFound:      true,
+			wantAppVersion: "fallback-version",
+		},
+		{
+			name:           "falls_back_on_cache_miss",
+			loadedVersions: map[string]any{},
+			backupPayload:  map[string]any{"data/versions.json": map[string]any{"appVersion": "miss-version"}},
+			backupCommit:   "commit-miss",
+			wantFound:      true,
+			wantAppVersion: "miss-version",
 		},
 	}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, cache, nil, nil, 1)
-	usecase.SetBackupStore(backupStore)
 
-	version, found, err := usecase.VersionByRegion(context.Background(), "jp")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if !found {
-		t.Fatalf("expected version to be found")
-	}
-	versionMap := version.(map[string]any)
-	if versionMap["appVersion"] != "redis-version" {
-		t.Fatalf("expected redis-version from cache, got %v", versionMap["appVersion"])
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+			if err := backupStore.SaveRegionPayload(context.Background(), source, tt.backupCommit, tt.backupPayload); err != nil {
+				t.Fatalf("save backup payload: %v", err)
+			}
 
-func TestVersionByRegionFallsBackToBackupOnRedisLoadError(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+			cache := &fakeVersionSyncCache{
+				loadedVersions: tt.loadedVersions,
+				loadReturnErr:  tt.loadReturnErr,
+			}
+			usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, cache, nil, nil, 1)
+			usecase.SetBackupStore(backupStore)
 
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "commit-fallback", map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "fallback-version"},
-	}); err != nil {
-		t.Fatalf("save backup payload: %v", err)
-	}
-
-	cache := &fakeVersionSyncCache{
-		loadReturnErr: errors.New("redis connection refused"),
-	}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, cache, nil, nil, 1)
-	usecase.SetBackupStore(backupStore)
-
-	version, found, err := usecase.VersionByRegion(context.Background(), "jp")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if !found {
-		t.Fatalf("expected version to be found via fallback")
-	}
-	versionMap := version.(map[string]any)
-	if versionMap["appVersion"] != "fallback-version" {
-		t.Fatalf("expected fallback-version from backup, got %v", versionMap["appVersion"])
-	}
-}
-
-func TestVersionByRegionFallsBackToBackupWhenCacheMiss(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "commit-miss", map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "miss-version"},
-	}); err != nil {
-		t.Fatalf("save backup payload: %v", err)
-	}
-
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
-	}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, cache, nil, nil, 1)
-	usecase.SetBackupStore(backupStore)
-
-	version, found, err := usecase.VersionByRegion(context.Background(), "jp")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if !found {
-		t.Fatalf("expected version to be found via fallback")
-	}
-	versionMap := version.(map[string]any)
-	if versionMap["appVersion"] != "miss-version" {
-		t.Fatalf("expected miss-version from backup, got %v", versionMap["appVersion"])
+			version, found, err := usecase.VersionByRegion(context.Background(), "jp")
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if found != tt.wantFound {
+				t.Fatalf("expected found=%v, got %v", tt.wantFound, found)
+			}
+			if tt.wantFound {
+				versionMap := version.(map[string]any)
+				if versionMap["appVersion"] != tt.wantAppVersion {
+					t.Fatalf("expected appVersion=%q, got %v", tt.wantAppVersion, versionMap["appVersion"])
+				}
+			}
+		})
 	}
 }
 
 func TestSyncSkipPopulatesVersionCacheWhenManifestUnchanged(t *testing.T) {
 	manifest := map[string]any{"dataVersion": "20260802"}
 	latestPayload := manifestPayload(manifest, "from-backup")
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    99,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "old-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		previousCommit:    "old-commit",
+		previousFileCount: 99,
+		resolvedCommit:    "new-commit",
+		manifest:          manifest,
+		archivePayload:    latestPayload,
+		backupPayload:     latestPayload,
+		backupCommit:      "old-commit",
+		cacheReady:        true,
+	})
 
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "new-commit"},
-		manifestByZone: map[string]map[string]any{"jp": manifest},
-		payloadByZone:  map[string]map[string]any{"jp": latestPayload},
-	}
-	cache := &fakeVersionSyncCache{loadedVersions: map[string]any{}}
-	cache.loadFromRedisOK = true
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "old-commit", latestPayload); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if loader.loadCalls != 0 {
-		t.Fatalf("expected archive load to be skipped, got loadCalls=%d", loader.loadCalls)
+	if fixture.loader.loadCalls != 0 {
+		t.Fatalf("expected archive load to be skipped, got loadCalls=%d", fixture.loader.loadCalls)
 	}
-	if loader.manifestCalls != 1 {
-		t.Fatalf("expected one manifest load, got manifestCalls=%d", loader.manifestCalls)
+	if fixture.loader.manifestCalls != 1 {
+		t.Fatalf("expected one manifest load, got manifestCalls=%d", fixture.loader.manifestCalls)
 	}
-	if cache.versionStoreCalls != 1 {
-		t.Fatalf("expected version cache to be populated, got versionStoreCalls=%d", cache.versionStoreCalls)
+	if fixture.cache.versionStoreCalls != 1 {
+		t.Fatalf("expected version cache to be populated, got versionStoreCalls=%d", fixture.cache.versionStoreCalls)
 	}
-	if cache.storeCalls != 0 {
-		t.Fatalf("expected ready cache not to be restored, got storeCalls=%d", cache.storeCalls)
+	if fixture.cache.storeCalls != 0 {
+		t.Fatalf("expected ready cache not to be restored, got storeCalls=%d", fixture.cache.storeCalls)
 	}
 
-	latest, exists := statusStore.latest("jp")
+	latest, exists := fixture.statusStore.latest("jp")
 	if !exists {
 		t.Fatalf("expected latest jp status")
 	}
@@ -2779,41 +2790,25 @@ func TestSyncSkipFallsBackToFullSyncWhenVersionsPayloadMissing(t *testing.T) {
 	payloadWithoutVersions := map[string]any{
 		"cards.json": []any{map[string]any{"id": 1, "prefix": "from-backup"}},
 	}
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    2,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "old-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		previousCommit:    "old-commit",
+		previousFileCount: 2,
+		resolvedCommit:    "new-commit",
+		manifest:          manifest,
+		archivePayload:    payloadWithoutVersions,
+		backupPayload:     payloadWithoutVersions,
+		backupCommit:      "old-commit",
+		cacheReady:        true,
+	})
 
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "new-commit"},
-		manifestByZone: map[string]map[string]any{"jp": manifest},
-		payloadByZone:  map[string]map[string]any{"jp": payloadWithoutVersions},
-	}
-	cache := &fakeVersionSyncCache{loadedVersions: map[string]any{}}
-	cache.loadFromRedisOK = true
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "old-commit", payloadWithoutVersions); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if cache.versionStoreCalls != 0 {
-		t.Fatalf("expected version cache not to be populated, got versionStoreCalls=%d", cache.versionStoreCalls)
+	if fixture.cache.versionStoreCalls != 0 {
+		t.Fatalf("expected version cache not to be populated, got versionStoreCalls=%d", fixture.cache.versionStoreCalls)
 	}
-	if loader.loadCalls != 1 {
-		t.Fatalf("expected full sync fallback, got loadCalls=%d", loader.loadCalls)
+	if fixture.loader.loadCalls != 1 {
+		t.Fatalf("expected full sync fallback, got loadCalls=%d", fixture.loader.loadCalls)
 	}
 }

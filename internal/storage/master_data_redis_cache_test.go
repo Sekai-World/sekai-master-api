@@ -2575,31 +2575,64 @@ func retainedSearchIndexStat(tb testing.TB, cache *RedisMasterDataCache, region 
 	return stat
 }
 
-func TestStoreAndLoadRegionVersionPayload(t *testing.T) {
-	miniRedis, err := miniredis.Run()
+func newVersionPayloadTestCache(tb testing.TB) (context.Context, *RedisMasterDataCache) {
+	tb.Helper()
+	mr, err := miniredis.Run()
 	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
+		tb.Fatalf("start miniredis: %v", err)
 	}
-	defer miniRedis.Close()
+	tb.Cleanup(mr.Close)
 
 	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
+		RedisAddr:                mr.Addr(),
 		RedisDB:                  0,
 		MasterDataRedisKeyPrefix: "test:master-data:",
 	})
 	if err != nil {
-		t.Fatalf("new redis cache: %v", err)
+		tb.Fatalf("new redis cache: %v", err)
 	}
-	defer func() { _ = cache.Close() }()
+	tb.Cleanup(func() { _ = cache.Close() })
 
-	ctx := context.Background()
+	return context.Background(), cache
+}
+
+func newVersionPayloadTestCachePair(tb testing.TB) (context.Context, config.Config, *RedisMasterDataCache, *RedisMasterDataCache) {
+	tb.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		tb.Fatalf("start miniredis: %v", err)
+	}
+	tb.Cleanup(mr.Close)
+
+	cfg := config.Config{
+		RedisAddr:                mr.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+	writer, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		tb.Fatalf("new writer cache: %v", err)
+	}
+	tb.Cleanup(func() { _ = writer.Close() })
+
+	reader, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		tb.Fatalf("new reader cache: %v", err)
+	}
+	tb.Cleanup(func() { _ = reader.Close() })
+
+	return context.Background(), cfg, writer, reader
+}
+
+func TestStoreAndLoadRegionVersionPayload(t *testing.T) {
+	ctx, cache := newVersionPayloadTestCache(t)
+
 	version := map[string]any{
 		"appVersion":   "3.2.1",
 		"assetVersion": "3.2.1.10",
 		"dataVersion":  "3.2.1.10",
 		"cdnVersion":   1,
 	}
-
 	if err := cache.StoreRegionVersionPayload(ctx, "jp", version); err != nil {
 		t.Fatalf("store version payload: %v", err)
 	}
@@ -2625,23 +2658,8 @@ func TestStoreAndLoadRegionVersionPayload(t *testing.T) {
 }
 
 func TestLoadRegionVersionPayloadMissingReturnsFalse(t *testing.T) {
-	miniRedis, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
-	}
-	defer miniRedis.Close()
+	ctx, cache := newVersionPayloadTestCache(t)
 
-	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
-	})
-	if err != nil {
-		t.Fatalf("new redis cache: %v", err)
-	}
-	defer func() { _ = cache.Close() }()
-
-	ctx := context.Background()
 	loaded, found, err := cache.LoadRegionVersionPayload(ctx, "en")
 	if err != nil {
 		t.Fatalf("expected no error on missing key, got %v", err)
@@ -2654,44 +2672,12 @@ func TestLoadRegionVersionPayloadMissingReturnsFalse(t *testing.T) {
 	}
 }
 
-func TestStoreRegionVersionPayloadEmptyRegionReturnsError(t *testing.T) {
-	miniRedis, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
-	}
-	defer miniRedis.Close()
-
-	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
-	})
-	if err != nil {
-		t.Fatalf("new redis cache: %v", err)
-	}
-	defer func() { _ = cache.Close() }()
+func TestVersionPayloadEmptyRegionReturnsErrorAndNothing(t *testing.T) {
+	_, cache := newVersionPayloadTestCache(t)
 
 	if err := cache.StoreRegionVersionPayload(context.Background(), "", map[string]any{"k": "v"}); err == nil {
 		t.Fatalf("expected error for empty region")
 	}
-}
-
-func TestLoadRegionVersionPayloadEmptyRegionReturnsNothing(t *testing.T) {
-	miniRedis, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
-	}
-	defer miniRedis.Close()
-
-	cache, err := NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
-	})
-	if err != nil {
-		t.Fatalf("new redis cache: %v", err)
-	}
-	defer func() { _ = cache.Close() }()
 
 	loaded, found, err := cache.LoadRegionVersionPayload(context.Background(), "")
 	if err != nil {
@@ -2706,32 +2692,9 @@ func TestLoadRegionVersionPayloadEmptyRegionReturnsNothing(t *testing.T) {
 }
 
 func TestStoreAndLoadVersionPayloadCrossInstance(t *testing.T) {
-	miniRedis, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
-	}
-	defer miniRedis.Close()
+	ctx, _, writer, reader := newVersionPayloadTestCachePair(t)
 
-	cfg := config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
-	}
-	writer, err := NewRedisMasterDataCache(cfg)
-	if err != nil {
-		t.Fatalf("new writer cache: %v", err)
-	}
-	defer func() { _ = writer.Close() }()
-
-	reader, err := NewRedisMasterDataCache(cfg)
-	if err != nil {
-		t.Fatalf("new reader cache: %v", err)
-	}
-	defer func() { _ = reader.Close() }()
-
-	ctx := context.Background()
 	version := map[string]any{"appVersion": "1.0.0"}
-
 	if err := writer.StoreRegionVersionPayload(ctx, "jp", version); err != nil {
 		t.Fatalf("writer store version: %v", err)
 	}
