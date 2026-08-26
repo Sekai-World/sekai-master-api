@@ -129,6 +129,8 @@ const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
 
 const maxRedisEntityRecordBodySize = 64 << 20
 
+const attrCacheHitKey = "cache.hit"
+
 func (index *entitySearchIndex) idsValue(idIndex uint32) string {
 	if index == nil {
 		return ""
@@ -1231,7 +1233,7 @@ func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, e
 	body, err := cache.client.HGet(ctx, cache.redisEntityKey(regionName, entityName), recordIDValue).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			span.SetAttributes(attribute.Bool("cache.hit", false))
+			span.SetAttributes(attribute.Bool(attrCacheHitKey, false))
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("hget region %s entity %s id %s: %w", regionName, entityName, recordIDValue, err)
@@ -1242,7 +1244,7 @@ func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, e
 		return nil, false, err
 	}
 
-	span.SetAttributes(attribute.Bool("cache.hit", true))
+	span.SetAttributes(attribute.Bool(attrCacheHitKey, true))
 	return record, true, nil
 }
 
@@ -1715,7 +1717,7 @@ func (cache *RedisMasterDataCache) LoadRegionVersionPayload(ctx context.Context,
 	body, getErr := cache.client.Get(ctx, key).Bytes()
 	if getErr != nil {
 		if errors.Is(getErr, redis.Nil) {
-			span.SetAttributes(attribute.Bool("cache.hit", false))
+			span.SetAttributes(attribute.Bool(attrCacheHitKey, false))
 			return nil, false, nil
 		}
 		err = fmt.Errorf("load redis version payload for region %s: %w", regionName, getErr)
@@ -1728,7 +1730,7 @@ func (cache *RedisMasterDataCache) LoadRegionVersionPayload(ctx context.Context,
 		return nil, false, err
 	}
 
-	span.SetAttributes(attribute.Bool("cache.hit", true))
+	span.SetAttributes(attribute.Bool(attrCacheHitKey, true))
 	return version, true, nil
 }
 

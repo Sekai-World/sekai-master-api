@@ -987,6 +987,18 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 		return false, nil
 	}
 
+	if versionStore, ok := usecase.cache.(MasterDataCacheVersionStorer); ok {
+		if versionPayload, versionFound := versionPayloadFromBackup(source, latestPayload); versionFound {
+			if versionCacheErr := versionStore.StoreRegionVersionPayload(ctx, source.Region, versionPayload); versionCacheErr != nil {
+				usecase.logf("sync compare region=%s commit=%s reason=version_cache_store_error error=%v", source.Region, resolvedCommit, versionCacheErr)
+				return false, nil
+			}
+		} else {
+			usecase.logf("sync compare region=%s commit=%s reason=version_cache_unavailable", source.Region, resolvedCommit)
+			return false, nil
+		}
+	}
+
 	if err := usecase.backupStore.SaveRegionPayload(ctx, source, resolvedCommit, latestPayload); err != nil {
 		usecase.logf("sync compare region=%s commit=%s reason=backup_rebase_error error=%v", source.Region, resolvedCommit, err)
 		return false, nil
