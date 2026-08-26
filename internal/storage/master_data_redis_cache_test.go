@@ -2574,3 +2574,177 @@ func retainedSearchIndexStat(tb testing.TB, cache *RedisMasterDataCache, region 
 
 	return stat
 }
+
+func TestStoreAndLoadRegionVersionPayload(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() { _ = cache.Close() }()
+
+	ctx := context.Background()
+	version := map[string]any{
+		"appVersion":   "3.2.1",
+		"assetVersion": "3.2.1.10",
+		"dataVersion":  "3.2.1.10",
+		"cdnVersion":   1,
+	}
+
+	if err := cache.StoreRegionVersionPayload(ctx, "jp", version); err != nil {
+		t.Fatalf("store version payload: %v", err)
+	}
+
+	loaded, found, err := cache.LoadRegionVersionPayload(ctx, "jp")
+	if err != nil {
+		t.Fatalf("load version payload: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected version payload to be found")
+	}
+
+	loadedMap, ok := loaded.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", loaded)
+	}
+	if loadedMap["appVersion"] != "3.2.1" {
+		t.Fatalf("expected appVersion=3.2.1, got %v", loadedMap["appVersion"])
+	}
+	if loadedMap["cdnVersion"] != float64(1) {
+		t.Fatalf("expected cdnVersion=1, got %v", loadedMap["cdnVersion"])
+	}
+}
+
+func TestLoadRegionVersionPayloadMissingReturnsFalse(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() { _ = cache.Close() }()
+
+	ctx := context.Background()
+	loaded, found, err := cache.LoadRegionVersionPayload(ctx, "en")
+	if err != nil {
+		t.Fatalf("expected no error on missing key, got %v", err)
+	}
+	if found {
+		t.Fatalf("expected found=false for missing region version")
+	}
+	if loaded != nil {
+		t.Fatalf("expected nil payload for missing region version, got %v", loaded)
+	}
+}
+
+func TestStoreRegionVersionPayloadEmptyRegionReturnsError(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() { _ = cache.Close() }()
+
+	if err := cache.StoreRegionVersionPayload(context.Background(), "", map[string]any{"k": "v"}); err == nil {
+		t.Fatalf("expected error for empty region")
+	}
+}
+
+func TestLoadRegionVersionPayloadEmptyRegionReturnsNothing(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() { _ = cache.Close() }()
+
+	loaded, found, err := cache.LoadRegionVersionPayload(context.Background(), "")
+	if err != nil {
+		t.Fatalf("expected no error on empty region, got %v", err)
+	}
+	if found {
+		t.Fatalf("expected found=false for empty region")
+	}
+	if loaded != nil {
+		t.Fatalf("expected nil payload for empty region")
+	}
+}
+
+func TestStoreAndLoadVersionPayloadCrossInstance(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cfg := config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	}
+	writer, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new writer cache: %v", err)
+	}
+	defer func() { _ = writer.Close() }()
+
+	reader, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new reader cache: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	ctx := context.Background()
+	version := map[string]any{"appVersion": "1.0.0"}
+
+	if err := writer.StoreRegionVersionPayload(ctx, "jp", version); err != nil {
+		t.Fatalf("writer store version: %v", err)
+	}
+
+	loaded, found, err := reader.LoadRegionVersionPayload(ctx, "jp")
+	if err != nil {
+		t.Fatalf("reader load version: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected version to be found in reader")
+	}
+	loadedMap := loaded.(map[string]any)
+	if loadedMap["appVersion"] != "1.0.0" {
+		t.Fatalf("expected appVersion=1.0.0, got %v", loadedMap["appVersion"])
+	}
+}

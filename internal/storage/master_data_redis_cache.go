@@ -1667,6 +1667,71 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 	return true, nil
 }
 
+func (cache *RedisMasterDataCache) redisVersionPayloadKey(region string) string {
+	return cache.redisKey(region) + ":versions-latest"
+}
+
+func (cache *RedisMasterDataCache) StoreRegionVersionPayload(ctx context.Context, region string, version any) error {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.store_region_version", attribute.String("region", normalizeKey(region)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	regionName := normalizeKey(region)
+	if regionName == "" {
+		err = errors.New("region is required")
+		return err
+	}
+
+	body, marshalErr := json.Marshal(version)
+	if marshalErr != nil {
+		err = fmt.Errorf("marshal version payload for region %s: %w", regionName, marshalErr)
+		return err
+	}
+
+	key := cache.redisVersionPayloadKey(regionName)
+	if err = cache.client.Set(ctx, key, body, 0).Err(); err != nil {
+		err = fmt.Errorf("set redis version payload for region %s: %w", regionName, err)
+		return err
+	}
+
+	return nil
+}
+
+func (cache *RedisMasterDataCache) LoadRegionVersionPayload(ctx context.Context, region string) (any, bool, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.load_region_version", attribute.String("region", normalizeKey(region)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	regionName := normalizeKey(region)
+	if regionName == "" {
+		return nil, false, nil
+	}
+
+	key := cache.redisVersionPayloadKey(regionName)
+	body, getErr := cache.client.Get(ctx, key).Bytes()
+	if getErr != nil {
+		if errors.Is(getErr, redis.Nil) {
+			span.SetAttributes(attribute.Bool("cache.hit", false))
+			return nil, false, nil
+		}
+		err = fmt.Errorf("load redis version payload for region %s: %w", regionName, getErr)
+		return nil, false, err
+	}
+
+	var version map[string]any
+	if unmarshalErr := json.Unmarshal(body, &version); unmarshalErr != nil {
+		err = fmt.Errorf("unmarshal redis version payload for region %s: %w", regionName, unmarshalErr)
+		return nil, false, err
+	}
+
+	span.SetAttributes(attribute.Bool("cache.hit", true))
+	return version, true, nil
+}
+
 func (cache *RedisMasterDataCache) Close() error {
 	if cache.client == nil {
 		return nil

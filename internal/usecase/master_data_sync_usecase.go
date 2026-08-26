@@ -62,6 +62,14 @@ type MasterDataCacheEntityInspector interface {
 	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
 }
 
+type MasterDataCacheVersionStorer interface {
+	StoreRegionVersionPayload(ctx context.Context, region string, version any) error
+}
+
+type MasterDataCacheVersionLoader interface {
+	LoadRegionVersionPayload(ctx context.Context, region string) (any, bool, error)
+}
+
 type MasterDataSyncStatusStore interface {
 	Save(ctx context.Context, status masterdata.SyncStatus) error
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
@@ -846,6 +854,42 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 				return
 			}
 
+			if versionStore, ok := usecase.cache.(MasterDataCacheVersionStorer); ok {
+				if versionPayload, versionFound := versionPayloadFromBackup(source, payload); versionFound {
+					if versionCacheErr := versionStore.StoreRegionVersionPayload(regionCtx, source.Region, versionPayload); versionCacheErr != nil {
+						duration := time.Since(startedAt).Milliseconds()
+						usecase.logf("sync failed region=%s phase=version-cache duration_ms=%d error=%v", source.Region, duration, versionCacheErr)
+						usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+							Event:       "master_data_sync_progress",
+							Status:      "failed",
+							Region:      source.Region,
+							Phase:       "version-cache",
+							Message:     versionCacheErr.Error(),
+							CurrentStep: step,
+							TotalSteps:  totalSteps,
+							FileCount:   len(payload),
+							DurationMS:  duration,
+							UpdatedAt:   time.Now().UTC(),
+						})
+						recordFailure(source.Region, versionCacheErr)
+						if statusErr := usecase.saveStatus(ctx, masterdata.SyncStatus{
+							Region:         source.Region,
+							Status:         "failed",
+							FileCount:      len(payload),
+							SyncDurationMS: duration,
+							LastSyncedAt:   now,
+							SourceCommit:   resolvedCommit,
+							ErrorMessage:   versionCacheErr.Error(),
+							Source:         source,
+							UpdatedAt:      now,
+						}); statusErr != nil {
+							recordFailure(source.Region, fmt.Errorf("persist failed status for region %s: %w", source.Region, statusErr))
+						}
+						return
+					}
+				}
+			}
+
 			if usecase.backupStore != nil {
 				if backupErr := usecase.backupStore.SaveRegionPayload(regionCtx, source, resolvedCommit, payload); backupErr != nil {
 					usecase.logf("sync backup save failed region=%s commit=%s error=%v", source.Region, resolvedCommit, backupErr)
@@ -1332,12 +1376,25 @@ func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
 }
 
 func (usecase *MasterDataSyncUsecase) VersionByRegion(ctx context.Context, region string) (any, bool, error) {
-	if usecase == nil || usecase.backupStore == nil {
+	if usecase == nil {
 		return nil, false, nil
 	}
 
 	source, found := usecase.sourceByRegion(region)
 	if !found {
+		return nil, false, nil
+	}
+
+	if loader, ok := usecase.cache.(MasterDataCacheVersionLoader); ok {
+		version, loadFound, loadErr := loader.LoadRegionVersionPayload(ctx, source.Region)
+		if loadErr != nil {
+			usecase.logf("version_by_region region=%s reason=versions_cache_load_error error=%v", source.Region, loadErr)
+		} else if version != nil && loadFound {
+			return version, true, nil
+		}
+	}
+
+	if usecase.backupStore == nil {
 		return nil, false, nil
 	}
 
