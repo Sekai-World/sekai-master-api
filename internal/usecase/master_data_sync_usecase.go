@@ -1210,25 +1210,34 @@ func (usecase *MasterDataSyncUsecase) tryRestoreVersionFromBackup(ctx context.Co
 // restoreVersionFromLatestBackup restores the version payload from the latest
 // local backups, but only when the snapshot's commit matches expectedCommit.
 func (usecase *MasterDataSyncUsecase) restoreVersionFromLatestBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
-	if versionBackupStore, ok := usecase.backupStore.(MasterDataVersionBackupStore); ok {
-		if version, commit, _, found, err := versionBackupStore.LoadLatestRegionVersionPayload(ctx, source); err == nil && found {
-			if strings.EqualFold(commit, expectedCommit) {
-				if usecase.restoreVersionPayload(ctx, source, versionStore, version) {
-					return true
-				}
-			}
-		}
+	if usecase.restoreVersionFromVersionBackup(ctx, source, versionStore, expectedCommit) {
+		return true
 	}
 
-	if payload, commit, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source); err == nil && found {
-		if strings.EqualFold(commit, expectedCommit) {
-			if usecase.storeVersionFromPayload(ctx, source, versionStore, payload) {
-				return true
-			}
-		}
+	return usecase.restoreVersionFromPayloadBackup(ctx, source, versionStore, expectedCommit)
+}
+
+func (usecase *MasterDataSyncUsecase) restoreVersionFromVersionBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
+	versionBackupStore, ok := usecase.backupStore.(MasterDataVersionBackupStore)
+	if !ok {
+		return false
 	}
 
-	return false
+	version, commit, _, found, err := versionBackupStore.LoadLatestRegionVersionPayload(ctx, source)
+	if err != nil || !found || !strings.EqualFold(commit, expectedCommit) {
+		return false
+	}
+
+	return usecase.restoreVersionPayload(ctx, source, versionStore, version)
+}
+
+func (usecase *MasterDataSyncUsecase) restoreVersionFromPayloadBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
+	payload, commit, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
+	if err != nil || !found || !strings.EqualFold(commit, expectedCommit) {
+		return false
+	}
+
+	return usecase.storeVersionFromPayload(ctx, source, versionStore, payload)
 }
 
 func (usecase *MasterDataSyncUsecase) storeVersionFromPayload(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, payload map[string]any) bool {
