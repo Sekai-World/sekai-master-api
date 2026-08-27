@@ -516,7 +516,7 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 										UpdatedAt:   now,
 									})
 								} else if rebuilt {
-									if usecase.ensureVersionCachePopulated(regionCtx, source, nil) {
+									if usecase.ensureVersionCachePopulated(regionCtx, source, resolvedCommit, nil) {
 										rebuildFromRedis = true
 										usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s index=rebuilt_from_redis", source.Region, resolvedCommit)
 										usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
@@ -616,7 +616,7 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 											UpdatedAt:   now,
 										})
 									} else {
-										if !usecase.ensureVersionCachePopulated(regionCtx, source, backupPayload) {
+										if !usecase.ensureVersionCachePopulated(regionCtx, source, resolvedCommit, backupPayload) {
 											usecase.logf("sync compare region=%s commit=%s local_backup=version_cache_missing fallback=full_sync", source.Region, resolvedCommit)
 											usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
 												Event:       "master_data_sync_progress",
@@ -1146,49 +1146,101 @@ func (usecase *MasterDataSyncUsecase) restoreManifestSkipCache(ctx context.Conte
 // ensureVersionCachePopulated checks whether the version payload is available in
 // the version cache key. If the cache does not support separate version storage
 // it returns true immediately (nothing to worry about). Otherwise it tries to
-// load from cache, restore from version-only backup, or extract from full backup
-// payload before giving up.
-func (usecase *MasterDataSyncUsecase) ensureVersionCachePopulated(ctx context.Context, source masterdata.Source, payloadHint map[string]any) bool {
+// load from cache, restore from the in-hand payload hint, or restore from a
+// commit-matched local backup before giving up.
+//
+// The backup restore is strict: only a snapshot whose commit matches
+// expectedCommit may be used, so a stale backup captured for a different commit
+// never leaks its versions.json into the cache during a commit-unchanged
+// shortcut. A missing version payload forces the caller to fall back to a full
+// sync.
+func (usecase *MasterDataSyncUsecase) ensureVersionCachePopulated(ctx context.Context, source masterdata.Source, expectedCommit string, payloadHint map[string]any) bool {
 	versionStore, ok := usecase.cache.(MasterDataCacheVersionStorer)
 	if !ok {
 		return true
 	}
 
-	if versionLoader, ok := usecase.cache.(MasterDataCacheVersionLoader); ok {
-		if _, found, loadErr := versionLoader.LoadRegionVersionPayload(ctx, source.Region); loadErr == nil && found {
+	if usecase.versionCacheAlreadyLoaded(ctx, source) {
+		return true
+	}
+	if usecase.tryRestoreVersionFromHint(ctx, source, versionStore, payloadHint) {
+		return true
+	}
+	if usecase.tryRestoreVersionFromBackup(ctx, source, versionStore, expectedCommit) {
+		return true
+	}
+
+	return false
+}
+
+func (usecase *MasterDataSyncUsecase) versionCacheAlreadyLoaded(ctx context.Context, source masterdata.Source) bool {
+	versionLoader, ok := usecase.cache.(MasterDataCacheVersionLoader)
+	if !ok {
+		return false
+	}
+	_, found, loadErr := versionLoader.LoadRegionVersionPayload(ctx, source.Region)
+	return loadErr == nil && found
+}
+
+func (usecase *MasterDataSyncUsecase) tryRestoreVersionFromHint(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, payloadHint map[string]any) bool {
+	if payloadHint == nil {
+		return false
+	}
+	return usecase.storeVersionFromPayload(ctx, source, versionStore, payloadHint)
+}
+
+func (usecase *MasterDataSyncUsecase) tryRestoreVersionFromBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
+	if usecase.backupStore == nil || expectedCommit == "" {
+		return false
+	}
+
+	if payload, found, err := usecase.backupStore.LoadRegionPayload(ctx, source, expectedCommit); err == nil && found {
+		if usecase.storeVersionFromPayload(ctx, source, versionStore, payload) {
 			return true
 		}
 	}
 
-	if payloadHint != nil {
-		if version, found := versionPayloadFromBackup(source, payloadHint); found {
-			if storeErr := versionStore.StoreRegionVersionPayload(ctx, source.Region, version); storeErr == nil {
-				return true
-			}
-		}
+	if usecase.restoreVersionFromLatestBackup(ctx, source, versionStore, expectedCommit) {
+		return true
 	}
 
-	if usecase.backupStore == nil {
-		return false
-	}
+	return false
+}
 
+// restoreVersionFromLatestBackup restores the version payload from the latest
+// local backups, but only when the snapshot's commit matches expectedCommit.
+func (usecase *MasterDataSyncUsecase) restoreVersionFromLatestBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
 	if versionBackupStore, ok := usecase.backupStore.(MasterDataVersionBackupStore); ok {
-		if version, _, _, found, err := versionBackupStore.LoadLatestRegionVersionPayload(ctx, source); err == nil && found {
-			if storeErr := versionStore.StoreRegionVersionPayload(ctx, source.Region, version); storeErr == nil {
-				return true
+		if version, commit, _, found, err := versionBackupStore.LoadLatestRegionVersionPayload(ctx, source); err == nil && found {
+			if strings.EqualFold(commit, expectedCommit) {
+				if usecase.restoreVersionPayload(ctx, source, versionStore, version) {
+					return true
+				}
 			}
 		}
 	}
 
-	if payload, _, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source); err == nil && found {
-		if version, versionFound := versionPayloadFromBackup(source, payload); versionFound {
-			if storeErr := versionStore.StoreRegionVersionPayload(ctx, source.Region, version); storeErr == nil {
+	if payload, commit, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source); err == nil && found {
+		if strings.EqualFold(commit, expectedCommit) {
+			if usecase.storeVersionFromPayload(ctx, source, versionStore, payload) {
 				return true
 			}
 		}
 	}
 
 	return false
+}
+
+func (usecase *MasterDataSyncUsecase) storeVersionFromPayload(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, payload map[string]any) bool {
+	version, ok := versionPayloadFromBackup(source, payload)
+	if !ok {
+		return false
+	}
+	return usecase.restoreVersionPayload(ctx, source, versionStore, version)
+}
+
+func (usecase *MasterDataSyncUsecase) restoreVersionPayload(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, version any) bool {
+	return versionStore.StoreRegionVersionPayload(ctx, source.Region, version) == nil
 }
 
 func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[string]masterdata.SyncStatus {

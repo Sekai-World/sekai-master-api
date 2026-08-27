@@ -2970,3 +2970,103 @@ func TestSyncAllRedisRebuildShortcutFallsBackWhenVersionPayloadMissing(t *testin
 		t.Fatalf("expected no version store calls for payload without versions.json, got %d", cache.versionStoreCalls)
 	}
 }
+
+// TestSyncAllRedisRebuildShortcutFullSyncWhenBackupCommitMismatch verifies that a
+// local backup captured for a different commit is never used to populate the
+// version cache during a commit-unchanged shortcut. The stale versions.json must
+// not leak into the cache, so the sync falls back to a full load.
+func TestSyncAllRedisRebuildShortcutFullSyncWhenBackupCommitMismatch(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    42,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "current-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "current-commit"},
+		payloadByZone:  map[string]map[string]any{"jp": {"cards.json": []any{map[string]any{"id": 1}}}},
+	}
+	cache := &fakeVersionSyncCache{
+		loadedVersions: map[string]any{},
+	}
+	cache.rebuildFromRedisOK = true
+	cache.loadFromRedisOK = false
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "stale-commit", map[string]any{
+		"data/versions.json": map[string]any{"appVersion": "3.2.1"},
+		"cards.json":         []any{map[string]any{"id": 1}},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+	usecase.SetBackupStore(backupStore)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 1 {
+		t.Fatalf("expected full sync fallback for mismatched backup commit, got loadCalls=%d", loader.loadCalls)
+	}
+	if cache.storeCallCount() != 0 {
+		t.Fatalf("expected no version store calls for mismatched backup commit, got %d", cache.storeCallCount())
+	}
+}
+
+// TestSyncAllLocalBackupRestoreShortcutCommitMatch verifies that a local backup
+// whose commit matches the expected commit is used to populate the version
+// cache, so the commit-unchanged shortcut still skips the full load.
+func TestSyncAllLocalBackupRestoreShortcutCommitMatch(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+	previousStatus := masterdata.SyncStatus{
+		Region:       "jp",
+		Status:       "success",
+		FileCount:    2,
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		SourceCommit: "match-commit",
+		Source:       source,
+		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+	}
+
+	loader := &fakeSyncLoader{
+		resolvedByZone: map[string]string{"jp": "match-commit"},
+		payloadByZone: map[string]map[string]any{
+			"jp": {
+				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
+			},
+		},
+	}
+	cache := &fakeVersionSyncCache{
+		loadedVersions: map[string]any{},
+	}
+	cache.rebuildFromRedisOK = false
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
+	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
+	if err := backupStore.SaveRegionPayload(context.Background(), source, "match-commit", map[string]any{
+		"data/versions.json": map[string]any{"appVersion": "3.0.0"},
+		"cards.json":         []any{map[string]any{"id": 99, "prefix": "from-local"}},
+	}); err != nil {
+		t.Fatalf("save local backup: %v", err)
+	}
+	usecase.SetBackupStore(backupStore)
+
+	if err := usecase.SyncAll(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if loader.loadCalls != 0 {
+		t.Fatalf("expected full sync to be skipped, got loadCalls=%d", loader.loadCalls)
+	}
+	if cache.storeCallCount() != 1 {
+		t.Fatalf("expected 1 version store call for matched backup commit, got %d", cache.storeCallCount())
+	}
+}
