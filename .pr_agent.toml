@@ -10,11 +10,11 @@ max_model_tokens = 32000
 glob = ["**/*.lock", "pnpm-lock.yaml", "**/dist/**", "**/.turbo/**"]
 
 [pr_reviewer]
-num_code_suggestions = 3
+num_max_findings = 3
 extra_instructions = "Prioritize correctness, security, backward-compatible API contracts, data validation, and regression risks. Report only actionable findings; do not raise style-only or speculative nitpicks."
 
 [pr_code_suggestions]
-num_code_suggestions = 3
+num_code_suggestions_per_chunk = 3
 suggestions_score_threshold = 8
 
 [pr_description]
