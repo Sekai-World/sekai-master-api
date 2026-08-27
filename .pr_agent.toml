@@ -1,0 +1,21 @@
+# Provider secrets belong in GitHub Actions secrets, never in this file:
+# GEMINI_API_KEY and OPENROUTER_API_KEY.
+
+[config]
+response_language = "en-US"
+ai_timeout = 300
+max_model_tokens = 32000
+
+[ignore]
+glob = ["**/*.lock", "pnpm-lock.yaml", "**/dist/**", "**/.turbo/**"]
+
+[pr_reviewer]
+num_code_suggestions = 3
+extra_instructions = "Prioritize correctness, security, backward-compatible API contracts, data validation, and regression risks. Report only actionable findings; do not raise style-only or speculative nitpicks."
+
+[pr_code_suggestions]
+num_code_suggestions = 3
+suggestions_score_threshold = 8
+
+[pr_description]
+publish_labels = false
