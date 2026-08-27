@@ -2556,19 +2556,20 @@ type versionSyncTestFixture struct {
 }
 
 type versionSyncTestOptions struct {
-	previousCommit    string
-	previousFileCount int
-	resolvedCommit    string
-	manifest          map[string]any
-	archivePayload    map[string]any
-	backupPayload     map[string]any
-	backupCommit      string
-	cacheReady        bool
-	storeReturnErr    error
-	loadReturnErr     error
-	loadedVersions    map[string]any
-	previousStatus    string
-	publisher         *fakeSyncEventPublisher
+	previousCommit     string
+	previousFileCount  int
+	resolvedCommit     string
+	manifest           map[string]any
+	archivePayload     map[string]any
+	backupPayload      map[string]any
+	backupCommit       string
+	cacheReady         bool
+	rebuildFromRedisOK bool
+	storeReturnErr     error
+	loadReturnErr      error
+	loadedVersions     map[string]any
+	previousStatus     string
+	publisher          *fakeSyncEventPublisher
 }
 
 func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versionSyncTestFixture {
@@ -2606,6 +2607,7 @@ func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versi
 	}
 	cache := &fakeVersionSyncCache{loadedVersions: opts.loadedVersions}
 	cache.loadFromRedisOK = opts.cacheReady
+	cache.rebuildFromRedisOK = opts.rebuildFromRedisOK
 	cache.storeReturnErr = opts.storeReturnErr
 	cache.loadReturnErr = opts.loadReturnErr
 
@@ -2818,255 +2820,116 @@ func TestSyncSkipFallsBackToFullSyncWhenVersionsPayloadMissing(t *testing.T) {
 }
 
 func TestSyncAllRedisRebuildShortcutRestoresVersionCacheWhenMissing(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    42,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "abc123",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		resolvedCommit:     "abc123",
+		rebuildFromRedisOK: true,
+		archivePayload:     map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
+		backupPayload: map[string]any{
+			"data/versions.json": map[string]any{"appVersion": "3.2.1"},
+			"cards.json":         []any{map[string]any{"id": 1}},
+		},
+	})
 
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "abc123"},
-		payloadByZone:  map[string]map[string]any{"jp": {"cards.json": []any{map[string]any{"id": 1}}}},
-	}
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
-	}
-	cache.rebuildFromRedisOK = true
-	cache.loadFromRedisOK = false
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "abc123", map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "3.2.1"},
-		"cards.json":         []any{map[string]any{"id": 1}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
-	if loader.loadCalls != 0 {
-		t.Fatalf("expected load to be skipped, got loadCalls=%d", loader.loadCalls)
+	if fixture.loader.loadCalls != 0 {
+		t.Fatalf("expected load to be skipped, got loadCalls=%d", fixture.loader.loadCalls)
 	}
-	if cache.storeCallCount() != 1 {
-		t.Fatalf("expected 1 version store call from backup restore, got %d", cache.storeCallCount())
+	if fixture.cache.storeCallCount() != 1 {
+		t.Fatalf("expected 1 version store call from backup restore, got %d", fixture.cache.storeCallCount())
 	}
-	latest, exists := statusStore.latest("jp")
-	if !exists {
-		t.Fatalf("expected latest jp status")
-	}
-	if latest.Status != "success" {
-		t.Fatalf("expected status success, got %s", latest.Status)
+	if !fixture.statusStore.hasSavedStatus("jp", "success") {
+		t.Fatalf("expected success status saved for jp")
 	}
 }
 
 func TestSyncAllLocalBackupRestoreShortcutWritesVersionCache(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    2,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "same-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "same-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
-			},
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		previousCommit: "same-commit",
+		resolvedCommit: "same-commit",
+		archivePayload: map[string]any{"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}}},
+		backupPayload: map[string]any{
+			"data/versions.json": map[string]any{"appVersion": "3.0.0"},
+			"cards.json":         []any{map[string]any{"id": 99, "prefix": "from-local"}},
 		},
-	}
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
-	}
-	cache.rebuildFromRedisOK = false
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	})
 
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "same-commit", map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "3.0.0"},
-		"cards.json":         []any{map[string]any{"id": 99, "prefix": "from-local"}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
-	if loader.loadCalls != 0 {
-		t.Fatalf("expected full sync to be skipped, got loadCalls=%d", loader.loadCalls)
+	if fixture.loader.loadCalls != 0 {
+		t.Fatalf("expected full sync to be skipped, got loadCalls=%d", fixture.loader.loadCalls)
 	}
-	if cache.storeCallCount() != 1 {
-		t.Fatalf("expected 1 version store call from backup restore, got %d", cache.storeCallCount())
+	if fixture.cache.storeCallCount() != 1 {
+		t.Fatalf("expected 1 version store call from backup restore, got %d", fixture.cache.storeCallCount())
 	}
-	latest, exists := statusStore.latest("jp")
-	if !exists {
-		t.Fatalf("expected latest jp status")
-	}
-	if latest.Status != "success" {
-		t.Fatalf("expected status success, got %s", latest.Status)
+	if !fixture.statusStore.hasSavedStatus("jp", "success") {
+		t.Fatalf("expected success status saved for jp")
 	}
 }
 
 func TestSyncAllRedisRebuildShortcutFallsBackWhenVersionPayloadMissing(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    2,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "abc123",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		resolvedCommit:     "abc123",
+		rebuildFromRedisOK: true,
+		archivePayload:     map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
+		backupPayload:      map[string]any{"cards.json": []any{map[string]any{"id": 99}}},
+	})
 
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "abc123"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"cards.json": []any{map[string]any{"id": 1}},
-			},
-		},
-	}
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
-	}
-	cache.rebuildFromRedisOK = true
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "abc123", map[string]any{
-		"cards.json": []any{map[string]any{"id": 99}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
-	if loader.loadCalls != 1 {
-		t.Fatalf("expected full sync fallback, got loadCalls=%d", loader.loadCalls)
+	if fixture.loader.loadCalls != 1 {
+		t.Fatalf("expected full sync fallback, got loadCalls=%d", fixture.loader.loadCalls)
 	}
-	if cache.versionStoreCalls != 0 {
-		t.Fatalf("expected no version store calls for payload without versions.json, got %d", cache.versionStoreCalls)
+	if fixture.cache.storeCallCount() != 0 {
+		t.Fatalf("expected no version store calls for payload without versions.json, got %d", fixture.cache.storeCallCount())
 	}
 }
 
-// TestSyncAllRedisRebuildShortcutFullSyncWhenBackupCommitMismatch verifies that a
-// local backup captured for a different commit is never used to populate the
-// version cache during a commit-unchanged shortcut. The stale versions.json must
-// not leak into the cache, so the sync falls back to a full load.
 func TestSyncAllRedisRebuildShortcutFullSyncWhenBackupCommitMismatch(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    42,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "current-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		previousCommit:     "current-commit",
+		resolvedCommit:     "current-commit",
+		rebuildFromRedisOK: true,
+		archivePayload:     map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
+		backupCommit:       "stale-commit",
+		backupPayload: map[string]any{
+			"data/versions.json": map[string]any{"appVersion": "3.2.1"},
+			"cards.json":         []any{map[string]any{"id": 1}},
+		},
+	})
 
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "current-commit"},
-		payloadByZone:  map[string]map[string]any{"jp": {"cards.json": []any{map[string]any{"id": 1}}}},
-	}
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
-	}
-	cache.rebuildFromRedisOK = true
-	cache.loadFromRedisOK = false
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "stale-commit", map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "3.2.1"},
-		"cards.json":         []any{map[string]any{"id": 1}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
-	if loader.loadCalls != 1 {
-		t.Fatalf("expected full sync fallback for mismatched backup commit, got loadCalls=%d", loader.loadCalls)
+	if fixture.loader.loadCalls != 1 {
+		t.Fatalf("expected full sync fallback for mismatched backup commit, got loadCalls=%d", fixture.loader.loadCalls)
 	}
-	if cache.storeCallCount() != 0 {
-		t.Fatalf("expected no version store calls for mismatched backup commit, got %d", cache.storeCallCount())
+	if fixture.cache.storeCallCount() != 0 {
+		t.Fatalf("expected no version store calls for mismatched backup commit, got %d", fixture.cache.storeCallCount())
 	}
 }
 
-// TestSyncAllLocalBackupRestoreShortcutCommitMatch verifies that a local backup
-// whose commit matches the expected commit is used to populate the version
-// cache, so the commit-unchanged shortcut still skips the full load.
 func TestSyncAllLocalBackupRestoreShortcutCommitMatch(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    2,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "match-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "match-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
-			},
+	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+		previousCommit: "match-commit",
+		resolvedCommit: "match-commit",
+		archivePayload: map[string]any{"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}}},
+		backupPayload: map[string]any{
+			"data/versions.json": map[string]any{"appVersion": "3.0.0"},
+			"cards.json":         []any{map[string]any{"id": 99, "prefix": "from-local"}},
 		},
-	}
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{},
-	}
-	cache.rebuildFromRedisOK = false
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	})
 
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "match-commit", map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "3.0.0"},
-		"cards.json":         []any{map[string]any{"id": 99, "prefix": "from-local"}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.SetBackupStore(backupStore)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
+	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
-	if loader.loadCalls != 0 {
-		t.Fatalf("expected full sync to be skipped, got loadCalls=%d", loader.loadCalls)
+	if fixture.loader.loadCalls != 0 {
+		t.Fatalf("expected full sync to be skipped, got loadCalls=%d", fixture.loader.loadCalls)
 	}
-	if cache.storeCallCount() != 1 {
-		t.Fatalf("expected 1 version store call for matched backup commit, got %d", cache.storeCallCount())
+	if fixture.cache.storeCallCount() != 1 {
+		t.Fatalf("expected 1 version store call for matched backup commit, got %d", fixture.cache.storeCallCount())
 	}
 }
