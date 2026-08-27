@@ -1355,10 +1355,14 @@ func TestSyncAllSkipDoesNotMutateRedisCache(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 
 	seedPayload := map[string]any{
-		"cards.json": []any{map[string]any{"id": 1, "prefix": "stable"}},
+		"data/versions.json": map[string]any{"appVersion": "seeded"},
+		"cards.json":         []any{map[string]any{"id": 1, "prefix": "stable"}},
 	}
 	if err := redisCache.StoreRegion(context.Background(), "jp", seedPayload); err != nil {
 		t.Fatalf("seed redis cache: %v", err)
+	}
+	if err := redisCache.StoreRegionVersionPayload(context.Background(), "jp", map[string]any{"appVersion": "seeded"}); err != nil {
+		t.Fatalf("seed version cache: %v", err)
 	}
 
 	beforeRecord, found, err := redisCache.GetByID(context.Background(), "jp", "cards", "1")
@@ -2552,19 +2556,20 @@ type versionSyncTestFixture struct {
 }
 
 type versionSyncTestOptions struct {
-	previousCommit    string
-	previousFileCount int
-	resolvedCommit    string
-	manifest          map[string]any
-	archivePayload    map[string]any
-	backupPayload     map[string]any
-	backupCommit      string
-	cacheReady        bool
-	storeReturnErr    error
-	loadReturnErr     error
-	loadedVersions    map[string]any
-	previousStatus    string
-	publisher         *fakeSyncEventPublisher
+	previousCommit     string
+	previousFileCount  int
+	resolvedCommit     string
+	manifest           map[string]any
+	archivePayload     map[string]any
+	backupPayload      map[string]any
+	backupCommit       string
+	cacheReady         bool
+	rebuildFromRedisOK bool
+	storeReturnErr     error
+	loadReturnErr      error
+	loadedVersions     map[string]any
+	previousStatus     string
+	publisher          *fakeSyncEventPublisher
 }
 
 func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versionSyncTestFixture {
@@ -2602,6 +2607,7 @@ func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versi
 	}
 	cache := &fakeVersionSyncCache{loadedVersions: opts.loadedVersions}
 	cache.loadFromRedisOK = opts.cacheReady
+	cache.rebuildFromRedisOK = opts.rebuildFromRedisOK
 	cache.storeReturnErr = opts.storeReturnErr
 	cache.loadReturnErr = opts.loadReturnErr
 
@@ -2810,5 +2816,87 @@ func TestSyncSkipFallsBackToFullSyncWhenVersionsPayloadMissing(t *testing.T) {
 	}
 	if fixture.loader.loadCalls != 1 {
 		t.Fatalf("expected full sync fallback, got loadCalls=%d", fixture.loader.loadCalls)
+	}
+}
+
+func TestSyncAllVersionCacheShortcutScenarios(t *testing.T) {
+	tests := []struct {
+		name               string
+		previousCommit     string
+		resolvedCommit     string
+		backupCommit       string
+		rebuildFromRedisOK bool
+		backupPayload      map[string]any
+		wantLoadCalls      int
+		wantVersionStores  int
+	}{
+		{
+			name:               "redis_rebuild_restores_missing_version_cache",
+			resolvedCommit:     "abc123",
+			rebuildFromRedisOK: true,
+			backupPayload: map[string]any{
+				"data/versions.json": map[string]any{"appVersion": "3.2.1"},
+				"cards.json":         []any{map[string]any{"id": 1}},
+			},
+			wantLoadCalls:     0,
+			wantVersionStores: 1,
+		},
+		{
+			name:           "local_backup_restore_writes_version_cache",
+			previousCommit: "same-commit",
+			resolvedCommit: "same-commit",
+			backupPayload: map[string]any{
+				"data/versions.json": map[string]any{"appVersion": "3.0.0"},
+				"cards.json":         []any{map[string]any{"id": 99}},
+			},
+			wantLoadCalls:     0,
+			wantVersionStores: 1,
+		},
+		{
+			name:               "falls_back_when_version_payload_is_missing",
+			resolvedCommit:     "abc123",
+			rebuildFromRedisOK: true,
+			backupPayload:      map[string]any{"cards.json": []any{map[string]any{"id": 99}}},
+			wantLoadCalls:      1,
+			wantVersionStores:  0,
+		},
+		{
+			name:           "falls_back_when_backup_commit_mismatches",
+			previousCommit: "current-commit",
+			resolvedCommit: "current-commit",
+			backupCommit:   "stale-commit",
+			backupPayload: map[string]any{
+				"data/versions.json": map[string]any{"appVersion": "3.2.1"},
+				"cards.json":         []any{map[string]any{"id": 1}},
+			},
+			wantLoadCalls:     1,
+			wantVersionStores: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
+				previousCommit:     tt.previousCommit,
+				resolvedCommit:     tt.resolvedCommit,
+				backupCommit:       tt.backupCommit,
+				rebuildFromRedisOK: tt.rebuildFromRedisOK,
+				archivePayload:     map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
+				backupPayload:      tt.backupPayload,
+			})
+
+			if err := fixture.usecase.SyncAll(context.Background()); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if fixture.loader.loadCalls != tt.wantLoadCalls {
+				t.Fatalf("expected loadCalls=%d, got %d", tt.wantLoadCalls, fixture.loader.loadCalls)
+			}
+			if fixture.cache.storeCallCount() != tt.wantVersionStores {
+				t.Fatalf("expected version store calls=%d, got %d", tt.wantVersionStores, fixture.cache.storeCallCount())
+			}
+			if tt.wantLoadCalls == 0 && !fixture.statusStore.hasSavedStatus("jp", "success") {
+				t.Fatalf("expected success status saved for jp")
+			}
+		})
 	}
 }
