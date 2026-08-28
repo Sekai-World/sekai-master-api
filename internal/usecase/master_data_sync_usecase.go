@@ -70,6 +70,13 @@ type MasterDataCacheVersionLoader interface {
 	LoadRegionVersionPayload(ctx context.Context, region string) (any, bool, error)
 }
 
+// MasterDataRedisPinger reports whether the Redis-backed cache is reachable. It
+// is satisfied by *storage.RedisMasterDataCache and lets the readiness probe
+// verify Redis connectivity without depending on the concrete storage type.
+type MasterDataRedisPinger interface {
+	Ping(ctx context.Context) error
+}
+
 type MasterDataSyncStatusStore interface {
 	Save(ctx context.Context, status masterdata.SyncStatus) error
 	List(ctx context.Context) ([]masterdata.SyncStatus, error)
@@ -1522,6 +1529,77 @@ func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
 
 	sort.Strings(regions)
 	return regions
+}
+
+// RedisReady reports whether the Redis cache backend is reachable. It returns
+// (true, nil) when Redis is reachable or when the configured cache does not
+// support connectivity checks. It returns (false, err) when Redis is
+// unreachable so the serve readiness probe can report the pod not ready.
+func (usecase *MasterDataSyncUsecase) RedisReady(ctx context.Context) (bool, error) {
+	if usecase == nil {
+		return false, fmt.Errorf("master data sync usecase is nil")
+	}
+	if usecase.cache == nil {
+		return false, fmt.Errorf("master data cache is nil")
+	}
+
+	pinger, ok := usecase.cache.(MasterDataRedisPinger)
+	if !ok {
+		return true, nil
+	}
+
+	if err := pinger.Ping(ctx); err != nil {
+		return false, fmt.Errorf("redis readiness check: %w", err)
+	}
+
+	return true, nil
+}
+
+// RegionVersionReady reports whether usable version metadata for a region is
+// available in the cache. The serve readiness probe requires persisted card
+// records AND version metadata before considering a region ready, and the
+// version payload must satisfy the same contract the public /versions response
+// enforces (at least one valid version field). When the cache does not support
+// version storage the check is treated as satisfied (true) so a
+// non-version-aware cache does not block readiness.
+func (usecase *MasterDataSyncUsecase) RegionVersionReady(ctx context.Context, region string) (bool, error) {
+	if usecase == nil {
+		return false, nil
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		return false, nil
+	}
+
+	loader, ok := usecase.cache.(MasterDataCacheVersionLoader)
+	if !ok {
+		return true, nil
+	}
+
+	payload, found, err := loader.LoadRegionVersionPayload(ctx, region)
+	if err != nil {
+		// A corrupt/malformed version payload is a data problem (surfaced by the
+		// caller as master_data), not a Redis connectivity failure. Only genuine
+		// Redis transport/read failures propagate as errors so the readiness probe
+		// reports the redis dependency instead of master_data.
+		var syntaxErr *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+			return false, nil
+		}
+		return false, fmt.Errorf("load region version payload %s: %w", region, err)
+	}
+	if !found {
+		return false, nil
+	}
+
+	payloadMap, ok := payload.(map[string]any)
+	if !ok {
+		return false, nil
+	}
+
+	return masterdata.IsCompleteVersionPayload(payloadMap), nil
 }
 
 func (usecase *MasterDataSyncUsecase) VersionByRegion(ctx context.Context, region string) (any, bool, error) {

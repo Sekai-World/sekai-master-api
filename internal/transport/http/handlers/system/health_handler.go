@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -20,6 +21,8 @@ type MasterDataReadinessChecker interface {
 	ConfiguredRegions() []string
 	HasSuccessfulSync(ctx context.Context, region string) (bool, error)
 	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
+	RedisReady(ctx context.Context) (bool, error)
+	RegionVersionReady(ctx context.Context, region string) (bool, error)
 }
 
 type HealthHandler struct {
@@ -75,7 +78,9 @@ func (handler *HealthHandler) Ready(c *gin.Context) {
 		return
 	}
 	if handler.db != nil {
-		if err := handler.db.PingContext(c.Request.Context()); err != nil {
+		dbCtx, dbCancel := context.WithTimeout(c.Request.Context(), readinessProbeTimeout)
+		defer dbCancel()
+		if err := handler.db.PingContext(dbCtx); err != nil {
 			respondNotReady(c, "database")
 			return
 		}
@@ -87,31 +92,54 @@ func (handler *HealthHandler) Ready(c *gin.Context) {
 	response.JSON(c, http.StatusOK, gin.H{"status": "ok"})
 }
 
-// serveReady evaluates per-region readiness for the serve role.  A region is
-// considered ready when persisted card records exist regardless of sync status.
-// HasSuccessfulSync is queried for diagnostics only and its errors do not gate
-// readiness.
+// readinessProbeTimeout bounds the readiness scan so a slow PostgreSQL or Redis
+// cannot hang the Kubernetes readiness probe indefinitely. The check is
+// read-only: it never writes to PostgreSQL or Redis.
+const readinessProbeTimeout = 5 * time.Second
+
+// serveReady evaluates a bounded, read-only readiness check for the serve role.
+// It verifies Redis connectivity once, then for each configured region checks
+// that persisted card records AND version metadata are available. The response
+// enumerates affected (unready) regions but never includes secrets such as
+// database URLs, Redis credentials, or source repository references.
 func (handler *HealthHandler) serveReady(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), readinessProbeTimeout)
+	defer cancel()
+
 	configured := handler.masterDataSync.ConfiguredRegions()
+
+	if redisReady, _ := handler.masterDataSync.RedisReady(ctx); !redisReady {
+		// Without Redis the serve pod cannot serve any configured region. The
+		// response reason "redis" already signals the failing dependency.
+		respondNotReadyWithRegions(c, "redis", configured, []string{})
+		return
+	}
+
 	ready := make([]string, 0, len(configured))
+	unready := make([]string, 0, len(configured))
 	var regionsPendingSync []string
 
 	for _, region := range configured {
-		r, err := handler.evaluateRegionReadiness(c.Request.Context(), region)
+		r, err := handler.evaluateRegionReadiness(ctx, region)
 		if err != nil {
-			respondNotReady(c, "master_data")
+			// HasEntityRecords and RegionVersionReady both read from Redis, so a
+			// transport/storage error here means Redis is not reachable. Report
+			// the redis dependency rather than master_data.
+			respondNotReadyWithRegions(c, "redis", configured, []string{})
 			return
 		}
 		if r.ready {
 			ready = append(ready, region)
-			if r.pendingSync {
-				regionsPendingSync = append(regionsPendingSync, region)
-			}
+		} else {
+			unready = append(unready, region)
+		}
+		if r.ready && r.pendingSync {
+			regionsPendingSync = append(regionsPendingSync, region)
 		}
 	}
 
 	if len(ready) < len(configured) {
-		respondNotReadyWithRegions(c, ready)
+		respondNotReadyWithRegions(c, "master_data", unready, ready)
 		return
 	}
 
@@ -128,9 +156,11 @@ type regionReadiness struct {
 	pendingSync bool
 }
 
-// evaluateRegionReadiness checks whether a single region has persisted card
-// records.  If records exist it also probes whether a successful sync has been
-// observed; a sync error does not cause a readiness failure.
+// evaluateRegionReadiness checks whether a single region is ready. A region is
+// ready when it has persisted card records AND version metadata available. If
+// records exist it also probes whether a successful sync has been observed; a
+// sync error does not cause a readiness failure (it only contributes to the
+// diagnostic regions_pending_sync list).
 func (handler *HealthHandler) evaluateRegionReadiness(ctx context.Context, region string) (regionReadiness, error) {
 	hasRecords, err := handler.masterDataSync.HasEntityRecords(ctx, region, "cards")
 	if err != nil {
@@ -139,6 +169,15 @@ func (handler *HealthHandler) evaluateRegionReadiness(ctx context.Context, regio
 	if !hasRecords {
 		return regionReadiness{}, nil
 	}
+
+	versionReady, versionErr := handler.masterDataSync.RegionVersionReady(ctx, region)
+	if versionErr != nil {
+		return regionReadiness{}, versionErr
+	}
+	if !versionReady {
+		return regionReadiness{}, nil
+	}
+
 	r := regionReadiness{ready: true}
 	hasSync, syncErr := handler.masterDataSync.HasSuccessfulSync(ctx, region)
 	if syncErr == nil && !hasSync {
@@ -151,10 +190,17 @@ func respondNotReady(c *gin.Context, reason string) {
 	response.JSON(c, http.StatusServiceUnavailable, gin.H{"status": "not_ready", "reason": reason})
 }
 
-func respondNotReadyWithRegions(c *gin.Context, readyRegions []string) {
-	response.JSON(c, http.StatusServiceUnavailable, gin.H{
-		"status":        "not_ready",
-		"reason":        "master_data",
-		"ready_regions": readyRegions,
-	})
+// respondNotReadyWithRegions reports the pod not ready and enumerates the regions
+// that are (and are not) ready. Both keys are always present for response
+// compatibility: ready_regions is emitted as [] when no region is ready. Secrets
+// such as database connection strings, Redis credentials, and source references are
+// never included.
+func respondNotReadyWithRegions(c *gin.Context, reason string, unreadyRegions, readyRegions []string) {
+	body := gin.H{
+		"status":          "not_ready",
+		"reason":          reason,
+		"unready_regions": unreadyRegions,
+		"ready_regions":   readyRegions,
+	}
+	response.JSON(c, http.StatusServiceUnavailable, body)
 }

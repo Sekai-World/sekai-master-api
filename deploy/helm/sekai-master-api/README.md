@@ -260,6 +260,15 @@ to have persisted cards records; a failed or in-progress control sync no longer
 blocks readiness once records exist (`regions_pending_sync` in the response is
 diagnostic only). Readiness probes are enabled by default.
 
+The `serve` `/readyz` is a bounded, read-only check: it verifies Redis
+connectivity once, then requires every configured region to have persisted card
+records AND version metadata before reporting the pod ready. If Redis is
+unreachable the response reason is `redis` and every configured region is listed
+as affected (`unready_regions`); if a region lacks data or version metadata the
+reason is `master_data` and only the affected regions are listed. The response
+never includes secrets such as database URLs, Redis credentials, or source
+repository references.
+
 Startup probes only gate process boot and database migrations via `/startupz`;
 they do not wait for master-data sync. The `control` role marks startup complete
 after migrations and runs sync in the background, so a long cold-start sync

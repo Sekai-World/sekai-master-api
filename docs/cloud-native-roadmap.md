@@ -201,8 +201,9 @@ ad-hoc shell changes in the cluster.
   search-index repair.
 - `control` remains a single replica with `Recreate` deployment semantics
   until distributed locking and fencing are implemented (P2).
-- `serve` readiness currently checks cards data availability, not version
-  data availability; this will be updated as part of P0 item 2.
+- `serve` readiness verifies PostgreSQL and Redis connectivity plus persisted
+  cards and complete version metadata for every configured region. It remains
+  a bounded, read-only probe and must not repair Redis data.
 - Redis is a shared persisted data plane; `serve` must not silently rebuild an
   empty Redis.
 

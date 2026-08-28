@@ -1742,6 +1742,29 @@ func (cache *RedisMasterDataCache) Close() error {
 	return cache.client.Close()
 }
 
+// Ping verifies Redis connectivity. It is used by the serve readiness probe to
+// ensure the cache backend is reachable before reporting the pod ready, without
+// performing any read or write against master data keys.
+func (cache *RedisMasterDataCache) Ping(ctx context.Context) error {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.ping")
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	if cache.client == nil {
+		err = errors.New("redis client is not initialized")
+		return err
+	}
+
+	if pingErr := cache.client.Ping(ctx).Err(); pingErr != nil {
+		err = fmt.Errorf("ping redis: %w", pingErr)
+		return err
+	}
+
+	return nil
+}
+
 func (cache *RedisMasterDataCache) RegionIndexStats() []RegionIndexStats {
 	if cache == nil {
 		return nil
