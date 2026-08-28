@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -2898,5 +2899,132 @@ func TestSyncAllVersionCacheShortcutScenarios(t *testing.T) {
 				t.Fatalf("expected success status saved for jp")
 			}
 		})
+	}
+}
+
+// fakeRedisReadinessCache is a minimal MasterDataCache used to exercise the
+// Redis connectivity and version-metadata readiness helpers without a real
+// Redis backend.
+type fakeRedisReadinessCache struct {
+	pingErr         error
+	versionByRegion map[string]bool
+	versionErr      error
+}
+
+func (c *fakeRedisReadinessCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
+	return nil
+}
+
+func (c *fakeRedisReadinessCache) GetByID(_ context.Context, _, _, _ string) (map[string]any, bool, error) {
+	return nil, false, nil
+}
+
+func (c *fakeRedisReadinessCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
+	return nil, nil
+}
+
+func (c *fakeRedisReadinessCache) ListByPage(_ context.Context, _, _ string, _, _ int) ([]map[string]any, int, error) {
+	return nil, 0, nil
+}
+
+func (c *fakeRedisReadinessCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
+	return nil, nil
+}
+
+func (c *fakeRedisReadinessCache) Ping(_ context.Context) error { return c.pingErr }
+
+func (c *fakeRedisReadinessCache) LoadRegionVersionPayload(_ context.Context, region string) (any, bool, error) {
+	if c.versionErr != nil {
+		return nil, false, c.versionErr
+	}
+	if v, ok := c.versionByRegion[strings.ToLower(strings.TrimSpace(region))]; ok {
+		if !v {
+			return map[string]any{}, false, nil
+		}
+		return map[string]any{"appVersion": "stub"}, true, nil
+	}
+	return map[string]any{"appVersion": "stub"}, true, nil
+}
+
+func TestRedisReadyReflectsCacheReachability(t *testing.T) {
+	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{pingErr: errors.New("redis down")}}
+	ready, err := uc.RedisReady(context.Background())
+	if ready {
+		t.Fatalf("expected redis not ready when ping fails")
+	}
+	if err == nil {
+		t.Fatalf("expected error when ping fails")
+	}
+
+	uc.cache = &fakeRedisReadinessCache{}
+	ready, err = uc.RedisReady(context.Background())
+	if !ready {
+		t.Fatalf("expected redis ready, err=%v", err)
+	}
+	if err != nil {
+		t.Fatalf("expected no error when ping ok, got %v", err)
+	}
+}
+
+func TestRegionVersionReadyReflectsVersionAvailability(t *testing.T) {
+	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{versionByRegion: map[string]bool{"jp": false}}}
+	ready, err := uc.RegionVersionReady(context.Background(), "jp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ready {
+		t.Fatalf("expected jp version not ready")
+	}
+
+	uc.cache = &fakeRedisReadinessCache{versionByRegion: map[string]bool{"jp": true}}
+	ready, err = uc.RegionVersionReady(context.Background(), "jp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ready {
+		t.Fatalf("expected jp version ready")
+	}
+
+	// A region without an explicit version mapping defaults to available so a
+	// non-version-aware cache does not block readiness.
+	uc.cache = &fakeRedisReadinessCache{}
+	ready, err = uc.RegionVersionReady(context.Background(), "unknown")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ready {
+		t.Fatalf("expected default version ready for unknown region")
+	}
+}
+
+func TestRegionVersionReadyCorruptPayloadReportsNotReadyWithoutError(t *testing.T) {
+	// A corrupt/malformed version payload read from Redis is a data problem
+	// (surfaced as master_data by the readiness probe), not a Redis connectivity
+	// failure, so it must not propagate an error to the caller.
+	var corruptSink any
+	corrupt := json.Unmarshal([]byte("{not-valid-json"), &corruptSink)
+	if corrupt == nil {
+		t.Fatalf("expected a corrupt json unmarshal error fixture")
+	}
+	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{versionErr: corrupt}}
+	ready, err := uc.RegionVersionReady(context.Background(), "jp")
+	if err != nil {
+		t.Fatalf("corrupt payload must not propagate a redis error, got %v", err)
+	}
+	if ready {
+		t.Fatalf("expected jp version not ready for corrupt payload")
+	}
+}
+
+func TestRegionVersionReadyRedisTransportErrorPropagates(t *testing.T) {
+	// A genuine Redis transport/read failure must propagate so the readiness
+	// probe reports the redis dependency rather than master_data.
+	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{versionErr: errors.New("redis: connection pool timeout")}}
+	ready, err := uc.RegionVersionReady(context.Background(), "jp")
+	if err == nil {
+		t.Fatalf("expected redis transport error to propagate")
+	}
+	if ready {
+		t.Fatalf("expected jp not ready when redis fails")
 	}
 }

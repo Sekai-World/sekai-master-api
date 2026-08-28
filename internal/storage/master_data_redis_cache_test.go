@@ -2711,3 +2711,32 @@ func TestStoreAndLoadVersionPayloadCrossInstance(t *testing.T) {
 		t.Fatalf("expected appVersion=1.0.0, got %v", loadedMap["appVersion"])
 	}
 }
+
+func TestRedisMasterDataCachePing(t *testing.T) {
+	miniRedis, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("start miniredis: %v", err)
+	}
+	defer miniRedis.Close()
+
+	cache, err := NewRedisMasterDataCache(config.Config{
+		RedisAddr:                miniRedis.Addr(),
+		RedisDB:                  0,
+		MasterDataRedisKeyPrefix: "test:master-data:",
+	})
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	defer func() { _ = cache.Close() }()
+
+	if err := cache.Ping(context.Background()); err != nil {
+		t.Fatalf("expected ping ok while redis is up, got %v", err)
+	}
+
+	// Simulate Redis becoming unreachable and ensure Ping reports the failure
+	// so the readiness probe can mark the pod not ready.
+	miniRedis.Close()
+	if err := cache.Ping(context.Background()); err == nil {
+		t.Fatalf("expected ping error after redis closed")
+	}
+}

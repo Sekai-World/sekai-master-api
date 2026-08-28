@@ -94,6 +94,33 @@ echo "[smoke] waiting for startup and readiness"
 wait_for_status 200 "${SMOKE_SERVE_BASE_URL}/startupz"
 wait_for_status 200 "${SMOKE_SERVE_BASE_URL}/readyz"
 
+echo "[smoke] verifying serve /readyz readiness surface"
+# The serve readiness probe is the bounded, read-only check used by the
+# split-deployment serve pods. When it reports ready, the body must expose the
+# affected-region surface consumed by Kubernetes (it must never leak secrets).
+require_ready_surface() {
+  # Assert the readiness body exposes the expected readiness surface
+  # (status + ready_regions) so the serve role reports per-region readiness.
+  # Keys are checked independently so JSON key ordering does not matter.
+  endpoint="$1"
+  body="$(curl -sS --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" --max-time "${CURL_MAX_TIME_SECONDS}" "${endpoint}")"
+  case "${body}" in
+    *'"status"'*) ;;
+    *)
+      echo "[smoke] expected ${endpoint} body to contain \"status\", got: ${body}"
+      return 1
+      ;;
+  esac
+  case "${body}" in
+    *'"ready_regions"'*) return 0 ;;
+    *)
+      echo "[smoke] expected ${endpoint} body to contain \"ready_regions\", got: ${body}"
+      return 1
+      ;;
+  esac
+}
+require_ready_surface "${SMOKE_SERVE_BASE_URL}/readyz"
+
 if [ -z "${SMOKE_PUBLIC_PATH}" ]; then
   echo "[smoke] SMOKE_PUBLIC_PATH is required, for example /api/v1/versions/jp"
   exit 2

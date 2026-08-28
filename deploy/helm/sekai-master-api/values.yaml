@@ -85,6 +85,11 @@ serve:
       initialDelaySeconds: 10
       periodSeconds: 10
     readiness:
+      # /readyz for the serve role is a bounded, read-only check: it verifies
+      # PostgreSQL (via /startupz) and Redis connectivity, then requires every
+      # configured region to have persisted card records AND version metadata
+      # before reporting the pod ready. A failed or in-progress control sync does
+      # not block readiness once records exist (surfaced via regions_pending_sync).
       enabled: true
       initialDelaySeconds: 5
       periodSeconds: 10
