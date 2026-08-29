@@ -381,6 +381,7 @@ type MusicObjectResponse struct {
 	CreatorArtist      *MusicArtistResponse      `json:"creatorArtist,omitempty"`
 	LiveStage          *LiveStageResponse        `json:"liveStage,omitempty"`
 	ReleaseCondition   *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
+	Categories         []string                  `json:"categories,omitempty"`
 }
 
 type MusicListItemResponse struct {
@@ -401,6 +402,7 @@ type MusicListItemResponse struct {
 	ReleaseCondition   *ReleaseConditionResponse `json:"releaseCondition,omitempty"`
 	Difficulties       []MusicDifficultyResponse `json:"difficulties,omitempty"`
 	Tags               []string                  `json:"tags,omitempty"`
+	Categories         []string                  `json:"categories,omitempty"`
 }
 
 type MusicListResponse struct {
@@ -434,6 +436,7 @@ type MusicDetailResponse struct {
 	Difficulties []MusicDifficultyDetailResponse `json:"difficulties,omitempty"`
 	Vocals       []MusicVocalResponse            `json:"vocals,omitempty"`
 	Tags         []string                        `json:"tags,omitempty"`
+	Categories   []string                        `json:"categories,omitempty"`
 }
 
 type UnitProfileObjectResponse struct {
