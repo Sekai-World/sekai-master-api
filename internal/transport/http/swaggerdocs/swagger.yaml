@@ -984,6 +984,10 @@ definitions:
     type: object
   shared.MusicDetailResponse:
     properties:
+      categories:
+        items:
+          type: string
+        type: array
       difficulties:
         items:
           $ref: '#/definitions/shared.MusicDifficultyDetailResponse'
@@ -1027,6 +1031,10 @@ definitions:
     properties:
       arranger: {}
       assetbundleName: {}
+      categories:
+        items:
+          type: string
+        type: array
       composer: {}
       creatorArtist:
         $ref: '#/definitions/shared.MusicArtistResponse'
@@ -1065,6 +1073,10 @@ definitions:
     properties:
       arranger: {}
       assetbundleName: {}
+      categories:
+        items:
+          type: string
+        type: array
       composer: {}
       creatorArtist:
         $ref: '#/definitions/shared.MusicArtistResponse'

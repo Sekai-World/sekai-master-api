@@ -1455,3 +1455,277 @@ func assertMusicHasTags(t *testing.T, item map[string]any, expected []string) {
 		}
 	}
 }
+
+func assertMusicHasCategories(t *testing.T, item map[string]any, expected []string) {
+	t.Helper()
+
+	categoriesRaw, ok := item["categories"]
+	if !ok {
+		t.Fatalf("expected categories in item")
+	}
+
+	categories, ok := categoriesRaw.([]any)
+	if !ok {
+		t.Fatalf("expected categories array, got %T", categoriesRaw)
+	}
+	if len(categories) != len(expected) {
+		t.Fatalf("expected %d categories, got %d (%v)", len(expected), len(categories), categoriesRaw)
+	}
+
+	for index, expectedCategory := range expected {
+		category, ok := categories[index].(string)
+		if !ok {
+			t.Fatalf("expected categories[%d] string, got %T", index, categories[index])
+		}
+		if category != expectedCategory {
+			t.Fatalf("expected categories[%d]=%s, got %s", index, expectedCategory, category)
+		}
+	}
+}
+
+func newMusicCategoryRouter(handler *MusicHandler) *gin.Engine {
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id", handler.ByID)
+	router.GET("/api/v1/musics/:region/list", handler.List)
+	router.GET("/api/v1/musics/:region/:id/detail", handler.DetailByID)
+	return router
+}
+
+func doMusicGet(router *gin.Engine, path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	return resp
+}
+
+func decodeMusicOK(t *testing.T, resp *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return body
+}
+
+type musicCategoryAggregationCase struct {
+	name        string
+	cache       *fakeMusicHandlerCache
+	path        string
+	expect      []string
+	assertMusic bool
+	listItems   [][]string
+	order       []float64
+}
+
+func TestMusicCategoryAggregation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cases := []musicCategoryAggregationCase{
+		{
+			name: "by-id returns aggregated categories",
+			cache: &fakeMusicHandlerCache{
+				byID: map[string]map[string]map[string]map[string]any{
+					"jp": {"musics": {"1001": {"id": 1001, "title": "Test Song", "category": "ignored-embedded"}}},
+				},
+				listByEntity: map[string][]map[string]any{
+					"musiccategories": {
+						{"id": 1, "musicId": 1001, "musicCategory": "mv", "seq": 1},
+						{"id": 2, "musicId": 1001, "musicCategory": "original", "seq": 2},
+					},
+				},
+			},
+			path:   "/api/v1/musics/jp/1001",
+			expect: []string{"mv", "original"},
+		},
+		{
+			name: "by-id returns empty categories when absent",
+			cache: &fakeMusicHandlerCache{
+				byID: map[string]map[string]map[string]map[string]any{
+					"jp": {"musics": {"1001": {"id": 1001, "title": "Test Song"}}},
+				},
+			},
+			path:   "/api/v1/musics/jp/1001",
+			expect: []string{},
+		},
+		{
+			name: "by-id falls back to embedded categories when entity absent",
+			cache: &fakeMusicHandlerCache{
+				byID: map[string]map[string]map[string]map[string]any{
+					"jp": {"musics": {"1001": {"id": 1001, "title": "Test Song", "categories": []any{"mv", "cover"}}}},
+				},
+			},
+			path:   "/api/v1/musics/jp/1001",
+			expect: []string{"mv", "cover"},
+		},
+		{
+			name: "list returns aggregated categories",
+			cache: &fakeMusicHandlerCache{
+				listItems: []map[string]any{
+					{"id": 1, "title": "alpha"},
+					{"id": 2, "title": "bravo"},
+				},
+				listByEntity: map[string][]map[string]any{
+					"musiccategories": {
+						{"id": 1, "musicId": 1, "musicCategory": "mv", "seq": 1},
+						{"id": 2, "musicId": 1, "musicCategory": "original", "seq": 2},
+						{"id": 3, "musicId": 2, "musicCategory": "image", "seq": 1},
+					},
+				},
+				listTotal: 2,
+			},
+			path:      "/api/v1/musics/jp/list?page=1&page_size=20",
+			listItems: [][]string{{"mv", "original"}, {"image"}},
+		},
+		{
+			name: "detail returns aggregated categories",
+			cache: &fakeMusicHandlerCache{
+				byID: map[string]map[string]map[string]map[string]any{
+					"jp": {"musics": {"1001": {"id": 1001, "title": "Test Song"}}},
+				},
+				listByEntity: map[string][]map[string]any{
+					"musiccategories": {
+						{"id": 1, "musicId": 1001, "musicCategory": "mv", "seq": 1},
+						{"id": 2, "musicId": 1001, "musicCategory": "original", "seq": 2},
+					},
+				},
+			},
+			path:        "/api/v1/musics/jp/1001/detail",
+			expect:      []string{"mv", "original"},
+			assertMusic: true,
+		},
+		{
+			name: "list category filter uses aggregated categories",
+			cache: &fakeMusicHandlerCache{
+				listItems: []map[string]any{
+					{"id": 1, "title": "alpha"},
+					{"id": 2, "title": "bravo"},
+				},
+				listByEntity: map[string][]map[string]any{
+					"musiccategories": {
+						{"id": 1, "musicId": 1, "musicCategory": "mv", "seq": 1},
+						{"id": 2, "musicId": 2, "musicCategory": "image", "seq": 1},
+					},
+				},
+				listTotal: 2,
+			},
+			path:  "/api/v1/musics/jp/list?category=mv",
+			order: []float64{1},
+		},
+		{
+			name: "list category filter falls back to embedded categories when entity absent",
+			cache: &fakeMusicHandlerCache{
+				listItems: []map[string]any{
+					{"id": 1, "title": "alpha", "category": "mv"},
+					{"id": 2, "title": "bravo", "category": "image"},
+				},
+				listTotal: 2,
+			},
+			path:  "/api/v1/musics/jp/list?category=mv",
+			order: []float64{1},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			runMusicCategoryAggregationCase(t, tc)
+		})
+	}
+}
+
+func runMusicCategoryAggregationCase(t *testing.T, tc musicCategoryAggregationCase) {
+	handler := newReadyMusicHandler(tc.cache)
+	router := newMusicCategoryRouter(handler)
+	resp := doMusicGet(router, tc.path)
+
+	if tc.order != nil {
+		assertResponseItemOrder(t, resp.Body.Bytes(), tc.order)
+		return
+	}
+
+	body := decodeMusicOK(t, resp)
+
+	if tc.listItems != nil {
+		items, ok := body["items"].([]any)
+		if !ok || len(items) != len(tc.listItems) {
+			t.Fatalf("expected %d items, got %v", len(tc.listItems), body["items"])
+		}
+		for index, expected := range tc.listItems {
+			item, ok := items[index].(map[string]any)
+			if !ok {
+				t.Fatalf("expected item %d object, got %T", index, items[index])
+			}
+			assertMusicHasCategories(t, item, expected)
+		}
+		return
+	}
+
+	assertMusicHasCategories(t, body, tc.expect)
+	if tc.assertMusic {
+		music, ok := body["music"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected music object, got %T", body["music"])
+		}
+		assertMusicHasCategories(t, music, tc.expect)
+	}
+}
+
+func TestMusicCategoryMigrationUsesMusicCategoryName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {"musics": {
+				"1001": {"id": 1001, "title": "Canonical Song"},
+				"1002": {"id": 1002, "title": "Other Song"},
+			}},
+		},
+		listItems: []map[string]any{
+			{"id": 1001, "title": "Canonical Song"},
+			{"id": 1002, "title": "Other Song"},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musiccategories": {
+				{"id": 1, "musicId": 1001, "musicCategoryName": "mv", "seq": 1},
+				{"id": 2, "musicId": 1001, "musicCategoryName": "original", "seq": 2},
+				{"id": 3, "musicId": 1002, "musicCategoryName": "image", "seq": 1},
+			},
+		},
+		listTotal: 2,
+	}
+
+	handler := newReadyMusicHandler(cache)
+	router := newMusicCategoryRouter(handler)
+
+	t.Run("by-id aggregation", func(t *testing.T) {
+		resp := doMusicGet(router, "/api/v1/musics/jp/1001")
+		assertMusicHasCategories(t, decodeMusicOK(t, resp), []string{"mv", "original"})
+	})
+	t.Run("list aggregation", func(t *testing.T) {
+		resp := doMusicGet(router, "/api/v1/musics/jp/list?page=1&page_size=20")
+		body := decodeMusicOK(t, resp)
+		items, ok := body["items"].([]any)
+		if !ok || len(items) != 2 {
+			t.Fatalf("expected 2 items, got %v", body["items"])
+		}
+		assertMusicHasCategories(t, items[0].(map[string]any), []string{"mv", "original"})
+		assertMusicHasCategories(t, items[1].(map[string]any), []string{"image"})
+	})
+	t.Run("detail aggregation", func(t *testing.T) {
+		resp := doMusicGet(router, "/api/v1/musics/jp/1001/detail")
+		body := decodeMusicOK(t, resp)
+		assertMusicHasCategories(t, body, []string{"mv", "original"})
+		music, ok := body["music"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected music object, got %T", body["music"])
+		}
+		assertMusicHasCategories(t, music, []string{"mv", "original"})
+	})
+	t.Run("category filter", func(t *testing.T) {
+		resp := doMusicGet(router, "/api/v1/musics/jp/list?category=original")
+		assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
+	})
+}

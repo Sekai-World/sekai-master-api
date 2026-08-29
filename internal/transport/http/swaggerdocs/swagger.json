@@ -4901,6 +4901,12 @@
         "shared.MusicDetailResponse": {
             "type": "object",
             "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "difficulties": {
                     "type": "array",
                     "items": {
@@ -4963,6 +4969,12 @@
             "properties": {
                 "arranger": {},
                 "assetbundleName": {},
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "composer": {},
                 "creatorArtist": {
                     "$ref": "#/definitions/shared.MusicArtistResponse"
@@ -5015,6 +5027,12 @@
             "properties": {
                 "arranger": {},
                 "assetbundleName": {},
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "composer": {},
                 "creatorArtist": {
                     "$ref": "#/definitions/shared.MusicArtistResponse"

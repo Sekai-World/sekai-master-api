@@ -4909,6 +4909,12 @@ const docTemplate = `{
         "shared.MusicDetailResponse": {
             "type": "object",
             "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "difficulties": {
                     "type": "array",
                     "items": {
@@ -4971,6 +4977,12 @@ const docTemplate = `{
             "properties": {
                 "arranger": {},
                 "assetbundleName": {},
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "composer": {},
                 "creatorArtist": {
                     "$ref": "#/definitions/shared.MusicArtistResponse"
@@ -5023,6 +5035,12 @@ const docTemplate = `{
             "properties": {
                 "arranger": {},
                 "assetbundleName": {},
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "composer": {},
                 "creatorArtist": {
                     "$ref": "#/definitions/shared.MusicArtistResponse"
