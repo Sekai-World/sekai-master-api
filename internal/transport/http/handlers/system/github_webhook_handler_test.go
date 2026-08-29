@@ -41,8 +41,7 @@ func TestGitHubWebhookPushWithVersionFileTriggersRegionSync(t *testing.T) {
 		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
 	}, syncer, 5*time.Second, "top-secret")
 
-	router := gin.New()
-	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
+	router := newWebhookTestRouter(handler, context.Background())
 
 	body := `{
 		"ref":"refs/heads/main",
@@ -84,8 +83,7 @@ func TestGitHubWebhookIgnoresPushWithoutVersionFile(t *testing.T) {
 		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
 	}, syncer, 0, "top-secret")
 
-	router := gin.New()
-	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
+	router := newWebhookTestRouter(handler, context.Background())
 
 	body := `{
 		"ref":"refs/heads/main",
@@ -118,8 +116,7 @@ func TestGitHubWebhookIgnoresNonPushEvent(t *testing.T) {
 	}
 	handler := NewGitHubWebhookHandler(nil, syncer, 0, "top-secret")
 
-	router := gin.New()
-	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
+	router := newWebhookTestRouter(handler, context.Background())
 
 	body := `{"zen":"keep it logically awesome"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/github/webhooks/master-data", strings.NewReader(body))
@@ -150,8 +147,7 @@ func TestGitHubWebhookRejectsMissingSecret(t *testing.T) {
 		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
 	}, syncer, 0, "")
 
-	router := gin.New()
-	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
+	router := newWebhookTestRouter(handler, context.Background())
 
 	body := `{
 		"ref":"refs/heads/main",
@@ -185,8 +181,7 @@ func TestGitHubWebhookRejectsInvalidSignature(t *testing.T) {
 		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
 	}, syncer, 0, "top-secret")
 
-	router := gin.New()
-	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
+	router := newWebhookTestRouter(handler, context.Background())
 
 	body := `{
 		"ref":"refs/heads/main",
@@ -215,8 +210,7 @@ func TestGitHubWebhookAcceptsValidSignature(t *testing.T) {
 		"jp": {Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"},
 	}, syncer, 0, "top-secret")
 
-	router := gin.New()
-	router.POST("/api/v1/internal/github/webhooks/master-data", handler.MasterData)
+	router := newWebhookTestRouter(handler, context.Background())
 
 	body := `{
 		"ref":"refs/heads/main",
@@ -248,4 +242,16 @@ func signGitHubWebhookBody(secret string, body string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(body))
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// newWebhookTestRouter wires the webhook handler to its route, injecting the
+// lifecycle context the way the production router does, so tests share the same
+// HTTP setup without repeating it.
+func newWebhookTestRouter(handler *GitHubWebhookHandler, lifecycleCtx context.Context) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/internal/github/webhooks/master-data", func(c *gin.Context) {
+		handler.MasterData(c, lifecycleCtx)
+	})
+	return router
 }

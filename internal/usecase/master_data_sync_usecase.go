@@ -120,10 +120,13 @@ type MasterDataSyncUsecase struct {
 
 	currentEventLocks sync.Map
 
-	// lifecycleCtx, when set, cancels long-running background sync workers
-	// (admin StartSync, webhook SyncRegion) during graceful shutdown. It is
-	// nil by default, which disables lifecycle cancellation.
-	lifecycleCtx context.Context
+	// lifecycleDone carries the done channel of the application lifecycle
+	// context. When set, it cancels long-running background sync workers (admin
+	// StartSync, webhook SyncRegion) during graceful shutdown. It is nil by
+	// default, which disables lifecycle cancellation. We store the done channel
+	// instead of the context.Context itself so the struct never retains a context
+	// (godre/S8242).
+	lifecycleDone <-chan struct{}
 	// syncWG tracks lifecycle-managed sync workers so the app can wait for
 	// them to stop before tearing down dependencies on graceful shutdown.
 	syncWG sync.WaitGroup
@@ -216,7 +219,11 @@ func (usecase *MasterDataSyncUsecase) SetLifecycleContext(ctx context.Context) {
 	if usecase == nil {
 		return
 	}
-	usecase.lifecycleCtx = ctx
+	if ctx != nil {
+		usecase.lifecycleDone = ctx.Done()
+	} else {
+		usecase.lifecycleDone = nil
+	}
 }
 
 // CloseAdmission closes the lifecycle admission gate so no new sync workers are
@@ -300,11 +307,6 @@ func (usecase *MasterDataSyncUsecase) StartSync(ctx context.Context, region stri
 		return ErrShutdownAdmission
 	}
 
-	lifecycleCtx := usecase.lifecycleCtx
-	if lifecycleCtx == nil {
-		lifecycleCtx = context.Background()
-	}
-
 	// Preserve the request trace but stay cancellable by the application
 	// lifecycle, so a graceful shutdown can interrupt an in-flight admin sync
 	// instead of leaving it orphaned.
@@ -315,16 +317,19 @@ func (usecase *MasterDataSyncUsecase) StartSync(ctx context.Context, region stri
 		defer usecase.syncRunning.Store(false)
 		defer cancelWorker()
 
-		// Cancel the worker when the app lifecycle ends (graceful shutdown).
-		stopLifecycleWatch := make(chan struct{})
-		defer close(stopLifecycleWatch)
-		go func() {
-			select {
-			case <-lifecycleCtx.Done():
-				cancelWorker()
-			case <-stopLifecycleWatch:
-			}
-		}()
+		// Cancel the worker when the app lifecycle ends (graceful shutdown). The
+		// done channel is watched instead of a context.Context to avoid storing a
+		// context on the struct; the goroutine exits once the derived context is
+		// cancelled, so it never leaks.
+		if lifecycleDone := usecase.lifecycleDone; lifecycleDone != nil {
+			go func() {
+				select {
+				case <-lifecycleDone:
+					cancelWorker()
+				case <-workerContext.Done():
+				}
+			}()
+		}
 
 		err := usecase.syncClaimed(workerContext, force, targetSources)
 		if err != nil {

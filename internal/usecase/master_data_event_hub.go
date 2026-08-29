@@ -51,7 +51,10 @@ func (hub *MasterDataEventHub) Subscribe() (<-chan masterdata.SyncUpdatedEvent, 
 	if hub == nil {
 		closedCh := make(chan masterdata.SyncUpdatedEvent)
 		close(closedCh)
-		return closedCh, func() {}
+		return closedCh, func() {
+			// No-op: the hub is nil/already closed, so there is no subscription to
+			// release on unsubscribe.
+		}
 	}
 
 	hub.mu.Lock()
@@ -60,7 +63,10 @@ func (hub *MasterDataEventHub) Subscribe() (<-chan masterdata.SyncUpdatedEvent, 
 	if hub.closed {
 		closedCh := make(chan masterdata.SyncUpdatedEvent)
 		close(closedCh)
-		return closedCh, func() {}
+		return closedCh, func() {
+			// No-op: the hub is nil/already closed, so there is no subscription to
+			// release on unsubscribe.
+		}
 	}
 
 	channel := make(chan masterdata.SyncUpdatedEvent, 8)

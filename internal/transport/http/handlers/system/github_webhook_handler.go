@@ -27,12 +27,11 @@ type masterDataRegionSyncer interface {
 }
 
 type GitHubWebhookHandler struct {
-	sources      map[string]config.MasterDataSource
-	syncer       masterDataRegionSyncer
-	syncTimeout  time.Duration
-	secret       string
-	enabled      bool
-	lifecycleCtx context.Context
+	sources     map[string]config.MasterDataSource
+	syncer      masterDataRegionSyncer
+	syncTimeout time.Duration
+	secret      string
+	enabled     bool
 
 	// admissionMu guards the rejecting flag together with the inflight WaitGroup
 	// Add so that RejectNewSubmissions cannot be observed between the admission
@@ -82,24 +81,18 @@ func NewGitHubWebhookHandler(
 	syncer masterDataRegionSyncer,
 	syncTimeout time.Duration,
 	secret string,
-	lifecycleContexts ...context.Context,
 ) *GitHubWebhookHandler {
-	var lifecycleCtx context.Context
-	if len(lifecycleContexts) > 0 {
-		lifecycleCtx = lifecycleContexts[0]
-	}
 	copiedSources := make(map[string]config.MasterDataSource, len(sources))
 	for region, source := range sources {
 		copiedSources[strings.ToLower(strings.TrimSpace(region))] = source
 	}
 
 	return &GitHubWebhookHandler{
-		sources:      copiedSources,
-		syncer:       syncer,
-		syncTimeout:  syncTimeout,
-		secret:       strings.TrimSpace(secret),
-		enabled:      !isNilMasterDataSyncer(syncer),
-		lifecycleCtx: lifecycleCtx,
+		sources:     copiedSources,
+		syncer:      syncer,
+		syncTimeout: syncTimeout,
+		secret:      strings.TrimSpace(secret),
+		enabled:     !isNilMasterDataSyncer(syncer),
 	}
 }
 
@@ -170,7 +163,7 @@ func (handler *GitHubWebhookHandler) admit() bool {
 // @Failure 401 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Router /internal/github/webhooks/master-data [post]
-func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
+func (handler *GitHubWebhookHandler) MasterData(c *gin.Context, lifecycleCtx context.Context) {
 	if handler == nil || !handler.enabled {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_SYNC_DISABLED", "master data sync is not configured")
 		return
@@ -239,7 +232,7 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
 
 	go func() {
 		defer handler.inflight.Done()
-		handler.triggerRegionSync(logging.DetachedTraceContext(c.Request.Context()), region, owner, repo, ref)
+		handler.triggerRegionSync(logging.DetachedTraceContext(c.Request.Context()), lifecycleCtx, region, owner, repo, ref)
 	}()
 
 	response.JSON(c, http.StatusAccepted, gin.H{
@@ -248,7 +241,7 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
 	})
 }
 
-func (handler *GitHubWebhookHandler) triggerRegionSync(ctx context.Context, region string, owner string, repo string, ref string) {
+func (handler *GitHubWebhookHandler) triggerRegionSync(ctx context.Context, lifecycleCtx context.Context, region string, owner string, repo string, ref string) {
 	baseCtx := ctx
 	if handler.syncTimeout > 0 {
 		var stopTimeout context.CancelFunc
@@ -258,21 +251,17 @@ func (handler *GitHubWebhookHandler) triggerRegionSync(ctx context.Context, regi
 
 	// Also stop the sync when the application lifecycle ends (graceful
 	// shutdown), so a webhook-triggered sync is bounded like every other
-	// background worker.
-	lifecycleCtx := handler.lifecycleCtx
+	// background worker. The lifecycle context is passed in (not stored) to
+	// avoid retaining a context.Context on the handler.
 	if lifecycleCtx != nil {
 		derivedCtx, stopLifecycle := context.WithCancel(baseCtx)
-		stop := make(chan struct{})
+		defer stopLifecycle()
 		go func() {
 			select {
 			case <-lifecycleCtx.Done():
 				stopLifecycle()
-			case <-stop:
+			case <-derivedCtx.Done():
 			}
-		}()
-		defer func() {
-			close(stop)
-			stopLifecycle()
 		}()
 		baseCtx = derivedCtx
 	}

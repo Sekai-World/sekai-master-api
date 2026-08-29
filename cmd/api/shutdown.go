@@ -44,16 +44,6 @@ func newShutdownSignalChannel() chan os.Signal {
 	return sigCh
 }
 
-// shutdownControl carries the signal-derived shutdown deadline to the caller.
-// The caller takes ownership of cancel so the deadline context stays valid for
-// the worker drain even after handleShutdownSignals has returned (the handler no
-// longer cancels it). The timer still starts at first-signal receipt inside the
-// handler, so the grace period is not consumed at process start.
-type shutdownControl struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
 // handleShutdownSignals blocks until the first SIGTERM/SIGINT. On receipt it
 // starts the shutdown deadline timer (NOT at process start), publishes the
 // deadline context (and its cancel func) over startedCh, then gracefully shuts
@@ -65,7 +55,7 @@ type shutdownControl struct {
 // drain actually exceeds the first-signal deadline. The deadline context is
 // owned by the caller after it is published, so the caller must cancel it once
 // the worker drain is finished.
-func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *zap.SugaredLogger, timeout time.Duration, startedCh chan<- shutdownControl) error {
+func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *zap.SugaredLogger, timeout time.Duration, startedCh chan<- context.Context, cancelCh chan<- context.CancelFunc) error {
 	sig, ok := <-sigCh
 	if !ok {
 		return nil
@@ -73,13 +63,16 @@ func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *
 	logger.Infow("received shutdown signal", "signal", sig.String())
 
 	// The shutdown timer starts here, at signal receipt, so the grace period is
-	// not consumed by normal runtime before a shutdown is requested. Ownership of
-	// the cancel func is transferred to the caller via startedCh.
+	// not consumed by normal runtime before a shutdown is requested. The deadline
+	// context is passed separately (never stored in a struct, godre/S8242) and
+	// ownership of its cancel func is transferred to the caller via cancelCh.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
 
-	// Inform the main goroutine which deadline bounds the worker drain. The caller
-	// now owns shutdownCancel and must invoke it after the worker drain completes.
-	startedCh <- shutdownControl{ctx: shutdownCtx, cancel: shutdownCancel}
+	// Inform the main goroutine which deadline bounds the worker drain. The
+	// caller now owns shutdownCancel and must invoke it after the worker drain
+	// completes.
+	startedCh <- shutdownCtx
+	cancelCh <- shutdownCancel
 
 	// A second signal (still buffered) forces an immediate close instead of being
 	// silently swallowed. The watcher exits when the first-signal shutdown

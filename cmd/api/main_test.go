@@ -112,8 +112,9 @@ func TestHandleShutdownSignalsFirstSignalShutsDownServer(t *testing.T) {
 	go func() { errCh <- server.Serve(listener) }()
 
 	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan shutdownControl, 1)
-	go handleShutdownSignals(sigCh, server, nopLogger(), 2*time.Second, startedCh)
+	startedCh := make(chan context.Context, 1)
+	cancelCh := make(chan context.CancelFunc, 1)
+	go handleShutdownSignals(sigCh, server, nopLogger(), 2*time.Second, startedCh, cancelCh)
 
 	// Start a request that will be drained within the deadline.
 	clientDone := make(chan int, 1)
@@ -163,8 +164,9 @@ func TestHandleShutdownSignalsTimeoutForceCloses(t *testing.T) {
 	go func() { errCh <- server.Serve(listener) }()
 
 	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan shutdownControl, 1)
-	go handleShutdownSignals(sigCh, server, nopLogger(), 40*time.Millisecond, startedCh)
+	startedCh := make(chan context.Context, 1)
+	cancelCh := make(chan context.CancelFunc, 1)
+	go handleShutdownSignals(sigCh, server, nopLogger(), 40*time.Millisecond, startedCh, cancelCh)
 
 	// Fire a request that outlives the shutdown deadline.
 	go func() {
@@ -207,10 +209,11 @@ func TestHandleShutdownSignalsReturnsErrorOnDrainTimeout(t *testing.T) {
 	go func() { errCh <- server.Serve(listener) }()
 
 	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan shutdownControl, 1)
+	startedCh := make(chan context.Context, 1)
+	cancelCh := make(chan context.CancelFunc, 1)
 	handlerErrCh := make(chan error, 1)
 	go func() {
-		handlerErrCh <- handleShutdownSignals(sigCh, server, nopLogger(), 40*time.Millisecond, startedCh)
+		handlerErrCh <- handleShutdownSignals(sigCh, server, nopLogger(), 40*time.Millisecond, startedCh, cancelCh)
 	}()
 
 	go func() {
@@ -254,9 +257,12 @@ func TestHandleShutdownSignalsSecondSignalDoesNotSurfaceDrainError(t *testing.T)
 	go func() { errCh <- server.Serve(listener) }()
 
 	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan shutdownControl, 1)
+	startedCh := make(chan context.Context, 1)
+	cancelCh := make(chan context.CancelFunc, 1)
 	handlerErrCh := make(chan error, 1)
-	go func() { handlerErrCh <- handleShutdownSignals(sigCh, server, nopLogger(), 30*time.Second, startedCh) }()
+	go func() {
+		handlerErrCh <- handleShutdownSignals(sigCh, server, nopLogger(), 30*time.Second, startedCh, cancelCh)
+	}()
 
 	time.Sleep(10 * time.Millisecond)
 	sigCh <- syscall.SIGTERM
@@ -293,8 +299,9 @@ func TestHandleShutdownSignalsSecondSignalForceCloses(t *testing.T) {
 	go func() { errCh <- server.Serve(listener) }()
 
 	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan shutdownControl, 1)
-	go handleShutdownSignals(sigCh, server, nopLogger(), 30*time.Second, startedCh)
+	startedCh := make(chan context.Context, 1)
+	cancelCh := make(chan context.CancelFunc, 1)
+	go handleShutdownSignals(sigCh, server, nopLogger(), 30*time.Second, startedCh, cancelCh)
 
 	time.Sleep(10 * time.Millisecond)
 	// First signal starts a long graceful drain; second signal must force-close now.
@@ -342,19 +349,22 @@ func TestHandleShutdownSignalsContextStaysValidAfterReturn(t *testing.T) {
 	go func() { errCh <- server.Serve(listener) }()
 
 	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan shutdownControl, 1)
-	go func() { _ = handleShutdownSignals(sigCh, server, nopLogger(), 5*time.Second, startedCh) }()
+	startedCh := make(chan context.Context, 1)
+	cancelCh := make(chan context.CancelFunc, 1)
+	go func() { _ = handleShutdownSignals(sigCh, server, nopLogger(), 5*time.Second, startedCh, cancelCh) }()
 
 	time.Sleep(10 * time.Millisecond)
 	sigCh <- syscall.SIGTERM
 
-	var ctrl shutdownControl
+	var ctrlCtx context.Context
+	var ctrlCancel context.CancelFunc
 	select {
-	case ctrl = <-startedCh:
-		// Immediately after the handler publishes the control, the context must be
-		// valid (timer started at signal receipt; it is far from elapsing).
-		if ctrl.ctx.Err() != nil {
-			t.Fatalf("shutdown context already invalid when published: %v", ctrl.ctx.Err())
+	case ctrlCtx = <-startedCh:
+		ctrlCancel = <-cancelCh
+		// Immediately after the handler publishes the context, it must be valid
+		// (timer started at signal receipt; it is far from elapsing).
+		if ctrlCtx.Err() != nil {
+			t.Fatalf("shutdown context already invalid when published: %v", ctrlCtx.Err())
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler did not publish shutdown control")
@@ -371,13 +381,13 @@ func TestHandleShutdownSignalsContextStaysValidAfterReturn(t *testing.T) {
 	// handler no longer cancels the deadline, the caller's context must still be
 	// valid here; if it were canceled, the worker drain (which derives from it)
 	// would falsely time out.
-	if ctrl.ctx.Err() != nil {
-		t.Fatalf("shutdown context canceled when handler returned; caller cannot use it for worker drain: %v", ctrl.ctx.Err())
+	if ctrlCtx.Err() != nil {
+		t.Fatalf("shutdown context canceled when handler returned; caller cannot use it for worker drain: %v", ctrlCtx.Err())
 	}
 
 	// Caller releases the timer.
-	ctrl.cancel()
-	if ctrl.ctx.Err() == nil {
+	ctrlCancel()
+	if ctrlCtx.Err() == nil {
 		t.Fatal("expected shutdown context to be canceled after caller invokes cancel")
 	}
 }
@@ -399,8 +409,9 @@ func TestHandleShutdownSignalsWatcherDoesNotConsumeFutureSignal(t *testing.T) {
 	go func() { errCh <- server.Serve(listener) }()
 
 	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan shutdownControl, 1)
-	go func() { _ = handleShutdownSignals(sigCh, server, nopLogger(), 5*time.Second, startedCh) }()
+	startedCh := make(chan context.Context, 1)
+	cancelCh := make(chan context.CancelFunc, 1)
+	go func() { _ = handleShutdownSignals(sigCh, server, nopLogger(), 5*time.Second, startedCh, cancelCh) }()
 
 	time.Sleep(10 * time.Millisecond)
 	// First signal triggers a normal, fast shutdown.

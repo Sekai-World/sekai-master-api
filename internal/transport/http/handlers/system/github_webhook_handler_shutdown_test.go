@@ -16,7 +16,7 @@ func (blockingSyncer) SyncRegion(ctx context.Context, _ string) error {
 }
 
 func TestRejectNewSubmissionsAndWaitForInflight(t *testing.T) {
-	handler := NewGitHubWebhookHandler(nil, blockingSyncer{}, 0, "", context.Background())
+	handler := NewGitHubWebhookHandler(nil, blockingSyncer{}, 0, "")
 
 	// Simulate an in-flight webhook sync goroutine that is tracked before spawn.
 	handler.inflight.Add(1)
@@ -35,7 +35,7 @@ func TestRejectNewSubmissionsAndWaitForInflight(t *testing.T) {
 }
 
 func TestWaitForInflightTimesOut(t *testing.T) {
-	handler := NewGitHubWebhookHandler(nil, blockingSyncer{}, 0, "", context.Background())
+	handler := NewGitHubWebhookHandler(nil, blockingSyncer{}, 0, "")
 
 	handler.inflight.Add(1)
 	go func() {
@@ -52,11 +52,11 @@ func TestWaitForInflightTimesOut(t *testing.T) {
 
 func TestTriggerRegionSyncStopsOnLifecycleCancel(t *testing.T) {
 	lifecycleCtx, cancel := context.WithCancel(context.Background())
-	handler := NewGitHubWebhookHandler(nil, blockingSyncer{}, 0, "", lifecycleCtx)
+	handler := NewGitHubWebhookHandler(nil, blockingSyncer{}, 0, "")
 
 	done := make(chan struct{})
 	go func() {
-		handler.triggerRegionSync(context.Background(), "jp", "Sekai-World", "sekai-master-data-jp", "main")
+		handler.triggerRegionSync(context.Background(), lifecycleCtx, "jp", "Sekai-World", "sekai-master-data-jp", "main")
 		close(done)
 	}()
 

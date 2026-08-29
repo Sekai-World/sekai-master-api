@@ -150,7 +150,23 @@ func main() {
 		startupState.MarkReady()
 		logger.Infow("serve role startup complete; public routes enabled without lifecycle jobs")
 	} else {
-		lifecycleWG.Add(1)
+		// All started lifecycle goroutines are accounted for with lifecycleWG.Add
+		// BEFORE they are launched, so no Add happens after shutdown may begin
+		// (that would race with Wait in waitForBackgroundWorkers). Conditional
+		// goroutines wait on migrationsDone so they still begin only after
+		// migrations/MarkReady complete.
+		migrationsDone := make(chan struct{})
+
+		lifecycleWG.Add(1) // startup migrations goroutine
+		warmupEnabled := len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes && cfg.Role != config.AppRoleControl
+		autoSyncEnabled := len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted)
+		if warmupEnabled {
+			lifecycleWG.Add(1)
+		}
+		if autoSyncEnabled {
+			lifecycleWG.Add(1)
+		}
+
 		go func() {
 			defer lifecycleWG.Done()
 
@@ -164,104 +180,110 @@ func main() {
 
 			startupState.MarkReady()
 			logger.Infow("startup migrations completed; general api routes enabled")
+			close(migrationsDone)
+		}()
 
-			// Search-index warmup enables persisted Redis indexes for read/search
-			// traffic. The pure `control` role never serves public read traffic, so
-			// it does not run the local decoded-index warmup; doing so would needlessly
-			// decode persisted indexes into control process memory. Persisted indexes
-			// are (re)built by sync / force-sync in `control` and by warmup in
-			// `standalone`, so this only disables the optional startup decode path for
-			// `control` and does not remove any repair behavior.
-			if len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes && cfg.Role != config.AppRoleControl {
-				lifecycleWG.Add(1)
-				go func() {
-					defer lifecycleWG.Done()
+		if warmupEnabled {
+			go func() {
+				defer lifecycleWG.Done()
 
-					warmupTimeout := cfg.MasterDataSyncJobTimeout
-					if warmupTimeout <= 0 {
-						warmupTimeout = 120
+				// Begin only after migrations (or shutdown) to preserve the original
+				// startup ordering.
+				select {
+				case <-migrationsDone:
+				case <-appCtx.Done():
+					return
+				}
+
+				warmupTimeout := cfg.MasterDataSyncJobTimeout
+				if warmupTimeout <= 0 {
+					warmupTimeout = 120
+				}
+				wctx, wcancel := context.WithTimeout(appCtx, time.Duration(warmupTimeout)*time.Second)
+				defer wcancel()
+
+				logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))
+				loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(wctx)
+				if warmErr != nil {
+					if errors.Is(warmErr, context.Canceled) {
+						logger.Infow("master data search index warmup cancelled by shutdown")
+						return
 					}
-					wctx, wcancel := context.WithTimeout(appCtx, time.Duration(warmupTimeout)*time.Second)
-					defer wcancel()
+					logger.Warnw("master data search index warmup completed with errors", "error", warmErr)
+					return
+				}
 
-					logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))
-					loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(wctx)
-					if warmErr != nil {
-						if errors.Is(warmErr, context.Canceled) {
-							logger.Infow("master data search index warmup cancelled by shutdown")
+				if len(loadedRegions) == 0 && len(rebuiltRegions) == 0 {
+					logger.Infow("master data search index warmup found no missing regions")
+					return
+				}
+
+				logger.Infow(
+					"master data search index warmup completed",
+					"loaded_regions", loadedRegions,
+					"rebuilt_regions", rebuiltRegions,
+				)
+			}()
+		} else if cfg.Role == config.AppRoleControl && cfg.MasterDataWarmSearchIndexes {
+			logger.Infow("control role skips local search-index warmup; persisted indexes are built during sync/force-sync")
+		}
+
+		if autoSyncEnabled {
+			go func() {
+				defer lifecycleWG.Done()
+
+				select {
+				case <-migrationsDone:
+				case <-appCtx.Done():
+					return
+				}
+
+				if cfg.MasterDataRecoverInterrupted {
+					interruptedRegions, ierr := masterDataSyncUsecase.InterruptedRegions(appCtx)
+					if ierr != nil {
+						if errors.Is(ierr, context.Canceled) {
 							return
 						}
-						logger.Warnw("master data search index warmup completed with errors", "error", warmErr)
-						return
-					}
-
-					if len(loadedRegions) == 0 && len(rebuiltRegions) == 0 {
-						logger.Infow("master data search index warmup found no missing regions")
-						return
-					}
-
-					logger.Infow(
-						"master data search index warmup completed",
-						"loaded_regions", loadedRegions,
-						"rebuilt_regions", rebuiltRegions,
-					)
-				}()
-			} else if cfg.Role == config.AppRoleControl && cfg.MasterDataWarmSearchIndexes {
-				logger.Infow("control role skips local search-index warmup; persisted indexes are built during sync/force-sync")
-			}
-
-			if len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted) {
-				lifecycleWG.Add(1)
-				go func() {
-					defer lifecycleWG.Done()
-
-					if cfg.MasterDataRecoverInterrupted {
-						interruptedRegions, ierr := masterDataSyncUsecase.InterruptedRegions(appCtx)
-						if ierr != nil {
-							if errors.Is(ierr, context.Canceled) {
-								return
-							}
-							logger.Warnw("failed to inspect interrupted master data sync status", "error", ierr)
-						} else if len(interruptedRegions) > 0 {
-							if cfg.MasterDataAutoSync {
-								logger.Infow(
-									"master data startup sync detected interrupted regions; full startup sync will recover them",
-									"regions", interruptedRegions,
-									"configured_regions", len(masterDataSources),
-								)
-							} else {
-								logger.Infow("master data interrupted sync recovery running in background", "regions", interruptedRegions)
-								if _, recoverErr := masterDataSyncUsecase.RecoverInterruptedSync(appCtx); recoverErr != nil {
-									if errors.Is(recoverErr, context.Canceled) {
-										return
-									}
-									logger.Errorw("master data interrupted sync recovery completed with errors", "error", recoverErr, "regions", interruptedRegions)
+						logger.Warnw("failed to inspect interrupted master data sync status", "error", ierr)
+					} else if len(interruptedRegions) > 0 {
+						if cfg.MasterDataAutoSync {
+							logger.Infow(
+								"master data startup sync detected interrupted regions; full startup sync will recover them",
+								"regions", interruptedRegions,
+								"configured_regions", len(masterDataSources),
+							)
+						} else {
+							logger.Infow("master data interrupted sync recovery running in background", "regions", interruptedRegions)
+							if _, recoverErr := masterDataSyncUsecase.RecoverInterruptedSync(appCtx); recoverErr != nil {
+								if errors.Is(recoverErr, context.Canceled) {
 									return
 								}
-
-								logger.Infow("master data interrupted sync recovery completed successfully", "regions", interruptedRegions)
+								logger.Errorw("master data interrupted sync recovery completed with errors", "error", recoverErr, "regions", interruptedRegions)
 								return
 							}
-						}
-					}
 
-					if !cfg.MasterDataAutoSync {
-						return
-					}
-
-					logger.Infow("master data startup sync running in background", "regions", len(masterDataSources))
-					if syncErr := masterDataSyncUsecase.SyncAll(appCtx); syncErr != nil {
-						if errors.Is(syncErr, context.Canceled) {
+							logger.Infow("master data interrupted sync recovery completed successfully", "regions", interruptedRegions)
 							return
 						}
-						logger.Errorw("master data startup sync completed with errors", "error", syncErr)
+					}
+				}
+
+				if !cfg.MasterDataAutoSync {
+					return
+				}
+
+				logger.Infow("master data startup sync running in background", "regions", len(masterDataSources))
+				if syncErr := masterDataSyncUsecase.SyncAll(appCtx); syncErr != nil {
+					if errors.Is(syncErr, context.Canceled) {
 						return
 					}
+					logger.Errorw("master data startup sync completed with errors", "error", syncErr)
+					return
+				}
 
-					logger.Infow("master data startup sync completed successfully", "regions", len(masterDataSources))
-				}()
-			}
-		}()
+				logger.Infow("master data startup sync completed successfully", "regions", len(masterDataSources))
+			}()
+		}
 	}
 
 	// Graceful shutdown wiring. The HTTP server is told to stop accepting new
@@ -283,10 +305,11 @@ func main() {
 	}
 
 	sigCh := newShutdownSignalChannel()
-	shutdownStartedCh := make(chan shutdownControl, 1)
+	shutdownStartedCh := make(chan context.Context, 1)
+	shutdownCancelCh := make(chan context.CancelFunc, 1)
 	httpErrCh := make(chan error, 1)
 	go func() {
-		httpErrCh <- handleShutdownSignals(sigCh, server, logger, shutdownTimeout, shutdownStartedCh)
+		httpErrCh <- handleShutdownSignals(sigCh, server, logger, shutdownTimeout, shutdownStartedCh, shutdownCancelCh)
 	}()
 	defer signal.Stop(sigCh)
 
@@ -307,13 +330,13 @@ func main() {
 		appCancel()
 		// Server stopped without a signal; still bound the worker drain.
 		serverShutdownCtx = context.Background()
-	case state := <-shutdownStartedCh:
+	case serverShutdownCtx = <-shutdownStartedCh:
 		// Signal received: server.Shutdown is draining in-flight requests using
 		// this same deadline context. Wait for it to finish. The caller now owns
-		// the deadline cancel func; it is released after the worker drain below.
+		// the deadline cancel func (drainCancel); it is released after the worker
+		// drain below.
 		signaled = true
-		serverShutdownCtx = state.ctx
-		drainCancel = state.cancel
+		drainCancel = <-shutdownCancelCh
 		serverErr := <-serverErrCh
 		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
 			serveErr = serverErr

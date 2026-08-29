@@ -49,7 +49,10 @@ func TestMasterDataEventHubCloseIdempotent(t *testing.T) {
 
 	// Closed channels drain immediately and report not-ok once emptied.
 	drain := func(ch <-chan masterdata.SyncUpdatedEvent) {
-		for range ch {
+		for {
+			if _, ok := <-ch; !ok {
+				return
+			}
 		}
 	}
 	drain(sub1)
@@ -78,10 +81,8 @@ func TestSyncInterruptedDuringCacheStoreLeavesRecoverable(t *testing.T) {
 		successByZone: make(map[string]masterdata.SyncStatus),
 		stableByZone:  make(map[string]masterdata.SyncStatus),
 	}
-	publisher := &fakeSyncEventPublisher{}
 
-	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
-	uc.SetBackupStore(nil)
+	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
 	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
 	uc.SetLifecycleContext(lifecycleCtx)
@@ -140,9 +141,7 @@ func TestStartSyncRejectedAfterCloseAdmission(t *testing.T) {
 		successByZone: make(map[string]masterdata.SyncStatus),
 		stableByZone:  make(map[string]masterdata.SyncStatus),
 	}
-	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, &fakeSyncEventPublisher{}, 1)
-	uc.SetBackupStore(nil)
-	uc.SetLifecycleContext(context.Background())
+	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
 	uc.CloseAdmission()
 	if err := uc.StartSync(context.Background(), "jp", false); !errors.Is(err, ErrShutdownAdmission) {
@@ -162,9 +161,7 @@ func TestWaitClosesAdmissionAndDrainsInflight(t *testing.T) {
 		successByZone: make(map[string]masterdata.SyncStatus),
 		stableByZone:  make(map[string]masterdata.SyncStatus),
 	}
-	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, &fakeSyncEventPublisher{}, 1)
-	uc.SetBackupStore(nil)
-	uc.SetLifecycleContext(context.Background())
+	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
 	if err := uc.StartSync(context.Background(), "jp", false); err != nil {
 		t.Fatalf("StartSync returned error: %v", err)
@@ -236,8 +233,7 @@ func TestSyncReturnsContextCanceledOnInterruption(t *testing.T) {
 		successByZone: make(map[string]masterdata.SyncStatus),
 		stableByZone:  make(map[string]masterdata.SyncStatus),
 	}
-	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, &fakeSyncEventPublisher{}, 1)
-	uc.SetBackupStore(nil)
+	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
 	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
 	uc.SetLifecycleContext(lifecycleCtx)
@@ -258,4 +254,15 @@ func TestSyncReturnsContextCanceledOnInterruption(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("SyncAll did not return after lifecycle cancellation")
 	}
+}
+
+// newShutdownFixtureUsecase builds a MasterDataSyncUsecase for shutdown tests with
+// a nil backup store and a background lifecycle context, collapsing the repeated
+// constructor/setup boilerplate shared across these tests.
+func newShutdownFixtureUsecase(t *testing.T, source masterdata.Source, loader MasterDataSourceLoader, cache MasterDataCache, statusStore MasterDataSyncStatusStore) *MasterDataSyncUsecase {
+	t.Helper()
+	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, &fakeSyncEventPublisher{}, 1)
+	uc.SetBackupStore(nil)
+	uc.SetLifecycleContext(context.Background())
+	return uc
 }
