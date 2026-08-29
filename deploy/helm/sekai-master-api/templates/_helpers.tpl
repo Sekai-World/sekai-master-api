@@ -26,6 +26,18 @@ app.kubernetes.io/component: {{ .component }}
 {{- define "sekai-master-api.env" -}}
 - name: APP_PORT
   value: "8080"
+{{- $shutdownKey := "SHUTDOWN_TIMEOUT_SECONDS" }}
+{{- if hasKey .Values.common.env $shutdownKey }}{{ fail (printf "%s must not be set in common.env; set common.shutdownTimeoutSeconds instead" $shutdownKey) }}{{ end }}
+{{- if hasKey .role.env $shutdownKey }}{{ fail (printf "%s must not be set in role env; set common.shutdownTimeoutSeconds instead" $shutdownKey) }}{{ end }}
+{{- range .Values.common.extraEnv }}{{ if eq (default "" .name) $shutdownKey }}{{ fail (printf "%s must not be set in common.extraEnv; set common.shutdownTimeoutSeconds instead" $shutdownKey) }}{{ end }}{{ end }}
+{{- range .role.extraEnv }}{{ if eq (default "" .name) $shutdownKey }}{{ fail (printf "%s must not be set in role extraEnv; set common.shutdownTimeoutSeconds instead" $shutdownKey) }}{{ end }}{{ end }}
+{{- $shutdown := .Values.common.shutdownTimeoutSeconds }}
+{{- if kindIs "invalid" $shutdown }}{{ fail "common.shutdownTimeoutSeconds is required and must be an integer" }}{{ end }}
+{{- $shutdownInt := int $shutdown }}
+{{- $graceInt := int .Values.common.terminationGracePeriodSeconds }}
+{{- if ge $shutdownInt $graceInt }}{{ fail (printf "common.shutdownTimeoutSeconds (%d) must be strictly less than common.terminationGracePeriodSeconds (%d)" $shutdownInt $graceInt) }}{{ end }}
+- name: {{ $shutdownKey }}
+  value: {{ $shutdownInt | quote }}
 {{- range $name, $value := .Values.common.env }}
 {{- if eq $name "APP_PORT" }}{{ fail "common.env.APP_PORT is reserved; the container port is fixed at 8080" }}{{ end }}
 - name: {{ $name }}

@@ -19,6 +19,13 @@ common:
   env:
     APP_ENV: production
     DATABASE_DRIVER: pgx
+  # Bounded graceful-shutdown deadline (seconds). Injected as the explicit
+  # SHUTDOWN_TIMEOUT_SECONDS env entry on every pod (serve, control, migration Job).
+  # This is the single source for that variable: do not set SHUTDOWN_TIMEOUT_SECONDS
+  # in common.env, a role's env, or any extraEnv list. The chart fails at template
+  # time if this value is greater than or equal to terminationGracePeriodSeconds
+  # (default 30), which JSON Schema cannot enforce dynamically.
+  shutdownTimeoutSeconds: 25
   envFrom:
     configMaps: []
     secrets: []

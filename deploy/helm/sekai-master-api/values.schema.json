@@ -16,7 +16,19 @@
       "type": "object",
       "properties": {
         "extraVolumes": { "type": "array", "items": { "type": "object" } },
-        "extraVolumeMounts": { "type": "array", "items": { "type": "object" } }
+        "extraVolumeMounts": { "type": "array", "items": { "type": "object" } },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "Kubernetes terminationGracePeriodSeconds. The process SIGKILLs after this window; SHUTDOWN_TIMEOUT_SECONDS must stay strictly below it."
+        },
+        "shutdownTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Bounded graceful-shutdown deadline (seconds). Injected as SHUTDOWN_TIMEOUT_SECONDS and is the single source for that variable. The schema only validates the type and a soft upper bound; the chart fails at template time if this value is greater than or equal to common.terminationGracePeriodSeconds (default 30), which JSON Schema cannot enforce dynamically. Because the value is rendered as an explicit env entry, an external envFrom ConfigMap/Secret cannot override it at runtime."
+        }
       }
     },
     "serve": {

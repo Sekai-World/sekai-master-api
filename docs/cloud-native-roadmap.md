@@ -69,8 +69,11 @@ unready Redis data plane.
 
 ### 3. Graceful shutdown ([#79](https://github.com/Sekai-World/sekai-master-api/issues/79))
 
-- [ ] Ensure in-flight sync and version-write operations complete before pod
-  termination (proper `SIGTERM` handling with a shutdown grace period).
+- [x] Ensure in-flight sync and version-write operations complete before pod
+  termination (proper `SIGTERM`/`SIGINT` handling with a bounded shutdown grace
+  period, lifecycle cancellation, admission gates, worker draining, and ordered
+  dependency teardown; see `cmd/api/main.go`, `cmd/api/shutdown.go`, and the
+  related shutdown regression tests).
 - [ ] Add a pre-stop hook if the Kubernetes grace period alone is insufficient
   for long-running syncs.
 

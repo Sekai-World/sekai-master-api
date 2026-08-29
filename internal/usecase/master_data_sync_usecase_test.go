@@ -3028,3 +3028,77 @@ func TestRegionVersionReadyRedisTransportErrorPropagates(t *testing.T) {
 		t.Fatalf("expected jp not ready when redis fails")
 	}
 }
+
+// TestStartSyncInterruptedByLifecycleCancellation verifies that an admin
+// StartSync background worker is cancelled by the application lifecycle context
+// during graceful shutdown, that Wait() returns once it stops, and that the
+// in-flight region status is left recoverable (not marked failed) so
+// interrupted-sync recovery can resume it. Cancellation must not be treated as
+// a successful sync.
+func TestStartSyncInterruptedByLifecycleCancellation(t *testing.T) {
+	source := masterdata.Source{Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"}
+	loader := &timedSyncLoader{
+		payloadByZone:   map[string]map[string]any{"jp": {"cards": []any{}}},
+		loadDelayByZone: map[string]time.Duration{"jp": 5 * time.Second},
+	}
+	cache := &fakeSyncCache{}
+	statusStore := &fakeSyncStatusStore{
+		byZone:        make(map[string]masterdata.SyncStatus),
+		saved:         make([]masterdata.SyncStatus, 0),
+		successByZone: make(map[string]masterdata.SyncStatus),
+		stableByZone:  make(map[string]masterdata.SyncStatus),
+	}
+	publisher := &fakeSyncEventPublisher{}
+
+	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
+	uc.SetBackupStore(nil)
+
+	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
+	uc.SetLifecycleContext(lifecycleCtx)
+
+	if err := uc.StartSync(context.Background(), "jp", false); err != nil {
+		t.Fatalf("StartSync returned error: %v", err)
+	}
+	if !uc.IsSyncRunning() {
+		t.Fatalf("expected sync to be running after StartSync")
+	}
+
+	// Let the worker begin and reach the in-flight load phase.
+	time.Sleep(50 * time.Millisecond)
+
+	// Simulate graceful shutdown: cancel the app lifecycle context.
+	cancelLifecycle()
+
+	done := make(chan struct{})
+	go func() {
+		uc.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// worker stopped within the bounded window.
+	case <-time.After(2 * time.Second):
+		t.Fatal("StartSync worker did not stop after lifecycle cancellation")
+	}
+
+	if uc.IsSyncRunning() {
+		t.Fatalf("expected sync running flag to be cleared after cancellation")
+	}
+	if statusStore.hasSavedStatus("jp", "failed") {
+		t.Fatalf("interrupted region must not be marked failed; status must stay recoverable")
+	}
+	if !statusStore.hasSavedStatus("jp", "running") && !statusStore.hasSavedStatus("jp", "pending") {
+		t.Fatalf("interrupted region status must remain recoverable (running/pending)")
+	}
+
+	foundInterrupted := false
+	for _, event := range publisher.listEvents() {
+		if event.Event == "master_data_updated" && event.Status == "interrupted" {
+			foundInterrupted = true
+		}
+	}
+	if !foundInterrupted {
+		t.Fatalf("expected interrupted sync completion event")
+	}
+}

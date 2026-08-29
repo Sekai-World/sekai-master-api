@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
+	"os/signal"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -63,7 +67,6 @@ func main() {
 	if err != nil {
 		logger.Fatalf("failed to initialize observability: %v", err)
 	}
-	defer cleanupObservability()
 	if err := observability.RegisterRuntimeMetrics(); err != nil {
 		logger.Fatalf("failed to register runtime metrics: %v", err)
 	}
@@ -72,7 +75,6 @@ func main() {
 	if err != nil {
 		logger.Fatalf("failed to initialize database: %v", err)
 	}
-	defer db.Close()
 
 	var tokenVerifier auth.TokenVerifier
 	if cfg.NeedsAdminSurface() {
@@ -99,11 +101,6 @@ func main() {
 	}
 
 	masterDataCacheCloser := masterDataCache.Close
-	defer func() {
-		if masterDataCacheCloser != nil {
-			_ = masterDataCacheCloser()
-		}
-	}()
 
 	masterDataSyncUsecase := usecase.NewMasterDataSyncUsecase(
 		masterDataSources,
@@ -118,11 +115,16 @@ func main() {
 	}
 	masterDataSyncUsecase.SetJobTimeout(time.Duration(cfg.MasterDataSyncJobTimeout) * time.Second)
 	masterDataSyncUsecase.EnableDevelopmentBackupBootstrap(cfg.IsDevelopment())
+	// Cancellable app lifecycle context; terminating it interrupts background
+	// sync workers (admin StartSync, webhook SyncRegion) during graceful shutdown.
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+	masterDataSyncUsecase.SetLifecycleContext(appCtx)
 	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase, masterDataCache); err != nil {
 		logger.Fatalf("failed to register master data metrics: %v", err)
 	}
 	startupState := startup.NewState()
-	router, err := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub, startupState)
+	router, gitHubWebhookHandler, err := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub, startupState, appCtx)
 	if err != nil {
 		logger.Fatalf("failed to initialize router: %v", err)
 	}
@@ -133,48 +135,80 @@ func main() {
 	}
 	logger.Infow("api server listening", "addr", listener.Addr().String(), "role", string(cfg.Role))
 
+	server := &http.Server{Handler: router}
 	serverErrCh := make(chan error, 1)
 	go func() {
-		serverErrCh <- router.RunListener(listener)
+		serverErrCh <- server.Serve(listener)
 	}()
 
 	// The `serve` role is a pure public read workload: it must not run
 	// migrations, search-index warmup, master-data sync, or interrupted-sync
 	// recovery. It is immediately ready because those lifecycle jobs are owned
 	// by the `control` (or `standalone`) role.
+	lifecycleWG := &sync.WaitGroup{}
 	if !cfg.OwnsSyncLifecycle() {
 		startupState.MarkReady()
 		logger.Infow("serve role startup complete; public routes enabled without lifecycle jobs")
-		waitForServer(serverErrCh, logger)
-	}
+	} else {
+		// All started lifecycle goroutines are accounted for with lifecycleWG.Add
+		// BEFORE they are launched, so no Add happens after shutdown may begin
+		// (that would race with Wait in waitForBackgroundWorkers). Conditional
+		// goroutines wait on migrationsDone so they still begin only after
+		// migrations/MarkReady complete.
+		migrationsDone := make(chan struct{})
 
-	go func() {
-		if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
-			logger.Fatalf("failed to run database migrations: %v", err)
+		lifecycleWG.Add(1) // startup migrations goroutine
+		warmupEnabled := len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes && cfg.Role != config.AppRoleControl
+		autoSyncEnabled := len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted)
+		if warmupEnabled {
+			lifecycleWG.Add(1)
+		}
+		if autoSyncEnabled {
+			lifecycleWG.Add(1)
 		}
 
-		startupState.MarkReady()
-		logger.Infow("startup migrations completed; general api routes enabled")
+		go func() {
+			defer lifecycleWG.Done()
 
-		// Search-index warmup enables persisted Redis indexes for read/search
-		// traffic. The pure `control` role never serves public read traffic, so
-		// it does not run the local decoded-index warmup; doing so would needlessly
-		// decode persisted indexes into control process memory. Persisted indexes
-		// are (re)built by sync / force-sync in `control` and by warmup in
-		// `standalone`, so this only disables the optional startup decode path for
-		// `control` and does not remove any repair behavior.
-		if len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes && cfg.Role != config.AppRoleControl {
+			if err := storage.RunMigrations(appCtx, db, cfg); err != nil {
+				if errors.Is(err, context.Canceled) {
+					logger.Infow("startup migrations cancelled by shutdown")
+					return
+				}
+				logger.Fatalf("failed to run database migrations: %v", err)
+			}
+
+			startupState.MarkReady()
+			logger.Infow("startup migrations completed; general api routes enabled")
+			close(migrationsDone)
+		}()
+
+		if warmupEnabled {
 			go func() {
+				defer lifecycleWG.Done()
+
+				// Begin only after migrations (or shutdown) to preserve the original
+				// startup ordering.
+				select {
+				case <-migrationsDone:
+				case <-appCtx.Done():
+					return
+				}
+
 				warmupTimeout := cfg.MasterDataSyncJobTimeout
 				if warmupTimeout <= 0 {
 					warmupTimeout = 120
 				}
-				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(warmupTimeout)*time.Second)
-				defer cancel()
+				wctx, wcancel := context.WithTimeout(appCtx, time.Duration(warmupTimeout)*time.Second)
+				defer wcancel()
 
 				logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))
-				loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(ctx)
+				loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(wctx)
 				if warmErr != nil {
+					if errors.Is(warmErr, context.Canceled) {
+						logger.Infow("master data search index warmup cancelled by shutdown")
+						return
+					}
 					logger.Warnw("master data search index warmup completed with errors", "error", warmErr)
 					return
 				}
@@ -194,12 +228,23 @@ func main() {
 			logger.Infow("control role skips local search-index warmup; persisted indexes are built during sync/force-sync")
 		}
 
-		if len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted) {
+		if autoSyncEnabled {
 			go func() {
+				defer lifecycleWG.Done()
+
+				select {
+				case <-migrationsDone:
+				case <-appCtx.Done():
+					return
+				}
+
 				if cfg.MasterDataRecoverInterrupted {
-					interruptedRegions, err := masterDataSyncUsecase.InterruptedRegions(context.Background())
-					if err != nil {
-						logger.Warnw("failed to inspect interrupted master data sync status", "error", err)
+					interruptedRegions, ierr := masterDataSyncUsecase.InterruptedRegions(appCtx)
+					if ierr != nil {
+						if errors.Is(ierr, context.Canceled) {
+							return
+						}
+						logger.Warnw("failed to inspect interrupted master data sync status", "error", ierr)
 					} else if len(interruptedRegions) > 0 {
 						if cfg.MasterDataAutoSync {
 							logger.Infow(
@@ -209,7 +254,10 @@ func main() {
 							)
 						} else {
 							logger.Infow("master data interrupted sync recovery running in background", "regions", interruptedRegions)
-							if _, recoverErr := masterDataSyncUsecase.RecoverInterruptedSync(context.Background()); recoverErr != nil {
+							if _, recoverErr := masterDataSyncUsecase.RecoverInterruptedSync(appCtx); recoverErr != nil {
+								if errors.Is(recoverErr, context.Canceled) {
+									return
+								}
 								logger.Errorw("master data interrupted sync recovery completed with errors", "error", recoverErr, "regions", interruptedRegions)
 								return
 							}
@@ -225,17 +273,257 @@ func main() {
 				}
 
 				logger.Infow("master data startup sync running in background", "regions", len(masterDataSources))
-				if err := masterDataSyncUsecase.SyncAll(context.Background()); err != nil {
-					logger.Errorw("master data startup sync completed with errors", "error", err)
+				if syncErr := masterDataSyncUsecase.SyncAll(appCtx); syncErr != nil {
+					if errors.Is(syncErr, context.Canceled) {
+						return
+					}
+					logger.Errorw("master data startup sync completed with errors", "error", syncErr)
 					return
 				}
 
 				logger.Infow("master data startup sync completed successfully", "regions", len(masterDataSources))
 			}()
 		}
-	}()
+	}
 
-	waitForServer(serverErrCh, logger)
+	// Graceful shutdown wiring. The HTTP server is told to stop accepting new
+	// connections first; its shutdown callback then cancels the app lifecycle
+	// (interrupting background sync workers) and closes the SSE event hub. The
+	// shutdown deadline timer is started only when a SIGTERM/SIGINT is received
+	// (see handleShutdownSignals), so the grace period is not consumed at startup.
+	server.RegisterOnShutdown(func() {
+		// Stop accepting new connections has already happened inside
+		// server.Shutdown; now interrupt background workers and release SSE
+		// subscribers so long-lived streams do not hold the graceful window open.
+		appCancel()
+		masterDataEventHub.Close()
+	})
+
+	shutdownTimeout := time.Duration(cfg.ShutdownTimeoutSeconds) * time.Second
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = 25 * time.Second
+	}
+
+	sigCh := newShutdownSignalChannel()
+	shutdownStartedCh := make(chan context.Context, 1)
+	shutdownCancelCh := make(chan context.CancelFunc, 1)
+	drainDoneCh := make(chan struct{})
+	httpErrCh := make(chan error, 1)
+	go func() {
+		httpErrCh <- handleShutdownSignals(sigCh, server, logger, shutdownTimeout, shutdownStartedCh, shutdownCancelCh, drainDoneCh)
+	}()
+	defer signal.Stop(sigCh)
+
+	// Coordinate the graceful-shutdown handshake: wait for the server to stop
+	// (signal-driven drain or fatal serve error), drain background workers within
+	// the shared deadline, release the handler, collect the HTTP drain result,
+	// and return a non-nil error so we exit non-zero on failure. The dependency
+	// teardown below runs only after this returns, i.e. after HTTP handlers have
+	// fully drained.
+	runErr := coordinateShutdown(&shutdownCoordination{
+		logger:            logger,
+		serverErrCh:       serverErrCh,
+		shutdownStartedCh: shutdownStartedCh,
+		shutdownCancelCh:  shutdownCancelCh,
+		drainDoneCh:       drainDoneCh,
+		httpErrCh:         httpErrCh,
+		lifecycleWG:       lifecycleWG,
+		syncUsecase:       masterDataSyncUsecase,
+		webhook:           gitHubWebhookHandler,
+		hub:               masterDataEventHub,
+		shutdownTimeout:   shutdownTimeout,
+		appCancel:         appCancel,
+	})
+
+	logger.Infow("shutting down dependencies")
+
+	// Ordered teardown: stop OTel periodic callbacks/flush first (so no metrics
+	// push races with closed dependencies), then Redis cache, then database,
+	// then logger flush. Cleanup runs exactly once.
+	cleanupObservability()
+	if masterDataCacheCloser != nil {
+		if closeErr := masterDataCacheCloser(); closeErr != nil {
+			logger.Warnw("redis cache close error", "error", closeErr)
+		}
+	}
+	if closeErr := db.Close(); closeErr != nil {
+		logger.Warnw("database close error", "error", closeErr)
+	}
+	cleanupLogger()
+
+	if runErr != nil {
+		os.Exit(1)
+	}
+}
+
+// shutdownCoordination bundles the channels, waiters, callbacks, logger, and
+// timeout needed to drive the graceful-shutdown handshake. Bundled into a single
+// struct to keep coordinateShutdown's parameter list within budget (go:S107)
+// while leaving the shutdown contract unchanged. The shared deadline context is
+// intentionally NOT stored here: it is owned by the shutdown handler and handed
+// to the caller via channels, so it never lives in a long-lived struct.
+type shutdownCoordination struct {
+	logger            *zap.SugaredLogger
+	serverErrCh       <-chan error
+	shutdownStartedCh <-chan context.Context
+	shutdownCancelCh  <-chan context.CancelFunc
+	drainDoneCh       chan<- struct{}
+	httpErrCh         <-chan error
+	lifecycleWG       *sync.WaitGroup
+	syncUsecase       syncWorkerWaiter
+	webhook           webhookShutdown
+	hub               eventHubCloser
+	shutdownTimeout   time.Duration
+	appCancel         context.CancelFunc
+}
+
+// coordinateShutdown waits for the HTTP server to stop and then drains
+// background workers, returning a non-nil error (surfaced as a non-zero exit by
+// the caller) when the server, the HTTP drain, or the worker drain fails.
+//
+// Lifecycle / race notes:
+//   - The top-level select must distinguish a real unexpected Serve error from
+//     http.ErrServerClosed produced by the signal-driven server.Shutdown. The
+//     shutdown handler always publishes its deadline context on shutdownStartedCh
+//     *before* it calls server.Shutdown, so when serverErrCh is ready at the same
+//     time, a non-blocking read of shutdownStartedCh reveals the signal path and
+//     prevents skipping the signal-owned worker drain.
+//   - The shared shutdown deadline context must NOT be canceled until
+//     server.Shutdown has fully completed. The handler blocks on drainDone only
+//     after its own server.Shutdown returns, so closing drainDoneCh first and
+//     reading the handler result before invoking the handed-off cancel guarantees
+//     active HTTP requests are fully drained before dependencies are torn down.
+func coordinateShutdown(c *shutdownCoordination) error {
+	logger := c.logger
+	serverErrCh := c.serverErrCh
+	shutdownStartedCh := c.shutdownStartedCh
+	shutdownCancelCh := c.shutdownCancelCh
+	drainDoneCh := c.drainDoneCh
+	httpErrCh := c.httpErrCh
+	lifecycleWG := c.lifecycleWG
+	syncUsecase := c.syncUsecase
+	webhook := c.webhook
+	hub := c.hub
+	shutdownTimeout := c.shutdownTimeout
+	appCancel := c.appCancel
+
+	var serverShutdownCtx context.Context
+	var serveErr error
+	var serverErrConsumed bool
+	var signaled bool
+	var drainCancel context.CancelFunc
+	select {
+	case serveErr = <-serverErrCh:
+		// server.Serve returned. http.ErrServerClosed is the expected result when
+		// the signal handler (or a second-signal force-close) stopped the server,
+		// so it is never fatal by itself. Because the signal handler publishes its
+		// context on shutdownStartedCh *before* server.Shutdown, a ready
+		// shutdownStartedCh means this is the signal path and the worker drain must
+		// still run.
+		serverErrConsumed = true
+		select {
+		case serverShutdownCtx = <-shutdownStartedCh:
+			signaled = true
+			drainCancel = <-shutdownCancelCh
+		default:
+		}
+		if !signaled && !errors.Is(serveErr, http.ErrServerClosed) {
+			// Unexpected serve failure with no signal: interrupt background workers
+			// and fall through to controlled teardown before returning a non-zero
+			// status.
+			appCancel()
+		}
+	case serverShutdownCtx = <-shutdownStartedCh:
+		// Signal received: server.Shutdown is draining in-flight requests using
+		// this same deadline context. The handler owns the HTTP drain and blocks
+		// on drainDone (closed below after the worker drain) before returning, so
+		// we must NOT wait for it here — doing so would deadlock.
+		signaled = true
+		drainCancel = <-shutdownCancelCh
+	}
+	logger.Infow("http server stopped accepting requests")
+
+	// The worker drain uses a single deadline context owned by main, spanning from
+	// first-signal receipt through HTTP shutdown and worker joins. In the signaled
+	// path this is the context handed back by the shutdown handler (the same
+	// context server.Shutdown used), so the grace period is shared and the workers
+	// get the remaining deadline rather than a freshly re-derived window that may
+	// already be expired. In the serve-error path (no signal) we fall back to a
+	// fresh bounded deadline whose cancel is deferred.
+	var workerCtx context.Context
+	var workerCancel context.CancelFunc
+	if signaled {
+		workerCtx = serverShutdownCtx
+	} else {
+		workerCtx, workerCancel = context.WithTimeout(context.Background(), shutdownTimeout)
+		defer workerCancel()
+	}
+
+	var runErr error
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		runErr = serveErr
+		logger.Errorw("server exited with error", "error", serveErr)
+	}
+
+	workerErr := waitForBackgroundWorkers(workerCtx, logger, lifecycleWG, syncUsecase, webhook, hub)
+	if workerErr != nil {
+		if runErr == nil {
+			runErr = workerErr
+		}
+		logger.Errorw("graceful shutdown did not complete in time", "error", workerErr)
+		// Safe bounded fallback: the shared deadline elapsed before workers
+		// stopped. Ensure lifecycle cancellation is propagated so in-flight workers
+		// are interrupted before dependency teardown closes the resources they
+		// depend on. appCancel is idempotent: in the signal path it was already
+		// invoked by the server shutdown callback, and in the serve-error path it
+		// was invoked directly above.
+		appCancel()
+	}
+
+	// Only the signal-driven path requires the shared deadline and drainDone
+	// handshake. Once the worker drain completes, release the handler (which is
+	// blocked on drainDone after its own server.Shutdown completed) and collect
+	// the HTTP drain result. The handler only reaches <-drainDone after
+	// server.Shutdown has returned, so by the time we read its result the HTTP
+	// drain is fully complete and it is safe to cancel the shared deadline.
+	if signaled {
+		// Close drainDoneCh BEFORE canceling the shared deadline. Canceling the
+		// context here would otherwise interrupt an in-flight server.Shutdown
+		// (which runs against the same ctx), detach active handlers from the
+		// grace period, and let dependency teardown race with still-running
+		// requests.
+		close(drainDoneCh)
+
+		// The handler has now returned (its server.Shutdown completed). Collect
+		// the server serve error and the HTTP drain result. In the race case
+		// where serverErrCh was already consumed above, reuse that value.
+		var serverErr error
+		if serverErrConsumed {
+			serverErr = serveErr
+		} else {
+			serverErr = <-serverErrCh
+		}
+		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+			if runErr == nil {
+				runErr = serverErr
+			}
+			logger.Errorw("http server stopped with error after shutdown signal", "error", serverErr)
+		}
+		httpDrainErr := <-httpErrCh
+		if httpDrainErr != nil {
+			if runErr == nil {
+				runErr = httpDrainErr
+			}
+			logger.Errorw("http graceful drain exceeded deadline", "error", httpDrainErr)
+		}
+
+		// HTTP shutdown is fully complete; release the shared deadline timer. The
+		// handler's deferred S8188 fallback would otherwise release it if we
+		// exited without calling drainCancel.
+		drainCancel()
+	}
+
+	return runErr
 }
 
 func runMigrationCommand(args []string) (err error) {
@@ -270,12 +558,6 @@ func runMigrationCommand(args []string) (err error) {
 
 	zap.S().Infow("database migrations completed")
 	return nil
-}
-
-func waitForServer(serverErrCh chan error, logger *zap.SugaredLogger) {
-	if err := <-serverErrCh; err != nil {
-		logger.Fatalf("server exited with error: %v", err)
-	}
 }
 
 // applyRoleSubcommandFromArgs lets the first positional argument select the
