@@ -15,6 +15,8 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
+const musicEnrichmentErrorMessage = "failed to enrich music"
+
 type MusicHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 }
@@ -78,13 +80,13 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 
 	categories, err := handler.loadMusicCategoryRecords(c.Request.Context(), region)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich music")
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
 	}
 
 	item, err := handler.buildMusic(c.Request.Context(), region, record, categories)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich music")
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
 	}
 	response.JSON(c, http.StatusOK, item)
@@ -621,23 +623,13 @@ func (handler *MusicHandler) loadAppendMusicIDs(ctx context.Context, region stri
 }
 
 func musicMatchesFilterOptions(record map[string]any, options musicListFilterOptions, playLevels map[string][]float64, tags map[string]map[string]struct{}, appendMusicIDs map[string]struct{}, musicCategories map[string][]string) bool {
-	if options.Name != "" &&
-		!musicValueContains(record["title"], options.Name) &&
-		!musicValueContains(record["pronunciation"], options.Name) {
+	if !musicMatchesNameFilter(record, options) {
 		return false
 	}
-
 	if len(options.Category) > 0 && !musicCategoryMatchesOptions(record, options.Category, musicCategories) {
 		return false
 	}
-
-	if len(options.Composer) > 0 && !musicValueContainsAny(record["composer"], options.Composer) {
-		return false
-	}
-	if len(options.Arranger) > 0 && !musicValueContainsAny(record["arranger"], options.Arranger) {
-		return false
-	}
-	if len(options.Lyricist) > 0 && !musicValueContainsAny(record["lyricist"], options.Lyricist) {
+	if !musicMatchesCreatorFilters(record, options) {
 		return false
 	}
 	if len(options.Tags) > 0 && !musicTagsMatchAny(tags[shared.NormalizeAnyID(record["id"])], options.Tags) {
@@ -649,7 +641,25 @@ func musicMatchesFilterOptions(record map[string]any, options musicListFilterOpt
 	if options.PlayLevel.Enabled() && !musicMatchesPlayLevelFilter(playLevels[shared.NormalizeAnyID(record["id"])], options.PlayLevel) {
 		return false
 	}
+	return true
+}
 
+func musicMatchesNameFilter(record map[string]any, options musicListFilterOptions) bool {
+	return options.Name == "" ||
+		musicValueContains(record["title"], options.Name) ||
+		musicValueContains(record["pronunciation"], options.Name)
+}
+
+func musicMatchesCreatorFilters(record map[string]any, options musicListFilterOptions) bool {
+	if len(options.Composer) > 0 && !musicValueContainsAny(record["composer"], options.Composer) {
+		return false
+	}
+	if len(options.Arranger) > 0 && !musicValueContainsAny(record["arranger"], options.Arranger) {
+		return false
+	}
+	if len(options.Lyricist) > 0 && !musicValueContainsAny(record["lyricist"], options.Lyricist) {
+		return false
+	}
 	return true
 }
 
@@ -917,36 +927,42 @@ func resolveMusicCategories(record map[string]any, aggregatedCategories map[stri
 
 func extractEmbeddedMusicCategories(record map[string]any) []string {
 	collected := make([]string, 0)
-	collect := func(value any) {
-		switch typed := value.(type) {
-		case []any:
-			for _, item := range typed {
-				if normalized := shared.NormalizeComparableText(item); normalized != "" {
-					collected = append(collected, normalized)
-				}
-			}
-		case []string:
-			for _, item := range typed {
-				if normalized := shared.NormalizeComparableText(item); normalized != "" {
-					collected = append(collected, normalized)
-				}
-			}
-		default:
-			if normalized := shared.NormalizeComparableText(value); normalized != "" {
-				collected = append(collected, normalized)
-			}
-		}
-	}
-	if record["categories"] != nil {
-		collect(record["categories"])
-	}
-	if record["category"] != nil {
-		collect(record["category"])
-	}
-	if record["musicCategory"] != nil {
-		collect(record["musicCategory"])
+	for _, key := range []string{"categories", "category", "musicCategory"} {
+		collected = append(collected, collectMusicCategoryValues(record[key])...)
 	}
 	return collected
+}
+
+func collectMusicCategoryValues(value any) []string {
+	switch typed := value.(type) {
+	case []any:
+		return normalizeMusicCategorySlice(typed)
+	case []string:
+		return normalizeMusicCategorySlice(toStringSlice(typed))
+	default:
+		if normalized := shared.NormalizeComparableText(value); normalized != "" {
+			return []string{normalized}
+		}
+		return []string{}
+	}
+}
+
+func toStringSlice(values []string) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
+}
+
+func normalizeMusicCategorySlice(values []any) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		if text := shared.NormalizeComparableText(value); text != "" {
+			normalized = append(normalized, text)
+		}
+	}
+	return normalized
 }
 
 func musicCategoryMatchesOptions(record map[string]any, queries map[string]struct{}, musicCategories map[string][]string) bool {
@@ -1015,45 +1031,64 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 
 	result["categories"] = resolveMusicCategories(record, aggregatedCategories, shared.NormalizeAnyID(record["id"]))
 
-	if rawCreatorArtistID, hasCreatorArtistID := record["creatorArtistId"]; hasCreatorArtistID {
-		delete(result, "creatorArtistId")
-
-		creatorArtistLookupID := shared.NormalizeAnyID(rawCreatorArtistID)
-		if creatorArtistLookupID == "" {
-			result["creatorArtist"] = nil
-		} else {
-			creatorArtist, found, err := handler.masterDataSync.GetByID(ctx, region, "musicartists", creatorArtistLookupID)
-			if err != nil {
-				return nil, fmt.Errorf("get music artist %s: %w", creatorArtistLookupID, err)
-			}
-			if !found {
-				result["creatorArtist"] = nil
-			} else {
-				result["creatorArtist"] = creatorArtist
-			}
-		}
+	if err := handler.attachCreatorArtist(ctx, region, record, result); err != nil {
+		return nil, err
 	}
-
-	if rawLiveStageID, hasLiveStageID := record["liveStageId"]; hasLiveStageID {
-		delete(result, "liveStageId")
-
-		liveStageLookupID := shared.NormalizeAnyID(rawLiveStageID)
-		if liveStageLookupID == "" {
-			result["liveStage"] = nil
-		} else {
-			liveStage, found, err := handler.masterDataSync.GetByID(ctx, region, "livestages", liveStageLookupID)
-			if err != nil {
-				return nil, fmt.Errorf("get live stage %s: %w", liveStageLookupID, err)
-			}
-			if !found {
-				result["liveStage"] = nil
-			} else {
-				result["liveStage"] = liveStage
-			}
-		}
+	if err := handler.attachLiveStage(ctx, region, record, result); err != nil {
+		return nil, err
 	}
 
 	return result, nil
+}
+
+func (handler *MusicHandler) attachCreatorArtist(ctx context.Context, region string, record map[string]any, result map[string]any) error {
+	rawCreatorArtistID, hasCreatorArtistID := record["creatorArtistId"]
+	if !hasCreatorArtistID {
+		return nil
+	}
+	delete(result, "creatorArtistId")
+
+	creatorArtistLookupID := shared.NormalizeAnyID(rawCreatorArtistID)
+	if creatorArtistLookupID == "" {
+		result["creatorArtist"] = nil
+		return nil
+	}
+
+	creatorArtist, found, err := handler.masterDataSync.GetByID(ctx, region, "musicartists", creatorArtistLookupID)
+	if err != nil {
+		return fmt.Errorf("get music artist %s: %w", creatorArtistLookupID, err)
+	}
+	if !found {
+		result["creatorArtist"] = nil
+	} else {
+		result["creatorArtist"] = creatorArtist
+	}
+	return nil
+}
+
+func (handler *MusicHandler) attachLiveStage(ctx context.Context, region string, record map[string]any, result map[string]any) error {
+	rawLiveStageID, hasLiveStageID := record["liveStageId"]
+	if !hasLiveStageID {
+		return nil
+	}
+	delete(result, "liveStageId")
+
+	liveStageLookupID := shared.NormalizeAnyID(rawLiveStageID)
+	if liveStageLookupID == "" {
+		result["liveStage"] = nil
+		return nil
+	}
+
+	liveStage, found, err := handler.masterDataSync.GetByID(ctx, region, "livestages", liveStageLookupID)
+	if err != nil {
+		return fmt.Errorf("get live stage %s: %w", liveStageLookupID, err)
+	}
+	if !found {
+		result["liveStage"] = nil
+	} else {
+		result["liveStage"] = liveStage
+	}
+	return nil
 }
 
 // VocalsByID godoc
@@ -1145,13 +1180,13 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 
 	categories, err := handler.loadMusicCategoryRecords(ctx, region)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich music")
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
 	}
 
 	music, err := handler.buildMusic(ctx, region, record, categories)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to enrich music")
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
 	}
 
