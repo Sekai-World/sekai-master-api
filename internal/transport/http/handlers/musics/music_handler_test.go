@@ -1510,18 +1510,20 @@ func decodeMusicOK(t *testing.T, resp *httptest.ResponseRecorder) map[string]any
 	return body
 }
 
+type musicCategoryAggregationCase struct {
+	name        string
+	cache       *fakeMusicHandlerCache
+	path        string
+	expect      []string
+	assertMusic bool
+	listItems   [][]string
+	order       []float64
+}
+
 func TestMusicCategoryAggregation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cases := []struct {
-		name        string
-		cache       *fakeMusicHandlerCache
-		path        string
-		expect      []string
-		assertMusic bool
-		listItems   [][]string
-		order       []float64
-	}{
+	cases := []musicCategoryAggregationCase{
 		{
 			name: "by-id returns aggregated categories",
 			cache: &fakeMusicHandlerCache{
@@ -1627,42 +1629,47 @@ func TestMusicCategoryAggregation(t *testing.T) {
 	}
 
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			handler := newReadyMusicHandler(tc.cache)
-			router := newMusicCategoryRouter(handler)
-			resp := doMusicGet(router, tc.path)
-
-			if tc.order != nil {
-				assertResponseItemOrder(t, resp.Body.Bytes(), tc.order)
-				return
-			}
-
-			body := decodeMusicOK(t, resp)
-
-			if tc.listItems != nil {
-				items, ok := body["items"].([]any)
-				if !ok || len(items) != len(tc.listItems) {
-					t.Fatalf("expected %d items, got %v", len(tc.listItems), body["items"])
-				}
-				for index, expected := range tc.listItems {
-					item, ok := items[index].(map[string]any)
-					if !ok {
-						t.Fatalf("expected item %d object, got %T", index, items[index])
-					}
-					assertMusicHasCategories(t, item, expected)
-				}
-				return
-			}
-
-			assertMusicHasCategories(t, body, tc.expect)
-			if tc.assertMusic {
-				music, ok := body["music"].(map[string]any)
-				if !ok {
-					t.Fatalf("expected music object, got %T", body["music"])
-				}
-				assertMusicHasCategories(t, music, tc.expect)
-			}
+			runMusicCategoryAggregationCase(t, tc)
 		})
+	}
+}
+
+func runMusicCategoryAggregationCase(t *testing.T, tc musicCategoryAggregationCase) {
+	handler := newReadyMusicHandler(tc.cache)
+	router := newMusicCategoryRouter(handler)
+	resp := doMusicGet(router, tc.path)
+
+	if tc.order != nil {
+		assertResponseItemOrder(t, resp.Body.Bytes(), tc.order)
+		return
+	}
+
+	body := decodeMusicOK(t, resp)
+
+	if tc.listItems != nil {
+		items, ok := body["items"].([]any)
+		if !ok || len(items) != len(tc.listItems) {
+			t.Fatalf("expected %d items, got %v", len(tc.listItems), body["items"])
+		}
+		for index, expected := range tc.listItems {
+			item, ok := items[index].(map[string]any)
+			if !ok {
+				t.Fatalf("expected item %d object, got %T", index, items[index])
+			}
+			assertMusicHasCategories(t, item, expected)
+		}
+		return
+	}
+
+	assertMusicHasCategories(t, body, tc.expect)
+	if tc.assertMusic {
+		music, ok := body["music"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected music object, got %T", body["music"])
+		}
+		assertMusicHasCategories(t, music, tc.expect)
 	}
 }
 
