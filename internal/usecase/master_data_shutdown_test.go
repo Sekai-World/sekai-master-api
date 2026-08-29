@@ -70,17 +70,12 @@ func TestMasterDataEventHubCloseIdempotent(t *testing.T) {
 // phase respects lifecycle cancellation: no terminal failed/success status is
 // persisted and the region is left in its recoverable running state.
 func TestSyncInterruptedDuringCacheStoreLeavesRecoverable(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"}
+	source := jpShutdownTestSource()
 	loader := &fakeSyncLoader{
 		payloadByZone: map[string]map[string]any{"jp": {"cards": []any{}}},
 	}
 	cache := &blockingSyncCache{}
-	statusStore := &fakeSyncStatusStore{
-		byZone:        make(map[string]masterdata.SyncStatus),
-		saved:         make([]masterdata.SyncStatus, 0),
-		successByZone: make(map[string]masterdata.SyncStatus),
-		stableByZone:  make(map[string]masterdata.SyncStatus),
-	}
+	statusStore := newFakeSyncStatusStore(nil)
 
 	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
@@ -132,15 +127,10 @@ func (c *blockingSyncCache) hasStoreCall(_ string) bool {
 // with ErrShutdownAdmission instead of admitting a sync that could outlive
 // dependency teardown.
 func TestStartSyncRejectedAfterCloseAdmission(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"}
-	loader := &fakeSyncLoader{payloadByZone: map[string]map[string]any{"jp": {"cards": []any{}}}}
+	source := jpShutdownTestSource()
+	loader := newShutdownTestLoader()
 	cache := &fakeSyncCache{}
-	statusStore := &fakeSyncStatusStore{
-		byZone:        make(map[string]masterdata.SyncStatus),
-		saved:         make([]masterdata.SyncStatus, 0),
-		successByZone: make(map[string]masterdata.SyncStatus),
-		stableByZone:  make(map[string]masterdata.SyncStatus),
-	}
+	statusStore := newFakeSyncStatusStore(nil)
 	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
 	uc.CloseAdmission()
@@ -152,15 +142,10 @@ func TestStartSyncRejectedAfterCloseAdmission(t *testing.T) {
 // TestWaitClosesAdmissionAndDrainsInflight verifies Wait closes the admission gate
 // (so subsequent sync starts are refused) and still drains the in-flight worker.
 func TestWaitClosesAdmissionAndDrainsInflight(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"}
-	loader := &fakeSyncLoader{payloadByZone: map[string]map[string]any{"jp": {"cards": []any{}}}}
+	source := jpShutdownTestSource()
+	loader := newShutdownTestLoader()
 	cache := &fakeSyncCache{}
-	statusStore := &fakeSyncStatusStore{
-		byZone:        make(map[string]masterdata.SyncStatus),
-		saved:         make([]masterdata.SyncStatus, 0),
-		successByZone: make(map[string]masterdata.SyncStatus),
-		stableByZone:  make(map[string]masterdata.SyncStatus),
-	}
+	statusStore := newFakeSyncStatusStore(nil)
 	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
 	if err := uc.StartSync(context.Background(), "jp", false); err != nil {
@@ -221,18 +206,13 @@ func TestSyncWGAdmissionNoAddWaitRace(t *testing.T) {
 // TestSyncReturnsContextCanceledOnInterruption verifies the run itself reports
 // interruption (context.Canceled) rather than a success/failure error.
 func TestSyncReturnsContextCanceledOnInterruption(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"}
+	source := jpShutdownTestSource()
 	loader := &timedSyncLoader{
 		payloadByZone:   map[string]map[string]any{"jp": {"cards": []any{}}},
 		loadDelayByZone: map[string]time.Duration{"jp": 5 * time.Second},
 	}
 	cache := &fakeSyncCache{}
-	statusStore := &fakeSyncStatusStore{
-		byZone:        make(map[string]masterdata.SyncStatus),
-		saved:         make([]masterdata.SyncStatus, 0),
-		successByZone: make(map[string]masterdata.SyncStatus),
-		stableByZone:  make(map[string]masterdata.SyncStatus),
-	}
+	statusStore := newFakeSyncStatusStore(nil)
 	uc := newShutdownFixtureUsecase(t, source, loader, cache, statusStore)
 
 	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
@@ -254,6 +234,16 @@ func TestSyncReturnsContextCanceledOnInterruption(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("SyncAll did not return after lifecycle cancellation")
 	}
+}
+
+// jpShutdownTestSource and newShutdownTestLoader collapse the repeated fixture
+// literals shared across the shutdown tests so they are defined once.
+func jpShutdownTestSource() masterdata.Source {
+	return masterdata.Source{Region: "jp", Owner: "Sekai-World", Repo: "sekai-master-data-jp", Ref: "main"}
+}
+
+func newShutdownTestLoader() *fakeSyncLoader {
+	return &fakeSyncLoader{payloadByZone: map[string]map[string]any{"jp": {"cards": []any{}}}}
 }
 
 // newShutdownFixtureUsecase builds a MasterDataSyncUsecase for shutdown tests with

@@ -353,10 +353,14 @@ func (usecase *MasterDataSyncUsecase) SyncAllForce(ctx context.Context) error {
 	return err
 }
 
-func (usecase *MasterDataSyncUsecase) SyncRegion(ctx context.Context, region string) error {
+// resolveRegionSources normalizes the requested region and returns the matching
+// configured sources, or ErrRegionNotFound when the region is empty or unknown.
+// It collapses the identical region-resolution boilerplate shared by SyncRegion
+// and SyncRegionForce.
+func (usecase *MasterDataSyncUsecase) resolveRegionSources(region string) ([]masterdata.Source, error) {
 	targetRegion := strings.ToLower(strings.TrimSpace(region))
 	if targetRegion == "" {
-		return ErrRegionNotFound
+		return nil, ErrRegionNotFound
 	}
 
 	targetSources := make([]masterdata.Source, 0, 1)
@@ -368,35 +372,29 @@ func (usecase *MasterDataSyncUsecase) SyncRegion(ctx context.Context, region str
 	}
 
 	if len(targetSources) == 0 {
-		return ErrRegionNotFound
+		return nil, ErrRegionNotFound
 	}
+	return targetSources, nil
+}
 
-	ctx, span := tracing.StartSpan(ctx, "master_data.sync_region", attribute.String("region", targetRegion))
-	err := usecase.sync(ctx, false, targetSources)
+func (usecase *MasterDataSyncUsecase) SyncRegion(ctx context.Context, region string) error {
+	targetSources, err := usecase.resolveRegionSources(region)
+	if err != nil {
+		return err
+	}
+	ctx, span := tracing.StartSpan(ctx, "master_data.sync_region", attribute.String("region", strings.ToLower(strings.TrimSpace(region))))
+	err = usecase.sync(ctx, false, targetSources)
 	tracing.EndSpan(span, err)
 	return err
 }
 
 func (usecase *MasterDataSyncUsecase) SyncRegionForce(ctx context.Context, region string) error {
-	targetRegion := strings.ToLower(strings.TrimSpace(region))
-	if targetRegion == "" {
-		return ErrRegionNotFound
+	targetSources, err := usecase.resolveRegionSources(region)
+	if err != nil {
+		return err
 	}
-
-	targetSources := make([]masterdata.Source, 0, 1)
-	for _, source := range usecase.sources {
-		if strings.EqualFold(strings.TrimSpace(source.Region), targetRegion) {
-			targetSources = append(targetSources, source)
-			break
-		}
-	}
-
-	if len(targetSources) == 0 {
-		return ErrRegionNotFound
-	}
-
-	ctx, span := tracing.StartSpan(ctx, "master_data.sync_region", attribute.String("region", targetRegion), attribute.Bool("force", true))
-	err := usecase.sync(ctx, true, targetSources)
+	ctx, span := tracing.StartSpan(ctx, "master_data.sync_region", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.Bool("force", true))
+	err = usecase.sync(ctx, true, targetSources)
 	tracing.EndSpan(span, err)
 	return err
 }

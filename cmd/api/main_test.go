@@ -17,6 +17,68 @@ import (
 
 func nopLogger() *zap.SugaredLogger { return zap.NewNop().Sugar() }
 
+// shutdownSignalHarness wires an HTTP server, its listener, and the signal
+// channels used by handleShutdownSignals so the repeated scaffolding shared by
+// the shutdown-signal tests lives in one place.
+type shutdownSignalHarness struct {
+	server    *http.Server
+	listener  net.Listener
+	errCh     chan error
+	sigCh     chan os.Signal
+	startedCh chan context.Context
+	cancelCh  chan context.CancelFunc
+}
+
+func newShutdownSignalHarness(t *testing.T, handler http.HandlerFunc) *shutdownSignalHarness {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen error: %v", err)
+	}
+	h := &shutdownSignalHarness{
+		server:    &http.Server{Handler: handler},
+		listener:  listener,
+		errCh:     make(chan error, 1),
+		sigCh:     make(chan os.Signal, 1),
+		startedCh: make(chan context.Context, 1),
+		cancelCh:  make(chan context.CancelFunc, 1),
+	}
+	go func() { h.errCh <- h.server.Serve(listener) }()
+	return h
+}
+
+// start launches the shutdown-signal handler with the given graceful deadline.
+func (h *shutdownSignalHarness) start(connectTimeout time.Duration) {
+	go handleShutdownSignals(h.sigCh, h.server, nopLogger(), connectTimeout, h.startedCh, h.cancelCh)
+}
+
+func (h *shutdownSignalHarness) waitServerStopped(t *testing.T) {
+	t.Helper()
+	select {
+	case err := <-h.errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("expected http.ErrServerClosed, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not stop after shutdown signal")
+	}
+}
+
+func (h *shutdownSignalHarness) controlContext(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+	select {
+	case ctx := <-h.startedCh:
+		cancel := <-h.cancelCh
+		if ctx.Err() != nil {
+			t.Fatalf("shutdown context already invalid when published: %v", ctx.Err())
+		}
+		return ctx, cancel
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not publish shutdown control")
+	}
+	return nil, nil
+}
+
 func TestShutdownHTTPServerGraceful(t *testing.T) {
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -98,28 +160,16 @@ func TestWaitForBackgroundWorkersTimesOutOnSyncWorker(t *testing.T) {
 }
 
 func TestHandleShutdownSignalsFirstSignalShutsDownServer(t *testing.T) {
-	handlerDone := make(chan struct{})
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(20 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		close(handlerDone)
-	})}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen error: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
-
-	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan context.Context, 1)
-	cancelCh := make(chan context.CancelFunc, 1)
-	go handleShutdownSignals(sigCh, server, nopLogger(), 2*time.Second, startedCh, cancelCh)
+	})
+	h.start(2 * time.Second)
 
 	// Start a request that will be drained within the deadline.
 	clientDone := make(chan int, 1)
 	go func() {
-		resp, reqErr := http.Get("http://" + listener.Addr().String())
+		resp, reqErr := http.Get("http://" + h.listener.Addr().String())
 		if reqErr != nil {
 			clientDone <- 0
 			return
@@ -129,7 +179,7 @@ func TestHandleShutdownSignalsFirstSignalShutsDownServer(t *testing.T) {
 	}()
 
 	time.Sleep(10 * time.Millisecond)
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 
 	select {
 	case status := <-clientDone:
@@ -140,37 +190,20 @@ func TestHandleShutdownSignalsFirstSignalShutsDownServer(t *testing.T) {
 		t.Fatal("in-flight request was not drained before timeout")
 	}
 
-	select {
-	case err := <-errCh:
-		if !errors.Is(err, http.ErrServerClosed) {
-			t.Fatalf("expected http.ErrServerClosed, got %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("server did not stop after shutdown signal")
-	}
+	h.waitServerStopped(t)
 }
 
 func TestHandleShutdownSignalsTimeoutForceCloses(t *testing.T) {
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
 		// Hold the connection open past the deadline.
 		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-	})}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen error: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
-
-	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan context.Context, 1)
-	cancelCh := make(chan context.CancelFunc, 1)
-	go handleShutdownSignals(sigCh, server, nopLogger(), 40*time.Millisecond, startedCh, cancelCh)
+	})
+	h.start(40 * time.Millisecond)
 
 	// Fire a request that outlives the shutdown deadline.
 	go func() {
-		resp, reqErr := http.Get("http://" + listener.Addr().String())
+		resp, reqErr := http.Get("http://" + h.listener.Addr().String())
 		if reqErr == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
@@ -179,10 +212,10 @@ func TestHandleShutdownSignalsTimeoutForceCloses(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 	start := time.Now()
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 
 	select {
-	case err := <-errCh:
+	case err := <-h.errCh:
 		// http.ErrServerClosed is returned for both graceful Shutdown and forced
 		// Close; what matters is that the server stopped within the deadline rather
 		// than holding the open connection for the full 500ms.
@@ -196,28 +229,19 @@ func TestHandleShutdownSignalsTimeoutForceCloses(t *testing.T) {
 }
 
 func TestHandleShutdownSignalsReturnsErrorOnDrainTimeout(t *testing.T) {
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
 		// Hold the connection open past the deadline.
 		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-	})}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen error: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
+	})
 
-	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan context.Context, 1)
-	cancelCh := make(chan context.CancelFunc, 1)
 	handlerErrCh := make(chan error, 1)
 	go func() {
-		handlerErrCh <- handleShutdownSignals(sigCh, server, nopLogger(), 40*time.Millisecond, startedCh, cancelCh)
+		handlerErrCh <- handleShutdownSignals(h.sigCh, h.server, nopLogger(), 40*time.Millisecond, h.startedCh, h.cancelCh)
 	}()
 
 	go func() {
-		resp, reqErr := http.Get("http://" + listener.Addr().String())
+		resp, reqErr := http.Get("http://" + h.listener.Addr().String())
 		if reqErr == nil {
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
@@ -225,7 +249,7 @@ func TestHandleShutdownSignalsReturnsErrorOnDrainTimeout(t *testing.T) {
 	}()
 
 	time.Sleep(10 * time.Millisecond)
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 
 	select {
 	case serr := <-handlerErrCh:
@@ -238,35 +262,26 @@ func TestHandleShutdownSignalsReturnsErrorOnDrainTimeout(t *testing.T) {
 
 	// The server must have been force-closed so the process does not hang.
 	select {
-	case <-errCh:
+	case <-h.errCh:
 	case <-time.After(2 * time.Second):
 		t.Fatal("server did not stop after drain timeout force-close")
 	}
 }
 
 func TestHandleShutdownSignalsSecondSignalDoesNotSurfaceDrainError(t *testing.T) {
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(1 * time.Second)
 		w.WriteHeader(http.StatusOK)
-	})}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen error: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
+	})
 
-	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan context.Context, 1)
-	cancelCh := make(chan context.CancelFunc, 1)
 	handlerErrCh := make(chan error, 1)
 	go func() {
-		handlerErrCh <- handleShutdownSignals(sigCh, server, nopLogger(), 30*time.Second, startedCh, cancelCh)
+		handlerErrCh <- handleShutdownSignals(h.sigCh, h.server, nopLogger(), 30*time.Second, h.startedCh, h.cancelCh)
 	}()
 
 	time.Sleep(10 * time.Millisecond)
-	sigCh <- syscall.SIGTERM
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 
 	select {
 	case serr := <-handlerErrCh:
@@ -280,37 +295,27 @@ func TestHandleShutdownSignalsSecondSignalDoesNotSurfaceDrainError(t *testing.T)
 	}
 
 	select {
-	case <-errCh:
+	case <-h.errCh:
 	case <-time.After(3 * time.Second):
 		t.Fatal("server did not stop after second signal force-close")
 	}
 }
 
 func TestHandleShutdownSignalsSecondSignalForceCloses(t *testing.T) {
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(1 * time.Second)
 		w.WriteHeader(http.StatusOK)
-	})}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen error: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
-
-	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan context.Context, 1)
-	cancelCh := make(chan context.CancelFunc, 1)
-	go handleShutdownSignals(sigCh, server, nopLogger(), 30*time.Second, startedCh, cancelCh)
+	})
+	h.start(30 * time.Second)
 
 	time.Sleep(10 * time.Millisecond)
 	// First signal starts a long graceful drain; second signal must force-close now.
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 	start := time.Now()
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 
 	select {
-	case err := <-errCh:
+	case err := <-h.errCh:
 		_ = err
 		// The 30s deadline would otherwise keep the connection open; the second
 		// signal must force-close immediately.
@@ -322,60 +327,24 @@ func TestHandleShutdownSignalsSecondSignalForceCloses(t *testing.T) {
 	}
 }
 
-// --- fakes for waitForBackgroundWorkers ---
-
-type fakeWorkerWaiter struct{ wg *sync.WaitGroup }
-
-func (f fakeWorkerWaiter) Wait() { f.wg.Wait() }
-
-type fakeHub struct{ closed bool }
-
-func (f *fakeHub) Close() { f.closed = true }
-
 // TestHandleShutdownSignalsContextStaysValidAfterReturn verifies that the
 // deadline context handed to the caller is NOT canceled when the handler returns
 // after a normal first-signal shutdown. The caller owns its cancellation, so the
 // context must remain usable (still within its grace period) for the worker
 // drain; otherwise workers would be falsely reported as timed out.
 func TestHandleShutdownSignalsContextStaysValidAfterReturn(t *testing.T) {
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	})}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen error: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
-
-	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan context.Context, 1)
-	cancelCh := make(chan context.CancelFunc, 1)
-	go func() { _ = handleShutdownSignals(sigCh, server, nopLogger(), 5*time.Second, startedCh, cancelCh) }()
+	})
+	h.start(5 * time.Second)
 
 	time.Sleep(10 * time.Millisecond)
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 
-	var ctrlCtx context.Context
-	var ctrlCancel context.CancelFunc
-	select {
-	case ctrlCtx = <-startedCh:
-		ctrlCancel = <-cancelCh
-		// Immediately after the handler publishes the context, it must be valid
-		// (timer started at signal receipt; it is far from elapsing).
-		if ctrlCtx.Err() != nil {
-			t.Fatalf("shutdown context already invalid when published: %v", ctrlCtx.Err())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not publish shutdown control")
-	}
+	ctrlCtx, ctrlCancel := h.controlContext(t)
 
 	// Wait for the server to fully stop so the handler has returned.
-	select {
-	case <-errCh:
-	case <-time.After(2 * time.Second):
-		t.Fatal("server did not stop after shutdown signal")
-	}
+	h.waitServerStopped(t)
 
 	// The handler returns right after server.Shutdown completes. Because the
 	// handler no longer cancels the deadline, the caller's context must still be
@@ -398,39 +367,25 @@ func TestHandleShutdownSignalsContextStaysValidAfterReturn(t *testing.T) {
 // shutdown, a subsequent signal placed on the channel must remain available to
 // the caller rather than being swallowed by the (now-exited) watcher.
 func TestHandleShutdownSignalsWatcherDoesNotConsumeFutureSignal(t *testing.T) {
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	})}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen error: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.Serve(listener) }()
-
-	sigCh := make(chan os.Signal, 1)
-	startedCh := make(chan context.Context, 1)
-	cancelCh := make(chan context.CancelFunc, 1)
-	go func() { _ = handleShutdownSignals(sigCh, server, nopLogger(), 5*time.Second, startedCh, cancelCh) }()
+	})
+	h.start(5 * time.Second)
 
 	time.Sleep(10 * time.Millisecond)
 	// First signal triggers a normal, fast shutdown.
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 
-	select {
-	case <-errCh:
-	case <-time.After(2 * time.Second):
-		t.Fatal("server did not stop after shutdown signal")
-	}
+	h.waitServerStopped(t)
 
 	// Give the handler and its watcher goroutine time to finish and exit.
 	time.Sleep(100 * time.Millisecond)
 
 	// A future unrelated signal must NOT be consumed by the exited watcher; it
 	// should stay in the buffered channel for the caller.
-	sigCh <- syscall.SIGTERM
+	h.sigCh <- syscall.SIGTERM
 	select {
-	case s := <-sigCh:
+	case s := <-h.sigCh:
 		if s != syscall.SIGTERM {
 			t.Fatalf("unexpected signal value: %v", s)
 		}
@@ -438,3 +393,13 @@ func TestHandleShutdownSignalsWatcherDoesNotConsumeFutureSignal(t *testing.T) {
 		t.Fatal("watcher still blocked on / consuming signals after shutdown completed")
 	}
 }
+
+// --- fakes for waitForBackgroundWorkers ---
+
+type fakeWorkerWaiter struct{ wg *sync.WaitGroup }
+
+func (f fakeWorkerWaiter) Wait() { f.wg.Wait() }
+
+type fakeHub struct{ closed bool }
+
+func (f *fakeHub) Close() { f.closed = true }
