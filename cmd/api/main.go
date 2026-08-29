@@ -320,20 +320,20 @@ func main() {
 	// and return a non-nil error so we exit non-zero on failure. The dependency
 	// teardown below runs only after this returns, i.e. after HTTP handlers have
 	// fully drained.
-	runErr := coordinateShutdown(
-		logger,
-		serverErrCh,
-		shutdownStartedCh,
-		shutdownCancelCh,
-		drainDoneCh,
-		httpErrCh,
-		lifecycleWG,
-		masterDataSyncUsecase,
-		gitHubWebhookHandler,
-		masterDataEventHub,
-		shutdownTimeout,
-		appCancel,
-	)
+	runErr := coordinateShutdown(&shutdownCoordination{
+		logger:            logger,
+		serverErrCh:       serverErrCh,
+		shutdownStartedCh: shutdownStartedCh,
+		shutdownCancelCh:  shutdownCancelCh,
+		drainDoneCh:       drainDoneCh,
+		httpErrCh:         httpErrCh,
+		lifecycleWG:       lifecycleWG,
+		syncUsecase:       masterDataSyncUsecase,
+		webhook:           gitHubWebhookHandler,
+		hub:               masterDataEventHub,
+		shutdownTimeout:   shutdownTimeout,
+		appCancel:         appCancel,
+	})
 
 	logger.Infow("shutting down dependencies")
 
@@ -356,6 +356,27 @@ func main() {
 	}
 }
 
+// shutdownCoordination bundles the channels, waiters, callbacks, logger, and
+// timeout needed to drive the graceful-shutdown handshake. Bundled into a single
+// struct to keep coordinateShutdown's parameter list within budget (go:S107)
+// while leaving the shutdown contract unchanged. The shared deadline context is
+// intentionally NOT stored here: it is owned by the shutdown handler and handed
+// to the caller via channels, so it never lives in a long-lived struct.
+type shutdownCoordination struct {
+	logger            *zap.SugaredLogger
+	serverErrCh       <-chan error
+	shutdownStartedCh <-chan context.Context
+	shutdownCancelCh  <-chan context.CancelFunc
+	drainDoneCh       chan<- struct{}
+	httpErrCh         <-chan error
+	lifecycleWG       *sync.WaitGroup
+	syncUsecase       syncWorkerWaiter
+	webhook           webhookShutdown
+	hub               eventHubCloser
+	shutdownTimeout   time.Duration
+	appCancel         context.CancelFunc
+}
+
 // coordinateShutdown waits for the HTTP server to stop and then drains
 // background workers, returning a non-nil error (surfaced as a non-zero exit by
 // the caller) when the server, the HTTP drain, or the worker drain fails.
@@ -372,20 +393,20 @@ func main() {
 //     after its own server.Shutdown returns, so closing drainDoneCh first and
 //     reading the handler result before invoking the handed-off cancel guarantees
 //     active HTTP requests are fully drained before dependencies are torn down.
-func coordinateShutdown(
-	logger *zap.SugaredLogger,
-	serverErrCh <-chan error,
-	shutdownStartedCh <-chan context.Context,
-	shutdownCancelCh <-chan context.CancelFunc,
-	drainDoneCh chan<- struct{},
-	httpErrCh <-chan error,
-	lifecycleWG *sync.WaitGroup,
-	syncUsecase syncWorkerWaiter,
-	webhook webhookShutdown,
-	hub eventHubCloser,
-	shutdownTimeout time.Duration,
-	appCancel context.CancelFunc,
-) error {
+func coordinateShutdown(c *shutdownCoordination) error {
+	logger := c.logger
+	serverErrCh := c.serverErrCh
+	shutdownStartedCh := c.shutdownStartedCh
+	shutdownCancelCh := c.shutdownCancelCh
+	drainDoneCh := c.drainDoneCh
+	httpErrCh := c.httpErrCh
+	lifecycleWG := c.lifecycleWG
+	syncUsecase := c.syncUsecase
+	webhook := c.webhook
+	hub := c.hub
+	shutdownTimeout := c.shutdownTimeout
+	appCancel := c.appCancel
+
 	var serverShutdownCtx context.Context
 	var serveErr error
 	var serverErrConsumed bool

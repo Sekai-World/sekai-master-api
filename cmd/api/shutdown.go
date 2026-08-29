@@ -70,23 +70,22 @@ func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *
 	// ownership of its cancel func is transferred to the caller via cancelCh.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
 
-	// The cancel func is handed to the caller via cancelCh so the worker drain can
-	// use the remaining grace period. A sync.Once-guarded fallback is deferred
-	// immediately after creation (godre/S8188): if the caller never invokes the
-	// handed-off cancel (e.g. main exits before the drain), the deadline timer is
-	// still released. The caller's wrapper shares the same Once, so cancel runs
-	// exactly once. The handler blocks on drainDone (closed by the caller after
-	// the worker drain) before returning, so the deferred fallback never releases
-	// the shared deadline while it is still needed.
-	var shutdownCancelOnce sync.Once
-	cancelShutdown := func() { shutdownCancelOnce.Do(shutdownCancel) }
-	defer cancelShutdown()
+	// Immediately defer the cancel as the safe fallback (godre/S8188): the
+	// deadline timer is always released when the handler returns. The handler
+	// only returns after server.Shutdown has completed and the caller has closed
+	// drainDone, so this never cancels the shared deadline while the HTTP drain
+	// is still active. Ownership of the cancel func is transferred to the caller
+	// via cancelCh; context cancellation is idempotent, so the caller's
+	// invocation and this deferred fallback together release the timer without a
+	// double-cancel fault while preserving the deadlock-free order
+	// (worker drain -> close drainDone -> collect results -> cancel deadline).
+	defer shutdownCancel()
 
 	// Inform the main goroutine which deadline bounds the worker drain. The
-	// caller now owns cancelShutdown and must invoke it after the worker drain
+	// caller now owns shutdownCancel and must invoke it after the worker drain
 	// completes.
 	startedCh <- shutdownCtx
-	cancelCh <- cancelShutdown
+	cancelCh <- shutdownCancel
 
 	// A second signal (still buffered) forces an immediate close instead of being
 	// silently swallowed. The watcher exits when the first-signal shutdown

@@ -101,8 +101,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		tokenVerifier:          tokenVerifier,
 		admin:                  admin,
 		masterDataAdminHandler: masterDataAdminHandler,
-		lifecycleCtx:           lifecycleCtx,
-	})
+	}, lifecycleCtx)
 
 	return router, gitHubWebhookHandler, nil
 }
@@ -191,12 +190,13 @@ type routeDeps struct {
 	tokenVerifier          auth.TokenVerifier
 	admin                  *adminHandlerBundle
 	masterDataAdminHandler *adminhandlers.MasterDataAdminHandler
-	lifecycleCtx           context.Context
 }
 
 // registerRoleRoutes wires role-specific routes. Extracted from NewRouter to keep
-// its cognitive complexity within budget; route contracts are unchanged.
-func registerRoleRoutes(deps *routeDeps) {
+// its cognitive complexity within budget; route contracts are unchanged. The
+// lifecycle context is passed explicitly (not stored in the struct, godre/S8242)
+// because a context.Context must not live in a long-lived struct.
+func registerRoleRoutes(deps *routeDeps, lifecycleCtx context.Context) {
 	// Public read/query workload.
 	if deps.role == config.AppRoleStandalone || deps.role == config.AppRoleServe {
 		registerPublicRoutes(deps.v1, deps.healthHandler, deps.versionsHandler, deps.cardHandler, deps.musicHandler, deps.eventHandler, deps.gachaHandler, deps.lookupHandler, deps.virtualLiveHandler)
@@ -213,7 +213,7 @@ func registerRoleRoutes(deps *routeDeps) {
 	// Internal write-triggering surface (GitHub webhook sync). Exposed only by
 	// standalone and the control (operational) role that owns sync.
 	if deps.role == config.AppRoleStandalone || deps.role == config.AppRoleControl {
-		registerInternalRoutes(deps.v1, deps.gitHubWebhookHandler, deps.lifecycleCtx)
+		registerInternalRoutes(deps.v1, deps.gitHubWebhookHandler, lifecycleCtx)
 	}
 
 	// Operational/admin workload.

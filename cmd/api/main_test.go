@@ -497,6 +497,7 @@ func TestCoordinateShutdownTakesSignaledPathWhenBothChannelsReady(t *testing.T) 
 	serverErrCh <- http.ErrServerClosed // server.Serve already returned
 	startedCh := make(chan context.Context, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel() // (godre/S8188) release the timer even if coordination never invokes it
 	startedCh <- ctx
 	cancelCh := make(chan context.CancelFunc, 1)
 	cancelCh <- cancel
@@ -511,7 +512,20 @@ func TestCoordinateShutdownTakesSignaledPathWhenBothChannelsReady(t *testing.T) 
 		wg.Done()
 	}()
 
-	err := coordinateShutdown(nopLogger(), serverErrCh, startedCh, cancelCh, drainDone, httpErrCh, wg, nil, nil, &fakeHub{}, 2*time.Second, func() {})
+	err := coordinateShutdown(&shutdownCoordination{
+		logger:            nopLogger(),
+		serverErrCh:       serverErrCh,
+		shutdownStartedCh: startedCh,
+		shutdownCancelCh:  cancelCh,
+		drainDoneCh:       drainDone,
+		httpErrCh:         httpErrCh,
+		lifecycleWG:       wg,
+		syncUsecase:       nil,
+		webhook:           nil,
+		hub:               &fakeHub{},
+		shutdownTimeout:   2 * time.Second,
+		appCancel:         func() {},
+	})
 	if err != nil {
 		t.Fatalf("unexpected coordination error: %v", err)
 	}
@@ -550,6 +564,7 @@ func TestCoordinateShutdownDoesNotCancelSharedCtxDuringHTTPDrain(t *testing.T) {
 
 	startedCh := make(chan context.Context, 1)
 	ctx, rawCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer rawCancel() // (godre/S8188) safe fallback; context cancel is idempotent vs. the handed-off wrapper
 	drainDone := make(chan struct{})
 	httpErrCh := make(chan error, 1)
 	httpErrCh <- nil
@@ -595,7 +610,20 @@ func TestCoordinateShutdownDoesNotCancelSharedCtxDuringHTTPDrain(t *testing.T) {
 		wg.Done()
 	}()
 
-	if err := coordinateShutdown(nopLogger(), serverErrCh, startedCh, cancelCh, drainDone, httpErrCh, wg, nil, nil, &fakeHub{}, 5*time.Second, func() {}); err != nil {
+	if err := coordinateShutdown(&shutdownCoordination{
+		logger:            nopLogger(),
+		serverErrCh:       serverErrCh,
+		shutdownStartedCh: startedCh,
+		shutdownCancelCh:  cancelCh,
+		drainDoneCh:       drainDone,
+		httpErrCh:         httpErrCh,
+		lifecycleWG:       wg,
+		syncUsecase:       nil,
+		webhook:           nil,
+		hub:               &fakeHub{},
+		shutdownTimeout:   5 * time.Second,
+		appCancel:         func() {},
+	}); err != nil {
 		t.Fatalf("unexpected coordination error: %v", err)
 	}
 
