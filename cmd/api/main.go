@@ -307,105 +307,33 @@ func main() {
 	sigCh := newShutdownSignalChannel()
 	shutdownStartedCh := make(chan context.Context, 1)
 	shutdownCancelCh := make(chan context.CancelFunc, 1)
+	drainDoneCh := make(chan struct{})
 	httpErrCh := make(chan error, 1)
 	go func() {
-		httpErrCh <- handleShutdownSignals(sigCh, server, logger, shutdownTimeout, shutdownStartedCh, shutdownCancelCh)
+		httpErrCh <- handleShutdownSignals(sigCh, server, logger, shutdownTimeout, shutdownStartedCh, shutdownCancelCh, drainDoneCh)
 	}()
 	defer signal.Stop(sigCh)
 
-	// Wait for the server to stop: either a signal-driven graceful shutdown, or a
-	// fatal serve error.
-	var serverShutdownCtx context.Context
-	var serveErr error
-	var signaled bool
-	var drainCancel context.CancelFunc
-	select {
-	case serverErr := <-serverErrCh:
-		// Unexpected serve failure: do NOT hard-exit here. Cancel the app
-		// lifecycle (mirroring the signal-driven OnShutdown callback) so background
-		// sync workers are interrupted, then fall through to the controlled
-		// teardown path which drains workers and closes dependencies before we
-		// return a non-zero status.
-		serveErr = serverErr
-		appCancel()
-		// Server stopped without a signal; still bound the worker drain.
-		serverShutdownCtx = context.Background()
-	case serverShutdownCtx = <-shutdownStartedCh:
-		// Signal received: server.Shutdown is draining in-flight requests using
-		// this same deadline context. Wait for it to finish. The caller now owns
-		// the deadline cancel func (drainCancel); it is released after the worker
-		// drain below.
-		signaled = true
-		drainCancel = <-shutdownCancelCh
-		serverErr := <-serverErrCh
-		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
-			serveErr = serverErr
-			logger.Errorw("http server stopped with error after shutdown signal", "error", serverErr)
-		}
-	}
-	logger.Infow("http server stopped accepting requests")
-
-	// In the signal-driven path the handler has returned (its server.Shutdown
-	// completed) and reported any HTTP drain timeout. Surface that into runErr so
-	// a non-zero exit is returned, while preserving the first-signal deadline
-	// origin and the second-signal force-close behavior. In the serve-error path
-	// the handler is still blocked waiting for a signal, so skip this read.
-	var httpDrainErr error
-	if signaled {
-		httpDrainErr = <-httpErrCh
-	}
-
-	// The worker drain uses a single deadline context owned by main, spanning from
-	// first-signal receipt through HTTP shutdown and worker joins. In the signaled
-	// path this is the context handed back by the shutdown handler (the same
-	// context server.Shutdown used), so the grace period is shared and the workers
-	// get the remaining deadline rather than a freshly re-derived window that may
-	// already be expired. In the serve-error path (no signal) we fall back to a
-	// fresh bounded deadline whose cancel is deferred. main awaits the shutdown
-	// handler's result (httpDrainErr) instead of re-deriving from a possibly
-	// expired context.
-	var workerCtx context.Context
-	var workerCancel context.CancelFunc
-	if signaled {
-		workerCtx = serverShutdownCtx
-	} else {
-		workerCtx, workerCancel = context.WithTimeout(context.Background(), shutdownTimeout)
-		defer workerCancel()
-	}
-
-	var runErr error
-	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-		runErr = serveErr
-		logger.Errorw("server exited with error", "error", serveErr)
-	}
-	if httpDrainErr != nil {
-		if runErr == nil {
-			runErr = httpDrainErr
-		}
-		logger.Errorw("http graceful drain exceeded deadline", "error", httpDrainErr)
-	}
-
-	workerErr := waitForBackgroundWorkers(workerCtx, logger, lifecycleWG, masterDataSyncUsecase, gitHubWebhookHandler, masterDataEventHub)
-	if workerErr != nil {
-		if runErr == nil {
-			runErr = workerErr
-		}
-		logger.Errorw("graceful shutdown did not complete in time", "error", workerErr)
-		// Safe bounded fallback: the shared deadline elapsed before workers
-		// stopped. Ensure lifecycle cancellation is propagated so in-flight workers
-		// are interrupted before dependency teardown closes the resources they
-		// depend on. appCancel is idempotent: in the signal path it was already
-		// invoked by the server shutdown callback, and in the serve-error path it
-		// was invoked directly above.
-		appCancel()
-	}
-
-	// The first-signal deadline context was transferred to main so the worker
-	// drain could use the remaining grace period. Release its timer now that the
-	// drain is complete (only in the signaled path, where main owns it).
-	if drainCancel != nil {
-		drainCancel()
-	}
+	// Coordinate the graceful-shutdown handshake: wait for the server to stop
+	// (signal-driven drain or fatal serve error), drain background workers within
+	// the shared deadline, release the handler, collect the HTTP drain result,
+	// and return a non-nil error so we exit non-zero on failure. The dependency
+	// teardown below runs only after this returns, i.e. after HTTP handlers have
+	// fully drained.
+	runErr := coordinateShutdown(
+		logger,
+		serverErrCh,
+		shutdownStartedCh,
+		shutdownCancelCh,
+		drainDoneCh,
+		httpErrCh,
+		lifecycleWG,
+		masterDataSyncUsecase,
+		gitHubWebhookHandler,
+		masterDataEventHub,
+		shutdownTimeout,
+		appCancel,
+	)
 
 	logger.Infow("shutting down dependencies")
 
@@ -426,6 +354,155 @@ func main() {
 	if runErr != nil {
 		os.Exit(1)
 	}
+}
+
+// coordinateShutdown waits for the HTTP server to stop and then drains
+// background workers, returning a non-nil error (surfaced as a non-zero exit by
+// the caller) when the server, the HTTP drain, or the worker drain fails.
+//
+// Lifecycle / race notes:
+//   - The top-level select must distinguish a real unexpected Serve error from
+//     http.ErrServerClosed produced by the signal-driven server.Shutdown. The
+//     shutdown handler always publishes its deadline context on shutdownStartedCh
+//     *before* it calls server.Shutdown, so when serverErrCh is ready at the same
+//     time, a non-blocking read of shutdownStartedCh reveals the signal path and
+//     prevents skipping the signal-owned worker drain.
+//   - The shared shutdown deadline context must NOT be canceled until
+//     server.Shutdown has fully completed. The handler blocks on drainDone only
+//     after its own server.Shutdown returns, so closing drainDoneCh first and
+//     reading the handler result before invoking the handed-off cancel guarantees
+//     active HTTP requests are fully drained before dependencies are torn down.
+func coordinateShutdown(
+	logger *zap.SugaredLogger,
+	serverErrCh <-chan error,
+	shutdownStartedCh <-chan context.Context,
+	shutdownCancelCh <-chan context.CancelFunc,
+	drainDoneCh chan<- struct{},
+	httpErrCh <-chan error,
+	lifecycleWG *sync.WaitGroup,
+	syncUsecase syncWorkerWaiter,
+	webhook webhookShutdown,
+	hub eventHubCloser,
+	shutdownTimeout time.Duration,
+	appCancel context.CancelFunc,
+) error {
+	var serverShutdownCtx context.Context
+	var serveErr error
+	var serverErrConsumed bool
+	var signaled bool
+	var drainCancel context.CancelFunc
+	select {
+	case serveErr = <-serverErrCh:
+		// server.Serve returned. http.ErrServerClosed is the expected result when
+		// the signal handler (or a second-signal force-close) stopped the server,
+		// so it is never fatal by itself. Because the signal handler publishes its
+		// context on shutdownStartedCh *before* server.Shutdown, a ready
+		// shutdownStartedCh means this is the signal path and the worker drain must
+		// still run.
+		serverErrConsumed = true
+		select {
+		case serverShutdownCtx = <-shutdownStartedCh:
+			signaled = true
+			drainCancel = <-shutdownCancelCh
+		default:
+		}
+		if !signaled && !errors.Is(serveErr, http.ErrServerClosed) {
+			// Unexpected serve failure with no signal: interrupt background workers
+			// and fall through to controlled teardown before returning a non-zero
+			// status.
+			appCancel()
+		}
+	case serverShutdownCtx = <-shutdownStartedCh:
+		// Signal received: server.Shutdown is draining in-flight requests using
+		// this same deadline context. The handler owns the HTTP drain and blocks
+		// on drainDone (closed below after the worker drain) before returning, so
+		// we must NOT wait for it here — doing so would deadlock.
+		signaled = true
+		drainCancel = <-shutdownCancelCh
+	}
+	logger.Infow("http server stopped accepting requests")
+
+	// The worker drain uses a single deadline context owned by main, spanning from
+	// first-signal receipt through HTTP shutdown and worker joins. In the signaled
+	// path this is the context handed back by the shutdown handler (the same
+	// context server.Shutdown used), so the grace period is shared and the workers
+	// get the remaining deadline rather than a freshly re-derived window that may
+	// already be expired. In the serve-error path (no signal) we fall back to a
+	// fresh bounded deadline whose cancel is deferred.
+	var workerCtx context.Context
+	var workerCancel context.CancelFunc
+	if signaled {
+		workerCtx = serverShutdownCtx
+	} else {
+		workerCtx, workerCancel = context.WithTimeout(context.Background(), shutdownTimeout)
+		defer workerCancel()
+	}
+
+	var runErr error
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		runErr = serveErr
+		logger.Errorw("server exited with error", "error", serveErr)
+	}
+
+	workerErr := waitForBackgroundWorkers(workerCtx, logger, lifecycleWG, syncUsecase, webhook, hub)
+	if workerErr != nil {
+		if runErr == nil {
+			runErr = workerErr
+		}
+		logger.Errorw("graceful shutdown did not complete in time", "error", workerErr)
+		// Safe bounded fallback: the shared deadline elapsed before workers
+		// stopped. Ensure lifecycle cancellation is propagated so in-flight workers
+		// are interrupted before dependency teardown closes the resources they
+		// depend on. appCancel is idempotent: in the signal path it was already
+		// invoked by the server shutdown callback, and in the serve-error path it
+		// was invoked directly above.
+		appCancel()
+	}
+
+	// Only the signal-driven path requires the shared deadline and drainDone
+	// handshake. Once the worker drain completes, release the handler (which is
+	// blocked on drainDone after its own server.Shutdown completed) and collect
+	// the HTTP drain result. The handler only reaches <-drainDone after
+	// server.Shutdown has returned, so by the time we read its result the HTTP
+	// drain is fully complete and it is safe to cancel the shared deadline.
+	if signaled {
+		// Close drainDoneCh BEFORE canceling the shared deadline. Canceling the
+		// context here would otherwise interrupt an in-flight server.Shutdown
+		// (which runs against the same ctx), detach active handlers from the
+		// grace period, and let dependency teardown race with still-running
+		// requests.
+		close(drainDoneCh)
+
+		// The handler has now returned (its server.Shutdown completed). Collect
+		// the server serve error and the HTTP drain result. In the race case
+		// where serverErrCh was already consumed above, reuse that value.
+		var serverErr error
+		if serverErrConsumed {
+			serverErr = serveErr
+		} else {
+			serverErr = <-serverErrCh
+		}
+		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+			if runErr == nil {
+				runErr = serverErr
+			}
+			logger.Errorw("http server stopped with error after shutdown signal", "error", serverErr)
+		}
+		httpDrainErr := <-httpErrCh
+		if httpDrainErr != nil {
+			if runErr == nil {
+				runErr = httpDrainErr
+			}
+			logger.Errorw("http graceful drain exceeded deadline", "error", httpDrainErr)
+		}
+
+		// HTTP shutdown is fully complete; release the shared deadline timer. The
+		// handler's deferred S8188 fallback would otherwise release it if we
+		// exited without calling drainCancel.
+		drainCancel()
+	}
+
+	return runErr
 }
 
 func runMigrationCommand(args []string) (err error) {

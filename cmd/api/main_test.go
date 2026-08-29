@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ type shutdownSignalHarness struct {
 	sigCh     chan os.Signal
 	startedCh chan context.Context
 	cancelCh  chan context.CancelFunc
+	drainDone chan struct{}
 }
 
 func newShutdownSignalHarness(t *testing.T, handler http.HandlerFunc) *shutdownSignalHarness {
@@ -42,14 +44,18 @@ func newShutdownSignalHarness(t *testing.T, handler http.HandlerFunc) *shutdownS
 		sigCh:     make(chan os.Signal, 1),
 		startedCh: make(chan context.Context, 1),
 		cancelCh:  make(chan context.CancelFunc, 1),
+		drainDone: make(chan struct{}),
 	}
 	go func() { h.errCh <- h.server.Serve(listener) }()
 	return h
 }
 
 // start launches the shutdown-signal handler with the given graceful deadline.
+// The returned drainDone channel must be closed by the caller once it has
+// finished draining workers, so the handler's deferred cancel fallback can
+// return.
 func (h *shutdownSignalHarness) start(connectTimeout time.Duration) {
-	go handleShutdownSignals(h.sigCh, h.server, nopLogger(), connectTimeout, h.startedCh, h.cancelCh)
+	go handleShutdownSignals(h.sigCh, h.server, nopLogger(), connectTimeout, h.startedCh, h.cancelCh, h.drainDone)
 }
 
 func (h *shutdownSignalHarness) waitServerStopped(t *testing.T) {
@@ -165,6 +171,7 @@ func TestHandleShutdownSignalsFirstSignalShutsDownServer(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	h.start(2 * time.Second)
+	defer close(h.drainDone)
 
 	// Start a request that will be drained within the deadline.
 	clientDone := make(chan int, 1)
@@ -200,6 +207,7 @@ func TestHandleShutdownSignalsTimeoutForceCloses(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	h.start(40 * time.Millisecond)
+	defer close(h.drainDone)
 
 	// Fire a request that outlives the shutdown deadline.
 	go func() {
@@ -235,10 +243,14 @@ func TestHandleShutdownSignalsReturnsErrorOnDrainTimeout(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	drainDone := make(chan struct{})
 	handlerErrCh := make(chan error, 1)
 	go func() {
-		handlerErrCh <- handleShutdownSignals(h.sigCh, h.server, nopLogger(), 40*time.Millisecond, h.startedCh, h.cancelCh)
+		handlerErrCh <- handleShutdownSignals(h.sigCh, h.server, nopLogger(), 40*time.Millisecond, h.startedCh, h.cancelCh, drainDone)
 	}()
+	// The caller (main) would close this after the worker drain; close it now so
+	// the handler can return and report its result.
+	close(drainDone)
 
 	go func() {
 		resp, reqErr := http.Get("http://" + h.listener.Addr().String())
@@ -274,10 +286,14 @@ func TestHandleShutdownSignalsSecondSignalDoesNotSurfaceDrainError(t *testing.T)
 		w.WriteHeader(http.StatusOK)
 	})
 
+	drainDone := make(chan struct{})
 	handlerErrCh := make(chan error, 1)
 	go func() {
-		handlerErrCh <- handleShutdownSignals(h.sigCh, h.server, nopLogger(), 30*time.Second, h.startedCh, h.cancelCh)
+		handlerErrCh <- handleShutdownSignals(h.sigCh, h.server, nopLogger(), 30*time.Second, h.startedCh, h.cancelCh, drainDone)
 	}()
+	// The caller (main) would close this after the worker drain; close it now so
+	// the handler can return and report its result.
+	close(drainDone)
 
 	time.Sleep(10 * time.Millisecond)
 	h.sigCh <- syscall.SIGTERM
@@ -307,6 +323,7 @@ func TestHandleShutdownSignalsSecondSignalForceCloses(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	h.start(30 * time.Second)
+	defer close(h.drainDone)
 
 	time.Sleep(10 * time.Millisecond)
 	// First signal starts a long graceful drain; second signal must force-close now.
@@ -337,6 +354,7 @@ func TestHandleShutdownSignalsContextStaysValidAfterReturn(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	h.start(5 * time.Second)
+	defer close(h.drainDone)
 
 	time.Sleep(10 * time.Millisecond)
 	h.sigCh <- syscall.SIGTERM
@@ -371,6 +389,7 @@ func TestHandleShutdownSignalsWatcherDoesNotConsumeFutureSignal(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 	h.start(5 * time.Second)
+	defer close(h.drainDone)
 
 	time.Sleep(10 * time.Millisecond)
 	// First signal triggers a normal, fast shutdown.
@@ -394,6 +413,67 @@ func TestHandleShutdownSignalsWatcherDoesNotConsumeFutureSignal(t *testing.T) {
 	}
 }
 
+// TestHandleShutdownSignalsCallerOrderingAvoidsDeadlock reproduces the main
+// goroutine ordering for the signal-driven path. The shutdown handler owns the
+// HTTP drain and blocks on drainDone until the caller (main) finishes the worker
+// drain and closes it. The caller must therefore close drainDone BEFORE waiting
+// for the handler result (serverErrCh / httpErrCh); otherwise main and the
+// handler would each wait on the other and deadlock. This test asserts the
+// caller-side ordering lets the handler return and lets both channels be read.
+func TestHandleShutdownSignalsCallerOrderingAvoidsDeadlock(t *testing.T) {
+	h := newShutdownSignalHarness(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	// Launch the handler but do NOT rely on the harness's deferred close; this
+	// test drives the drainDone handshake itself to mirror main's ordering.
+	handlerErrCh := make(chan error, 1)
+	go func() {
+		handlerErrCh <- handleShutdownSignals(h.sigCh, h.server, nopLogger(), 5*time.Second, h.startedCh, h.cancelCh, h.drainDone)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	h.sigCh <- syscall.SIGTERM
+
+	// 1) Caller receives the control context + cancel (mirrors main's select on
+	//    shutdownStartedCh / shutdownCancelCh).
+	ctrlCtx, ctrlCancel := h.controlContext(t)
+	if ctrlCtx.Err() != nil {
+		t.Fatalf("shutdown context invalid when published: %v", ctrlCtx.Err())
+	}
+
+	// 2) Caller runs the worker drain first (here: a no-op that completes
+	//    immediately), then releases the timer and closes drainDone so the
+	//    handler can return. This ordering must NOT deadlock.
+	done := make(chan struct{})
+	close(done) // simulated worker drain already complete
+	<-done
+
+	ctrlCancel()
+	close(h.drainDone)
+
+	// 3) After closing drainDone the handler must return and its result must be
+	//    collectable (this is what main reads last). Use a timeout to prove there
+	//    is no deadlock.
+	select {
+	case serr := <-handlerErrCh:
+		if serr != nil {
+			t.Fatalf("expected nil error for normal first-signal drain, got %v", serr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return after caller closed drainDone; deadlock in caller ordering")
+	}
+
+	// 4) The server serve error channel must also be consumable without blocking.
+	select {
+	case serverErr := <-h.errCh:
+		if !errors.Is(serverErr, http.ErrServerClosed) {
+			t.Fatalf("expected http.ErrServerClosed, got %v", serverErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server error channel not readable after handler returned")
+	}
+}
+
 // --- fakes for waitForBackgroundWorkers ---
 
 type fakeWorkerWaiter struct{ wg *sync.WaitGroup }
@@ -403,3 +483,126 @@ func (f fakeWorkerWaiter) Wait() { f.wg.Wait() }
 type fakeHub struct{ closed bool }
 
 func (f *fakeHub) Close() { f.closed = true }
+
+// TestCoordinateShutdownTakesSignaledPathWhenBothChannelsReady reproduces the
+// Finding-2 race: server.Serve returns http.ErrServerClosed (because the signal
+// handler called server.Shutdown) at the very moment the handler publishes its
+// shutdown context. Both serverErrCh and shutdownStartedCh are ready when
+// coordinateShutdown selects. The regression is that the no-signal branch must
+// NOT be taken: the signal-owned worker drain must still run and drainDoneCh must
+// be closed (releasing the blocked handler). The scenario is modeled directly by
+// pre-filling both channels, which is deterministic and needs no timing sleep.
+func TestCoordinateShutdownTakesSignaledPathWhenBothChannelsReady(t *testing.T) {
+	serverErrCh := make(chan error, 1)
+	serverErrCh <- http.ErrServerClosed // server.Serve already returned
+	startedCh := make(chan context.Context, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	startedCh <- ctx
+	cancelCh := make(chan context.CancelFunc, 1)
+	cancelCh <- cancel
+	drainDone := make(chan struct{})
+	httpErrCh := make(chan error, 1)
+	httpErrCh <- nil
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		wg.Done()
+	}()
+
+	err := coordinateShutdown(nopLogger(), serverErrCh, startedCh, cancelCh, drainDone, httpErrCh, wg, nil, nil, &fakeHub{}, 2*time.Second, func() {})
+	if err != nil {
+		t.Fatalf("unexpected coordination error: %v", err)
+	}
+
+	// The signal path must have run: drainDoneCh is the handshake the handler
+	// blocks on, so if it was never closed the signal-owned drain was skipped.
+	select {
+	case <-drainDone:
+	case <-time.After(1 * time.Second):
+		t.Fatal("signal-owned drain was skipped: drainDoneCh was never closed")
+	}
+}
+
+// TestCoordinateShutdownDoesNotCancelSharedCtxDuringHTTPDrain reproduces
+// Finding 1: the shared shutdown deadline context (which server.Shutdown runs
+// against) must not be canceled while in-flight HTTP requests are still draining.
+// We model an active request that outlives the worker drain and a "handler"
+// goroutine that runs server.Shutdown(ctx) and only then blocks on drainDoneCh.
+// The handed-off cancel is wrapped to assert it is invoked only AFTER
+// server.Shutdown has returned. With the bug, the cancel fires before the HTTP
+// drain completes (interrupting active handlers); with the fix it fires only
+// after server.Shutdown has fully returned.
+func TestCoordinateShutdownDoesNotCancelSharedCtxDuringHTTPDrain(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen error: %v", err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Active request that outlives the (instant) worker drain, so the HTTP
+		// drain is still in flight when the shared-deadline cancel would fire.
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	})}
+	serverErrCh := make(chan error, 1)
+	go func() { serverErrCh <- server.Serve(listener) }()
+
+	startedCh := make(chan context.Context, 1)
+	ctx, rawCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	drainDone := make(chan struct{})
+	httpErrCh := make(chan error, 1)
+	httpErrCh <- nil
+
+	var httpShutdownDone atomic.Bool
+	var shutdownErr atomic.Pointer[error]
+	var cancelBeforeDone atomic.Bool
+	drainCancel := func() {
+		// Must not be called until server.Shutdown has returned (HTTP drain done).
+		if !httpShutdownDone.Load() {
+			cancelBeforeDone.Store(true)
+		}
+		rawCancel()
+	}
+
+	// Model the shutdown handler: run server.Shutdown against the shared ctx,
+	// record completion, then block on drainDoneCh (mirroring handleShutdownSignals).
+	go func() {
+		shErr := server.Shutdown(ctx)
+		shutdownErr.Store(&shErr)
+		httpShutdownDone.Store(true)
+		<-drainDone
+	}()
+
+	cancelCh := make(chan context.CancelFunc, 1)
+	cancelCh <- drainCancel
+	startedCh <- ctx
+
+	// Fire an in-flight request that the HTTP drain must complete.
+	go func() {
+		resp, reqErr := http.Get("http://" + listener.Addr().String())
+		if reqErr == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+	}()
+
+	wg := &sync.WaitGroup{}
+	// A fast startup worker; its drain completes long before the HTTP drain.
+	wg.Add(1)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		wg.Done()
+	}()
+
+	if err := coordinateShutdown(nopLogger(), serverErrCh, startedCh, cancelCh, drainDone, httpErrCh, wg, nil, nil, &fakeHub{}, 5*time.Second, func() {}); err != nil {
+		t.Fatalf("unexpected coordination error: %v", err)
+	}
+
+	if cancelBeforeDone.Load() {
+		t.Fatal("shared deadline context was canceled before server.Shutdown returned; active HTTP drain was interrupted")
+	}
+	if se := shutdownErr.Load(); se != nil && errors.Is(*se, context.Canceled) {
+		t.Fatal("server.Shutdown was canceled (context.Canceled) instead of draining in-flight requests")
+	}
+}

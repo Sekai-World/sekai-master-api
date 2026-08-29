@@ -54,8 +54,10 @@ func newShutdownSignalChannel() chan os.Signal {
 // drain timeout error. The returned error is non-nil only when the graceful
 // drain actually exceeds the first-signal deadline. The deadline context is
 // owned by the caller after it is published, so the caller must cancel it once
-// the worker drain is finished.
-func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *zap.SugaredLogger, timeout time.Duration, startedCh chan<- context.Context, cancelCh chan<- context.CancelFunc) error {
+// the worker drain is finished. drainDone is closed by the caller after the
+// worker drain so the deferred cancel fallback never fires while the shared
+// deadline is still required.
+func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *zap.SugaredLogger, timeout time.Duration, startedCh chan<- context.Context, cancelCh chan<- context.CancelFunc, drainDone <-chan struct{}) error {
 	sig, ok := <-sigCh
 	if !ok {
 		return nil
@@ -68,11 +70,23 @@ func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *
 	// ownership of its cancel func is transferred to the caller via cancelCh.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
 
+	// The cancel func is handed to the caller via cancelCh so the worker drain can
+	// use the remaining grace period. A sync.Once-guarded fallback is deferred
+	// immediately after creation (godre/S8188): if the caller never invokes the
+	// handed-off cancel (e.g. main exits before the drain), the deadline timer is
+	// still released. The caller's wrapper shares the same Once, so cancel runs
+	// exactly once. The handler blocks on drainDone (closed by the caller after
+	// the worker drain) before returning, so the deferred fallback never releases
+	// the shared deadline while it is still needed.
+	var shutdownCancelOnce sync.Once
+	cancelShutdown := func() { shutdownCancelOnce.Do(shutdownCancel) }
+	defer cancelShutdown()
+
 	// Inform the main goroutine which deadline bounds the worker drain. The
-	// caller now owns shutdownCancel and must invoke it after the worker drain
+	// caller now owns cancelShutdown and must invoke it after the worker drain
 	// completes.
 	startedCh <- shutdownCtx
-	cancelCh <- shutdownCancel
+	cancelCh <- cancelShutdown
 
 	// A second signal (still buffered) forces an immediate close instead of being
 	// silently swallowed. The watcher exits when the first-signal shutdown
@@ -98,14 +112,25 @@ func handleShutdownSignals(sigCh <-chan os.Signal, server *http.Server, logger *
 			// can return a non-zero exit.
 			logger.Errorw("http server graceful shutdown exceeded deadline; forcing close", "error", err)
 			_ = server.Close()
+			<-drainDone
 			return fmt.Errorf("http graceful drain exceeded deadline: %w", err)
 		}
 		// Any other Shutdown error (e.g. forced close triggered by a second signal,
 		// or an already-closed listener) is not a deadline timeout; treat it as an
 		// expected force-close and do not fail the exit.
 		logger.Warnw("http server forced close completed", "error", err)
+		<-drainDone
 		return nil
 	}
+	// The first-signal shutdown is complete, so the watcher no longer needs to
+	// watch for a second signal. Release its context now (before blocking on the
+	// caller's drain signal) so the watcher goroutine exits and the buffered
+	// signal channel stays free for unrelated future signals.
+	watcherCancel()
+	// Block until the caller finishes the worker drain and releases the shared
+	// deadline. The deferred cancelShutdown is a fallback that fires only if the
+	// caller never invokes the handed-off cancel.
+	<-drainDone
 	return nil
 }
 

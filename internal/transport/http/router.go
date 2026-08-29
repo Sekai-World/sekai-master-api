@@ -84,25 +84,25 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 
 	v1 := router.Group("/api/v1")
 
-	registerRoleRoutes(
-		router,
-		v1,
-		role,
-		healthHandler,
-		versionsHandler,
-		buildInfoHandler,
-		cardHandler,
-		musicHandler,
-		eventHandler,
-		gachaHandler,
-		lookupHandler,
-		virtualLiveHandler,
-		gitHubWebhookHandler,
-		tokenVerifier,
-		admin,
-		masterDataAdminHandler,
-		lifecycleCtx,
-	)
+	registerRoleRoutes(&routeDeps{
+		router:                 router,
+		v1:                     v1,
+		role:                   role,
+		healthHandler:          healthHandler,
+		versionsHandler:        versionsHandler,
+		buildInfoHandler:       buildInfoHandler,
+		cardHandler:            cardHandler,
+		musicHandler:           musicHandler,
+		eventHandler:           eventHandler,
+		gachaHandler:           gachaHandler,
+		lookupHandler:          lookupHandler,
+		virtualLiveHandler:     virtualLiveHandler,
+		gitHubWebhookHandler:   gitHubWebhookHandler,
+		tokenVerifier:          tokenVerifier,
+		admin:                  admin,
+		masterDataAdminHandler: masterDataAdminHandler,
+		lifecycleCtx:           lifecycleCtx,
+	})
 
 	return router, gitHubWebhookHandler, nil
 }
@@ -171,58 +171,63 @@ func setupAdminHandlers(cfg config.Config, masterDataEvents *usecase.MasterDataE
 	}, nil
 }
 
+// routeDeps bundles the handlers and runtime context needed to wire role-specific
+// routes. Bundled into a single struct to keep registerRoleRoutes's parameter
+// list within budget (go:S107) while leaving route contracts unchanged.
+type routeDeps struct {
+	router                 *gin.Engine
+	v1                     *gin.RouterGroup
+	role                   config.AppRole
+	healthHandler          *systemhandlers.HealthHandler
+	versionsHandler        *systemhandlers.VersionsHandler
+	buildInfoHandler       *systemhandlers.BuildInfoHandler
+	cardHandler            *cardhandlers.CardHandler
+	musicHandler           *musichandlers.MusicHandler
+	eventHandler           *eventhandlers.EventHandler
+	gachaHandler           *gachahandlers.GachaHandler
+	lookupHandler          *lookuphandlers.LookupHandler
+	virtualLiveHandler     *virtuallivehandlers.VirtualLiveHandler
+	gitHubWebhookHandler   *systemhandlers.GitHubWebhookHandler
+	tokenVerifier          auth.TokenVerifier
+	admin                  *adminHandlerBundle
+	masterDataAdminHandler *adminhandlers.MasterDataAdminHandler
+	lifecycleCtx           context.Context
+}
+
 // registerRoleRoutes wires role-specific routes. Extracted from NewRouter to keep
 // its cognitive complexity within budget; route contracts are unchanged.
-func registerRoleRoutes(
-	router *gin.Engine,
-	v1 *gin.RouterGroup,
-	role config.AppRole,
-	healthHandler *systemhandlers.HealthHandler,
-	versionsHandler *systemhandlers.VersionsHandler,
-	buildInfoHandler *systemhandlers.BuildInfoHandler,
-	cardHandler *cardhandlers.CardHandler,
-	musicHandler *musichandlers.MusicHandler,
-	eventHandler *eventhandlers.EventHandler,
-	gachaHandler *gachahandlers.GachaHandler,
-	lookupHandler *lookuphandlers.LookupHandler,
-	virtualLiveHandler *virtuallivehandlers.VirtualLiveHandler,
-	gitHubWebhookHandler *systemhandlers.GitHubWebhookHandler,
-	tokenVerifier auth.TokenVerifier,
-	admin *adminHandlerBundle,
-	masterDataAdminHandler *adminhandlers.MasterDataAdminHandler,
-	lifecycleCtx context.Context,
-) {
+func registerRoleRoutes(deps *routeDeps) {
 	// Public read/query workload.
-	if role == config.AppRoleStandalone || role == config.AppRoleServe {
-		registerPublicRoutes(v1, healthHandler, versionsHandler, cardHandler, musicHandler, eventHandler, gachaHandler, lookupHandler, virtualLiveHandler)
-		v1.GET("/build-info", buildInfoHandler.BuildInfo)
+	if deps.role == config.AppRoleStandalone || deps.role == config.AppRoleServe {
+		registerPublicRoutes(deps.v1, deps.healthHandler, deps.versionsHandler, deps.cardHandler, deps.musicHandler, deps.eventHandler, deps.gachaHandler, deps.lookupHandler, deps.virtualLiveHandler)
+		deps.v1.GET("/build-info", deps.buildInfoHandler.BuildInfo)
 	}
 
 	// The control (operational) role must not expose general public data/query
 	// endpoints, but it still exposes /api/v1/health for orchestration health
 	// checks.
-	if role == config.AppRoleControl {
-		v1.GET("/health", healthHandler.Check)
+	if deps.role == config.AppRoleControl {
+		deps.v1.GET("/health", deps.healthHandler.Check)
 	}
 
 	// Internal write-triggering surface (GitHub webhook sync). Exposed only by
 	// standalone and the control (operational) role that owns sync.
-	if role == config.AppRoleStandalone || role == config.AppRoleControl {
-		registerInternalRoutes(v1, gitHubWebhookHandler, lifecycleCtx)
+	if deps.role == config.AppRoleStandalone || deps.role == config.AppRoleControl {
+		registerInternalRoutes(deps.v1, deps.gitHubWebhookHandler, deps.lifecycleCtx)
 	}
 
 	// Operational/admin workload.
-	if role == config.AppRoleStandalone || role == config.AppRoleControl {
+	if deps.role == config.AppRoleStandalone || deps.role == config.AppRoleControl {
 		registerAdminRoutes(
-			router,
-			v1,
-			tokenVerifier,
-			admin.claimAuthorizer,
-			admin.adminUI,
-			admin.adminLogin,
-			admin.profile,
-			admin.masterDataEvents,
-			masterDataAdminHandler,
+			deps.router,
+			deps.v1,
+			deps.tokenVerifier,
+			deps.admin.claimAuthorizer,
+			deps.admin.adminUI,
+			deps.admin.adminLogin,
+			deps.admin.profile,
+			deps.admin.masterDataEvents,
+			deps.masterDataAdminHandler,
 		)
 	}
 }

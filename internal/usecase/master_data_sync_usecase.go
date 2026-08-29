@@ -311,11 +311,14 @@ func (usecase *MasterDataSyncUsecase) StartSync(ctx context.Context, region stri
 	// lifecycle, so a graceful shutdown can interrupt an in-flight admin sync
 	// instead of leaving it orphaned.
 	tracedContext := logging.DetachedTraceContext(ctx)
-	workerContext, cancelWorker := context.WithCancel(tracedContext)
 	go func() {
+		// The worker context and its cancel are created and released inside the
+		// worker goroutine (godre/S8188): defer cancelWorker immediately after
+		// context.WithCancel so the derived timer/context is never leaked.
+		workerContext, cancelWorker := context.WithCancel(tracedContext)
+		defer cancelWorker()
 		defer usecase.syncWG.Done()
 		defer usecase.syncRunning.Store(false)
-		defer cancelWorker()
 
 		// Cancel the worker when the app lifecycle ends (graceful shutdown). The
 		// done channel is watched instead of a context.Context to avoid storing a
