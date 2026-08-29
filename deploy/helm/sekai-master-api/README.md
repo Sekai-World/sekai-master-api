@@ -319,3 +319,54 @@ whole-number quantities like `1536Mi` instead.
 To override, set `GOMEMLIMIT` explicitly in `common.env`, the role's `env`, or
 any `extraEnv` list. The auto-derived value is skipped whenever `GOMEMLIMIT` is
 already present in any of those sources.
+
+## Graceful shutdown
+
+On `SIGTERM`/`SIGINT` the process:
+
+1. Stops accepting new connections and drains in-flight HTTP requests (the
+   Gin `*http.Server` is shut down with a bounded timeout).
+2. Cancels the application lifecycle context, which interrupts background sync
+   workers (`StartSync`, webhook `SyncRegion`, startup auto-sync/recovery) so
+   they stop instead of being orphaned.
+3. Waits for the lifecycle goroutines and any in-flight sync to finish, bounded
+   by the shutdown timeout.
+4. Closes dependencies in order — first the OTel periodic callbacks/flush, then
+   Redis cache, then the database — and finally flushes the log buffers.
+
+The bounded shutdown window is controlled by `SHUTDOWN_TIMEOUT_SECONDS` (sourced
+from `common.shutdownTimeoutSeconds`, default `25`). It must stay **smaller** than
+the pod's `common.terminationGracePeriodSeconds` (default `30`) so the process
+finishes and exits cleanly before Kubernetes sends `SIGKILL`. The deadline timer
+starts only when the shutdown signal is received, not at process start, so the
+grace period is not consumed during normal runtime.
+
+### Configuring the shutdown timeout
+
+`SHUTDOWN_TIMEOUT_SECONDS` is injected from `common.shutdownTimeoutSeconds`
+(default `25`) as an explicit `env` entry on every pod (`serve`, `control`, and the
+migration Job). This field is the single source for that variable — do not set
+`SHUTDOWN_TIMEOUT_SECONDS` in `common.env`, a role's `env`, or any `extraEnv` list;
+the chart fails at template time if you do.
+
+The chart enforces the relationship that JSON Schema cannot express: at template
+time it fails if `common.shutdownTimeoutSeconds` is greater than or equal to
+`common.terminationGracePeriodSeconds` (default `30`). `values.schema.json` still
+constrains the type and a soft upper bound (`maximum: 30`), but that upper bound
+does not, on its own, enforce the strict inequality against the grace period. Set
+`common.shutdownTimeoutSeconds` lower than the grace period to avoid a mid-drain
+`SIGKILL`.
+
+> **External override caveat (accurate):** Kubernetes applies explicit `env`
+> entries after `envFrom`, and for a given variable the explicit `env` value wins
+> over any `envFrom` source. Because the chart renders `SHUTDOWN_TIMEOUT_SECONDS`
+> as an explicit `env` entry, an external ConfigMap or Secret referenced through
+> `common.envFrom` / `role.envFrom` that also sets `SHUTDOWN_TIMEOUT_SECONDS` is
+> shadowed at runtime and has no effect. To change the shutdown timeout, set
+> `common.shutdownTimeoutSeconds` in values; the schema validation only governs
+> the in-chart value.
+
+In-flight syncs interrupted by shutdown are left in a recoverable (`running`/`pending`)
+status rather than marked failed, so interrupted-sync recovery can resume them on
+the next start. A second `SIGTERM`/`SIGINT` during shutdown force-closes remaining
+HTTP connections immediately instead of being silently ignored.

@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +32,24 @@ type GitHubWebhookHandler struct {
 	syncTimeout time.Duration
 	secret      string
 	enabled     bool
+
+	// admissionMu guards the rejecting flag together with the inflight WaitGroup
+	// Add so that RejectNewSubmissions cannot be observed between the admission
+	// check and the WaitGroup Add. Holding it makes the two operations atomic:
+	// either a submission is admitted (and counted) before shutdown begins, or
+	// shutdown sets rejecting first and the submission is refused. It also lets
+	// WaitForInflight ensure no in-progress admission is still pending before it
+	// starts waiting, preventing a WaitGroup Add/Wait race when the counter is
+	// zero.
+	admissionMu sync.Mutex
+	// rejecting is set when the application begins graceful shutdown; new webhook
+	// submissions are then refused so no sync is started after teardown begins.
+	rejecting bool
+	// inflight tracks in-flight webhook-triggered sync goroutines so shutdown can
+	// wait for them before tearing down dependencies. The Add happens under
+	// admissionMu, before the goroutine is spawned, to avoid a WaitGroup Add/Wait
+	// race.
+	inflight sync.WaitGroup
 }
 
 type gitHubPushWebhookPayload struct {
@@ -76,6 +96,60 @@ func NewGitHubWebhookHandler(
 	}
 }
 
+// RejectNewSubmissions closes the admission gate so further webhook requests are
+// refused during graceful shutdown. It is idempotent.
+func (handler *GitHubWebhookHandler) RejectNewSubmissions() {
+	if handler == nil {
+		return
+	}
+	handler.admissionMu.Lock()
+	defer handler.admissionMu.Unlock()
+	handler.rejecting = true
+}
+
+// WaitForInflight blocks until all webhook-triggered sync goroutines have stopped
+// or the provided context is done (shutdown deadline). It returns a non-nil error
+// if the wait times out so callers can surface a shutdown error.
+func (handler *GitHubWebhookHandler) WaitForInflight(ctx context.Context) error {
+	if handler == nil {
+		return nil
+	}
+	// Acquire and release the admission gate so any in-progress admission (between
+	// the rejecting check and the WaitGroup Add) completes before we start waiting.
+	// Without this, Wait could observe a zero counter and then race with a
+	// subsequent inflight.Add.
+	handler.admissionMu.Lock()
+	handler.admissionMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		handler.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("github webhook inflight sync did not finish: %w", ctx.Err())
+	}
+}
+
+// admit records a new in-flight submission under the admission gate. It returns
+// false (and does not increment inflight) when graceful shutdown has begun. The
+// rejecting check and the WaitGroup Add run atomically under admissionMu so a
+// concurrent RejectNewSubmissions cannot be observed between them.
+func (handler *GitHubWebhookHandler) admit() bool {
+	if handler == nil {
+		return false
+	}
+	handler.admissionMu.Lock()
+	defer handler.admissionMu.Unlock()
+	if handler.rejecting {
+		return false
+	}
+	handler.inflight.Add(1)
+	return true
+}
+
 // MasterData godoc
 // @Summary Receive GitHub master-data webhook
 // @Tags system
@@ -89,7 +163,7 @@ func NewGitHubWebhookHandler(
 // @Failure 401 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Router /internal/github/webhooks/master-data [post]
-func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
+func (handler *GitHubWebhookHandler) MasterData(c *gin.Context, lifecycleCtx context.Context) {
 	if handler == nil || !handler.enabled {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_SYNC_DISABLED", "master data sync is not configured")
 		return
@@ -147,7 +221,19 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
 		return
 	}
 
-	go handler.triggerRegionSync(logging.DetachedTraceContext(c.Request.Context()), region, owner, repo, ref)
+	// Admission gate: once graceful shutdown has begun, refuse new submissions so
+	// no sync is spawned after dependency teardown starts. The rejecting check and
+	// the WaitGroup Add are performed atomically under admissionMu so a concurrent
+	// RejectNewSubmissions cannot slip between them.
+	if !handler.admit() {
+		response.Error(c, http.StatusServiceUnavailable, "SHUTTING_DOWN", "master data sync is shutting down")
+		return
+	}
+
+	go func() {
+		defer handler.inflight.Done()
+		handler.triggerRegionSync(logging.DetachedTraceContext(c.Request.Context()), lifecycleCtx, region, owner, repo, ref)
+	}()
 
 	response.JSON(c, http.StatusAccepted, gin.H{
 		"status": "accepted",
@@ -155,17 +241,35 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context) {
 	})
 }
 
-func (handler *GitHubWebhookHandler) triggerRegionSync(ctx context.Context, region string, owner string, repo string, ref string) {
-	cancel := func() {}
+func (handler *GitHubWebhookHandler) triggerRegionSync(ctx context.Context, lifecycleCtx context.Context, region string, owner string, repo string, ref string) {
+	baseCtx := ctx
 	if handler.syncTimeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, handler.syncTimeout)
+		var stopTimeout context.CancelFunc
+		baseCtx, stopTimeout = context.WithTimeout(baseCtx, handler.syncTimeout)
+		defer stopTimeout()
 	}
-	defer cancel()
 
-	logger := logging.FromContext(ctx)
+	// Also stop the sync when the application lifecycle ends (graceful
+	// shutdown), so a webhook-triggered sync is bounded like every other
+	// background worker. The lifecycle context is passed in (not stored) to
+	// avoid retaining a context.Context on the handler.
+	if lifecycleCtx != nil {
+		derivedCtx, stopLifecycle := context.WithCancel(baseCtx)
+		defer stopLifecycle()
+		go func() {
+			select {
+			case <-lifecycleCtx.Done():
+				stopLifecycle()
+			case <-derivedCtx.Done():
+			}
+		}()
+		baseCtx = derivedCtx
+	}
+
+	logger := logging.FromContext(baseCtx)
 	logger.Infow("github webhook triggered master data sync", "region", region, "owner", owner, "repo", repo, "ref", ref)
 
-	if err := handler.syncer.SyncRegion(ctx, region); err != nil {
+	if err := handler.syncer.SyncRegion(baseCtx, region); err != nil {
 		if err == usecase.ErrSyncInProgress {
 			logger.Infow("github webhook skipped because master data sync already running", "region", region)
 			return
