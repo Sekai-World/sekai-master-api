@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"strings"
@@ -28,12 +29,12 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub, startupState *startup.State) (*gin.Engine, error) {
+func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub, startupState *startup.State, lifecycleCtx context.Context) (*gin.Engine, *systemhandlers.GitHubWebhookHandler, error) {
 	router := gin.New()
 
 	httpMetrics, err := middleware.HTTPMetrics()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	router.Use(middleware.RequestID())
@@ -58,6 +59,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		masterDataSync,
 		time.Duration(cfg.MasterDataSyncTimeout)*time.Second,
 		cfg.MasterDataGitHubWebhookSecret,
+		lifecycleCtx,
 	)
 	cardHandler := cardhandlers.NewCardHandler(masterDataSync)
 	musicHandler := musichandlers.NewMusicHandler(masterDataSync)
@@ -81,7 +83,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		adminUIHandler = adminhandlers.NewAdminUIHandler(cfg)
 		adminLoginHandler, err = adminhandlers.NewAdminLoginHandler(cfg)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		masterDataEventHandler = adminhandlers.NewMasterDataEventHandler(masterDataEvents)
 	}
@@ -130,7 +132,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		)
 	}
 
-	return router, nil
+	return router, gitHubWebhookHandler, nil
 }
 
 func isSwaggerEnabledEnv(appEnv string) bool {

@@ -119,12 +119,34 @@ type MasterDataSyncUsecase struct {
 	syncRunning                         atomic.Bool
 
 	currentEventLocks sync.Map
+
+	// lifecycleCtx, when set, cancels long-running background sync workers
+	// (admin StartSync, webhook SyncRegion) during graceful shutdown. It is
+	// nil by default, which disables lifecycle cancellation.
+	lifecycleCtx context.Context
+	// syncWG tracks lifecycle-managed sync workers so the app can wait for
+	// them to stop before tearing down dependencies on graceful shutdown.
+	syncWG sync.WaitGroup
+
+	// admitMu guards admissionClosed together with the syncWG Add so a concurrent
+	// CloseAdmission cannot be observed between the admission check and the
+	// WaitGroup Add, preventing a syncWG.Add/Wait race when the counter is zero.
+	admitMu sync.Mutex
+	// admissionClosed is set when graceful shutdown begins; new lifecycle-managed
+	// sync workers are then refused so none start after dependency teardown begins.
+	admissionClosed bool
 }
 
 const masterDataSyncLogComponent = "master-data-sync"
 
 var ErrSyncInProgress = errors.New("master data sync is already running")
 var ErrRegionNotFound = errors.New("master data region not found")
+
+// ErrShutdownAdmission is returned by lifecycle-managed sync starts (StartSync and
+// the internal sync used by SyncAll/SyncRegion/RecoverInterruptedSync) when
+// graceful shutdown has closed the admission gate, so no new sync worker is
+// admitted after dependency teardown begins.
+var ErrShutdownAdmission = errors.New("master data sync admission closed during shutdown")
 
 func NewMasterDataSyncUsecase(
 	sources []masterdata.Source,
@@ -186,6 +208,57 @@ func (usecase *MasterDataSyncUsecase) SetJobTimeout(timeout time.Duration) {
 	usecase.jobTimeout = timeout
 }
 
+// SetLifecycleContext registers the application lifecycle context used to cancel
+// long-running background sync workers (admin StartSync, webhook SyncRegion)
+// during graceful shutdown. A nil context disables lifecycle cancellation and
+// falls back to a detached background context.
+func (usecase *MasterDataSyncUsecase) SetLifecycleContext(ctx context.Context) {
+	if usecase == nil {
+		return
+	}
+	usecase.lifecycleCtx = ctx
+}
+
+// CloseAdmission closes the lifecycle admission gate so no new sync workers are
+// admitted during graceful shutdown. It is safe to call multiple times and is
+// invoked by Wait before blocking on syncWG.
+func (usecase *MasterDataSyncUsecase) CloseAdmission() {
+	if usecase == nil {
+		return
+	}
+	usecase.admitMu.Lock()
+	usecase.admissionClosed = true
+	usecase.admitMu.Unlock()
+}
+
+// Wait blocks until all lifecycle-managed sync workers have stopped. It first
+// closes the admission gate (so no new worker is admitted) and then waits on
+// syncWG. This ordering prevents a syncWG.Add/Wait race: any worker admitted
+// before CloseAdmission holds admitMu across its Add, so Wait cannot observe a
+// zero counter and then race with that Add.
+func (usecase *MasterDataSyncUsecase) Wait() {
+	if usecase == nil {
+		return
+	}
+	usecase.CloseAdmission()
+	usecase.syncWG.Wait()
+}
+
+// tryAdmitSyncWorker increments syncWG if admission is still open, returning true
+// when the caller may proceed to start a lifecycle-managed sync worker. The
+// admission check and the WaitGroup Add run atomically under admitMu, so a
+// concurrent CloseAdmission (and the subsequent Wait) cannot race with this Add.
+// Callers must ensure a matching syncWG.Done() when true is returned.
+func (usecase *MasterDataSyncUsecase) tryAdmitSyncWorker() bool {
+	usecase.admitMu.Lock()
+	defer usecase.admitMu.Unlock()
+	if usecase.admissionClosed {
+		return false
+	}
+	usecase.syncWG.Add(1)
+	return true
+}
+
 func (usecase *MasterDataSyncUsecase) SyncAll(ctx context.Context) error {
 	ctx, span := tracing.StartSpan(ctx, "master_data.sync_all", attribute.Int("region.count", len(usecase.sources)))
 	err := usecase.sync(ctx, false, usecase.sources)
@@ -218,11 +291,47 @@ func (usecase *MasterDataSyncUsecase) StartSync(ctx context.Context, region stri
 		return ErrSyncInProgress
 	}
 
-	workerContext := logging.DetachedTraceContext(ctx)
+	// Lifecycle admission gate: once shutdown has closed admission, do not admit
+	// a new sync worker. tryAdmitSyncWorker atomically checks the gate and
+	// increments syncWG, so the Add cannot race with the shutdown-time Wait.
+	if !usecase.tryAdmitSyncWorker() {
+		usecase.syncRunning.Store(false)
+		usecase.logf("sync skipped reason=shutdown_admission_closed")
+		return ErrShutdownAdmission
+	}
+
+	lifecycleCtx := usecase.lifecycleCtx
+	if lifecycleCtx == nil {
+		lifecycleCtx = context.Background()
+	}
+
+	// Preserve the request trace but stay cancellable by the application
+	// lifecycle, so a graceful shutdown can interrupt an in-flight admin sync
+	// instead of leaving it orphaned.
+	tracedContext := logging.DetachedTraceContext(ctx)
+	workerContext, cancelWorker := context.WithCancel(tracedContext)
 	go func() {
+		defer usecase.syncWG.Done()
 		defer usecase.syncRunning.Store(false)
+		defer cancelWorker()
+
+		// Cancel the worker when the app lifecycle ends (graceful shutdown).
+		stopLifecycleWatch := make(chan struct{})
+		defer close(stopLifecycleWatch)
+		go func() {
+			select {
+			case <-lifecycleCtx.Done():
+				cancelWorker()
+			case <-stopLifecycleWatch:
+			}
+		}()
+
 		err := usecase.syncClaimed(workerContext, force, targetSources)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				usecase.logf("admin sync worker interrupted by shutdown region=%s force=%t", targetRegion, force)
+				return
+			}
 			usecase.logf("admin sync worker failed region=%s force=%t error=%v", targetRegion, force, err)
 			return
 		}
@@ -372,12 +481,38 @@ func (usecase *MasterDataSyncUsecase) RecoverInterruptedSync(ctx context.Context
 }
 
 func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sources []masterdata.Source) error {
+	// Lifecycle admission gate: once shutdown has closed admission, refuse new
+	// sync workers so none start after dependency teardown begins. The check and
+	// the WaitGroup Add run atomically under admitMu (see tryAdmitSyncWorker),
+	// preventing a syncWG.Add/Wait race with the shutdown-time Wait.
+	if !usecase.tryAdmitSyncWorker() {
+		usecase.logf("sync skipped reason=shutdown_admission_closed")
+		return ErrShutdownAdmission
+	}
+	defer usecase.syncWG.Done()
 	if !usecase.syncRunning.CompareAndSwap(false, true) {
 		usecase.logf("sync skipped reason=already_running")
 		return ErrSyncInProgress
 	}
 	defer usecase.syncRunning.Store(false)
 	return usecase.syncClaimed(ctx, force, sources)
+}
+
+// isTerminalSyncStatus reports whether a sync status is a terminal one (success
+// or failed) that should not be persisted when the run was interrupted by a
+// graceful-shutdown cancellation. Recoverable statuses ("running"/"pending") are
+// always safe to persist.
+func isTerminalSyncStatus(status string) bool {
+	return status == "success" || status == "failed"
+}
+
+// isInterrupted reports whether the region sync stopped because the application
+// lifecycle context was cancelled (graceful shutdown) rather than due to a real
+// error. In that case the per-region status is intentionally left in its prior
+// recoverable ("running"/"pending") state instead of being marked failed, so
+// interrupted-sync recovery can resume it.
+func (usecase *MasterDataSyncUsecase) isInterrupted(ctx context.Context) bool {
+	return ctx != nil && ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled)
 }
 
 func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force bool, sources []masterdata.Source) error {
@@ -778,6 +913,11 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 
 			payload, err := usecase.loader.LoadRegion(collectorCtx, loadSource)
 			if err != nil {
+				if usecase.isInterrupted(ctx) {
+					usecase.logf("sync interrupted by shutdown region=%s phase=load", source.Region)
+					return
+				}
+
 				duration := time.Since(startedAt).Milliseconds()
 				if isRateLimitError(err) {
 					fallbackErr := usecase.fallbackToPreviousAvailableState(ctx, source, previous, now)
@@ -963,6 +1103,24 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 	}
 
 	wg.Wait()
+
+	// Graceful-shutdown interruption: leave recoverable per-region statuses
+	// untouched and report interruption instead of success/failure so callers
+	// (and interrupted-sync recovery) do not treat the cancelled run as done.
+	if errors.Is(ctx.Err(), context.Canceled) {
+		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+			Event:     "master_data_updated",
+			Status:    "interrupted",
+			Regions:   regions,
+			UpdatedAt: time.Now().UTC(),
+		})
+		usecase.logf(
+			"sync interrupted by shutdown regions=%d duration_ms=%d",
+			len(regions),
+			time.Since(syncStartedAt).Milliseconds(),
+		)
+		return context.Canceled
+	}
 
 	status := "success"
 	if len(syncErrors) > 0 {
@@ -2613,6 +2771,15 @@ func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status mas
 		return nil
 	}
 
+	// On graceful-shutdown interruption never persist a terminal failed/success
+	// status. The region is left in whatever recoverable running/pending state it
+	// was already in, so interrupted-sync recovery can resume it. Terminal writes
+	// are also skipped in the detached retry below by the same guard.
+	if isTerminalSyncStatus(status.Status) && usecase.isInterrupted(ctx) {
+		usecase.logf("sync status save skipped on interruption region=%s status=%s", status.Region, status.Status)
+		return nil
+	}
+
 	usecase.statusMu.Lock()
 	defer usecase.statusMu.Unlock()
 
@@ -2620,6 +2787,12 @@ func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status mas
 	if err != nil && ctx.Err() != nil {
 		retryCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		// Do not retry a terminal write that was suppressed on interruption: the
+		// region must stay recoverable, not be flipped to failed/success.
+		if isTerminalSyncStatus(status.Status) && usecase.isInterrupted(ctx) {
+			usecase.logf("sync status save retry skipped on interruption region=%s status=%s", status.Region, status.Status)
+			return nil
+		}
 		retryErr := usecase.statusStore.Save(retryCtx, status)
 		if retryErr == nil {
 			usecase.logf("sync status save recovered by retry region=%s status=%s", status.Region, status.Status)
