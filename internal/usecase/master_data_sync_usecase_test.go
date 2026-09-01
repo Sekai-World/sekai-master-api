@@ -2752,6 +2752,33 @@ func TestVersionByRegionCacheAndBackupFallback(t *testing.T) {
 	}
 }
 
+func TestVersionByRegionReadsCacheWithoutBackupStore(t *testing.T) {
+	source := versionCacheSource()
+	cache := &fakeVersionSyncCache{
+		loadedVersions: map[string]any{
+			source.Region: map[string]any{"appVersion": "redis-version"},
+		},
+	}
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, cache, nil, nil, 1)
+	usecase.SetBackupStore(nil)
+
+	version, found, err := usecase.VersionByRegion(context.Background(), source.Region)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !found {
+		t.Fatalf("expected version to be found in shared cache")
+	}
+
+	versionMap, ok := version.(map[string]any)
+	if !ok {
+		t.Fatalf("expected version payload map, got %T", version)
+	}
+	if versionMap["appVersion"] != "redis-version" {
+		t.Fatalf("expected appVersion=redis-version, got %v", versionMap["appVersion"])
+	}
+}
+
 func TestSyncSkipPopulatesVersionCacheWhenManifestUnchanged(t *testing.T) {
 	manifest := map[string]any{"dataVersion": "20260802"}
 	latestPayload := manifestPayload(manifest, "from-backup")
