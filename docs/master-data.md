@@ -65,7 +65,17 @@ Redis settings:
 - `REDIS_ADDR`
 - `REDIS_PASSWORD`
 - `REDIS_DB`
+- `REDIS_DIAL_TIMEOUT_SECONDS`
+- `REDIS_READ_TIMEOUT_SECONDS`
+- `REDIS_WRITE_TIMEOUT_SECONDS`
+- `REDIS_POOL_TIMEOUT_SECONDS`
 - `MASTER_DATA_REDIS_KEY_PREFIX`
+
+Redis timeout settings use whole seconds and default to `0`, which preserves
+go-redis's built-in defaults. Set them when the API connects over a slower or
+forwarded link such as `kubectl port-forward`; read and write timeouts bound
+large hash reads and pipeline I/O, while the pool timeout bounds connection
+pool waits.
 
 Search indexes are scoped to fields used by API search paths instead of every scalar field. The default searchable field is `name`; `cards` additionally indexes `prefix` and `cardSkillName`; relationship lookups index `cardId`, `eventId`, `musicId`, `virtualLiveId`, `eventStoryId`, `cardRarityType`, and `unit` when those fields are present. Persisted search indexes live in Redis as entity payload keys plus matching `:search-index-version` keys. Decoded Go in-memory index structures are held only in the bounded `MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES` LRU cache, so hot searched entities avoid repeated Redis decode work without retaining every region/entity forever. Loading an older persisted search index filters out fields outside that policy before using it in memory. Older Redis payloads may also use the legacy raw `{field: [id, ...]}` shape instead of `{id, normalized_text}` items; load-time migration resolves those IDs through the entity `:by-id` hash, rebuilds the searchable text, and rewrites the compact persisted index format.
 
