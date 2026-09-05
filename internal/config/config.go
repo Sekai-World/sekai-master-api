@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -119,6 +120,10 @@ type Config struct {
 	RedisAddr                         string
 	RedisPassword                     string
 	RedisDB                           int
+	RedisDialTimeout                  time.Duration
+	RedisReadTimeout                  time.Duration
+	RedisWriteTimeout                 time.Duration
+	RedisPoolTimeout                  time.Duration
 	MasterDataRedisKeyPrefix          string
 	OIDCIssuerURL                     string
 	OIDCInternalURL                   string
@@ -187,6 +192,10 @@ func Load() Config {
 		RedisAddr:                         getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:                     getEnv("REDIS_PASSWORD", ""),
 		RedisDB:                           getEnvInt("REDIS_DB", 0),
+		RedisDialTimeout:                  time.Duration(getEnvInt("REDIS_DIAL_TIMEOUT_SECONDS", 0)) * time.Second,
+		RedisReadTimeout:                  time.Duration(getEnvInt("REDIS_READ_TIMEOUT_SECONDS", 0)) * time.Second,
+		RedisWriteTimeout:                 time.Duration(getEnvInt("REDIS_WRITE_TIMEOUT_SECONDS", 0)) * time.Second,
+		RedisPoolTimeout:                  time.Duration(getEnvInt("REDIS_POOL_TIMEOUT_SECONDS", 0)) * time.Second,
 		MasterDataRedisKeyPrefix:          getEnv("MASTER_DATA_REDIS_KEY_PREFIX", "sekai:master-data:"),
 		OIDCIssuerURL:                     strings.TrimSpace(getEnv("OIDC_ISSUER_URL", "")),
 		OIDCInternalURL:                   strings.TrimSpace(getEnv("OIDC_INTERNAL_URL", "")),

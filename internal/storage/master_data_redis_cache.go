@@ -164,9 +164,13 @@ func (index *entitySearchIndex) textValue(item searchIndexItem) string {
 
 func NewRedisMasterDataCache(cfg config.Config) (*RedisMasterDataCache, error) {
 	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
+		Addr:         cfg.RedisAddr,
+		Password:     cfg.RedisPassword,
+		DB:           cfg.RedisDB,
+		DialTimeout:  cfg.RedisDialTimeout,
+		ReadTimeout:  cfg.RedisReadTimeout,
+		WriteTimeout: cfg.RedisWriteTimeout,
+		PoolTimeout:  cfg.RedisPoolTimeout,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
@@ -19,6 +20,10 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 		"MASTER_DATA_REGION_FILE_CONCURRENCY",
 		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES",
 		"MASTER_DATA_WARM_SEARCH_INDEXES",
+		"REDIS_DIAL_TIMEOUT_SECONDS",
+		"REDIS_READ_TIMEOUT_SECONDS",
+		"REDIS_WRITE_TIMEOUT_SECONDS",
+		"REDIS_POOL_TIMEOUT_SECONDS",
 		"OTEL_ENABLED",
 	)
 
@@ -60,6 +65,26 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	}
 	if cfg.MasterDataResumeBaseDir != "tmp/master-data-sync-resume" {
 		t.Fatalf("expected MasterDataResumeBaseDir default, got %q", cfg.MasterDataResumeBaseDir)
+	}
+	if cfg.RedisDialTimeout != 0 || cfg.RedisReadTimeout != 0 || cfg.RedisWriteTimeout != 0 || cfg.RedisPoolTimeout != 0 {
+		t.Fatalf("expected Redis timeout defaults to preserve go-redis defaults, got dial=%s read=%s write=%s pool=%s", cfg.RedisDialTimeout, cfg.RedisReadTimeout, cfg.RedisWriteTimeout, cfg.RedisPoolTimeout)
+	}
+}
+
+func TestLoadReadsRedisTimeoutConfig(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "REDIS_DIAL_TIMEOUT_SECONDS", "REDIS_READ_TIMEOUT_SECONDS", "REDIS_WRITE_TIMEOUT_SECONDS", "REDIS_POOL_TIMEOUT_SECONDS")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=production\n"+
+		"REDIS_DIAL_TIMEOUT_SECONDS=11\n"+
+		"REDIS_READ_TIMEOUT_SECONDS=22\n"+
+		"REDIS_WRITE_TIMEOUT_SECONDS=33\n"+
+		"REDIS_POOL_TIMEOUT_SECONDS=44\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.RedisDialTimeout != 11*time.Second || cfg.RedisReadTimeout != 22*time.Second || cfg.RedisWriteTimeout != 33*time.Second || cfg.RedisPoolTimeout != 44*time.Second {
+		t.Fatalf("unexpected Redis timeout config: dial=%s read=%s write=%s pool=%s", cfg.RedisDialTimeout, cfg.RedisReadTimeout, cfg.RedisWriteTimeout, cfg.RedisPoolTimeout)
 	}
 }
 

@@ -243,6 +243,32 @@ func newStoreRegionTestCache(t *testing.T, miniRedis *miniredis.Miniredis) *Redi
 	return cache
 }
 
+func TestNewRedisMasterDataCacheWiresRedisTimeouts(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cfg := config.Config{
+		RedisAddr:         miniRedis.Addr(),
+		RedisDialTimeout:  11 * time.Second,
+		RedisReadTimeout:  22 * time.Second,
+		RedisWriteTimeout: 33 * time.Second,
+		RedisPoolTimeout:  44 * time.Second,
+	}
+
+	cache, err := NewRedisMasterDataCache(cfg)
+	if err != nil {
+		t.Fatalf("new redis cache: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := cache.Close(); closeErr != nil {
+			t.Errorf("close redis cache: %v", closeErr)
+		}
+	})
+
+	options := cache.client.Options()
+	if options.DialTimeout != cfg.RedisDialTimeout || options.ReadTimeout != cfg.RedisReadTimeout || options.WriteTimeout != cfg.RedisWriteTimeout || options.PoolTimeout != cfg.RedisPoolTimeout {
+		t.Fatalf("unexpected Redis client timeouts: dial=%s read=%s write=%s pool=%s", options.DialTimeout, options.ReadTimeout, options.WriteTimeout, options.PoolTimeout)
+	}
+}
+
 func TestStoreRegionPersistsCompactRawJSONRecords(t *testing.T) {
 	miniRedis := startTestMiniRedis(t)
 	cache := newStoreRegionTestCache(t, miniRedis)
