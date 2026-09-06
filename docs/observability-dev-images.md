@@ -11,9 +11,10 @@ configuration checks in addition to the repository CI suite.
   provisioning and dashboard directories. The health endpoint responds, the
   Loki/Prometheus/Tempo data sources are provisioned, and dashboard provisioning
   completes.
-- `grafana/tempo:3.0.2` does **not** accept the existing
-  `deploy/compose/tempo/tempo.yaml`. Its config verification reports
-  `field compactor not found in type app.Config` for the top-level `compactor`
-  block. Migrate and re-verify the Tempo configuration before adopting Tempo 3.
+- `grafana/tempo:3.0.3` accepts the migrated
+  `deploy/compose/tempo/tempo.yaml`. Tempo 3 monolithic mode uses
+  `target: all` and `backend_worker.compaction.block_retention` for the
+  24-hour retention setting; verify it with the image's `-config.verify`
+  command and a short startup smoke test.
 
-Source: runtime Docker smoke tests performed while reviewing Renovate PRs #33, #31, and #32 on 2026-07-17.
+Source: runtime Docker smoke tests performed while reviewing Renovate PRs #33, #31, and #32 on 2026-07-17; the Tempo 3.0.3 migration was re-verified on 2026-09-06.

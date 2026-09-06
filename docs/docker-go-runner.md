@@ -2,7 +2,7 @@
 
 ## Alpine Go image PATH pitfall
 
-`golang:1.26.5-alpine3.23` contains the Go toolchain at
+`golang:1.27.1-alpine3.23` contains the Go toolchain at
 `/usr/local/go/bin/go` and `/usr/local/go/bin/gofmt`. A missing `go` command
 in a container is therefore not, by itself, evidence that the image tag is
 wrong or incomplete.
@@ -28,5 +28,5 @@ its supplied command. Keep that setup when changing the runner, and verify the
 final command path rather than changing the image tag solely because a nested
 login shell cannot find Go.
 
-Source: verified against `golang:1.26.5-alpine3.23` while validating Phase 2a
-on 2026-08-04; runner: `scripts/docker-go.sh`.
+Source: verified against `golang:1.27.1-alpine3.23` on 2026-09-06 while
+validating the Go toolchain update; runner: `scripts/docker-go.sh`.

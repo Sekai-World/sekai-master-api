@@ -1,3 +1,5 @@
+target: all
+
 server:
   http_listen_port: 3200
 
@@ -16,6 +18,6 @@ storage:
     local:
       path: /var/tempo/traces
 
-compactor:
+backend_worker:
   compaction:
     block_retention: 24h

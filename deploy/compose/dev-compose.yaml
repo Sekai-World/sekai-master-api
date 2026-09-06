@@ -36,7 +36,7 @@ services:
       - dev
 
   loki:
-    image: grafana/loki:3.7.4
+    image: grafana/loki:3.7.7
     restart: unless-stopped
     command:
       - -config.file=/etc/loki/local-config.yaml
@@ -59,7 +59,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/compose/tempo/Dockerfile
-    image: sekai/tempo-dev:2.10.7
+    image: sekai/tempo-dev:3.0.3
     restart: unless-stopped
     command:
       - -config.file=/etc/tempo/tempo.yaml
@@ -74,7 +74,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/compose/alloy/Dockerfile
-    image: sekai/alloy-dev:1.17.1
+    image: sekai/alloy-dev:1.19.2
     restart: unless-stopped
     command:
       - run
@@ -97,7 +97,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/compose/alloy/Dockerfile
-    image: sekai/alloy-dev:1.17.1
+    image: sekai/alloy-dev:1.19.2
     restart: unless-stopped
     command:
       - run
@@ -118,7 +118,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/compose/prometheus/Dockerfile
-    image: sekai/prometheus-dev:v2.55.1
+    image: sekai/prometheus-dev:v3.14.0
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml

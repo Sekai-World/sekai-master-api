@@ -27,7 +27,7 @@ load_defaults() {
   DEV_OBSERVABILITY_MODE="${DEV_OBSERVABILITY_MODE:-off}"
   DOCKER="${DOCKER:-docker}"
   APP_ENV="${APP_ENV:-development}"
-  GO_DOCKER_IMAGE="${GO_DOCKER_IMAGE:-golang:1.26.2-alpine3.23}"
+  GO_DOCKER_IMAGE="${GO_DOCKER_IMAGE:-golang:1.27.1-alpine3.23}"
   GO_DOCKER_WORKDIR="${GO_DOCKER_WORKDIR:-/src}"
   GO_DOCKER_MOD_CACHE_VOLUME="${GO_DOCKER_MOD_CACHE_VOLUME:-sekai-master-api-go-mod-cache}"
   GO_DOCKER_BUILD_CACHE_VOLUME="${GO_DOCKER_BUILD_CACHE_VOLUME:-sekai-master-api-go-build-cache}"
