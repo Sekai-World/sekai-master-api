@@ -5,6 +5,11 @@ image:
   repository: sekai-master-api
   tag: "0.1.0"
   pullPolicy: IfNotPresent
+  # Optional container command override. When unset, containers run the
+  # default image entrypoint path /usr/local/bin/sekai-master-api. Images
+  # built with ko expose the binary at /ko-app/api and set this to
+  # ["/ko-app/api"].
+  command: null
 imagePullSecrets: []
 
 serviceAccount:

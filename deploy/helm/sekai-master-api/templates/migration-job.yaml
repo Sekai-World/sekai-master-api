@@ -41,7 +41,7 @@ spec:
         - name: migrate
           image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/usr/local/bin/sekai-master-api"]
+          command: {{ default (list "/usr/local/bin/sekai-master-api") .Values.image.command | toJson }}
           args: ["migrate"]
           securityContext:
             {{- toYaml .Values.common.securityContext | nindent 12 }}

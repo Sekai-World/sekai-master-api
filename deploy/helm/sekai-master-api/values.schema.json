@@ -9,7 +9,13 @@
       "properties": {
         "repository": { "type": "string", "minLength": 1 },
         "tag": { "type": "string", "minLength": 1 },
-        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] },
+        "command": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+          ]
+        }
       }
     },
     "common": {
