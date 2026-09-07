@@ -1,5 +1,6 @@
 [tools]
 go = "1.27.1"
+ko = "latest"
 
 [tasks.run]
 description = "Run the API on the host"

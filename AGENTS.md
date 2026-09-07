@@ -29,6 +29,7 @@ ownership is unclear.
   - Optional override: `DATABASE_DRIVER` can override the default with `sqlite` or `pgx`.
 - Migration strategy: use Goose SQL migrations; run automatic migrations on startup.
 - Local dependency orchestration: `deploy/compose/dev-compose.yaml` for PostgreSQL 18, Redis 8, Grafana, and Loki.
+- Remote-cluster dev (optional, private): gitignored `dev-cluster-*` mise tasks run a ko-built dev image in the remote k3s cluster next to the dev dependencies; see `.mise/lib/dev-cluster.sh` and the workspace `docs/cross-repository/remote-cluster-dev-workflow.md`. Chart `image.command` (>= 0.0.5) supports ko images (`/ko-app/api`); leaving it unset keeps production behavior unchanged.
 - Local dev server: `sekai-master-api` is managed through OrbStack. Do not manually kill/stop it during normal agent work; restart it from the project root with `mise run dev` when code or OpenAPI changes need to be served locally.
 
 ## Agent Roles
