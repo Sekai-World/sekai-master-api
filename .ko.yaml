@@ -1,0 +1,27 @@
+# ko build configuration for sekai-master-api.
+#
+# ko skips the Docker daemon: it cross-compiles ./cmd/api with the local Go
+# toolchain, layers the binary onto a minimal base, and pushes straight to
+# $KO_DOCKER_REPO. This mirrors deploy/compose/app/Dockerfile (same base
+# packages: ca-certificates + tzdata; same ldflags version injection) for the
+# remote-cluster dev workflow driven by .mise/tasks/dev-cluster-*.
+#
+# ko places the binary at /ko-app/api; point the Helm chart at it with
+# image.command: ["/ko-app/api"] (see deploy/helm/sekai-master-api/values.yaml).
+defaultBaseImage: cgr.dev/chainguard/static:latest
+
+builds:
+  - id: api
+    main: ./cmd/api
+    env:
+      - CGO_ENABLED=0
+      - GOOS=linux
+      # The dev cluster is linux/amd64 while dev laptops are darwin/arm64.
+      - GOARCH=amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X sekai-master-api/internal/version.Version={{.Env.KO_VERSION}}
+      - -X sekai-master-api/internal/version.Commit={{.Env.KO_COMMIT}}
+      - -X sekai-master-api/internal/version.BuildDate={{.Env.KO_BUILD_DATE}}

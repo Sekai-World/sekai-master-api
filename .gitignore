@@ -27,6 +27,11 @@ tmp/
 .mise/tasks/dev-remote-deps
 docs/development_local.md
 
+# Remote-cluster private dev workflow (live identifiers)
+.mise/lib/dev-cluster.sh
+.mise/tasks/dev-cluster-*
+values-dev.local.yaml
+
 # Editor / IDE
 .vscode/
 .idea/
