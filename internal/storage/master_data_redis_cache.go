@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"math"
 	"path/filepath"
 	"sort"
@@ -221,14 +222,7 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 	totalFiles := len(filePaths)
 	processedFiles := 0
 
-	entityLocks := make(map[string]*sync.Mutex)
-	for _, filePath := range filePaths {
-		if entity := entityNameFromPath(filePath); entity != "" {
-			if _, exists := entityLocks[entity]; !exists {
-				entityLocks[entity] = &sync.Mutex{}
-			}
-		}
-	}
+	entityLocks := buildEntityLocks(filePaths)
 
 	progressMu := sync.Mutex{}
 	reportProgress := func(filePath string) {
@@ -250,243 +244,23 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 	}
 
 	processFile := func(filePath string) error {
-		value := payload[filePath]
-		entity := entityNameFromPath(filePath)
-		if entity == "" {
-			reportProgress(filePath)
-			return nil
-		}
-
-		rawRecords, hasRawRecords := value.([]json.RawMessage)
-		legacyRecords, hasLegacyRecords := value.([]any)
-		if !hasRawRecords && !hasLegacyRecords {
-			reportProgress(filePath)
-			return nil
-		}
-
-		entityLock := entityLocks[entity]
-		entityLock.Lock()
-		defer entityLock.Unlock()
-
-		key := cache.redisEntityKey(regionName, entity)
-		orderKey := cache.redisEntityOrderKey(regionName, entity)
-		revisionKey := cache.redisEntityRevisionKey(regionName, entity)
-		sourceDigestKey := cache.redisEntitySourceDigestKey(regionName, entity)
 		incomingDigest, hasDigest := fileDigests[filePath]
-		if hasDigest && incomingDigest != "" && !masterdata.ForceFullStoreFromContext(ctx) {
-			storedDigest, digestErr := cache.client.Get(ctx, sourceDigestKey).Result()
-			if digestErr != nil && !errors.Is(digestErr, redis.Nil) {
-				return fmt.Errorf("get redis source digest for region %s entity %s: %w", regionName, entity, digestErr)
-			}
-			_, revisionErr := cache.client.Get(ctx, revisionKey).Result()
-			if digestErr == nil && revisionErr == nil && storedDigest == incomingDigest {
-				found, indexErr := cache.persistedEntitySearchIndexExists(ctx, regionName, entity)
-				if indexErr != nil {
-					return indexErr
-				}
-				if found {
-					reportProgress(filePath)
-					return nil
-				}
-			}
+		task := &entityStoreTask{
+			cache:          cache,
+			ctx:            ctx,
+			regionName:     regionName,
+			filePath:       filePath,
+			value:          payload[filePath],
+			incomingDigest: incomingDigest,
+			hasDigest:      hasDigest,
+			reportProgress: func() {
+				reportProgress(filePath)
+			},
 		}
-		forceFullStore := masterdata.ForceFullStoreFromContext(ctx)
-		existingRevision := ""
-		var err error
-		revisionMissing := true
-		if !forceFullStore {
-			existingRevision, err = cache.client.Get(ctx, revisionKey).Result()
-			if err != nil && !errors.Is(err, redis.Nil) {
-				return fmt.Errorf("get redis revision for region %s entity %s: %w", regionName, entity, err)
-			}
-			revisionMissing = errors.Is(err, redis.Nil)
-		}
-		existingRecords := map[string]string(nil)
-		existingOrder := []string(nil)
-
-		orderedIDs := make([]string, 0, len(rawRecords)+len(legacyRecords))
-		nextRecords := make(map[string]string, len(rawRecords)+len(legacyRecords))
-		recordMaps := make([]map[string]any, 0, len(legacyRecords))
-		digest := sha256.New()
-		appendStoredRecord := func(id string, body []byte, recordMap map[string]any) error {
-			storedBody, err := marshalRedisEntityRecord(body)
-			if err != nil {
-				return fmt.Errorf("compress record region %s entity %s id %s: %w", regionName, entity, id, err)
-			}
-
-			nextRecords[id] = storedBody
-			orderedIDs = append(orderedIDs, id)
-			if recordMap != nil {
-				recordMaps = append(recordMaps, recordMap)
-			}
-			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
-			return nil
-		}
-
-		for _, record := range legacyRecords {
-			recordMap, ok := record.(map[string]any)
-			if !ok {
-				continue
-			}
-
-			body, err := json.Marshal(recordMap)
-			if err != nil {
-				return fmt.Errorf("marshal record region %s entity %s: %w", regionName, entity, err)
-			}
-
-			id := recordStorageID(recordMap, body)
-			if id == "" {
-				continue
-			}
-
-			if err := appendStoredRecord(id, body, recordMap); err != nil {
-				return err
-			}
-		}
-
-		for _, rawRecord := range rawRecords {
-			if len(rawRecord) == 0 {
-				continue
-			}
-
-			id := recordStorageIDFromRaw(rawRecord)
-			if id == "" {
-				continue
-			}
-
-			if err := appendStoredRecord(id, rawRecord, nil); err != nil {
-				return err
-			}
-		}
-		_, _ = digest.Write([]byte("|order:"))
-		for _, id := range orderedIDs {
-			_, _ = digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ";"))
-		}
-		revision := hex.EncodeToString(digest.Sum(nil))
-		revisionMatches := !forceFullStore && !revisionMissing && existingRevision == revision
-		if !forceFullStore && !revisionMatches {
-			existingRecords, err = cache.client.HGetAll(ctx, key).Result()
-			if err != nil {
-				return fmt.Errorf("hgetall redis key for region %s entity %s: %w", regionName, entity, err)
-			}
-			existingOrder, err = cache.client.LRange(ctx, orderKey, 0, -1).Result()
-			if err != nil {
-				return fmt.Errorf("lrange redis order key for region %s entity %s: %w", regionName, entity, err)
-			}
-		}
-
-		recordsChanged := forceFullStore || (!revisionMatches && !equalStringMaps(existingRecords, nextRecords))
-		orderChanged := forceFullStore || (!revisionMatches && !equalStringSlices(existingOrder, orderedIDs))
-		entityChanged := recordsChanged || orderChanged
-		persistIndexChanged := entityChanged
-		var updatedIndex *entitySearchIndex
-		updatedIndexVersion := ""
-		resolveRecordMaps := func() ([]map[string]any, error) {
-			if hasLegacyRecords {
-				return recordMaps, nil
-			}
-			maps := make([]map[string]any, 0, len(rawRecords))
-			for _, rawRecord := range rawRecords {
-				if len(rawRecord) == 0 {
-					continue
-				}
-				var recordMap map[string]any
-				if err := json.Unmarshal(rawRecord, &recordMap); err != nil {
-					continue
-				}
-				if len(recordMap) == 0 {
-					continue
-				}
-				maps = append(maps, recordMap)
-			}
-			return maps, nil
-		}
-		if entityChanged {
-			maps, mapErr := resolveRecordMaps()
-			if mapErr != nil {
-				return mapErr
-			}
-			updatedIndex = buildEntitySearchIndex(entity, maps)
-		} else {
-			found, err := cache.persistedEntitySearchIndexExists(ctx, regionName, entity)
-			if err != nil {
-				return fmt.Errorf("check persisted search index region %s entity %s: %w", regionName, entity, err)
-			}
-			if !found {
-				maps, mapErr := resolveRecordMaps()
-				if mapErr != nil {
-					return mapErr
-				}
-				updatedIndex = buildEntitySearchIndex(entity, maps)
-				persistIndexChanged = true
-			}
-		}
-
-		toUpsert := make(map[string]any)
-		if recordsChanged {
-			for id, body := range nextRecords {
-				existingBody, exists := existingRecords[id]
-				if !exists || existingBody != body {
-					toUpsert[id] = body
-				}
-			}
-		}
-
-		toDelete := make([]string, 0)
-		if recordsChanged {
-			for id := range existingRecords {
-				if _, exists := nextRecords[id]; !exists {
-					toDelete = append(toDelete, id)
-				}
-			}
-		}
-
-		pipe := cache.client.Pipeline()
-		if len(toUpsert) > 0 {
-			pipe.HSet(ctx, key, toUpsert)
-		}
-		if len(toDelete) > 0 {
-			pipe.HDel(ctx, key, toDelete...)
-		}
-		if orderChanged {
-			pipe.Del(ctx, orderKey)
-			if len(orderedIDs) > 0 {
-				values := make([]any, 0, len(orderedIDs))
-				for _, id := range orderedIDs {
-					values = append(values, id)
-				}
-				pipe.RPush(ctx, orderKey, values...)
-			}
-		}
-		if persistIndexChanged {
-			updatedIndexVersion = cache.persistEntitySearchIndex(ctx, pipe, regionName, entity, updatedIndex)
-		}
-		if !revisionMatches {
-			pipe.Set(ctx, revisionKey, revision, 0)
-		}
-		if hasDigest && incomingDigest != "" {
-			pipe.Set(ctx, sourceDigestKey, incomingDigest, 0)
-		}
-		if _, err := pipe.Exec(ctx); err != nil {
-			return fmt.Errorf("incremental update region %s entity %s: %w", regionName, entity, err)
-		}
-		if updatedIndex != nil {
-			cache.setCachedEntityIndex(regionName, entity, updatedIndexVersion, updatedIndex)
-		} else {
-			cache.invalidateCachedEntityIndex(regionName, entity)
-		}
-
-		reportProgress(filePath)
-		return nil
+		return task.storeEntityFile(entityLocks)
 	}
 
-	effectiveConcurrency := cache.fileConcurrency
-	if effectiveConcurrency <= 0 {
-		effectiveConcurrency = 1
-	}
-	if effectiveConcurrency > totalFiles && totalFiles > 0 {
-		effectiveConcurrency = totalFiles
-	}
+	effectiveConcurrency := effectiveFileConcurrency(cache.fileConcurrency, totalFiles)
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, effectiveConcurrency)
@@ -510,6 +284,448 @@ func (cache *RedisMasterDataCache) StoreRegionWithSourceDigests(ctx context.Cont
 	}
 
 	return nil
+}
+
+// buildEntityLocks creates one mutex per entity referenced by the payload
+// files so concurrent writes to the same entity serialize.
+func buildEntityLocks(filePaths []string) map[string]*sync.Mutex {
+	entityLocks := make(map[string]*sync.Mutex)
+	for _, filePath := range filePaths {
+		if entity := entityNameFromPath(filePath); entity != "" {
+			if _, exists := entityLocks[entity]; !exists {
+				entityLocks[entity] = &sync.Mutex{}
+			}
+		}
+	}
+	return entityLocks
+}
+
+// effectiveFileConcurrency clamps the configured file concurrency to at least
+// one worker and at most the number of files.
+func effectiveFileConcurrency(fileConcurrency int, totalFiles int) int {
+	effective := fileConcurrency
+	if effective <= 0 {
+		effective = 1
+	}
+	if effective > totalFiles && totalFiles > 0 {
+		effective = totalFiles
+	}
+	return effective
+}
+
+// entityContentChanged reports whether one part of the stored entity differs
+// from the incoming records when the revision did not already pin the state
+// as unchanged.
+func entityContentChanged(forceFullStore bool, revisionMatches bool, contentDiffers bool) bool {
+	return forceFullStore || (!revisionMatches && contentDiffers)
+}
+
+// entityRedisKeys groups the Redis keys used for one region/entity pair.
+type entityRedisKeys struct {
+	entity       string
+	order        string
+	revision     string
+	sourceDigest string
+}
+
+// entityStoreTask carries one payload file's entity store work for
+// StoreRegionWithSourceDigests.
+type entityStoreTask struct {
+	cache          *RedisMasterDataCache
+	ctx            context.Context
+	regionName     string
+	filePath       string
+	value          any
+	incomingDigest string
+	hasDigest      bool
+	reportProgress func()
+
+	entity           string
+	rawRecords       []json.RawMessage
+	hasRawRecords    bool
+	legacyRecords    []any
+	hasLegacyRecords bool
+	collector        *entityRecordCollector
+}
+
+// storeEntityFile stores one payload file. Files without an entity name or
+// with an unsupported record shape are counted as processed and skipped.
+func (task *entityStoreTask) storeEntityFile(entityLocks map[string]*sync.Mutex) error {
+	task.entity = entityNameFromPath(task.filePath)
+	if task.entity == "" {
+		task.reportProgress()
+		return nil
+	}
+
+	task.rawRecords, task.hasRawRecords = task.value.([]json.RawMessage)
+	task.legacyRecords, task.hasLegacyRecords = task.value.([]any)
+	if !task.hasRawRecords && !task.hasLegacyRecords {
+		task.reportProgress()
+		return nil
+	}
+
+	entityLock := entityLocks[task.entity]
+	entityLock.Lock()
+	defer entityLock.Unlock()
+
+	return task.storeEntityLocked()
+}
+
+// storeEntityLocked performs the entity write while the per-entity lock is
+// held.
+func (task *entityStoreTask) storeEntityLocked() error {
+	keys := task.redisKeys()
+	forceFullStore := masterdata.ForceFullStoreFromContext(task.ctx)
+
+	skip, err := task.skipUnchangedBySourceDigest(keys, forceFullStore)
+	if err != nil {
+		return err
+	}
+	if skip {
+		task.reportProgress()
+		return nil
+	}
+
+	existingRevision, revisionMissing, err := task.currentRevision(keys, forceFullStore)
+	if err != nil {
+		return err
+	}
+
+	collector := newEntityRecordCollector(task.cache, task.regionName, task.entity, task.rawRecords, task.legacyRecords)
+	if err := collector.addLegacyRecords(task.legacyRecords); err != nil {
+		return err
+	}
+	if err := collector.addRawRecords(task.rawRecords); err != nil {
+		return err
+	}
+	task.collector = collector
+
+	revision := collector.revision()
+	revisionMatches := !forceFullStore && !revisionMissing && existingRevision == revision
+
+	existingRecords, existingOrder, err := task.loadExistingState(keys, !forceFullStore && !revisionMatches)
+	if err != nil {
+		return err
+	}
+
+	recordsChanged := entityContentChanged(forceFullStore, revisionMatches, !equalStringMaps(existingRecords, collector.records))
+	orderChanged := entityContentChanged(forceFullStore, revisionMatches, !equalStringSlices(existingOrder, collector.order))
+	entityChanged := recordsChanged || orderChanged
+
+	updatedIndex, persistIndexChanged, err := task.resolveEntityIndex(entityChanged)
+	if err != nil {
+		return err
+	}
+
+	toUpsert, toDelete := diffEntityRecords(existingRecords, collector.records, recordsChanged)
+
+	updatedIndexVersion, err := task.execEntityPipeline(keys, entityWritePlan{
+		toUpsert:            toUpsert,
+		toDelete:            toDelete,
+		orderChanged:        orderChanged,
+		orderedIDs:          collector.order,
+		revision:            revision,
+		revisionMatches:     revisionMatches,
+		persistIndexChanged: persistIndexChanged,
+		updatedIndex:        updatedIndex,
+	})
+	if err != nil {
+		return err
+	}
+
+	if updatedIndex != nil {
+		task.cache.setCachedEntityIndex(task.regionName, task.entity, updatedIndexVersion, updatedIndex)
+	} else {
+		task.cache.invalidateCachedEntityIndex(task.regionName, task.entity)
+	}
+
+	task.reportProgress()
+	return nil
+}
+
+// redisKeys builds the Redis keys for the task's region/entity pair.
+func (task *entityStoreTask) redisKeys() entityRedisKeys {
+	return entityRedisKeys{
+		entity:       task.cache.redisEntityKey(task.regionName, task.entity),
+		order:        task.cache.redisEntityOrderKey(task.regionName, task.entity),
+		revision:     task.cache.redisEntityRevisionKey(task.regionName, task.entity),
+		sourceDigest: task.cache.redisEntitySourceDigestKey(task.regionName, task.entity),
+	}
+}
+
+// skipUnchangedBySourceDigest reports whether the file can be skipped because
+// its stored source digest still matches and the persisted search index is
+// present.
+func (task *entityStoreTask) skipUnchangedBySourceDigest(keys entityRedisKeys, forceFullStore bool) (bool, error) {
+	if !task.hasDigest || task.incomingDigest == "" || forceFullStore {
+		return false, nil
+	}
+
+	storedDigest, digestErr := task.cache.client.Get(task.ctx, keys.sourceDigest).Result()
+	if digestErr != nil && !errors.Is(digestErr, redis.Nil) {
+		return false, fmt.Errorf("get redis source digest for region %s entity %s: %w", task.regionName, task.entity, digestErr)
+	}
+	_, revisionErr := task.cache.client.Get(task.ctx, keys.revision).Result()
+	if digestErr != nil || revisionErr != nil || storedDigest != task.incomingDigest {
+		return false, nil
+	}
+
+	found, indexErr := task.cache.persistedEntitySearchIndexExists(task.ctx, task.regionName, task.entity)
+	if indexErr != nil {
+		return false, indexErr
+	}
+	return found, nil
+}
+
+// currentRevision reads the stored entity revision. It reports whether the
+// revision key is missing entirely.
+func (task *entityStoreTask) currentRevision(keys entityRedisKeys, forceFullStore bool) (string, bool, error) {
+	if forceFullStore {
+		return "", true, nil
+	}
+
+	existingRevision, err := task.cache.client.Get(task.ctx, keys.revision).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return "", false, fmt.Errorf("get redis revision for region %s entity %s: %w", task.regionName, task.entity, err)
+	}
+	return existingRevision, errors.Is(err, redis.Nil), nil
+}
+
+// loadExistingState fetches the current Redis records and order list so the
+// incoming records can be diffed against them.
+func (task *entityStoreTask) loadExistingState(keys entityRedisKeys, fetch bool) (map[string]string, []string, error) {
+	if !fetch {
+		return map[string]string(nil), []string(nil), nil
+	}
+
+	existingRecords, err := task.cache.client.HGetAll(task.ctx, keys.entity).Result()
+	if err != nil {
+		return nil, nil, fmt.Errorf("hgetall redis key for region %s entity %s: %w", task.regionName, task.entity, err)
+	}
+	existingOrder, err := task.cache.client.LRange(task.ctx, keys.order, 0, -1).Result()
+	if err != nil {
+		return nil, nil, fmt.Errorf("lrange redis order key for region %s entity %s: %w", task.regionName, task.entity, err)
+	}
+	return existingRecords, existingOrder, nil
+}
+
+// resolveEntityIndex builds the new search index when the entity changed and
+// falls back to rebuilding it when the persisted index went missing. It
+// reports whether the persisted index itself needs rewriting.
+func (task *entityStoreTask) resolveEntityIndex(entityChanged bool) (*entitySearchIndex, bool, error) {
+	if entityChanged {
+		updatedIndex, err := task.buildRecordMapsIndex()
+		if err != nil {
+			return nil, false, err
+		}
+		return updatedIndex, true, nil
+	}
+
+	found, err := task.cache.persistedEntitySearchIndexExists(task.ctx, task.regionName, task.entity)
+	if err != nil {
+		return nil, false, fmt.Errorf("check persisted search index region %s entity %s: %w", task.regionName, task.entity, err)
+	}
+	if found {
+		return nil, false, nil
+	}
+
+	updatedIndex, err := task.buildRecordMapsIndex()
+	if err != nil {
+		return nil, false, err
+	}
+	return updatedIndex, true, nil
+}
+
+// buildRecordMapsIndex resolves the incoming records as generic maps (using
+// the pre-parsed legacy maps when available) and builds the search index.
+func (task *entityStoreTask) buildRecordMapsIndex() (*entitySearchIndex, error) {
+	recordMaps := task.collector.recordMaps
+	if !task.hasLegacyRecords {
+		recordMaps = rawRecordMaps(task.rawRecords)
+	}
+	return buildEntitySearchIndex(task.entity, recordMaps), nil
+}
+
+// rawRecordMaps decodes raw JSON records into generic maps, skipping empty or
+// undecodable entries.
+func rawRecordMaps(rawRecords []json.RawMessage) []map[string]any {
+	maps := make([]map[string]any, 0, len(rawRecords))
+	for _, rawRecord := range rawRecords {
+		if len(rawRecord) == 0 {
+			continue
+		}
+		var recordMap map[string]any
+		if err := json.Unmarshal(rawRecord, &recordMap); err != nil {
+			continue
+		}
+		if len(recordMap) == 0 {
+			continue
+		}
+		maps = append(maps, recordMap)
+	}
+	return maps
+}
+
+// diffEntityRecords computes the upsert and delete sets against the existing
+// Redis hash when records changed.
+func diffEntityRecords(existingRecords map[string]string, nextRecords map[string]string, recordsChanged bool) (map[string]any, []string) {
+	toUpsert := make(map[string]any)
+	if recordsChanged {
+		for id, body := range nextRecords {
+			existingBody, exists := existingRecords[id]
+			if !exists || existingBody != body {
+				toUpsert[id] = body
+			}
+		}
+	}
+
+	toDelete := make([]string, 0)
+	if recordsChanged {
+		for id := range existingRecords {
+			if _, exists := nextRecords[id]; !exists {
+				toDelete = append(toDelete, id)
+			}
+		}
+	}
+	return toUpsert, toDelete
+}
+
+// entityWritePlan describes the pipeline writes for one entity.
+type entityWritePlan struct {
+	toUpsert            map[string]any
+	toDelete            []string
+	orderChanged        bool
+	orderedIDs          []string
+	revision            string
+	revisionMatches     bool
+	persistIndexChanged bool
+	updatedIndex        *entitySearchIndex
+}
+
+// execEntityPipeline writes the entity diff to Redis in one pipeline and
+// returns the persisted search index version when one was written.
+func (task *entityStoreTask) execEntityPipeline(keys entityRedisKeys, plan entityWritePlan) (string, error) {
+	pipe := task.cache.client.Pipeline()
+	if len(plan.toUpsert) > 0 {
+		pipe.HSet(task.ctx, keys.entity, plan.toUpsert)
+	}
+	if len(plan.toDelete) > 0 {
+		pipe.HDel(task.ctx, keys.entity, plan.toDelete...)
+	}
+	if plan.orderChanged {
+		pipe.Del(task.ctx, keys.order)
+		if len(plan.orderedIDs) > 0 {
+			values := make([]any, 0, len(plan.orderedIDs))
+			for _, id := range plan.orderedIDs {
+				values = append(values, id)
+			}
+			pipe.RPush(task.ctx, keys.order, values...)
+		}
+	}
+	updatedIndexVersion := ""
+	if plan.persistIndexChanged {
+		updatedIndexVersion = task.cache.persistEntitySearchIndex(task.ctx, pipe, task.regionName, task.entity, plan.updatedIndex)
+	}
+	if !plan.revisionMatches {
+		pipe.Set(task.ctx, keys.revision, plan.revision, 0)
+	}
+	if task.hasDigest && task.incomingDigest != "" {
+		pipe.Set(task.ctx, keys.sourceDigest, task.incomingDigest, 0)
+	}
+	if _, err := pipe.Exec(task.ctx); err != nil {
+		return "", fmt.Errorf("incremental update region %s entity %s: %w", task.regionName, task.entity, err)
+	}
+	return updatedIndexVersion, nil
+}
+
+// entityRecordCollector accumulates the normalized records for one entity and
+// derives the content revision from the stored bodies and order.
+type entityRecordCollector struct {
+	cache      *RedisMasterDataCache
+	regionName string
+	entity     string
+	records    map[string]string
+	order      []string
+	recordMaps []map[string]any
+	digest     hash.Hash
+}
+
+func newEntityRecordCollector(cache *RedisMasterDataCache, regionName string, entity string, rawRecords []json.RawMessage, legacyRecords []any) *entityRecordCollector {
+	return &entityRecordCollector{
+		cache:      cache,
+		regionName: regionName,
+		entity:     entity,
+		records:    make(map[string]string, len(rawRecords)+len(legacyRecords)),
+		order:      make([]string, 0, len(rawRecords)+len(legacyRecords)),
+		recordMaps: make([]map[string]any, 0, len(legacyRecords)),
+		digest:     sha256.New(),
+	}
+}
+
+func (collector *entityRecordCollector) appendStoredRecord(id string, body []byte, recordMap map[string]any) error {
+	storedBody, err := marshalRedisEntityRecord(body)
+	if err != nil {
+		return fmt.Errorf("compress record region %s entity %s id %s: %w", collector.regionName, collector.entity, id, err)
+	}
+
+	collector.records[id] = storedBody
+	collector.order = append(collector.order, id)
+	if recordMap != nil {
+		collector.recordMaps = append(collector.recordMaps, recordMap)
+	}
+	_, _ = collector.digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
+	return nil
+}
+
+func (collector *entityRecordCollector) addLegacyRecords(legacyRecords []any) error {
+	for _, record := range legacyRecords {
+		recordMap, ok := record.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		body, err := json.Marshal(recordMap)
+		if err != nil {
+			return fmt.Errorf("marshal record region %s entity %s: %w", collector.regionName, collector.entity, err)
+		}
+
+		id := recordStorageID(recordMap, body)
+		if id == "" {
+			continue
+		}
+
+		if err := collector.appendStoredRecord(id, body, recordMap); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (collector *entityRecordCollector) addRawRecords(rawRecords []json.RawMessage) error {
+	for _, rawRecord := range rawRecords {
+		if len(rawRecord) == 0 {
+			continue
+		}
+
+		id := recordStorageIDFromRaw(rawRecord)
+		if id == "" {
+			continue
+		}
+
+		if err := collector.appendStoredRecord(id, rawRecord, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// revision finalizes the content digest and returns the hex revision.
+func (collector *entityRecordCollector) revision() string {
+	_, _ = collector.digest.Write([]byte("|order:"))
+	for _, id := range collector.order {
+		_, _ = collector.digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ";"))
+	}
+	return hex.EncodeToString(collector.digest.Sum(nil))
 }
 
 func equalStringMaps(left map[string]string, right map[string]string) bool {
