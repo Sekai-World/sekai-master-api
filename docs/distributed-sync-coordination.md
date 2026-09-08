@@ -88,8 +88,10 @@ unchanged):
 - **Renew(name, holder, ttl) → ok**: extends `expires_at` only when the
   caller is still the holder. Renewal failure means ownership is gone (or PG
   is unreachable — treated the same: stop writing).
-- **Release(name, holder)**: best-effort delete-if-holder on graceful
-  completion/shutdown. Failure to release is safe: the lease simply expires.
+- **Release(name, holder)**: best-effort expire-in-place while still the
+  holder on graceful completion/shutdown (the row and its token are kept so
+  tokens stay monotonic across release/reacquire cycles). Failure to release
+  is safe: the lease simply expires.
 
 TTL default 60s; the running job renews every TTL/3 (20s) from a heartbeat
 goroutine tied to the job context.
