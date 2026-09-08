@@ -235,22 +235,31 @@ objectives and repeatable operations.
 
 ### 9. SLOs and alerting ([#81](https://github.com/Sekai-World/sekai-master-api/issues/81))
 
-- [ ] Define availability and latency SLOs for public read endpoints.
-- [ ] Define freshness/sync-lag SLOs for each configured region.
-- [ ] Alert on sync failures, stuck syncs, Redis/PostgreSQL dependency errors,
-  data-version mismatches, readiness flapping, and rollout failures (baseline
-  alerting guidance is documented in the chart README; tested alerts and
-  runbook links remain open under
-  [#81](https://github.com/Sekai-World/sekai-master-api/issues/81)).
-- [ ] Add dashboards for control lifecycle state, Redis recovery state, and
-  serve readiness by region.
-- [ ] Route traces to durable Tempo storage in production; do not leave them
-  on a debug exporter (`docs/production-observability-k3s.md` documents that
-  the deployed Alloy config still needs the Tempo OTLP exporter).
+Delivered at personal-project scale on purpose (per user decision, 2026-09-08):
+no commercial-grade dashboards, drill programs, or trace storage.
 
-**Acceptance:** every production alert links to a runbook, and the dashboards
-show whether an incident is caused by application health, dependency health,
-or master-data freshness.
+- [x] Define availability and latency SLOs for public read endpoints
+  (`docs/runbook.md` — availability ≥ 99% monthly, p95 < 1s, informal error
+  budget).
+- [x] Define freshness/sync-lag SLOs for each configured region
+  (`docs/runbook.md` — successful sync within 48h per region).
+- [x] Version a minimal alert set with runbook links
+  (`deploy/observability/prometheus-rules.yaml`: region staleness, sync
+  failure, stuck sync, target down, p95 latency, empty Redis data plane,
+  missing search index; every alert links to a `docs/runbook.md` section via
+  the `runbook` annotation). Rules are applied manually to the monitoring
+  stack; they are not rendered by the chart.
+- [x] Document recovery paths with exact commands, verification steps, and
+  RTO/RPO targets (`docs/runbook.md`: Redis loss rebuild, PostgreSQL dump /
+  restore, rollback, search-index repair).
+- Skipped intentionally: dedicated Grafana dashboards (covered by the alert
+  set plus the existing Grafana setup), durable Tempo storage (the deployed
+  observability stack is dev-scale; `docs/production-observability-k3s.md`
+  keeps the Tempo exporter guidance for when it is needed), and formal
+  RTO/RPO drill records (quarterly drill cadence documented instead).
+
+**Acceptance (lean):** every alert links to a runbook section, and each
+recovery path names its command, verification step, and RTO/RPO target.
 
 ### 10. Delivery and recovery automation
 
@@ -267,10 +276,14 @@ or master-data freshness.
   [#78](https://github.com/Sekai-World/sekai-master-api/issues/78)).
 - [x] Define a Redis-loss rebuild/restore drill (`scripts/redis-recovery-drill.sh`
   and the chart README recovery sequence).
-- [ ] Define a PostgreSQL backup restore drill with measured results.
-- [ ] Document RTO/RPO targets and verify them periodically (Redis data-plane
-  RPO ≤ 60 s / RTO ≤ 30 min with quarterly restore tests are documented;
-  PostgreSQL targets are not yet documented).
+- [x] Define a PostgreSQL backup restore drill (`docs/runbook.md` PostgreSQL
+  restore path: dump → restore into the cluster with control scaled down, plus
+  a quarterly scratch-database drill cadence; measured results are recorded
+  when drills are run).
+- [x] Document RTO/RPO targets (`docs/runbook.md`: Redis data plane RPO ≤ 60 s /
+  RTO ≤ 30 min, PostgreSQL RPO ≤ 24h / RTO ≤ 1h, rollback RTO ≤ 15 min;
+  periodic verification is a documented drill cadence rather than an automated
+  program).
 - [ ] Keep production configuration and infrastructure manifests versioned,
   reviewable, and separated from secret values (the chart keeps secrets
   external via `envFrom` and renders no plaintext credentials; versioning the

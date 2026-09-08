@@ -1,0 +1,92 @@
+# Versioned Prometheus rule definitions for sekai-master-api.
+#
+# Personal-project scale: these rules document the service objectives and the
+# minimal alert set that Grafana/Prometheus should evaluate. They are NOT
+# rendered by the Helm chart; apply them to your monitoring stack manually,
+# for example:
+#   kubectl apply -f deploy/observability/prometheus-rules.yaml   # PrometheusRule CRD
+# or paste the rule groups into your Grafana-managed alert setup.
+#
+# Every alert links back to docs/runbook.md via the `runbook` annotation.
+#
+# Metric sources (internal/observability/app_metrics.go, otel_metrics.go):
+#   sekai_master_data_region_last_synced_unix{region}
+#   sekai_master_data_region_status{region,status}
+#   sekai_master_data_sync_running
+#   sekai_master_data_region_index_loaded{region}
+#   sekai_redis_keys
+#   sekai_http_server_request_duration_ms (histogram)
+#   up{job="..."} (scrape target; adjust the job label to your config)
+
+groups:
+  - name: sekai-master-api
+    rules:
+      # SLO: each configured region must have a successful sync within 48h.
+      - alert: SekaiMasterDataRegionStale
+        expr: time() - sekai_master_data_region_last_synced_unix > 172800
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Master data for region {{ $labels.region }} is stale (>48h since last sync)"
+          runbook: docs/runbook.md#master-data-freshness
+
+      # Sync job reported an error status for a region.
+      - alert: SekaiMasterDataSyncFailed
+        expr: sekai_master_data_region_status{status="error"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Master data sync failed for region {{ $labels.region }}"
+          runbook: docs/runbook.md#sync-failed-or-stuck
+
+      # A sync has been running for more than 6h (stuck webhook/sync path).
+      - alert: SekaiMasterDataSyncStuck
+        expr: max_over_time(sekai_master_data_sync_running[6h]) == 1
+        labels:
+          severity: warning
+        annotations:
+          summary: "Master data sync has been running for over 6h"
+          runbook: docs/runbook.md#sync-failed-or-stuck
+
+      # SLO: public read availability. Scrape target down for 5 minutes.
+      - alert: SekaiPublicReadDown
+        expr: up{job="sekai-master-api"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "sekai-master-api scrape target is down"
+          runbook: docs/runbook.md#public-read-endpoint-down
+
+      # SLO: p95 latency of public reads stays under 1s.
+      - alert: SekaiPublicReadLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(sekai_http_server_request_duration_ms_bucket[5m])) by (le)) > 1000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 HTTP latency above 1s for 15 minutes"
+          runbook: docs/runbook.md#public-read-endpoint-down
+
+      # Redis data plane emptied out (keys dropped to zero) — data-loss guard;
+      # the app intentionally never rebuilds an empty Redis on its own.
+      - alert: SekaiRedisDataPlaneEmpty
+        expr: sekai_redis_keys == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis master-data data plane has no keys"
+          runbook: docs/runbook.md#redis-loss-rebuild
+
+      # Fewer decoded search indexes retained than regions with synced data.
+      - alert: SekaiSearchIndexNotReady
+        expr: count(sekai_master_data_region_index_loaded == 1) < count(sekai_master_data_region_last_synced_unix)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Some regions have synced data but no retained decoded search index"
+          runbook: docs/runbook.md#search-index-not-ready
