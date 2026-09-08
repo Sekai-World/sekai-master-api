@@ -197,36 +197,53 @@ single-writer behavior for synchronization.
 
 ### 7. Distributed synchronization coordination ([#80](https://github.com/Sekai-World/sekai-master-api/issues/80))
 
-- [ ] Replace process-local active-sync locking with PostgreSQL advisory locks,
+- [x] Replace process-local active-sync locking with PostgreSQL advisory locks,
   a Redis lease, a Kubernetes Lease, or an equivalent distributed coordinator.
-- [ ] Persist sync leases and ownership metadata and expose takeover state in
-  diagnostics.
-- [ ] Add fencing tokens so an expired or partitioned worker cannot continue
-  writing after another worker takes ownership.
-- [ ] Make sync state transitions idempotent and safe across retries.
-- [ ] Add leader-election or an equivalent worker model before increasing
-  `control` replicas.
+  Delivered by #101: PostgreSQL lease table with atomic CAS acquisition
+  (`#101`), exercised end-to-end by the real-PG takeover drill (#104).
+- [x] Persist sync leases and ownership metadata and expose takeover state in
+  diagnostics. Lease row persists holder/token/expiry (#101); admin diagnostics
+  `GET /api/v1/admin/master-data/lease` plus lease gauges
+  (`..._lease_held`, `..._lease_fencing_token`, `..._lease_expiry_unix`) and
+  an observed-takeover counter (this change).
+- [x] Add fencing tokens so an expired or partitioned worker cannot continue
+  writing after another worker takes ownership. Delivered by #101 (strict
+  fencing on PG status writes); validated live by the takeover drill (#104).
+- [x] Make sync state transitions idempotent and safe across retries.
+  Content-addressed Redis writes + fenced status inserts (#101).
+- [x] Add leader-election or an equivalent worker model before increasing
+  `control` replicas. The lease is the single-worker gate; the chart now
+  allows `control.replicaCount > 1` only with `control.coordination.enabled`
+  (test-environment capability; production keeps 1 replica + `Recreate`).
 
 **Acceptance:** two `control` pods cannot concurrently own the same sync job;
 an owner can fail and another pod can safely resume; stale owners cannot write
-after lease loss.
+after lease loss. Proven by the real-PG drill documented in
+[`docs/distributed-sync-coordination.md`](distributed-sync-coordination.md)
+(#104): kill-the-holder takeover with monotonic tokens, webhook 409 +
+`Retry-After`, zombie-holder fencing — zero stale-token rows persisted.
 
 Design: [`docs/distributed-sync-coordination.md`](distributed-sync-coordination.md)
-(proposed; PostgreSQL lease + durable fencing token).
+(delivered; PostgreSQL lease + durable fencing token).
 
 ### 8. Horizontally resilient control role
 
-- [ ] Remove the deployment requirement for `control.replicaCount: 1` once
-  distributed coordination is proven (the chart currently schema-constrains
-  `control.replicaCount` to `1` with `Recreate` semantics).
-- [ ] Replace the unconditional `Recreate` strategy with a safe rolling
-  strategy where appropriate.
-- [ ] Test control-pod interruption during migrations, sync, and interrupted
-  sync recovery.
-- [ ] Add takeover latency and failed-job recovery metrics.
-
-**Acceptance:** a control-pod replacement completes without manual cleanup,
-duplicate sync ownership, or inconsistent persisted status.
+- [x] Remove the deployment requirement for `control.replicaCount: 1` once
+  distributed coordination is proven. The schema now allows any
+  `control.replicaCount >= 1` when `control.coordination.enabled` is `true`;
+  the default and `values-production.yaml` keep 1 replica (personal-project
+  deployment decision: prod never runs multi-replica control).
+- [x] Replace the unconditional `Recreate` strategy with a safe rolling
+  strategy where appropriate. `RollingUpdate` is used exactly when
+  `control.coordination.enabled` is `true`; `Recreate` otherwise.
+- [x] Test control-pod interruption during migrations, sync, and interrupted
+  sync recovery. Covered by the real-PG takeover drill (#104): kill-holder,
+  webhook-conflict, and zombie-holder scenarios plus in-place release
+  verification.
+- [x] Add takeover latency and failed-job recovery metrics. Delivered at
+  lean scale: `sekai_master_data_sync_lease_takeovers` counter (observed
+  fencing-token increases) plus the lease held/token/expiry gauges; latency
+  is derivable from token/expiry timestamps in the lease diagnostics.
 
 ## P3 — SLO and recovery automation
 

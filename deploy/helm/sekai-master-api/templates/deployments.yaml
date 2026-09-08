@@ -14,7 +14,7 @@ spec:
   {{- end }}
   revisionHistoryLimit: {{ $.Values.common.revisionHistoryLimit }}
   strategy:
-    {{- if eq $component "control" }}
+    {{- if and (eq $component "control") (not $role.coordination.enabled) }}
     type: Recreate
     {{- else }}
     type: RollingUpdate

@@ -134,6 +134,8 @@ expect_count "$RENDER" "kind: Ingress" 0 "Ingress resources"
 expect_count "$RENDER" "kind: Job" 0 "migration Job"
 expect_contains "$RENDER" "value: \"development\"" "APP_ENV=development"
 expect_contains "$RENDER" "value: \"sqlite\"" "SQLite storage driver"
+expect_contains "$RENDER" "type: RollingUpdate" "control RollingUpdate under coordination (development profile)"
+expect_not_contains "$RENDER" "type: Recreate" "no Recreate strategy under coordination (development profile)"
 
 # --- Schema enforcement (unsafe values must fail) ----------------------------
 
@@ -151,6 +153,19 @@ expect_schema_reject "ingress:
       enabled: true" "TLS enabled without a secretName"
 
 expect_schema_reject "control:
-  replicaCount: 2" "control scaled beyond one replica"
+  replicaCount: 2" "control scaled beyond one replica without coordination"
+
+# --- Coordinated control (test-environment capability) ----------------------
+
+# Multi-replica control is only legal with coordination enabled; the render
+# must then use RollingUpdate and honor the raised replica count.
+render_coordinated="$WORK_DIR/render-coordinated.yaml"
+helm template "$RELEASE_NAME" "$CHART_DIR" --namespace "$RELEASE_NAMESPACE" \
+  --set control.coordination.enabled=true \
+  --set control.replicaCount=2 >"$render_coordinated" 2>/dev/null \
+  || fail "coordinated control render failed"
+RENDER="$render_coordinated"
+expect_count "$RENDER" "  replicas: 2" 2 "coordinated control renders two replicas (serve + control)"
+expect_not_contains "$RENDER" "type: Recreate" "no Recreate strategy under coordination"
 
 echo "[helm-verify] all checks passed"

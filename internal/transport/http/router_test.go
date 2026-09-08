@@ -241,6 +241,18 @@ func TestAdminMasterDataStatusUnauthorized(t *testing.T) {
 	}
 }
 
+func TestAdminMasterDataLeaseUnauthorized(t *testing.T) {
+	router := setupRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/master-data/lease", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on admin master-data lease without token, got %d", resp.Code)
+	}
+}
+
 func TestAdminMasterDataEventsUnauthorized(t *testing.T) {
 	router := setupRouter(t)
 

@@ -108,6 +108,12 @@ serve:
 
 control:
   replicaCount: 1
+  # Multi-replica control requires cross-pod sync coordination (PostgreSQL
+  # lease + fencing, MASTER_DATA_SYNC_LEASE_ENABLED). Keep this false unless
+  # coordination is enabled in the app; when true, the deployment may set
+  # replicaCount > 1 and uses RollingUpdate instead of Recreate.
+  coordination:
+    enabled: false
   podAnnotations: {}
   podLabels: {}
   resources:

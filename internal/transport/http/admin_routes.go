@@ -31,6 +31,7 @@ func registerAdminRoutes(
 	admin.GET("/profile", profileHandler.Me)
 	admin.GET("/master-data/events", masterDataEventHandler.Stream)
 	admin.GET("/master-data/status", masterDataAdminHandler.Status)
+	admin.GET("/master-data/lease", masterDataAdminHandler.Lease)
 	admin.POST("/master-data/sync", masterDataAdminHandler.Sync)
 	admin.POST("/master-data/sync/force", masterDataAdminHandler.ForceSync)
 }

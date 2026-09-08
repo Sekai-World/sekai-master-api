@@ -180,13 +180,14 @@ export const initDashboardPage = async () => {
   const healthView = document.getElementById("health-view");
   const profileView = document.getElementById("profile-view");
   const masterDataStatusView = document.getElementById("master-data-status-view");
+  const leaseView = document.getElementById("lease-view");
   const syncButton = document.getElementById("sync-master-data-button");
   const forceSyncCheckbox = document.getElementById("sync-force-checkbox");
   const syncRegionSelect = document.getElementById("sync-region-select");
   const syncMessage = document.getElementById("sync-message");
   const syncProgressView = document.getElementById("sync-progress-view");
 
-  if (!healthView || !profileView || !masterDataStatusView || !syncButton || !forceSyncCheckbox || !syncRegionSelect || !syncMessage || !syncProgressView) {
+  if (!healthView || !profileView || !masterDataStatusView || !leaseView || !syncButton || !forceSyncCheckbox || !syncRegionSelect || !syncMessage || !syncProgressView) {
     return;
   }
 
@@ -366,6 +367,33 @@ export const initDashboardPage = async () => {
       ? infoItem("Claim 命中", authDebug.matched_values.join(", "))
       : "");
 
+  const renderLease = (lease) => {
+    if (!lease) {
+      leaseView.innerHTML = infoItem("同步租约", "未启用协调（单实例模式）");
+      return;
+    }
+    const expires = lease.expires_at ? new Date(lease.expires_at).toLocaleString() : "-";
+    leaseView.innerHTML =
+      infoItem("租约状态", lease.held ? "被持有" : "空闲", lease.held ? "status-pending" : "status-up") +
+      infoItem("当前持有者", lease.holder) +
+      infoItem("Fencing Token", lease.token > 0 ? String(lease.token) : "-") +
+      infoItem("过期时间", lease.held ? expires : "-");
+  };
+
+  const loadLeaseDiagnostics = async () => {
+    const leaseResult = await requestJSON("/api/v1/admin/master-data/lease", { bearer });
+    if (leaseResult.status === 401) {
+      clearToken();
+      window.location.href = "/admin/login";
+      return;
+    }
+    if (!leaseResult.ok) {
+      leaseView.innerHTML = infoItem("同步租约", "加载租约状态失败");
+      return;
+    }
+    renderLease(leaseResult.payload?.lease);
+  };
+
   const loadMasterDataStatus = async () => {
     const statusResult = await requestJSON("/api/v1/admin/master-data/status", { bearer });
     if (statusResult.status === 401) {
@@ -403,6 +431,11 @@ export const initDashboardPage = async () => {
     statusRefreshTimer = setTimeout(async () => {
       statusRefreshTimer = null;
       await loadMasterDataStatus();
+  await loadLeaseDiagnostics();
+  const leaseRefreshTimer = setInterval(() => {
+    void loadLeaseDiagnostics().catch(() => {});
+  }, 10000);
+  window.addEventListener("beforeunload", () => clearInterval(leaseRefreshTimer));
     }, 200);
   };
 

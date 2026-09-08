@@ -18,6 +18,13 @@
 #   - The dependency namespaces referenced by the egress rules below
 #     (master-data, monitoring) adjusted to your cluster in the local overlay.
 
+# Production keeps a single control replica upgraded with Recreate; the
+# cross-pod coordination mode (lease + fencing) stays a test-environment
+# capability and is deliberately disabled here.
+control:
+  coordination:
+    enabled: false
+
 podDisruptionBudget:
   serve:
     # Voluntary disruptions (node drains, upgrades) must keep at least one

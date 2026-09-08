@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/startup"
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
 )
@@ -166,6 +167,44 @@ func (handler *MasterDataAdminHandler) ForceSync(c *gin.Context) {
 	}
 
 	handler.writeAcceptedResponse(c)
+}
+
+// Lease godoc
+// @Summary Get master-data sync lease diagnostics
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} shared.MasterDataLeaseResponse
+// @Failure 401 {object} shared.ErrorResponse
+// @Failure 403 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Router /admin/master-data/lease [get]
+func (handler *MasterDataAdminHandler) Lease(c *gin.Context) {
+	if handler != nil && handler.startupState != nil && !handler.startupState.Ready() {
+		response.Error(c, http.StatusServiceUnavailable, "STARTUP_IN_PROGRESS", "service startup is still in progress")
+		return
+	}
+
+	lease := shared.MasterDataLease{}
+	if handler.masterDataSync != nil {
+		state, err := handler.masterDataSync.SyncLeaseState(c.Request.Context())
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "MASTER_DATA_LEASE_ERROR", "failed to load master data sync lease state")
+			return
+		}
+		lease = shared.MasterDataLease{
+			Held:      state.Held,
+			Holder:    state.Holder,
+			Token:     state.Token,
+			ExpiresAt: state.ExpiresAt,
+		}
+	}
+
+	response.JSON(c, http.StatusOK, shared.MasterDataLeaseResponse{
+		Status: "ok",
+		Lease:  lease,
+	})
 }
 
 func (handler *MasterDataAdminHandler) writeAcceptedResponse(c *gin.Context) {

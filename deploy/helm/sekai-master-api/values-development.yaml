@@ -19,6 +19,13 @@ common:
 serve:
   replicaCount: 1
 
+# Development exercises the coordinated (multi-replica-capable) control mode:
+# RollingUpdate instead of Recreate, replicaCount may exceed 1. Production
+# keeps coordination disabled (see values-production.yaml).
+control:
+  coordination:
+    enabled: true
+
 ingress:
   public:
     enabled: false
