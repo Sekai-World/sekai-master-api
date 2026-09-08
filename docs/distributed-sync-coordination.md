@@ -209,6 +209,30 @@ at derived stores) and it is what the acceptance tests will demonstrate.
 - The real-PG/Redis drills from the issue are run against the dev
   dependency stack and documented in the runbook.
 
+### Real-stack takeover drill (executed 2026-09-08)
+
+Run against the dev dependency stack (`deploy/compose/dev-compose.yaml`:
+PostgreSQL 18 + Redis 8) with two `control`-role processes sharing one
+database, `MASTER_DATA_SYNC_LEASE_TTL_SECONDS=3` (heartbeat ≈ 1s), and a
+webhook HMAC to trigger region syncs. Trigger evidence: `pg` lease row +
+`master_data_sync_status.fencing_token` history plus both processes' logs.
+
+| Scenario | Procedure | Result |
+| --- | --- | --- |
+| Kill the holder | Webhook sync started on A → `SIGKILL` A mid-sync → wait > TTL → webhook sync on B | B acquired the next fencing token after TTL expiry, synced to `success`, and released in place; the new status row carried B's token (token history strictly monotonic: …14, 15, 16). |
+| Webhook admission while held | Webhook sync on A → webhook to B while A's lease was valid | B answered `409 {"status":"conflict","reason":"sync_lease_held"}` with `Retry-After: 3` (seconds to lease expiry), matching the resolved decision. |
+| Zombie holder (network freeze) | Webhook sync on B → `SIGSTOP` B mid-sync (heartbeats freeze, `ps` state `TN`) → wait > TTL → webhook sync on A (takeover, next token) → `SIGCONT` B | A took over after expiry; on resume B's heartbeat renewal failed (`sync lease lost`), the job self-cancelled through the recoverable-interruption path, and **no status row with the stale owner's token was persisted** (verified: 0 rows). The lease-loss self-cancellation layer is what stopped the stale writer in this run; the fenced-write rejection itself (`assertLeaseFencing` + `FOR UPDATE`, `ErrFencedOut`) is covered by `TestFencedStatusSaveRejectsStaleToken` with the same statements. |
+
+**The drill caught a real bug** that SQLite tests missed: the lease-release
+context was created at acquire time, so its 5-second budget always expired
+before the deferred release of any real (multi-second) sync — every release
+against real PostgreSQL failed with `context deadline exceeded` and the lease
+was left to TTL expiry (harmless but wrong). Fixed by creating the release
+context inside the deferred release; regression test
+`TestSyncReleaseContextIsFreshAfterLongSync` fails on the old placement.
+SQLite tests missed it because their syncs finished inside the budget and the
+fake coordinator did not validate the release context.
+
 ## Configuration
 
 - `MASTER_DATA_SYNC_LEASE_ENABLED` (default `true` on the `control` role;

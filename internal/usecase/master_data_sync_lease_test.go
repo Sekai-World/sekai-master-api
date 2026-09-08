@@ -161,6 +161,60 @@ func TestSyncHeartbeatLossCancelsJobAndRecoversLease(t *testing.T) {
 	}
 }
 
+// ctxValidatingLeaseCoordinator mimics a real database coordinator: a Release
+// call whose context is already expired fails instead of silently succeeding.
+type ctxValidatingLeaseCoordinator struct {
+	fakeLeaseCoordinator
+	releaseCtxErrs []error
+}
+
+func (coordinator *ctxValidatingLeaseCoordinator) Release(ctx context.Context, claim masterdata.SyncLeaseClaim) error {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		coordinator.releaseCtxErrs = append(coordinator.releaseCtxErrs, err)
+		return err
+	}
+	coordinator.released = append(coordinator.released, claim)
+	return nil
+}
+
+type leaseSlowLoader struct {
+	delay time.Duration
+}
+
+func (loader *leaseSlowLoader) LoadRegion(ctx context.Context, source masterdata.Source) (map[string]any, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(loader.delay):
+		return map[string]any{"cards.json": []any{map[string]any{"id": 1, "prefix": "初音"}}}, nil
+	}
+}
+
+// Regression: the release context must be created when the release runs, not
+// when the lease is acquired. A real sync outlasts any fixed release budget,
+// so a budget created up front is always expired by release time (observed as
+// "release sync lease: context deadline exceeded" against real PostgreSQL).
+func TestSyncReleaseContextIsFreshAfterLongSync(t *testing.T) {
+	statusStore := newFakeSyncStatusStore(nil)
+	usecase := newLeaseTestUsecase(t, &leaseSlowLoader{delay: 50 * time.Millisecond}, statusStore)
+	coordinator := &ctxValidatingLeaseCoordinator{}
+	usecase.SetLeaseCoordinator(coordinator, time.Second)
+	usecase.leaseReleaseTimeout = 10 * time.Millisecond
+
+	if err := usecase.SyncAllForce(context.Background()); err != nil {
+		t.Fatalf("SyncAllForce failed: %v", err)
+	}
+
+	if len(coordinator.releaseCtxErrs) != 0 {
+		t.Fatalf("release ran with an expired context: %v", coordinator.releaseCtxErrs)
+	}
+	if len(coordinator.released) != 1 || coordinator.released[0].Token != 1 {
+		t.Fatalf("released claims = %+v, want exactly the token-1 claim", coordinator.released)
+	}
+}
+
 func TestSyncLeaseStatePassesThroughCoordinator(t *testing.T) {
 	usecase := newLeaseTestUsecase(t, &fakeSyncLoader{}, newFakeSyncStatusStore(nil))
 
