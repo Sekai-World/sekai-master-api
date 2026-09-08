@@ -1,0 +1,29 @@
+# Development profile for the sekai-master-api chart.
+#
+# A conservative render used by local k3s/kind clusters and by the Helm
+# verification tests. Layer it over the chart defaults:
+#
+#   helm upgrade --install <release> deploy/helm/sekai-master-api \
+#     -f values-development.yaml \
+#     -f values-dev.local.yaml
+#
+# Single serve replica, no public exposure, SQLite storage, and no migration
+# hook — the same shape as the host-based development workflow
+# (docs/development.md).
+
+common:
+  env:
+    APP_ENV: development
+    DATABASE_DRIVER: sqlite
+
+serve:
+  replicaCount: 1
+
+ingress:
+  public:
+    enabled: false
+  control:
+    enabled: false
+
+migration:
+  enabled: false

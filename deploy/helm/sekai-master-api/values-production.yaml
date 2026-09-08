@@ -1,0 +1,126 @@
+# Production-safety profile for the sekai-master-api chart.
+#
+# Layer it over the chart defaults and your own local overlay:
+#
+#   helm upgrade --install <release> deploy/helm/sekai-master-api \
+#     -f values-production.yaml \
+#     -f values-production.local.yaml
+#
+# values-production.local.yaml (git-ignored) must at minimum override the
+# ingress hosts and point envFrom secrets at the credentials that exist in
+# your cluster. This profile only contains policy; it intentionally carries
+# no image, host, or credential values.
+#
+# Prerequisites:
+#   - A CNI that enforces NetworkPolicy (the rules below are otherwise a no-op).
+#   - TLS secrets provisioned for both ingresses, e.g. via cert-manager
+#     (see "TLS certificate rotation" in the chart README).
+#   - The dependency namespaces referenced by the egress rules below
+#     (master-data, monitoring) adjusted to your cluster in the local overlay.
+
+podDisruptionBudget:
+  serve:
+    # Voluntary disruptions (node drains, upgrades) must keep at least one
+    # serve replica serving public reads.
+    enabled: true
+    minAvailable: 1
+  control:
+    # control is a single replica (schema-enforced); block voluntary
+    # disruption entirely and rely on the Recreate upgrade strategy.
+    enabled: true
+    maxUnavailable: 0
+
+common:
+  # Spread pods across failure domains. ScheduleAnyway keeps scheduling
+  # working on clusters that expose fewer domains than the constraints
+  # assume; tighten to DoNotSchedule once your cluster is multi-zone.
+  # The selector matches the chart pod name label and survives release-name
+  # changes; it breaks only if you set nameOverride.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: sekai-master-api
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: sekai-master-api
+  envFrom:
+    secrets:
+      # Credentials stay external: the pods receive database configuration
+      # (DATABASE_*) from this existing Secret, never from plaintext values.
+      - master-api-database
+
+networkPolicy:
+  enabled: true
+  ingress:
+    # Ingress controller -> both roles (public reads, admin UI/API, webhooks,
+    # health). Webhooks reach control only through the ingress path.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # DNS (kube-dns in kube-system).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # PostgreSQL and Redis in the data namespace. Rename the namespace to
+    # wherever your managed/in-cluster dependencies live (or split into two
+    # rules with podSelectors pinned to the actual database and redis pods).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: master-data
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+    # HTTPS to external dependencies: OIDC issuer discovery/validation and
+    # GitHub (source archives and the webhook-independent API calls). Restricted
+    # to non-private ranges so cluster-internal traffic cannot smuggle through.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # OTLP traces/metrics to the telemetry stack.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317
+
+ingress:
+  public:
+    tls:
+      enabled: true
+      secretName: master-api-tls
+  control:
+    tls:
+      enabled: true
+      secretName: master-api-admin-tls

@@ -92,3 +92,7 @@ trap cleanup EXIT INT TERM
 
 wait "$serve_pid" "$control_pid"
 '''
+
+[tasks.helm-verify]
+description = "Verify Helm chart lint/template for defaults, production, and development values"
+run = "./scripts/helm-verify.sh"

@@ -215,6 +215,68 @@ before enabling it in production.
 it horizontally scalable until distributed locking and fencing are implemented.
 Deploy `control`, populate Redis, and only then route traffic to `serve`.
 
+### Production safety profile
+
+`values-production.yaml` is a tracked, policy-only profile that turns the
+opt-in controls above into one reviewed configuration: PodDisruptionBudgets
+for both roles, soft topology spread across hostname and zone, an enabled
+`NetworkPolicy` with a tested ingress/egress ruleset, TLS on both ingresses,
+and external database credentials through `envFrom` secret references. Layer
+it over the chart defaults and keep cluster-specific values in a git-ignored
+local overlay:
+
+```sh
+helm upgrade --install <release> deploy/helm/sekai-master-api \
+  -f values-production.yaml \
+  -f values-production.local.yaml
+```
+
+The profile carries no image, host, or credential values by design. Adjust the
+following in your local overlay before rolling it out:
+
+- `ingress.public.host`, `ingress.control.host`, and the two TLS `secretName`s
+  (or point them at cert-manager-issued secrets).
+- `common.envFrom.secrets` to the Secret that holds the `DATABASE_*`
+  credentials for the release.
+- The `networkPolicy.egress` namespace selectors (`master-data`, `monitoring`)
+  and the DNS pod label to match your cluster; keep the private-range-excluded
+  `ipBlock` HTTPS rule for the OIDC issuer and GitHub.
+
+`scripts/helm-verify.sh` (also `mise run helm-verify`, and the `Helm Verify`
+CI job) lints and renders all three tracked value sets — chart defaults,
+`values-production.yaml`, and `values-development.yaml` — and asserts the
+rendered output enforces the profile: PDBs for both roles, NetworkPolicy
+ingress/egress ports, topology constraints, TLS on both ingresses, external
+credentials only, and `control` still a single `Recreate` replica. It also
+renders deliberately unsafe values — a control PDB with `maxUnavailable: 1`,
+a NetworkPolicy without rules, TLS without a secret, two control replicas —
+and expects `values.schema.json` to reject each install.
+
+### TLS certificate rotation
+
+The ingresses terminate TLS at the ingress controller with the certificate
+from `ingress.*.tls.secretName`; application pods never see private keys, so
+rotation only concerns the controller:
+
+- With cert-manager, the secret is renewed in place before expiry and
+  ingress-nginx hot-reloads it. No Helm operation or application restart is
+  involved; keep the Issuer/Certificate resources outside this chart and
+  reference the resulting secret names from the profile.
+- With manually managed certificates, renew out of band and update the secret
+  in place:
+
+  ```sh
+  kubectl create secret tls <secret-name> --cert=tls.crt --key=tls.key \
+    --dry-run=client -o yaml | kubectl apply -f -
+  ```
+
+  ingress-nginx picks up the change automatically. Verify with
+  `openssl s_client -connect <host>:443 -servername <host> | openssl x509 -noout -dates`.
+
+Alert on certificate expiry (for example cert-manager's
+`certmanager_certificate_expiration_timestamp_seconds` metric or an external
+probe) so rotation is driven before expiry, not by an outage.
+
 ### Serve autoscaling
 
 Horizontal Pod Autoscaling is optional and applies only to `serve`. It requires
