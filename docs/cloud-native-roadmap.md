@@ -211,6 +211,9 @@ single-writer behavior for synchronization.
 an owner can fail and another pod can safely resume; stale owners cannot write
 after lease loss.
 
+Design: [`docs/distributed-sync-coordination.md`](distributed-sync-coordination.md)
+(proposed; PostgreSQL lease + durable fencing token).
+
 ### 8. Horizontally resilient control role
 
 - [ ] Remove the deployment requirement for `control.replicaCount: 1` once
