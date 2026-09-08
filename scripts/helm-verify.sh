@@ -19,12 +19,14 @@ RELEASE_NAMESPACE="helm-verify"
 RENDER=""
 
 fail() {
-  echo "[helm-verify] FAIL: $1" >&2
+  message="$1"
+  echo "[helm-verify] FAIL: $message" >&2
   exit 1
 }
 
 ok() {
-  echo "[helm-verify] ok: $1"
+  message="$1"
+  echo "[helm-verify] ok: $message"
 }
 
 expect_contains() {
