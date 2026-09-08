@@ -223,6 +223,41 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 		return err
 	}
 
+	leaseHeld, err := meter.Int64ObservableGauge(
+		"sekai_master_data_sync_lease_held",
+		apimetric.WithDescription("Whether the cross-pod master data sync lease is currently held by any owner."),
+	)
+	if err != nil {
+		return err
+	}
+
+	leaseToken, err := meter.Int64ObservableGauge(
+		"sekai_master_data_sync_lease_fencing_token",
+		apimetric.WithDescription("Current fencing token of the master data sync lease; 0 when the lease is not held."),
+	)
+	if err != nil {
+		return err
+	}
+
+	leaseExpiry, err := meter.Int64ObservableGauge(
+		"sekai_master_data_sync_lease_expiry_unix",
+		apimetric.WithDescription("Unix timestamp when the held master data sync lease expires; 0 when unheld."),
+		apimetric.WithUnit("s"),
+	)
+	if err != nil {
+		return err
+	}
+
+	leaseTakeovers, err := meter.Int64Counter(
+		"sekai_master_data_sync_lease_takeovers",
+		apimetric.WithDescription("Observed fencing-token increases across metric reads; approximates lease takeovers seen by this process."),
+		apimetric.WithUnit("{takeover}"),
+	)
+	if err != nil {
+		return err
+	}
+	lastObservedLeaseToken := int64(0)
+
 	_, err = meter.RegisterCallback(func(ctx context.Context, observer apimetric.Observer) error {
 		regionNames := make([]string, 0)
 		statusByRegion := make(map[string]string)
@@ -239,6 +274,29 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 				observer.ObserveInt64(syncRunning, 1)
 			} else {
 				observer.ObserveInt64(syncRunning, 0)
+			}
+
+			leaseState, leaseErr := syncUsecase.SyncLeaseState(ctx)
+			if leaseErr == nil {
+				if leaseState.Held {
+					observer.ObserveInt64(leaseHeld, 1)
+					observer.ObserveInt64(leaseToken, leaseState.Token)
+					observer.ObserveInt64(leaseExpiry, leaseState.ExpiresAt.Unix())
+				} else {
+					observer.ObserveInt64(leaseHeld, 0)
+					observer.ObserveInt64(leaseToken, 0)
+					observer.ObserveInt64(leaseExpiry, 0)
+				}
+				// A token increase between reads means another owner took the
+				// lease (or a released lease was re-acquired); count the
+				// observed takeovers for diagnostics. Read from the callback
+				// only, so no extra synchronization is needed.
+				if leaseState.Token > lastObservedLeaseToken && lastObservedLeaseToken > 0 {
+					leaseTakeovers.Add(ctx, 1)
+				}
+				if leaseState.Token > lastObservedLeaseToken {
+					lastObservedLeaseToken = leaseState.Token
+				}
 			}
 
 			statuses, err := syncUsecase.DashboardStatus(ctx)
@@ -338,6 +396,9 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 		redisUsedMemoryRSS,
 		redisPeakMemory,
 		redisKeys,
+		leaseHeld,
+		leaseToken,
+		leaseExpiry,
 	)
 
 	return err

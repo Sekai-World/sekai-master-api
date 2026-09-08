@@ -5,15 +5,38 @@
   "properties": {
     "image": {
       "type": "object",
-      "required": ["repository", "tag"],
+      "required": [
+        "repository",
+        "tag"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string", "minLength": 1 },
-        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        },
         "command": {
           "anyOf": [
-            { "type": "null" },
-            { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
           ]
         }
       }
@@ -21,22 +44,69 @@
     "common": {
       "type": "object",
       "properties": {
-        "extraVolumes": { "type": "array", "items": { "type": "object" } },
-        "extraVolumeMounts": { "type": "array", "items": { "type": "object" } },
+        "extraVolumes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "extraVolumeMounts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
         "topologySpreadConstraints": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["maxSkew", "topologyKey", "whenUnsatisfiable", "labelSelector"],
+            "required": [
+              "maxSkew",
+              "topologyKey",
+              "whenUnsatisfiable",
+              "labelSelector"
+            ],
             "properties": {
-              "maxSkew": { "type": "integer", "minimum": 1 },
-              "topologyKey": { "type": "string", "minLength": 1 },
-              "whenUnsatisfiable": { "enum": ["DoNotSchedule", "ScheduleAnyway"] },
-              "labelSelector": { "type": "object" },
-              "matchLabelKeys": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-              "minDomains": { "type": "integer", "minimum": 1 },
-              "nodeAffinityPolicy": { "enum": ["Honor", "Ignore"] },
-              "nodeTaintsPolicy": { "enum": ["Honor", "Ignore"] }
+              "maxSkew": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "topologyKey": {
+                "type": "string",
+                "minLength": 1
+              },
+              "whenUnsatisfiable": {
+                "enum": [
+                  "DoNotSchedule",
+                  "ScheduleAnyway"
+                ]
+              },
+              "labelSelector": {
+                "type": "object"
+              },
+              "matchLabelKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "minDomains": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "nodeAffinityPolicy": {
+                "enum": [
+                  "Honor",
+                  "Ignore"
+                ]
+              },
+              "nodeTaintsPolicy": {
+                "enum": [
+                  "Honor",
+                  "Ignore"
+                ]
+              }
             }
           }
         },
@@ -57,36 +127,109 @@
     "serve": {
       "type": "object",
       "properties": {
-        "replicaCount": { "type": "integer", "minimum": 1 },
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 1
+        },
         "autoscaling": {
           "type": "object",
-          "required": ["enabled", "minReplicas", "maxReplicas"],
+          "required": [
+            "enabled",
+            "minReplicas",
+            "maxReplicas"
+          ],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "minReplicas": { "type": "integer", "minimum": 1 },
-            "maxReplicas": { "type": "integer", "minimum": 1 },
-            "targetCPUUtilizationPercentage": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 },
-            "targetMemoryUtilizationPercentage": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 },
-            "behavior": { "type": "object" },
-            "additionalMetrics": { "type": "array", "items": { "type": "object" } }
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 100
+            },
+            "targetMemoryUtilizationPercentage": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 100
+            },
+            "behavior": {
+              "type": "object"
+            },
+            "additionalMetrics": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
           }
         },
-        "extraVolumes": { "type": "array", "items": { "type": "object" } },
-        "extraVolumeMounts": { "type": "array", "items": { "type": "object" } }
+        "extraVolumes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "extraVolumeMounts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       }
     },
     "control": {
       "type": "object",
       "properties": {
-        "replicaCount": { "type": "integer", "const": 1 },
-        "extraVolumes": { "type": "array", "items": { "type": "object" } },
-        "extraVolumeMounts": { "type": "array", "items": { "type": "object" } },
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "coordination": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "extraVolumes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "extraVolumeMounts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
         "resumeVolume": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "mountPath": { "type": "string" },
-            "persistentVolumeClaim": { "type": "string" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "mountPath": {
+              "type": "string"
+            },
+            "persistentVolumeClaim": {
+              "type": "string"
+            }
           }
         }
       }
@@ -94,52 +237,127 @@
     "migration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "hookWeight", "hookDeletePolicy", "backoffLimit", "activeDeadlineSeconds", "ttlSecondsAfterFinished", "serviceAccountName", "env", "envFrom", "extraEnv", "resources"],
+      "required": [
+        "enabled",
+        "hookWeight",
+        "hookDeletePolicy",
+        "backoffLimit",
+        "activeDeadlineSeconds",
+        "ttlSecondsAfterFinished",
+        "serviceAccountName",
+        "env",
+        "envFrom",
+        "extraEnv",
+        "resources"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "hookWeight": { "type": "integer" },
-        "hookDeletePolicy": { "type": "string", "minLength": 1 },
-        "backoffLimit": { "type": "integer", "minimum": 0 },
-        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
-        "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 },
-        "serviceAccountName": { "type": "string" },
-        "podAnnotations": { "type": "object" },
-        "podLabels": { "type": "object" },
-        "env": { "type": "object" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "hookWeight": {
+          "type": "integer"
+        },
+        "hookDeletePolicy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backoffLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeDeadlineSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ttlSecondsAfterFinished": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "serviceAccountName": {
+          "type": "string"
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "podLabels": {
+          "type": "object"
+        },
+        "env": {
+          "type": "object"
+        },
         "envFrom": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["configMaps", "secrets"],
+          "required": [
+            "configMaps",
+            "secrets"
+          ],
           "properties": {
-            "configMaps": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-            "secrets": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            "configMaps": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "secrets": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         },
-        "extraEnv": { "type": "array", "items": { "type": "object" } },
-        "resources": { "type": "object" }
+        "extraEnv": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "resources": {
+          "type": "object"
+        }
       }
     },
     "podDisruptionBudget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["serve", "control"],
+      "required": [
+        "serve",
+        "control"
+      ],
       "properties": {
         "serve": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "minAvailable"],
+          "required": [
+            "enabled",
+            "minAvailable"
+          ],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "minAvailable": { "$ref": "#/$defs/nonNegativeIntOrPercent" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "minAvailable": {
+              "$ref": "#/$defs/nonNegativeIntOrPercent"
+            }
           }
         },
         "control": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "maxUnavailable"],
+          "required": [
+            "enabled",
+            "maxUnavailable"
+          ],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "maxUnavailable": { "$ref": "#/$defs/nonNegativeIntOrPercent" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxUnavailable": {
+              "$ref": "#/$defs/nonNegativeIntOrPercent"
+            }
           }
         }
       }
@@ -147,19 +365,42 @@
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "ingress", "egress"],
+      "required": [
+        "enabled",
+        "ingress",
+        "egress"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "ingress": { "type": "array", "items": { "type": "object" } },
-        "egress": { "type": "array", "items": { "type": "object" } }
+        "enabled": {
+          "type": "boolean"
+        },
+        "ingress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "egress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       }
     },
     "ingress": {
       "type": "object",
       "properties": {
-        "className": { "type": "string", "minLength": 1 },
-        "public": { "$ref": "#/$defs/ingress" },
-        "control": { "$ref": "#/$defs/ingress" }
+        "className": {
+          "type": "string",
+          "minLength": 1
+        },
+        "public": {
+          "$ref": "#/$defs/ingress"
+        },
+        "control": {
+          "$ref": "#/$defs/ingress"
+        }
       }
     }
   },
@@ -168,7 +409,15 @@
       "if": {
         "properties": {
           "serve": {
-            "properties": { "autoscaling": { "properties": { "enabled": { "const": true } } } }
+            "properties": {
+              "autoscaling": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -178,7 +427,9 @@
             "properties": {
               "autoscaling": {
                 "properties": {
-                  "maxReplicas": { "minimum": 2 }
+                  "maxReplicas": {
+                    "minimum": 2
+                  }
                 }
               }
             }
@@ -190,7 +441,11 @@
       "if": {
         "properties": {
           "networkPolicy": {
-            "properties": { "enabled": { "const": true } }
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
           }
         }
       },
@@ -198,8 +453,12 @@
         "properties": {
           "networkPolicy": {
             "properties": {
-              "ingress": { "minItems": 1 },
-              "egress": { "minItems": 1 }
+              "ingress": {
+                "minItems": 1
+              },
+              "egress": {
+                "minItems": 1
+              }
             }
           }
         }
@@ -210,7 +469,13 @@
         "properties": {
           "podDisruptionBudget": {
             "properties": {
-              "serve": { "properties": { "enabled": { "const": true } } }
+              "serve": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
             }
           }
         }
@@ -223,8 +488,14 @@
                 "properties": {
                   "minAvailable": {
                     "anyOf": [
-                      { "type": "integer", "minimum": 1 },
-                      { "type": "string", "pattern": "^([0-9]|[1-9][0-9]*)%$" }
+                      {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^([0-9]|[1-9][0-9]*)%$"
+                      }
                     ]
                   }
                 }
@@ -239,7 +510,13 @@
         "properties": {
           "podDisruptionBudget": {
             "properties": {
-              "control": { "properties": { "enabled": { "const": true } } }
+              "control": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
             }
           }
         }
@@ -250,8 +527,55 @@
             "properties": {
               "control": {
                 "properties": {
-                  "maxUnavailable": { "const": 0 }
+                  "maxUnavailable": {
+                    "const": 0
+                  }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "control": {
+            "properties": {
+              "coordination": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            },
+            "required": [
+              "coordination"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "control": {
+            "properties": {
+              "replicaCount": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "control": {
+            "properties": {
+              "replicaCount": {
+                "const": 1
               }
             }
           }
@@ -262,23 +586,53 @@
   "$defs": {
     "nonNegativeIntOrPercent": {
       "oneOf": [
-        { "type": "integer", "minimum": 0 },
-        { "type": "string", "pattern": "^[0-9]+%$" }
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+%$"
+        }
       ]
     },
     "ingress": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "host": { "type": "string", "minLength": 1 },
+        "enabled": {
+          "type": "boolean"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
         "tls": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" },
-            "secretName": { "type": "string" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "secretName": {
+              "type": "string"
+            }
           },
-          "if": { "properties": { "enabled": { "const": true } } },
-          "then": { "properties": { "secretName": { "minLength": 1 } }, "required": ["secretName"] }
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "secretName": {
+                "minLength": 1
+              }
+            },
+            "required": [
+              "secretName"
+            ]
+          }
         }
       }
     }

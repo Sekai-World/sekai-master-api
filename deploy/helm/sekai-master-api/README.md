@@ -210,9 +210,17 @@ enabled, it selects both application roles and applies the explicitly supplied
 native Kubernetes ingress/egress rules. Verify all required dependency traffic
 before enabling it in production.
 
-`control.replicaCount` is schema-constrained to `1` and its Deployment uses
-`Recreate`, because active-sync locking and state are process-local. Do not make
-it horizontally scalable until distributed locking and fencing are implemented.
+`control` is a single-replica, `Recreate`-upgraded Deployment by default:
+active-sync admission is process-local, so the schema rejects
+`control.replicaCount > 1` unless `control.coordination.enabled` is `true`.
+
+`control.coordination.enabled: true` is the multi-replica capability for
+**test environments**: it relaxes the schema (any `replicaCount >= 1`) and
+switches the Deployment to `RollingUpdate`. It requires the app-level lease
+to be active (`MASTER_DATA_SYNC_LEASE_ENABLED`, on by default) — the
+PostgreSQL lease and fencing token coordinate sync ownership across pods
+(see `docs/distributed-sync-coordination.md`). Production keeps this `false`
+(`values-production.yaml`) and runs one `Recreate`-upgraded control pod.
 Deploy `control`, populate Redis, and only then route traffic to `serve`.
 
 ### Production safety profile

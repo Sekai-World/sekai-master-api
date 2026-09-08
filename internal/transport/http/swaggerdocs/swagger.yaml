@@ -941,6 +941,24 @@ definitions:
       sync_running:
         type: boolean
     type: object
+  shared.MasterDataLease:
+    properties:
+      expires_at:
+        type: string
+      held:
+        type: boolean
+      holder:
+        type: string
+      token:
+        type: integer
+    type: object
+  shared.MasterDataLeaseResponse:
+    properties:
+      lease:
+        $ref: '#/definitions/shared.MasterDataLease'
+      status:
+        type: string
+    type: object
   shared.MasterDataSyncResponse:
     properties:
       items:
@@ -1752,6 +1770,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Subscribe master-data sync events
+      tags:
+      - admin
+  /admin/master-data/lease:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MasterDataLeaseResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get master-data sync lease diagnostics
       tags:
       - admin
   /admin/master-data/status:

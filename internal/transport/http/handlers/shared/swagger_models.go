@@ -1,6 +1,10 @@
 package shared
 
-import "sekai-master-api/internal/domain/masterdata"
+import (
+	"time"
+
+	"sekai-master-api/internal/domain/masterdata"
+)
 
 type ErrorBody struct {
 	Code    string `json:"code"`
@@ -968,6 +972,20 @@ type MasterDataAdminStatusResponse struct {
 	Regions      []string                `json:"regions"`
 	SyncRunning  bool                    `json:"sync_running"`
 	StartupReady bool                    `json:"startup_ready"`
+}
+
+// MasterDataLease reports the cross-pod sync lease diagnostics surfaced on
+// the admin surface (see docs/distributed-sync-coordination.md).
+type MasterDataLease struct {
+	Held      bool      `json:"held"`
+	Holder    string    `json:"holder"`
+	Token     int64     `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type MasterDataLeaseResponse struct {
+	Status string          `json:"status"`
+	Lease  MasterDataLease `json:"lease"`
 }
 
 type ProfileUser struct {

@@ -80,6 +80,54 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/master-data/lease": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get master-data sync lease diagnostics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MasterDataLeaseResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/master-data/status": {
             "get": {
                 "security": [
@@ -4849,6 +4897,34 @@ const docTemplate = `{
                 },
                 "sync_running": {
                     "type": "boolean"
+                }
+            }
+        },
+        "shared.MasterDataLease": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "held": {
+                    "type": "boolean"
+                },
+                "holder": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MasterDataLeaseResponse": {
+            "type": "object",
+            "properties": {
+                "lease": {
+                    "$ref": "#/definitions/shared.MasterDataLease"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
