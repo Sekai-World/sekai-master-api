@@ -106,6 +106,9 @@ type Config struct {
 	MasterDataSearchIndexCacheEntries int
 	MasterDataSyncTimeout             int
 	MasterDataSyncJobTimeout          int
+	MasterDataSyncLeaseEnabled        bool
+	MasterDataSyncLeaseTTLSeconds     int
+	MasterDataSyncLeaseName           string
 	ShutdownTimeoutSeconds            int
 	MasterDataSyncConcurrency         int
 	MasterDataFileConcurrency         int
@@ -179,6 +182,9 @@ func Load() Config {
 		MasterDataSearchIndexCacheEntries: getEnvInt("MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES", 32),
 		MasterDataSyncTimeout:             getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 0),
 		MasterDataSyncJobTimeout:          getEnvInt("MASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS", 1800),
+		MasterDataSyncLeaseEnabled:        getEnvBool("MASTER_DATA_SYNC_LEASE_ENABLED", true),
+		MasterDataSyncLeaseTTLSeconds:     getEnvInt("MASTER_DATA_SYNC_LEASE_TTL_SECONDS", 60),
+		MasterDataSyncLeaseName:           strings.TrimSpace(getEnv("MASTER_DATA_SYNC_LEASE_NAME", "master-data-sync")),
 		ShutdownTimeoutSeconds:            getEnvInt("SHUTDOWN_TIMEOUT_SECONDS", 25),
 		MasterDataSyncConcurrency:         getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", defaultMasterDataSyncConcurrency(appEnv)),
 		MasterDataFileConcurrency:         getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", defaultMasterDataFileConcurrency(appEnv)),

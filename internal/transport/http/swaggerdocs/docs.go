@@ -2273,6 +2273,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/shared.ErrorResponse"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GitHubWebhookResponse"
+                        }
+                    },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {

@@ -94,6 +94,19 @@ type MasterDataEventPublisher interface {
 	PublishMasterDataUpdated(ctx context.Context, event masterdata.SyncUpdatedEvent) error
 }
 
+// MasterDataSyncLeaseCoordinator is the cross-pod sync ownership contract
+// (docs/distributed-sync-coordination.md). Acquire returns
+// masterdata.ErrSyncLeaseHeld when another unexpired owner holds the lease;
+// Renew returns masterdata.ErrSyncLeaseLost after ownership moved elsewhere.
+// A nil coordinator (the default) keeps the historical process-local-only
+// behavior.
+type MasterDataSyncLeaseCoordinator interface {
+	Acquire(ctx context.Context) (masterdata.SyncLeaseClaim, error)
+	Renew(ctx context.Context, claim masterdata.SyncLeaseClaim) error
+	Release(ctx context.Context, claim masterdata.SyncLeaseClaim) error
+	State(ctx context.Context) (masterdata.SyncLeaseState, error)
+}
+
 type MasterDataPayloadBackupStore interface {
 	SaveRegionPayload(ctx context.Context, source masterdata.Source, commit string, payload map[string]any) error
 	LoadRegionPayload(ctx context.Context, source masterdata.Source, commit string) (map[string]any, bool, error)
@@ -117,6 +130,15 @@ type MasterDataSyncUsecase struct {
 	restoreFromLocalBackupWithoutStatus bool
 	statusMu                            sync.Mutex
 	syncRunning                         atomic.Bool
+
+	// leaseCoordinator owns cross-pod sync admission; nil keeps the
+	// process-local-only behavior. currentLeaseToken carries the fencing
+	// token of the lease held by this process's running job and is stamped
+	// onto every status write so the fenced status store can reject stale
+	// owners after a takeover.
+	leaseCoordinator      MasterDataSyncLeaseCoordinator
+	leaseHeartbeatTimeout time.Duration
+	currentLeaseToken     atomic.Int64
 
 	currentEventLocks sync.Map
 
@@ -209,6 +231,32 @@ func (usecase *MasterDataSyncUsecase) SetJobTimeout(timeout time.Duration) {
 		timeout = 0
 	}
 	usecase.jobTimeout = timeout
+}
+
+// SetLeaseCoordinator enables cross-pod sync coordination. heartbeatInterval
+// is how often a running job renews its lease; non-positive values are
+// clamped to a 1s floor to avoid a busy renewal loop.
+func (usecase *MasterDataSyncUsecase) SetLeaseCoordinator(coordinator MasterDataSyncLeaseCoordinator, heartbeatInterval time.Duration) {
+	if usecase == nil {
+		return
+	}
+	if coordinator == nil {
+		return
+	}
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = time.Second
+	}
+	usecase.leaseCoordinator = coordinator
+	usecase.leaseHeartbeatTimeout = heartbeatInterval
+}
+
+// SyncLeaseState exposes the sync lease for webhook admission probes and
+// diagnostics. It reports an unheld state when no coordinator is configured.
+func (usecase *MasterDataSyncUsecase) SyncLeaseState(ctx context.Context) (masterdata.SyncLeaseState, error) {
+	if usecase == nil || usecase.leaseCoordinator == nil {
+		return masterdata.SyncLeaseState{}, nil
+	}
+	return usecase.leaseCoordinator.State(ctx)
 }
 
 // SetLifecycleContext registers the application lifecycle context used to cancel
@@ -334,7 +382,7 @@ func (usecase *MasterDataSyncUsecase) StartSync(ctx context.Context, region stri
 			}()
 		}
 
-		err := usecase.syncClaimed(workerContext, force, targetSources)
+		err := usecase.syncLeased(workerContext, force, targetSources)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				usecase.logf("admin sync worker interrupted by shutdown region=%s force=%t", targetRegion, force)
@@ -501,7 +549,80 @@ func (usecase *MasterDataSyncUsecase) sync(ctx context.Context, force bool, sour
 		return ErrSyncInProgress
 	}
 	defer usecase.syncRunning.Store(false)
-	return usecase.syncClaimed(ctx, force, sources)
+	return usecase.syncLeased(ctx, force, sources)
+}
+
+// syncLeased claims the cross-pod sync lease around syncClaimed. A job runs
+// only while it holds the lease: a heartbeat goroutine renews ownership every
+// leaseHeartbeatTimeout and cancels the job context as soon as renewal fails
+// (lease lost or coordinator unreachable), which routes the job into the same
+// recoverable-interruption path as graceful shutdown. Status writes carry the
+// claim's fencing token so the fenced status store rejects a stale owner that
+// keeps writing after a takeover.
+func (usecase *MasterDataSyncUsecase) syncLeased(ctx context.Context, force bool, sources []masterdata.Source) error {
+	if usecase.leaseCoordinator == nil {
+		return usecase.syncClaimed(ctx, force, sources)
+	}
+
+	claim, err := usecase.leaseCoordinator.Acquire(ctx)
+	if err != nil {
+		if errors.Is(err, masterdata.ErrSyncLeaseHeld) {
+			usecase.logf("sync skipped reason=lease_held_elsewhere")
+			return err
+		}
+		usecase.logf("sync lease acquire failed error=%v", err)
+		return fmt.Errorf("acquire sync lease: %w", err)
+	}
+
+	releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancelRelease()
+	defer func() {
+		usecase.currentLeaseToken.Store(0)
+		if releaseErr := usecase.leaseCoordinator.Release(releaseCtx, claim); releaseErr != nil {
+			usecase.logf("sync lease release failed holder=%s token=%d error=%v", claim.Holder, claim.Token, releaseErr)
+		}
+	}()
+
+	usecase.currentLeaseToken.Store(claim.Token)
+	usecase.logf("sync lease acquired holder=%s token=%d", claim.Holder, claim.Token)
+
+	jobCtx, cancelJob := context.WithCancel(ctx)
+	heartbeatDone := usecase.startLeaseHeartbeat(jobCtx, cancelJob, claim)
+
+	err = usecase.syncClaimed(jobCtx, force, sources)
+
+	cancelJob()
+	<-heartbeatDone
+	return err
+}
+
+// startLeaseHeartbeat renews the lease until the job context ends. The
+// returned channel closes when the heartbeat goroutine has fully stopped, so
+// the caller can order lease release after the last renewal attempt. A failed
+// renewal cancels the job through cancelJob.
+func (usecase *MasterDataSyncUsecase) startLeaseHeartbeat(jobCtx context.Context, cancelJob context.CancelFunc, claim masterdata.SyncLeaseClaim) <-chan struct{} {
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		ticker := time.NewTicker(usecase.leaseHeartbeatTimeout)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-jobCtx.Done():
+				return
+			case <-ticker.C:
+				renewCtx, cancelRenew := context.WithTimeout(context.WithoutCancel(jobCtx), 5*time.Second)
+				renewErr := usecase.leaseCoordinator.Renew(renewCtx, claim)
+				cancelRenew()
+				if renewErr != nil {
+					usecase.logf("sync lease lost holder=%s token=%d error=%v", claim.Holder, claim.Token, renewErr)
+					cancelJob()
+					return
+				}
+			}
+		}
+	}()
+	return heartbeatDone
 }
 
 // isTerminalSyncStatus reports whether a sync status is a terminal one (success
@@ -2871,6 +2992,10 @@ func (usecase *MasterDataSyncUsecase) saveStatus(ctx context.Context, status mas
 
 	usecase.statusMu.Lock()
 	defer usecase.statusMu.Unlock()
+
+	// Stamp the running job's lease token so the fenced status store can
+	// reject this write after a takeover by a newer owner.
+	status.FencingToken = usecase.currentLeaseToken.Load()
 
 	err := usecase.statusStore.Save(ctx, status)
 	if err != nil && ctx.Err() != nil {
