@@ -35,6 +35,11 @@ import (
 // @in header
 // @name Authorization
 
+// processBootTime identifies this process's incarnation in the sync lease
+// holder identity, so a restarted pod on the same hostname cannot be mistaken
+// for the previous holder.
+var processBootTime = time.Now().UTC()
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		if err := runMigrationCommand(os.Args[2:]); err != nil {
@@ -85,7 +90,13 @@ func main() {
 	}
 
 	masterDataSources := buildMasterDataSources(cfg)
-	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db, cfg.DatabaseDriver())
+	// Cross-pod sync coordination (docs/distributed-sync-coordination.md): the
+	// lease lives in PostgreSQL; status writes are fenced by its token.
+	syncLeaseName := ""
+	if cfg.MasterDataSyncLeaseEnabled {
+		syncLeaseName = cfg.MasterDataSyncLeaseName
+	}
+	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db, cfg.DatabaseDriver(), syncLeaseName)
 	masterDataLoader := repository.NewGitHubMasterDataRepository(
 		time.Duration(cfg.MasterDataHTTPTimeout)*time.Second,
 		cfg.MasterDataGitHubToken,
@@ -110,6 +121,24 @@ func main() {
 		masterDataEventHub,
 		cfg.MasterDataSyncConcurrency,
 	)
+	if cfg.MasterDataSyncLeaseEnabled {
+		leaseTTL := time.Duration(cfg.MasterDataSyncLeaseTTLSeconds) * time.Second
+		if leaseTTL < 3*time.Second {
+			leaseTTL = 3 * time.Second
+		}
+		hostname, hostErr := os.Hostname()
+		if hostErr != nil {
+			hostname = "unknown-host"
+		}
+		holder := fmt.Sprintf("%s/%s", hostname, processBootTime.Format(time.RFC3339))
+		syncLeaseCoordinator := repository.NewMasterDataSyncLeaseCoordinator(
+			repository.NewMasterDataSyncLeaseRepository(db, cfg.DatabaseDriver()),
+			cfg.MasterDataSyncLeaseName,
+			holder,
+			leaseTTL,
+		)
+		masterDataSyncUsecase.SetLeaseCoordinator(syncLeaseCoordinator, leaseTTL/3)
+	}
 	if cfg.MasterDataSyncTimeout > 0 {
 		masterDataSyncUsecase.SetRegionTimeout(time.Duration(cfg.MasterDataSyncTimeout) * time.Second)
 	}

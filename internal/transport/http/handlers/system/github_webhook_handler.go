@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/logging"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
@@ -24,6 +27,13 @@ import (
 
 type masterDataRegionSyncer interface {
 	SyncRegion(ctx context.Context, region string) error
+}
+
+// masterDataLeaseProber is implemented by the sync usecase when cross-pod
+// lease coordination is enabled; the webhook uses it to reject deliveries
+// with a retry hint while another owner holds the sync lease.
+type masterDataLeaseProber interface {
+	SyncLeaseState(ctx context.Context) (masterdata.SyncLeaseState, error)
 }
 
 type GitHubWebhookHandler struct {
@@ -161,6 +171,7 @@ func (handler *GitHubWebhookHandler) admit() bool {
 // @Success 202 {object} shared.GitHubWebhookResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 401 {object} shared.ErrorResponse
+// @Failure 409 {object} shared.GitHubWebhookResponse
 // @Failure 503 {object} shared.ErrorResponse
 // @Router /internal/github/webhooks/master-data [post]
 func (handler *GitHubWebhookHandler) MasterData(c *gin.Context, lifecycleCtx context.Context) {
@@ -221,6 +232,27 @@ func (handler *GitHubWebhookHandler) MasterData(c *gin.Context, lifecycleCtx con
 		return
 	}
 
+	// Cross-pod lease probe: reject now with a retry hint when another owner
+	// holds the sync lease, instead of accepting work that would conflict in
+	// the background. Probe failures fail open (the real admission happens on
+	// the background path).
+	if prober, ok := handler.syncer.(masterDataLeaseProber); ok {
+		state, probeErr := prober.SyncLeaseState(c.Request.Context())
+		if probeErr == nil && state.Held {
+			retryAfterSeconds := int(time.Until(state.ExpiresAt).Seconds()) + 1
+			if retryAfterSeconds < 1 {
+				retryAfterSeconds = 1
+			}
+			c.Header("Retry-After", strconv.Itoa(retryAfterSeconds))
+			response.JSON(c, http.StatusConflict, gin.H{
+				"status": "conflict",
+				"reason": "sync_lease_held",
+				"region": region,
+			})
+			return
+		}
+	}
+
 	// Admission gate: once graceful shutdown has begun, refuse new submissions so
 	// no sync is spawned after dependency teardown starts. The rejecting check and
 	// the WaitGroup Add are performed atomically under admissionMu so a concurrent
@@ -272,6 +304,10 @@ func (handler *GitHubWebhookHandler) triggerRegionSync(ctx context.Context, life
 	if err := handler.syncer.SyncRegion(baseCtx, region); err != nil {
 		if err == usecase.ErrSyncInProgress {
 			logger.Infow("github webhook skipped because master data sync already running", "region", region)
+			return
+		}
+		if errors.Is(err, masterdata.ErrSyncLeaseHeld) {
+			logger.Infow("github webhook skipped because the master data sync lease is held by another owner", "region", region)
 			return
 		}
 

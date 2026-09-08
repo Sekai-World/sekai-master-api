@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,43 +12,94 @@ import (
 )
 
 type MasterDataSyncStatusRepository struct {
-	db     *sql.DB
-	driver string
+	db        *sql.DB
+	driver    string
+	leaseName string
 }
 
-func NewMasterDataSyncStatusRepository(db *sql.DB, driver string) *MasterDataSyncStatusRepository {
+// NewMasterDataSyncStatusRepository builds the status store. leaseName names
+// the master_data_sync_leases row whose fencing token guards writes; an empty
+// leaseName disables the fence (no lease row is ever consulted).
+func NewMasterDataSyncStatusRepository(db *sql.DB, driver string, leaseName string) *MasterDataSyncStatusRepository {
 	return &MasterDataSyncStatusRepository{
-		db:     db,
-		driver: strings.ToLower(strings.TrimSpace(driver)),
+		db:        db,
+		driver:    strings.ToLower(strings.TrimSpace(driver)),
+		leaseName: strings.TrimSpace(leaseName),
 	}
 }
 
+// Save inserts one status history row. When a lease name is configured the
+// insert runs in one transaction with a fencing check against the lease row:
+// a write carrying a token older than the lease's current token (a stale
+// owner writing after takeover) is rejected with masterdata.ErrFencedOut.
+// Token-zero writes (unleased legacy/local paths) always pass.
 func (repository *MasterDataSyncStatusRepository) Save(ctx context.Context, status masterdata.SyncStatus) error {
 	if repository.db == nil {
 		return nil
 	}
 
+	tx, err := repository.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sync status transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := repository.assertLeaseFencing(ctx, tx, status.FencingToken); err != nil {
+		return err
+	}
+
 	if repository.isPostgres() {
-		if err := insertSyncStatusPostgres(ctx, repository.db, status); err != nil {
-			return err
-		}
+		err = insertSyncStatusPostgres(ctx, tx, status)
 	} else {
-		if err := insertSyncStatusSQLite(ctx, repository.db, status); err != nil {
-			return err
-		}
+		err = insertSyncStatusSQLite(ctx, tx, status)
+	}
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sync status: %w", err)
 	}
 
 	return nil
 }
 
-func insertSyncStatusSQLite(ctx context.Context, db *sql.DB, status masterdata.SyncStatus) error {
+// assertLeaseFencing locks the lease row (FOR UPDATE on PostgreSQL) and
+// rejects the caller's write when its token is stale. On SQLite the
+// transaction serializes with other writers; production fencing runs on
+// PostgreSQL.
+func (repository *MasterDataSyncStatusRepository) assertLeaseFencing(ctx context.Context, tx *sql.Tx, writerToken int64) error {
+	if repository.leaseName == "" {
+		return nil
+	}
+
+	query := `SELECT fencing_token FROM master_data_sync_leases WHERE name = ?`
+	if repository.isPostgres() {
+		query = `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR UPDATE`
+	}
+
+	var leaseToken int64
+	err := tx.QueryRowContext(ctx, query, repository.leaseName).Scan(&leaseToken)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read sync lease for fencing: %w", err)
+	}
+	if writerToken > 0 && writerToken < leaseToken {
+		return masterdata.ErrFencedOut
+	}
+	return nil
+}
+
+func insertSyncStatusSQLite(ctx context.Context, tx *sql.Tx, status masterdata.SyncStatus) error {
 	insertQuery := `
 INSERT INTO master_data_sync_status (
 	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
-	source_owner, source_repo, source_ref, source_path
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	source_owner, source_repo, source_ref, source_path, fencing_token
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	if _, err := db.ExecContext(
+	if _, err := tx.ExecContext(
 		ctx,
 		insertQuery,
 		status.Region,
@@ -61,6 +113,7 @@ INSERT INTO master_data_sync_status (
 		status.Source.Repo,
 		status.Source.Ref,
 		nullableText(status.Source.Path),
+		status.FencingToken,
 	); err != nil {
 		return fmt.Errorf("insert sync status: %w", err)
 	}
@@ -68,14 +121,14 @@ INSERT INTO master_data_sync_status (
 	return nil
 }
 
-func insertSyncStatusPostgres(ctx context.Context, db *sql.DB, status masterdata.SyncStatus) error {
+func insertSyncStatusPostgres(ctx context.Context, tx *sql.Tx, status masterdata.SyncStatus) error {
 	insertPostgres := `
 INSERT INTO master_data_sync_status (
 	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
-	source_owner, source_repo, source_ref, source_path
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	source_owner, source_repo, source_ref, source_path, fencing_token
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
 
-	if _, pgErr := db.ExecContext(
+	if _, err := tx.ExecContext(
 		ctx,
 		insertPostgres,
 		status.Region,
@@ -89,8 +142,9 @@ INSERT INTO master_data_sync_status (
 		status.Source.Repo,
 		status.Source.Ref,
 		nullableText(status.Source.Path),
-	); pgErr != nil {
-		return fmt.Errorf("insert sync status: %w", pgErr)
+		status.FencingToken,
+	); err != nil {
+		return fmt.Errorf("insert sync status: %w", err)
 	}
 
 	return nil

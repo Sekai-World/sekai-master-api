@@ -24,6 +24,12 @@ type SyncStatus struct {
 	ErrorMessage   string    `json:"error_message"`
 	Source         Source    `json:"source"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	// FencingToken is the sync-lease token that produced this row. Zero means
+	// the write was not made under a lease (legacy/local paths). It is an
+	// internal coordination field and deliberately not part of the API
+	// contract; the status repository rejects writes whose token is older
+	// than the lease's current token.
+	FencingToken int64 `json:"-"`
 }
 
 type SearchMatch struct {
