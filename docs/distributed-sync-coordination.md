@@ -217,14 +217,16 @@ at derived stores) and it is what the acceptance tests will demonstrate.
 - Heartbeat interval is `TTL/3`, not separately configurable.
 - Entries land in `.env.example`; docs in `docs/master-data.md`.
 
-## Open questions
+## Resolved decisions
 
-1. Should webhook `SyncRegion` while the lease is held elsewhere queue for
-   the next owner tick, or keep returning a conflict? (Current proposal:
-   conflict with `Retry-After`; queueing invites silent dedup complexity.)
-2. Do we want a `force`-sync to be allowed to *steal* an expired-but-very-
-   recent lease faster than TTL (e.g. holder unreachable check)? (Current
-   proposal: no — TTL is short; stealing adds a second clock assumption.)
+1. Webhook `SyncRegion` while the lease is held elsewhere **returns a
+   conflict with `Retry-After`** (HTTP 409 on the webhook endpoint).
+   Queueing was rejected: it invites silent dedup complexity and hides
+   propagation lag behind an internal buffer.
+2. Force sync **does not steal an unexpired lease faster than TTL**.
+   The TTL is short by default; stealing would introduce a second clock
+   assumption and a race between "holder is unhealthy" judgments made by
+   different pods.
 
 ## Source references
 
