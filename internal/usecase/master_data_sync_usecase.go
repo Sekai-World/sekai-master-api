@@ -138,6 +138,7 @@ type MasterDataSyncUsecase struct {
 	// owners after a takeover.
 	leaseCoordinator      MasterDataSyncLeaseCoordinator
 	leaseHeartbeatTimeout time.Duration
+	leaseReleaseTimeout   time.Duration
 	currentLeaseToken     atomic.Int64
 
 	currentEventLocks sync.Map
@@ -248,6 +249,15 @@ func (usecase *MasterDataSyncUsecase) SetLeaseCoordinator(coordinator MasterData
 	}
 	usecase.leaseCoordinator = coordinator
 	usecase.leaseHeartbeatTimeout = heartbeatInterval
+}
+
+// leaseReleaseBudget is the context budget for releasing the lease after a
+// job ends. It defaults to 5 seconds and is overridable in tests.
+func (usecase *MasterDataSyncUsecase) leaseReleaseBudget() time.Duration {
+	if usecase.leaseReleaseTimeout > 0 {
+		return usecase.leaseReleaseTimeout
+	}
+	return 5 * time.Second
 }
 
 // SyncLeaseState exposes the sync lease for webhook admission probes and
@@ -574,10 +584,14 @@ func (usecase *MasterDataSyncUsecase) syncLeased(ctx context.Context, force bool
 		return fmt.Errorf("acquire sync lease: %w", err)
 	}
 
-	releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancelRelease()
+	// The release context is created inside the deferred function so its
+	// budget covers only the release call itself; a context created before the
+	// sync would already be expired by the time a real (multi-second) sync
+	// finished and the deferred release ran.
 	defer func() {
 		usecase.currentLeaseToken.Store(0)
+		releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), usecase.leaseReleaseBudget())
+		defer cancelRelease()
 		if releaseErr := usecase.leaseCoordinator.Release(releaseCtx, claim); releaseErr != nil {
 			usecase.logf("sync lease release failed holder=%s token=%d error=%v", claim.Holder, claim.Token, releaseErr)
 		}
