@@ -28,9 +28,8 @@ ownership is unclear.
   - Default: development uses SQLite; test and production use PostgreSQL.
   - Optional override: `DATABASE_DRIVER` can override the default with `sqlite` or `pgx`.
 - Migration strategy: use Goose SQL migrations; run automatic migrations on startup.
-- Local dependency orchestration: `deploy/compose/dev-compose.yaml` for PostgreSQL 18, Redis 8, Grafana, and Loki.
-- Remote-cluster dev (optional, private): gitignored `dev-cluster-*` mise tasks run a ko-built dev image in the remote k3s cluster next to the dev dependencies; see `.mise/lib/dev-cluster.sh` and the workspace `docs/cross-repository/remote-cluster-dev-workflow.md`. Chart `image.command` (>= 0.0.5) supports ko images (`/ko-app/api`); leaving it unset keeps production behavior unchanged.
-- Local dev server: `sekai-master-api` is managed through OrbStack. Do not manually kill/stop it during normal agent work; restart it from the project root with `mise run dev` when code or OpenAPI changes need to be served locally.
+- Remote-cluster dev (STANDARD): gitignored `dev-cluster-*` mise tasks build a ko image and run it in the remote k3s test cluster next to the dev dependencies. This is the only sanctioned way to serve and test changes: `mise run dev-cluster-rebuild` to build and deploy, then `mise run dev-cluster-forward` to expose the single public-API + admin port on `http://localhost:18080`. Do NOT serve or test changes through local Docker/OrbStack app containers (`mise run dev`, `dev-split`, `dev-full`); that path is deprecated. See `.mise/lib/dev-cluster.sh` and the workspace `docs/cross-repository/remote-cluster-dev-workflow.md`. Chart `image.command` (>= 0.0.5) supports ko images (`/ko-app/api`); leaving it unset keeps production behavior unchanged.
+- Legacy local dependency orchestration (deprecated for app testing): `deploy/compose/dev-compose.yaml` for PostgreSQL 18, Redis 8, Grafana, and Loki. The compose stack backs the deprecated OrbStack dev tasks and `test-docker` (Go tests when no host `go` exists); agents must not use it to run or verify the API server.
 
 ## Agent Roles
 
@@ -119,13 +118,13 @@ The task is done only when these conditions are met:
 
 ## Preferred Commands
 
-- Run/restart API dev server: `mise run dev`
-- Run API directly: `mise run run`
+- Build and deploy the dev image to the remote test cluster: `mise run dev-cluster-rebuild`
+- Forward the dev cluster API/admin port locally: `mise run dev-cluster-forward`
+- Run API directly on host (no containers): `mise run run`
 - Unit tests: `mise run test`
 - Migrate up: `mise run migrate-up`
 - Migrate down: `mise run migrate-down`
-- Start dependencies: `mise run dev-env-up`
-- Stop dependencies: `mise run dev-env-down`
+- Deprecated local-container flow (do not use to serve/test changes): `mise run dev`, `mise run dev-env-up`, `mise run dev-env-down`
 
 ## Cross-Repository Integration (sekai-master-api → sekai-viewer-reborn)
 
@@ -135,8 +134,9 @@ be regenerated. The full workflow is:
 
 1. Make changes in sekai-master-api.
 2. Regenerate Swagger/OpenAPI spec: `mise run swagger`.
-3. Restart the OrbStack-managed sekai-master-api dev server from the project root: `mise run dev`.
-   Wait for the server to be ready before proceeding.
+3. Deploy the changed server to the remote test cluster and forward it: `mise run dev-cluster-rebuild`, then `mise run dev-cluster-forward`.
+   Wait for the server to be ready (port-forward on `http://localhost:18080`) before proceeding.
+   Do not use the deprecated local-container path (`mise run dev`).
 4. In sekai-viewer-reborn, regenerate the SDK:
    `mise run update-sekai-master-api-sdk-local`
    (This calls `http://localhost:18080/docs/openapi.json` by default.)

@@ -17,6 +17,15 @@ Development defaults to SQLite unless `DATABASE_DRIVER=pgx` is set. Test and pro
 
 ## Local Development
 
+> **Remote-cluster dev is the standard path.** `mise run dev-cluster-rebuild`
+> builds a ko image and deploys it to the remote k3s test cluster next to the dev
+> PostgreSQL/Redis, and `mise run dev-cluster-forward` forwards the single
+> public-API + admin port to `http://localhost:18080`. These tasks are gitignored
+> because they encode private environment details (see `.mise/lib/dev-cluster.sh`).
+> Do not serve or test changes through the local Docker/OrbStack app containers
+> (`mise run dev`, `dev-split`, `dev-metrics`, `dev-full`); the compose-based flow
+> below is legacy and kept for reference.
+
 For host-mode API development:
 
 ```sh

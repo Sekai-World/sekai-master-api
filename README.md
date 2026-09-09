@@ -28,7 +28,15 @@ mise run tidy
 mise run run
 ```
 
-For the default lightweight local dependency stack:
+> The standard development/testing path for this repository is the remote-cluster
+> workflow: `mise run dev-cluster-rebuild` builds a ko image and deploys it to the
+> remote test cluster, and `mise run dev-cluster-forward` forwards the public API +
+> admin port to `http://localhost:18080`. These tasks are gitignored because they
+> encode private environment details. The local Docker Compose app containers below
+> (`mise run dev`, `dev-metrics`, `dev-full`) are legacy and should not be used to
+> serve or test changes.
+
+For the default lightweight local dependency stack (legacy):
 
 ```sh
 mise run dev-env-up
