@@ -920,6 +920,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/character2ds/{region}/batch": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "character2ds"
+                ],
+                "summary": "Get Character2D mappings by IDs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated Character2D IDs (up to 100)",
+                        "name": "ids",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.Character2DBatchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/character3ds/{region}/batch": {
             "get": {
                 "produces": [
@@ -3822,6 +3875,60 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.Character2DBatchItem": {
+            "type": "object",
+            "required": [
+                "gameCharacterId",
+                "id"
+            ],
+            "properties": {
+                "assetName": {
+                    "type": "string"
+                },
+                "characterType": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "gameCharacterId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isEnabledFlipDisplay": {
+                    "type": "boolean"
+                },
+                "isNextGrade": {
+                    "type": "boolean"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.Character2DBatchResponse": {
+            "type": "object",
+            "required": [
+                "items",
+                "missingIds"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.Character2DBatchItem"
+                    }
+                },
+                "missingIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 }
             }
         },
