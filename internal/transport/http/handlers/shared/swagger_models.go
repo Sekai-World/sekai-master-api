@@ -954,6 +954,22 @@ type Character3DBatchResponse struct {
 	MissingIDs []int64                `json:"missingIds" binding:"required"`
 }
 
+type Character2DBatchItem struct {
+	ID                   int64  `json:"id" binding:"required"`
+	GameCharacterID      int64  `json:"gameCharacterId" binding:"required"`
+	CharacterType        string `json:"characterType"`
+	Unit                 string `json:"unit"`
+	AssetName            string `json:"assetName,omitempty"`
+	IsNextGrade          *bool  `json:"isNextGrade,omitempty"`
+	IsEnabledFlipDisplay *bool  `json:"isEnabledFlipDisplay,omitempty"`
+	DisplayName          string `json:"displayName,omitempty"`
+}
+
+type Character2DBatchResponse struct {
+	Items      []Character2DBatchItem `json:"items" binding:"required"`
+	MissingIDs []int64                `json:"missingIds" binding:"required"`
+}
+
 type MasterDataStatusListResponse struct {
 	Items []masterdata.SyncStatus `json:"items"`
 }
