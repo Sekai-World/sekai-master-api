@@ -53,6 +53,80 @@ func (handler *LookupHandler) resolveCharacter2DDisplayName(ctx context.Context,
 	return strings.Join(nameParts, " ")
 }
 
+func parseCharacter2DBatchRequest(c *gin.Context) (string, []int64, bool) {
+	region := strings.TrimSpace(c.Param("region"))
+	parts := strings.Split(c.Query("ids"), ",")
+	if region == "" || len(parts) == 0 || len(parts) > character2DBatchLimit {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and 1 to 100 character2d ids are required")
+		return "", nil, false
+	}
+
+	ids := make([]int64, 0, len(parts))
+	seen := make(map[int64]struct{}, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id <= 0 {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "ids must contain positive integers")
+			return "", nil, false
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+
+	return region, ids, true
+}
+
+func (handler *LookupHandler) loadCharacter2DBatchItems(ctx context.Context, region string, ids []int64) ([]shared.Character2DBatchItem, []int64, error) {
+	items := make([]shared.Character2DBatchItem, 0, len(ids))
+	missingIDs := make([]int64, 0)
+	for _, id := range ids {
+		record, found, err := handler.masterDataSync.GetByID(ctx, region, "character2ds", strconv.FormatInt(id, 10))
+		if err != nil {
+			return nil, nil, err
+		}
+		if !found {
+			missingIDs = append(missingIDs, id)
+			continue
+		}
+
+		item, ok := handler.buildCharacter2DBatchItem(ctx, region, id, record)
+		if !ok {
+			missingIDs = append(missingIDs, id)
+			continue
+		}
+		items = append(items, item)
+	}
+
+	return items, missingIDs, nil
+}
+
+func (handler *LookupHandler) buildCharacter2DBatchItem(ctx context.Context, region string, id int64, record map[string]any) (shared.Character2DBatchItem, bool) {
+	gameCharacterID, ok := normalizePositiveInt64(record["characterId"])
+	if !ok {
+		return shared.Character2DBatchItem{}, false
+	}
+
+	characterType := strings.TrimSpace(shared.NormalizeAnyID(record["characterType"]))
+	item := shared.Character2DBatchItem{
+		ID:                   id,
+		GameCharacterID:      gameCharacterID,
+		CharacterType:        characterType,
+		Unit:                 strings.TrimSpace(shared.NormalizeAnyID(record["unit"])),
+		AssetName:            strings.TrimSpace(shared.NormalizeAnyID(record["assetName"])),
+		IsNextGrade:          optionalBool(record, "isNextGrade"),
+		IsEnabledFlipDisplay: optionalBool(record, "isEnabledFlipDisplay"),
+	}
+	if displayName := handler.resolveCharacter2DDisplayName(ctx, region, characterType, gameCharacterID); displayName != "" {
+		item.DisplayName = displayName
+	}
+
+	return item, true
+}
+
 // Character2DsBatch godoc
 // @Summary Get Character2D mappings by IDs
 // @Tags character2ds
@@ -70,64 +144,19 @@ func (handler *LookupHandler) Character2DsBatch(c *gin.Context) {
 		return
 	}
 
-	region := strings.TrimSpace(c.Param("region"))
-	parts := strings.Split(c.Query("ids"), ",")
-	if region == "" || len(parts) == 0 || len(parts) > character2DBatchLimit {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and 1 to 100 character2d ids are required")
+	region, ids, ok := parseCharacter2DBatchRequest(c)
+	if !ok {
 		return
-	}
-
-	ids := make([]int64, 0, len(parts))
-	seen := make(map[int64]struct{}, len(parts))
-	for _, part := range parts {
-		value := strings.TrimSpace(part)
-		id, err := strconv.ParseInt(value, 10, 64)
-		if err != nil || id <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "ids must contain positive integers")
-			return
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
 	}
 
 	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "character2ds") {
 		return
 	}
 
-	items := make([]shared.Character2DBatchItem, 0, len(ids))
-	missingIDs := make([]int64, 0)
-	for _, id := range ids {
-		record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "character2ds", strconv.FormatInt(id, 10))
-		if err != nil {
-			response.Error(c, http.StatusInternalServerError, "CHARACTER_2D_QUERY_ERROR", "failed to query character2d records")
-			return
-		}
-		if !found {
-			missingIDs = append(missingIDs, id)
-			continue
-		}
-		gameCharacterID, ok := normalizePositiveInt64(record["characterId"])
-		if !ok {
-			missingIDs = append(missingIDs, id)
-			continue
-		}
-		characterType := strings.TrimSpace(shared.NormalizeAnyID(record["characterType"]))
-		item := shared.Character2DBatchItem{
-			ID:                   id,
-			GameCharacterID:      gameCharacterID,
-			CharacterType:        characterType,
-			Unit:                 strings.TrimSpace(shared.NormalizeAnyID(record["unit"])),
-			AssetName:            strings.TrimSpace(shared.NormalizeAnyID(record["assetName"])),
-			IsNextGrade:          optionalBool(record, "isNextGrade"),
-			IsEnabledFlipDisplay: optionalBool(record, "isEnabledFlipDisplay"),
-		}
-		if displayName := handler.resolveCharacter2DDisplayName(c.Request.Context(), region, characterType, gameCharacterID); displayName != "" {
-			item.DisplayName = displayName
-		}
-		items = append(items, item)
+	items, missingIDs, err := handler.loadCharacter2DBatchItems(c.Request.Context(), region, ids)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CHARACTER_2D_QUERY_ERROR", "failed to query character2d records")
+		return
 	}
 
 	response.JSON(c, http.StatusOK, shared.Character2DBatchResponse{Items: items, MissingIDs: missingIDs})
