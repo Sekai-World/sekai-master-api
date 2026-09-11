@@ -1,6 +1,7 @@
 package lookups
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,24 @@ func normalizePositiveInt64(value any) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
+func buildCharacter3DBatchItem(id int64, record map[string]any) (shared.Character3DBatchItem, bool) {
+	gameCharacterID, ok := normalizePositiveInt64(record["characterId"])
+	if !ok {
+		return shared.Character3DBatchItem{}, false
+	}
+
+	return shared.Character3DBatchItem{
+		ID:              id,
+		GameCharacterID: gameCharacterID,
+		Unit:            strings.TrimSpace(shared.NormalizeAnyID(record["unit"])),
+		Name:            strings.TrimSpace(shared.NormalizeAnyID(record["name"])),
+	}, true
+}
+
+func (handler *LookupHandler) loadCharacter3DBatchItems(ctx context.Context, region string, ids []int64) ([]shared.Character3DBatchItem, []int64, error) {
+	return loadCharacterBatchItems(handler, ctx, region, "character3ds", ids, buildCharacter3DBatchItem)
+}
+
 // Character3DsBatch godoc
 // @Summary Get Character3D mappings by IDs
 // @Tags character3ds
@@ -30,42 +49,15 @@ func normalizePositiveInt64(value any) (int64, bool) {
 // @Failure 503 {object} shared.ErrorResponse
 // @Router /character3ds/{region}/batch [get]
 func (handler *LookupHandler) Character3DsBatch(c *gin.Context) {
-	if handler == nil || handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region, ids, ok := parseCharacterBatchRequest(c, character3DBatchLimit, "region and 1 to 100 character3d ids are required")
+	region, ids, ok := handler.prepareCharacterBatch(c, "character3ds", character3DBatchLimit, "region and 1 to 100 character3d ids are required")
 	if !ok {
 		return
 	}
 
-	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "character3ds") {
+	items, missingIDs, err := handler.loadCharacter3DBatchItems(c.Request.Context(), region, ids)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CHARACTER_3D_QUERY_ERROR", "failed to query character3d records")
 		return
-	}
-
-	items := make([]shared.Character3DBatchItem, 0, len(ids))
-	missingIDs := make([]int64, 0)
-	for _, id := range ids {
-		record, found, err := handler.masterDataSync.GetByID(c.Request.Context(), region, "character3ds", strconv.FormatInt(id, 10))
-		if err != nil {
-			response.Error(c, http.StatusInternalServerError, "CHARACTER_3D_QUERY_ERROR", "failed to query character3d records")
-			return
-		}
-		if !found {
-			missingIDs = append(missingIDs, id)
-			continue
-		}
-		gameCharacterID, ok := normalizePositiveInt64(record["characterId"])
-		if !ok {
-			missingIDs = append(missingIDs, id)
-			continue
-		}
-		items = append(items, shared.Character3DBatchItem{
-			ID: id, GameCharacterID: gameCharacterID,
-			Unit: strings.TrimSpace(shared.NormalizeAnyID(record["unit"])),
-			Name: strings.TrimSpace(shared.NormalizeAnyID(record["name"])),
-		})
 	}
 
 	response.JSON(c, http.StatusOK, shared.Character3DBatchResponse{Items: items, MissingIDs: missingIDs})

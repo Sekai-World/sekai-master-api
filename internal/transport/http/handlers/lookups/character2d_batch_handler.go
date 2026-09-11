@@ -54,27 +54,9 @@ func (handler *LookupHandler) resolveCharacter2DDisplayName(ctx context.Context,
 }
 
 func (handler *LookupHandler) loadCharacter2DBatchItems(ctx context.Context, region string, ids []int64) ([]shared.Character2DBatchItem, []int64, error) {
-	items := make([]shared.Character2DBatchItem, 0, len(ids))
-	missingIDs := make([]int64, 0)
-	for _, id := range ids {
-		record, found, err := handler.masterDataSync.GetByID(ctx, region, "character2ds", strconv.FormatInt(id, 10))
-		if err != nil {
-			return nil, nil, err
-		}
-		if !found {
-			missingIDs = append(missingIDs, id)
-			continue
-		}
-
-		item, ok := handler.buildCharacter2DBatchItem(ctx, region, id, record)
-		if !ok {
-			missingIDs = append(missingIDs, id)
-			continue
-		}
-		items = append(items, item)
-	}
-
-	return items, missingIDs, nil
+	return loadCharacterBatchItems(handler, ctx, region, "character2ds", ids, func(id int64, record map[string]any) (shared.Character2DBatchItem, bool) {
+		return handler.buildCharacter2DBatchItem(ctx, region, id, record)
+	})
 }
 
 func (handler *LookupHandler) buildCharacter2DBatchItem(ctx context.Context, region string, id int64, record map[string]any) (shared.Character2DBatchItem, bool) {
@@ -112,17 +94,8 @@ func (handler *LookupHandler) buildCharacter2DBatchItem(ctx context.Context, reg
 // @Failure 503 {object} shared.ErrorResponse
 // @Router /character2ds/{region}/batch [get]
 func (handler *LookupHandler) Character2DsBatch(c *gin.Context) {
-	if handler == nil || handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region, ids, ok := parseCharacterBatchRequest(c, character2DBatchLimit, "region and 1 to 100 character2d ids are required")
+	region, ids, ok := handler.prepareCharacterBatch(c, "character2ds", character2DBatchLimit, "region and 1 to 100 character2d ids are required")
 	if !ok {
-		return
-	}
-
-	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "character2ds") {
 		return
 	}
 

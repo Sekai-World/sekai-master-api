@@ -1,16 +1,10 @@
 package lookups
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
-
-	"github.com/gin-gonic/gin"
 )
 
 func TestCharacter2DsBatchReturnsOrderedMappingsAndMissingIDs(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache := &fakeLookupCache{
 		byID: map[string]map[string]map[string]map[string]any{"jp": {"character2ds": {
 			"1180": {"id": 1180, "characterType": "game_character", "isNextGrade": false, "characterId": 13, "unit": "theme_park", "isEnabledFlipDisplay": true, "assetName": "13tsukasa"},
@@ -18,60 +12,24 @@ func TestCharacter2DsBatchReturnsOrderedMappingsAndMissingIDs(t *testing.T) {
 		}}},
 		hasRecords: map[string]map[string]bool{"jp": {"character2ds": true}},
 	}
-	router := gin.New()
-	router.GET("/character2ds/:region/batch", newReadyLookupHandler(cache).Character2DsBatch)
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/character2ds/jp/batch?ids=1197,1180,1197,9999", nil)
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	body := serveCharacterBatchRequest(t, "/character2ds/:region/batch", newReadyLookupHandler(cache).Character2DsBatch, "/character2ds/jp/batch?ids=1197,1180,1197,9999")
+	assertCharacterBatchItems(t, body, []int64{1197, 1180}, []int64{26, 13}, []int64{9999})
+	if body.Items[0]["characterType"] != "game_character" || body.Items[0]["unit"] != "piapro" || body.Items[0]["assetName"] != "26kaito" || body.Items[0]["isNextGrade"] != false || body.Items[0]["isEnabledFlipDisplay"] != true {
+		t.Fatalf("unexpected first item: %#v", body.Items[0])
 	}
-	var body struct {
-		Items []struct {
-			ID                   int64  `json:"id"`
-			GameCharacterID      int64  `json:"gameCharacterId"`
-			CharacterType        string `json:"characterType"`
-			Unit                 string `json:"unit"`
-			AssetName            string `json:"assetName"`
-			IsNextGrade          *bool  `json:"isNextGrade"`
-			IsEnabledFlipDisplay *bool  `json:"isEnabledFlipDisplay"`
-		} `json:"items"`
-		MissingIDs []int64 `json:"missingIds"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if len(body.Items) != 2 || body.Items[0].ID != 1197 || body.Items[0].GameCharacterID != 26 || body.Items[0].CharacterType != "game_character" || body.Items[0].Unit != "piapro" || body.Items[0].AssetName != "26kaito" || body.Items[0].IsNextGrade == nil || *body.Items[0].IsNextGrade || body.Items[0].IsEnabledFlipDisplay == nil || !*body.Items[0].IsEnabledFlipDisplay || body.Items[1].ID != 1180 || body.Items[1].GameCharacterID != 13 || body.Items[1].CharacterType != "game_character" || body.Items[1].Unit != "theme_park" || body.Items[1].AssetName != "13tsukasa" {
-		t.Fatalf("unexpected items: %#v", body.Items)
-	}
-	if len(body.MissingIDs) != 1 || body.MissingIDs[0] != 9999 {
-		t.Fatalf("unexpected missing ids: %#v", body.MissingIDs)
+	if body.Items[1]["characterType"] != "game_character" || body.Items[1]["unit"] != "theme_park" || body.Items[1]["assetName"] != "13tsukasa" {
+		t.Fatalf("unexpected second item: %#v", body.Items[1])
 	}
 }
 
 func TestCharacter2DsBatchOmitsFieldsAbsentFromTCRecords(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache := &fakeLookupCache{
 		byID: map[string]map[string]map[string]map[string]any{"en": {"character2ds": {
 			"32": {"id": 32, "characterType": "mob", "characterId": 1, "unit": "none"},
 		}}},
 		hasRecords: map[string]map[string]bool{"en": {"character2ds": true}},
 	}
-	router := gin.New()
-	router.GET("/character2ds/:region/batch", newReadyLookupHandler(cache).Character2DsBatch)
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/character2ds/en/batch?ids=32", nil)
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
-	}
-
-	var body struct {
-		Items []map[string]any `json:"items"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
+	body := serveCharacterBatchRequest(t, "/character2ds/:region/batch", newReadyLookupHandler(cache).Character2DsBatch, "/character2ds/en/batch?ids=32")
 	if len(body.Items) != 1 {
 		t.Fatalf("expected one item, got %#v", body.Items)
 	}
@@ -87,7 +45,6 @@ func TestCharacter2DsBatchOmitsFieldsAbsentFromTCRecords(t *testing.T) {
 }
 
 func TestCharacter2DsBatchResolvesTypeSpecificDisplayNames(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	cache := &fakeLookupCache{
 		byID: map[string]map[string]map[string]map[string]any{"jp": {
 			"character2ds": {
@@ -111,21 +68,7 @@ func TestCharacter2DsBatchResolvesTypeSpecificDisplayNames(t *testing.T) {
 		}},
 		hasRecords: map[string]map[string]bool{"jp": {"character2ds": true}},
 	}
-	router := gin.New()
-	router.GET("/character2ds/:region/batch", newReadyLookupHandler(cache).Character2DsBatch)
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/character2ds/jp/batch?ids=10,11,12,13,14", nil)
-	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
-	}
-
-	var body struct {
-		Items []map[string]any `json:"items"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
+	body := serveCharacterBatchRequest(t, "/character2ds/:region/batch", newReadyLookupHandler(cache).Character2DsBatch, "/character2ds/jp/batch?ids=10,11,12,13,14")
 	if len(body.Items) != 5 {
 		t.Fatalf("expected five items, got %#v", body.Items)
 	}
@@ -149,16 +92,5 @@ func TestCharacter2DsBatchResolvesTypeSpecificDisplayNames(t *testing.T) {
 }
 
 func TestCharacter2DsBatchRejectsInvalidIDs(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	handler := newReadyLookupHandler(&fakeLookupCache{})
-	for _, query := range []string{"", "0", "bad", "1,,2"} {
-		router := gin.New()
-		router.GET("/character2ds/:region/batch", handler.Character2DsBatch)
-		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodGet, "/character2ds/jp/batch?ids="+query, nil)
-		router.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusBadRequest {
-			t.Fatalf("query %q: expected 400, got %d", query, recorder.Code)
-		}
-	}
+	assertCharacterBatchRejectsInvalidIDs(t, "/character2ds/:region/batch", newReadyLookupHandler(&fakeLookupCache{}).Character2DsBatch, "/character2ds/jp/batch")
 }
