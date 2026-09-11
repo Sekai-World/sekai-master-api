@@ -35,27 +35,9 @@ func (handler *LookupHandler) Character3DsBatch(c *gin.Context) {
 		return
 	}
 
-	region := strings.TrimSpace(c.Param("region"))
-	parts := strings.Split(c.Query("ids"), ",")
-	if region == "" || len(parts) == 0 || len(parts) > character3DBatchLimit {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and 1 to 100 character3d ids are required")
+	region, ids, ok := parseCharacterBatchRequest(c, character3DBatchLimit, "region and 1 to 100 character3d ids are required")
+	if !ok {
 		return
-	}
-
-	ids := make([]int64, 0, len(parts))
-	seen := make(map[int64]struct{}, len(parts))
-	for _, part := range parts {
-		value := strings.TrimSpace(part)
-		id, err := strconv.ParseInt(value, 10, 64)
-		if err != nil || id <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "ids must contain positive integers")
-			return
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
 	}
 
 	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "character3ds") {

@@ -53,33 +53,6 @@ func (handler *LookupHandler) resolveCharacter2DDisplayName(ctx context.Context,
 	return strings.Join(nameParts, " ")
 }
 
-func parseCharacter2DBatchRequest(c *gin.Context) (string, []int64, bool) {
-	region := strings.TrimSpace(c.Param("region"))
-	parts := strings.Split(c.Query("ids"), ",")
-	if region == "" || len(parts) == 0 || len(parts) > character2DBatchLimit {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and 1 to 100 character2d ids are required")
-		return "", nil, false
-	}
-
-	ids := make([]int64, 0, len(parts))
-	seen := make(map[int64]struct{}, len(parts))
-	for _, part := range parts {
-		value := strings.TrimSpace(part)
-		id, err := strconv.ParseInt(value, 10, 64)
-		if err != nil || id <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "ids must contain positive integers")
-			return "", nil, false
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-
-	return region, ids, true
-}
-
 func (handler *LookupHandler) loadCharacter2DBatchItems(ctx context.Context, region string, ids []int64) ([]shared.Character2DBatchItem, []int64, error) {
 	items := make([]shared.Character2DBatchItem, 0, len(ids))
 	missingIDs := make([]int64, 0)
@@ -144,7 +117,7 @@ func (handler *LookupHandler) Character2DsBatch(c *gin.Context) {
 		return
 	}
 
-	region, ids, ok := parseCharacter2DBatchRequest(c)
+	region, ids, ok := parseCharacterBatchRequest(c, character2DBatchLimit, "region and 1 to 100 character2d ids are required")
 	if !ok {
 		return
 	}
