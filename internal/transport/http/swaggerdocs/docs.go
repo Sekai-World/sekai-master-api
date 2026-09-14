@@ -1878,6 +1878,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/game-news/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gameNews"
+                ],
+                "summary": "List current game news",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include all game news records",
+                        "name": "includeAll",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GameNewsListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/gameCharacterUnits/regions/{id}/availability": {
             "get": {
                 "produces": [
@@ -4940,6 +4992,42 @@ const docTemplate = `{
                 "gameCharacterId": {},
                 "id": {},
                 "unit": {}
+            }
+        },
+        "shared.GameNewsItemResponse": {
+            "type": "object",
+            "required": [
+                "startAt"
+            ],
+            "properties": {
+                "bannerAssetbundleName": {},
+                "browseType": {},
+                "displayOrder": {},
+                "endAt": {
+                    "type": "integer",
+                    "x-nullable": true
+                },
+                "id": {},
+                "informationTag": {},
+                "informationType": {},
+                "path": {},
+                "platform": {},
+                "seq": {},
+                "startAt": {
+                    "type": "integer"
+                },
+                "title": {}
+            }
+        },
+        "shared.GameNewsListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.GameNewsItemResponse"
+                    }
+                }
             }
         },
         "shared.GenericObjectResponse": {
