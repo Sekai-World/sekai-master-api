@@ -780,3 +780,229 @@ func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *te
 		})
 	}
 }
+
+func TestStoryLookupListEndpointsReturnPaginatedRecords(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		byID: map[string]map[string]map[string]map[string]any{},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"unitstories": {
+					{"unit": "idol", "seq": 1, "chapters": []any{}},
+					{"unit": "mmj", "seq": 2, "chapters": []any{}},
+				},
+				"eventstories": {
+					{"id": 1, "eventId": 34, "eventStoryEpisodes": []any{}},
+				},
+				"characterprofiles": {
+					{"characterId": 1, "scenarioId": "char_1"},
+				},
+				"cardepisodes": {
+					{"id": 10, "cardId": 3, "seq": 1, "title": "EP1"},
+				},
+				"actionsets": {
+					{"id": 100, "areaId": 3, "scenarioId": "area3_set1"},
+				},
+				"specialstories": {
+					{"id": 1, "seq": 1, "title": "Bout for Blessing", "startAt": 1000, "endAt": 2000, "episodes": []any{}},
+				},
+				"character2ds": {
+					{"id": 5, "characterId": 1, "characterType": "game_character"},
+				},
+				"mobcharacters": {
+					{"id": 20, "seq": 1, "name": "Mob"},
+				},
+				"subgamecharacters": {
+					{"id": 30, "seq": 1, "name": "Sub"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/unitStories/:region/list", handler.UnitStoriesList)
+	router.GET("/api/v1/eventStories/:region/list", handler.EventStoriesList)
+	router.GET("/api/v1/characterProfiles/:region/list", handler.CharacterProfilesList)
+	router.GET("/api/v1/cardEpisodes/:region/list", handler.CardEpisodesList)
+	router.GET("/api/v1/actionSets/:region/list", handler.ActionSetsList)
+	router.GET("/api/v1/specialStories/:region/list", handler.SpecialStoriesList)
+	router.GET("/api/v1/character2ds/:region/list", handler.Character2DsList)
+	router.GET("/api/v1/mobCharacters/:region/list", handler.MobCharactersList)
+	router.GET("/api/v1/subGameCharacters/:region/list", handler.SubGameCharactersList)
+
+	testCases := []struct {
+		name          string
+		path          string
+		expectedTotal int
+		expectedItem  map[string]any
+	}{
+		{name: "unit stories", path: "/api/v1/unitStories/jp/list", expectedTotal: 2, expectedItem: map[string]any{"unit": "idol"}},
+		{name: "event stories", path: "/api/v1/eventStories/jp/list", expectedTotal: 1, expectedItem: map[string]any{"eventId": float64(34)}},
+		{name: "character profiles", path: "/api/v1/characterProfiles/jp/list", expectedTotal: 1, expectedItem: map[string]any{"characterId": float64(1)}},
+		{name: "card episodes", path: "/api/v1/cardEpisodes/jp/list", expectedTotal: 1, expectedItem: map[string]any{"cardId": float64(3)}},
+		{name: "action sets", path: "/api/v1/actionSets/jp/list", expectedTotal: 1, expectedItem: map[string]any{"areaId": float64(3)}},
+		{name: "special stories", path: "/api/v1/specialStories/jp/list", expectedTotal: 1, expectedItem: map[string]any{"title": "Bout for Blessing"}},
+		{name: "character 2Ds", path: "/api/v1/character2ds/jp/list", expectedTotal: 1, expectedItem: map[string]any{"characterId": float64(1)}},
+		{name: "mob characters", path: "/api/v1/mobCharacters/jp/list", expectedTotal: 1, expectedItem: map[string]any{"name": "Mob"}},
+		{name: "sub game characters", path: "/api/v1/subGameCharacters/jp/list", expectedTotal: 1, expectedItem: map[string]any{"name": "Sub"}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			var body struct {
+				Items      []map[string]any `json:"items"`
+				Pagination struct {
+					Total int `json:"total"`
+				} `json:"pagination"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if body.Pagination.Total != testCase.expectedTotal {
+				t.Fatalf("expected total %d, got %d", testCase.expectedTotal, body.Pagination.Total)
+			}
+			if len(body.Items) != testCase.expectedTotal {
+				t.Fatalf("expected %d items, got %d", testCase.expectedTotal, len(body.Items))
+			}
+			for key, value := range testCase.expectedItem {
+				if body.Items[0][key] != value {
+					t.Fatalf("expected item %s=%v, got %v", key, value, body.Items[0][key])
+				}
+			}
+		})
+	}
+}
+
+func TestStoryLookupListEndpointsExpandTopLevelReleaseCondition(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	releaseCondition := map[string]any{"id": 5, "releaseConditionType": "story_event"}
+	cache := &fakeLookupCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"releaseconditions": {
+					"5": releaseCondition,
+				},
+			},
+		},
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"cardepisodes": {
+					{"id": 10, "cardId": 3, "releaseConditionId": 5},
+				},
+				"actionsets": {
+					{"id": 100, "areaId": 3, "releaseConditionId": 5},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/cardEpisodes/:region/list", handler.CardEpisodesList)
+	router.GET("/api/v1/actionSets/:region/list", handler.ActionSetsList)
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{name: "card episodes", path: "/api/v1/cardEpisodes/jp/list"},
+		{name: "action sets", path: "/api/v1/actionSets/jp/list"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			var body struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if len(body.Items) != 1 {
+				t.Fatalf("expected 1 item, got %d", len(body.Items))
+			}
+			item := body.Items[0]
+			if _, exposed := item["releaseConditionId"]; exposed {
+				t.Fatalf("expected releaseConditionId to be expanded, got %v", item)
+			}
+			expanded, ok := item["releaseCondition"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected expanded releaseCondition object, got %v", item["releaseCondition"])
+			}
+			if expanded["releaseConditionType"] != "story_event" {
+				t.Fatalf("expected releaseCondition content from releaseconditions entity, got %v", expanded)
+			}
+		})
+	}
+}
+
+func TestSpecialStoriesListEndpointFiltersUnreleasedByDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"specialstories": {
+					{"id": 1, "seq": 1, "title": "Released", "startAt": 1000, "endAt": 2000},
+					{"id": 2, "seq": 2, "title": "Unreleased", "startAt": 9999999999999, "endAt": 99999999999999},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/specialStories/:region/list", handler.SpecialStoriesList)
+
+	testCases := []struct {
+		name          string
+		query         string
+		expectedTotal int
+	}{
+		{name: "default filters unreleased", query: "", expectedTotal: 1},
+		{name: "spoiler includes unreleased", query: "?spoiler=true", expectedTotal: 2},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/specialStories/jp/list"+testCase.query, nil)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			var body struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			if len(body.Items) != testCase.expectedTotal {
+				t.Fatalf("expected %d items, got %d: %v", testCase.expectedTotal, len(body.Items), body.Items)
+			}
+			if testCase.expectedTotal == 1 && body.Items[0]["title"] != "Released" {
+				t.Fatalf("expected only the released story, got %v", body.Items[0])
+			}
+		})
+	}
+}

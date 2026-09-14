@@ -49,6 +49,11 @@ type RecordItemsResponse struct {
 	Items []map[string]any `json:"items"`
 }
 
+type GenericRecordListResponse struct {
+	Items      []map[string]any   `json:"items"`
+	Pagination PaginationResponse `json:"pagination"`
+}
+
 type WorldBloomListResponse struct {
 	Items      []map[string]any   `json:"items"`
 	Pagination PaginationResponse `json:"pagination"`

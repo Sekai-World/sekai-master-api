@@ -20,11 +20,12 @@ type LookupHandler struct {
 }
 
 type lookupResourceConfig struct {
-	entity         string
-	queryErrorCode string
-	notFoundCode   string
-	resourceLabel  string
-	sortableFields []string
+	entity                 string
+	queryErrorCode         string
+	notFoundCode           string
+	resourceLabel          string
+	sortableFields         []string
+	expandReleaseCondition bool
 }
 
 var unitProfilesConfig = lookupResourceConfig{
@@ -64,6 +65,80 @@ var worldBloomsConfig = lookupResourceConfig{
 	notFoundCode:   "WORLD_BLOOM_NOT_FOUND",
 	resourceLabel:  "world bloom",
 	sortableFields: []string{"id", "eventId", "startAt", "endAt"},
+}
+
+var unitStoriesConfig = lookupResourceConfig{
+	entity:         "unitstories",
+	queryErrorCode: "UNIT_STORY_QUERY_ERROR",
+	notFoundCode:   "UNIT_STORY_NOT_FOUND",
+	resourceLabel:  "unit story",
+	sortableFields: []string{"unit", "seq"},
+}
+
+var eventStoriesConfig = lookupResourceConfig{
+	entity:         "eventstories",
+	queryErrorCode: "EVENT_STORY_QUERY_ERROR",
+	notFoundCode:   "EVENT_STORY_NOT_FOUND",
+	resourceLabel:  "event story",
+	sortableFields: []string{"id", "eventId"},
+}
+
+var characterProfilesConfig = lookupResourceConfig{
+	entity:         "characterprofiles",
+	queryErrorCode: "CHARACTER_PROFILE_QUERY_ERROR",
+	notFoundCode:   "CHARACTER_PROFILE_NOT_FOUND",
+	resourceLabel:  "character profile",
+	sortableFields: []string{"characterId"},
+}
+
+var cardEpisodesConfig = lookupResourceConfig{
+	entity:                 "cardepisodes",
+	queryErrorCode:         "CARD_EPISODE_QUERY_ERROR",
+	notFoundCode:           "CARD_EPISODE_NOT_FOUND",
+	resourceLabel:          "card episode",
+	sortableFields:         []string{"id", "cardId", "seq"},
+	expandReleaseCondition: true,
+}
+
+var actionSetsConfig = lookupResourceConfig{
+	entity:                 "actionsets",
+	queryErrorCode:         "ACTION_SET_QUERY_ERROR",
+	notFoundCode:           "ACTION_SET_NOT_FOUND",
+	resourceLabel:          "action set",
+	sortableFields:         []string{"id", "areaId"},
+	expandReleaseCondition: true,
+}
+
+var specialStoriesConfig = lookupResourceConfig{
+	entity:         "specialstories",
+	queryErrorCode: "SPECIAL_STORY_QUERY_ERROR",
+	notFoundCode:   "SPECIAL_STORY_NOT_FOUND",
+	resourceLabel:  "special story",
+	sortableFields: []string{"id", "seq", "startAt", "endAt"},
+}
+
+var character2DsConfig = lookupResourceConfig{
+	entity:         "character2ds",
+	queryErrorCode: "CHARACTER_2D_QUERY_ERROR",
+	notFoundCode:   "CHARACTER_2D_NOT_FOUND",
+	resourceLabel:  "character 2D",
+	sortableFields: []string{"id", "characterId"},
+}
+
+var mobCharactersConfig = lookupResourceConfig{
+	entity:         "mobcharacters",
+	queryErrorCode: "MOB_CHARACTER_QUERY_ERROR",
+	notFoundCode:   "MOB_CHARACTER_NOT_FOUND",
+	resourceLabel:  "mob character",
+	sortableFields: []string{"id", "seq"},
+}
+
+var subGameCharactersConfig = lookupResourceConfig{
+	entity:         "subgamecharacters",
+	queryErrorCode: "SUB_GAME_CHARACTER_QUERY_ERROR",
+	notFoundCode:   "SUB_GAME_CHARACTER_NOT_FOUND",
+	resourceLabel:  "sub game character",
+	sortableFields: []string{"id", "seq"},
 }
 
 func NewLookupHandler(masterDataSync *usecase.MasterDataSyncUsecase) *LookupHandler {
@@ -401,6 +476,177 @@ func (handler *LookupHandler) WorldBloomsList(c *gin.Context) {
 	handler.list(c, worldBloomsConfig)
 }
 
+// UnitStoriesList godoc
+// @Summary List unit stories by page
+// @Tags unitStories
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /unitStories/{region}/list [get]
+func (handler *LookupHandler) UnitStoriesList(c *gin.Context) {
+	handler.list(c, unitStoriesConfig)
+}
+
+// EventStoriesList godoc
+// @Summary List event stories by page
+// @Tags eventStories
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /eventStories/{region}/list [get]
+func (handler *LookupHandler) EventStoriesList(c *gin.Context) {
+	handler.list(c, eventStoriesConfig)
+}
+
+// CharacterProfilesList godoc
+// @Summary List character profiles by page
+// @Tags characterProfiles
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /characterProfiles/{region}/list [get]
+func (handler *LookupHandler) CharacterProfilesList(c *gin.Context) {
+	handler.list(c, characterProfilesConfig)
+}
+
+// CardEpisodesList godoc
+// @Summary List card episodes by page
+// @Tags cardEpisodes
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /cardEpisodes/{region}/list [get]
+func (handler *LookupHandler) CardEpisodesList(c *gin.Context) {
+	handler.list(c, cardEpisodesConfig)
+}
+
+// ActionSetsList godoc
+// @Summary List action sets by page
+// @Tags actionSets
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /actionSets/{region}/list [get]
+func (handler *LookupHandler) ActionSetsList(c *gin.Context) {
+	handler.list(c, actionSetsConfig)
+}
+
+// SpecialStoriesList godoc
+// @Summary List special stories by page
+// @Tags specialStories
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /specialStories/{region}/list [get]
+func (handler *LookupHandler) SpecialStoriesList(c *gin.Context) {
+	handler.list(c, specialStoriesConfig)
+}
+
+// Character2DsList godoc
+// @Summary List character 2Ds by page
+// @Tags character2ds
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /character2ds/{region}/list [get]
+func (handler *LookupHandler) Character2DsList(c *gin.Context) {
+	handler.list(c, character2DsConfig)
+}
+
+// MobCharactersList godoc
+// @Summary List mob characters by page
+// @Tags mobCharacters
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /mobCharacters/{region}/list [get]
+func (handler *LookupHandler) MobCharactersList(c *gin.Context) {
+	handler.list(c, mobCharactersConfig)
+}
+
+// SubGameCharactersList godoc
+// @Summary List sub game characters by page
+// @Tags subGameCharacters
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /subGameCharacters/{region}/list [get]
+func (handler *LookupHandler) SubGameCharactersList(c *gin.Context) {
+	handler.list(c, subGameCharactersConfig)
+}
+
 func (handler *LookupHandler) byID(c *gin.Context, config lookupResourceConfig) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
@@ -513,7 +759,7 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      pagedRecords,
+			"items":      handler.expandRecords(c.Request.Context(), region, config, pagedRecords),
 			"pagination": pagination,
 		})
 		return
@@ -531,7 +777,7 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
-		"items": records,
+		"items": handler.expandRecords(c.Request.Context(), region, config, records),
 		"pagination": gin.H{
 			"page":        page,
 			"page_size":   pageSize,
@@ -540,6 +786,21 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 			"has_next":    page < totalPages,
 		},
 	})
+}
+
+// expandRecords expands the top-level releaseConditionId on each record of
+// the current page only, so release condition lookups stay bounded by the
+// page size even for large collections.
+func (handler *LookupHandler) expandRecords(ctx context.Context, region string, config lookupResourceConfig, records []map[string]any) []map[string]any {
+	if !config.expandReleaseCondition {
+		return records
+	}
+
+	expanded := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		expanded = append(expanded, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record))
+	}
+	return expanded
 }
 
 func (handler *LookupHandler) ensureRegionReady(c *gin.Context, region string) bool {
