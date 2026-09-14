@@ -431,15 +431,15 @@ export const initDashboardPage = async () => {
     statusRefreshTimer = setTimeout(async () => {
       statusRefreshTimer = null;
       await loadMasterDataStatus();
-  await loadLeaseDiagnostics();
-  const leaseRefreshTimer = setInterval(() => {
-    void loadLeaseDiagnostics().catch(() => {});
-  }, 10000);
-  window.addEventListener("beforeunload", () => clearInterval(leaseRefreshTimer));
     }, 200);
   };
 
   await loadMasterDataStatus();
+
+  void loadLeaseDiagnostics().catch(() => {});
+  const leaseRefreshTimer = setInterval(() => {
+    void loadLeaseDiagnostics().catch(() => {});
+  }, 10000);
 
   let syncStatusPollTimer = null;
   const stopSyncStatusPolling = () => {
@@ -525,6 +525,7 @@ export const initDashboardPage = async () => {
       clearTimeout(statusRefreshTimer);
       statusRefreshTimer = null;
     }
+    clearInterval(leaseRefreshTimer);
     eventSource.close();
   });
 
