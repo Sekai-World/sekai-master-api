@@ -134,8 +134,9 @@ expect_count "$RENDER" "kind: Ingress" 0 "Ingress resources"
 expect_count "$RENDER" "kind: Job" 0 "migration Job"
 expect_contains "$RENDER" "value: \"development\"" "APP_ENV=development"
 expect_contains "$RENDER" "value: \"sqlite\"" "SQLite storage driver"
-expect_contains "$RENDER" "type: RollingUpdate" "control RollingUpdate under coordination (development profile)"
-expect_not_contains "$RENDER" "type: Recreate" "no Recreate strategy under coordination (development profile)"
+expect_contains "$RENDER" "MASTER_DATA_SYNC_LEASE_ENABLED" "sync lease env injected (development profile)"
+expect_contains "$RENDER" "value: \"false\"" "MASTER_DATA_SYNC_LEASE_ENABLED=false (development profile)"
+expect_count "$RENDER" "type: Recreate" 1 "single Recreate-upgraded control without coordination (development profile)"
 
 # --- Schema enforcement (unsafe values must fail) ----------------------------
 

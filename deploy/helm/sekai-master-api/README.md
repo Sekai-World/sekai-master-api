@@ -217,11 +217,13 @@ active-sync admission is process-local, so the schema rejects
 `control.coordination.enabled: true` is the multi-replica capability for
 **test environments**: it relaxes the schema (any `replicaCount >= 1`) and
 switches the Deployment to `RollingUpdate`. It requires the app-level lease
-to be active (`MASTER_DATA_SYNC_LEASE_ENABLED`, on by default) — the
-PostgreSQL lease and fencing token coordinate sync ownership across pods
-(see `docs/distributed-sync-coordination.md`). Production keeps this `false`
-(`values-production.yaml`) and runs one `Recreate`-upgraded control pod.
-Deploy `control`, populate Redis, and only then route traffic to `serve`.
+(`MASTER_DATA_SYNC_LEASE_ENABLED`) — the PostgreSQL lease and fencing token
+coordinate sync ownership across pods (see
+`docs/distributed-sync-coordination.md`). Both tracked value sets keep
+coordination off and run one `Recreate`-upgraded control pod; the
+coordinated render is exercised by `scripts/helm-verify.sh` through `--set`
+overrides. Deploy `control`, populate Redis, and only then route traffic to
+`serve`.
 
 ### Production safety profile
 

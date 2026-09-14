@@ -7,24 +7,29 @@
 #     -f values-development.yaml \
 #     -f values-dev.local.yaml
 #
-# Single serve replica, no public exposure, SQLite storage, and no migration
-# hook — the same shape as the host-based development workflow
-# (docs/development.md).
+# Single serve replica, no public exposure, SQLite storage, no migration
+# hook, and no cross-pod sync coordination — the same shape as the
+# host-based development workflow (docs/development.md).
 
 common:
   env:
     APP_ENV: development
     DATABASE_DRIVER: sqlite
+    # Development runs a single control pod, so the PostgreSQL sync lease has
+    # no one to coordinate with; the admin dashboard lease card then renders
+    # the explicit uncoordinated (single-instance) state.
+    MASTER_DATA_SYNC_LEASE_ENABLED: "false"
 
 serve:
   replicaCount: 1
 
-# Development exercises the coordinated (multi-replica-capable) control mode:
-# RollingUpdate instead of Recreate, replicaCount may exceed 1. Production
-# keeps coordination disabled (see values-production.yaml).
+# Development keeps the production-like single-replica control posture:
+# coordination disabled, Recreate upgrades. The coordinated multi-replica
+# mode stays a chart capability exercised by helm-verify through --set
+# overrides.
 control:
   coordination:
-    enabled: true
+    enabled: false
 
 ingress:
   public:
