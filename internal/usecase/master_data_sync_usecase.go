@@ -269,6 +269,13 @@ func (usecase *MasterDataSyncUsecase) SyncLeaseState(ctx context.Context) (maste
 	return usecase.leaseCoordinator.State(ctx)
 }
 
+// SyncLeaseCoordinationEnabled reports whether a cross-pod lease coordinator
+// is configured for this process. Diagnostics surfaces render the explicit
+// single-instance (uncoordinated) state when it is not.
+func (usecase *MasterDataSyncUsecase) SyncLeaseCoordinationEnabled() bool {
+	return usecase != nil && usecase.leaseCoordinator != nil
+}
+
 // SetLifecycleContext registers the application lifecycle context used to cancel
 // long-running background sync workers (admin StartSync, webhook SyncRegion)
 // during graceful shutdown. A nil context disables lifecycle cancellation and

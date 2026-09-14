@@ -5116,7 +5116,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "lease": {
-                    "$ref": "#/definitions/shared.MasterDataLease"
+                    "description": "null when sync lease coordination is disabled",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/shared.MasterDataLease"
+                        }
+                    ]
                 },
                 "status": {
                     "type": "string"

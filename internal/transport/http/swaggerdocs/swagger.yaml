@@ -1018,7 +1018,9 @@ definitions:
   shared.MasterDataLeaseResponse:
     properties:
       lease:
-        $ref: '#/definitions/shared.MasterDataLease'
+        allOf:
+        - $ref: '#/definitions/shared.MasterDataLease'
+        description: null when sync lease coordination is disabled
       status:
         type: string
     type: object

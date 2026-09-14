@@ -367,17 +367,38 @@ export const initDashboardPage = async () => {
       ? infoItem("Claim 命中", authDebug.matched_values.join(", "))
       : "");
 
+  // Lease values come from the API response, so build the card with DOM
+  // APIs (textContent) instead of innerHTML templates — safe by
+  // construction rather than by escaping (jssecurity:S5696).
+  const setLeaseItems = (items) => {
+    const fragment = document.createDocumentFragment();
+    for (const [label, value, valueClass = ""] of items) {
+      const item = document.createElement("div");
+      item.className = "profile-item";
+      const labelElement = document.createElement("span");
+      labelElement.className = "profile-label";
+      labelElement.textContent = label;
+      const valueElement = document.createElement("span");
+      valueElement.className = valueClass ? `profile-value ${valueClass}` : "profile-value";
+      valueElement.textContent = value || "-";
+      item.append(labelElement, valueElement);
+      fragment.appendChild(item);
+    }
+    leaseView.replaceChildren(fragment);
+  };
+
   const renderLease = (lease) => {
     if (!lease) {
-      leaseView.innerHTML = infoItem("同步租约", "未启用协调（单实例模式）");
+      setLeaseItems([["同步租约", "未启用协调（单实例模式）"]]);
       return;
     }
     const expires = lease.expires_at ? new Date(lease.expires_at).toLocaleString() : "-";
-    leaseView.innerHTML =
-      infoItem("租约状态", lease.held ? "被持有" : "空闲", lease.held ? "status-pending" : "status-up") +
-      infoItem("当前持有者", lease.holder) +
-      infoItem("Fencing Token", lease.token > 0 ? String(lease.token) : "-") +
-      infoItem("过期时间", lease.held ? expires : "-");
+    setLeaseItems([
+      ["租约状态", lease.held ? "被持有" : "空闲", lease.held ? "status-pending" : "status-up"],
+      ["当前持有者", lease.holder],
+      ["Fencing Token", lease.token > 0 ? String(lease.token) : "-"],
+      ["过期时间", lease.held ? expires : "-"],
+    ]);
   };
 
   const loadLeaseDiagnostics = async () => {
@@ -388,7 +409,7 @@ export const initDashboardPage = async () => {
       return;
     }
     if (!leaseResult.ok) {
-      leaseView.innerHTML = infoItem("同步租约", "加载租约状态失败");
+      setLeaseItems([["同步租约", "加载租约状态失败"]]);
       return;
     }
     renderLease(leaseResult.payload?.lease);
@@ -431,15 +452,15 @@ export const initDashboardPage = async () => {
     statusRefreshTimer = setTimeout(async () => {
       statusRefreshTimer = null;
       await loadMasterDataStatus();
-  await loadLeaseDiagnostics();
-  const leaseRefreshTimer = setInterval(() => {
-    void loadLeaseDiagnostics().catch(() => {});
-  }, 10000);
-  window.addEventListener("beforeunload", () => clearInterval(leaseRefreshTimer));
     }, 200);
   };
 
   await loadMasterDataStatus();
+
+  void loadLeaseDiagnostics().catch(() => {});
+  const leaseRefreshTimer = setInterval(() => {
+    void loadLeaseDiagnostics().catch(() => {});
+  }, 10000);
 
   let syncStatusPollTimer = null;
   const stopSyncStatusPolling = () => {
@@ -525,6 +546,7 @@ export const initDashboardPage = async () => {
       clearTimeout(statusRefreshTimer);
       statusRefreshTimer = null;
     }
+    clearInterval(leaseRefreshTimer);
     eventSource.close();
   });
 
