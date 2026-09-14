@@ -65,10 +65,10 @@ func (handler *GameNewsHandler) List(c *gin.Context) {
 	if records == nil {
 		records = []map[string]any{}
 	}
+	records = normalizeGameNewsRecords(records)
 	if !includeAll {
 		records = filterCurrentGameNews(records, time.Now().UTC())
 	}
-	records = normalizeGameNewsRecords(records)
 
 	response.JSON(c, http.StatusOK, gin.H{"items": records})
 }

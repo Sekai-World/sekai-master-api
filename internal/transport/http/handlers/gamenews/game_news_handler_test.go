@@ -160,11 +160,14 @@ func TestGameNewsListReturnsCurrentRecordsByDefault(t *testing.T) {
 	}
 
 	items := decodeGameNewsItems(t, resp)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 current records, got %d", len(items))
+	if len(items) != 3 {
+		t.Fatalf("expected 3 current records, got %d", len(items))
 	}
-	if items[0]["id"] != float64(1) || items[1]["id"] != float64(2) {
-		t.Fatalf("expected current ids [1 2], got %v", items)
+	if items[0]["id"] != float64(1) || items[1]["id"] != float64(2) || items[2]["id"] != float64(7) {
+		t.Fatalf("expected current ids [1 2 7], got %v", items)
+	}
+	if _, exists := items[2]["endAt"]; exists {
+		t.Fatalf("expected malformed optional endAt to be omitted: %v", items[2])
 	}
 }
 
