@@ -47,23 +47,6 @@ else
 fi
 '''
 
-[tasks.dev-logs-ui]
-description = "Open the local Grafana UI"
-run = '''
-url="${DEV_GRAFANA_URL:-http://grafana.sekai-master-api.orb.local}"
-browser_cmd="${BROWSER:-}"
-if [ -n "$browser_cmd" ]; then
-  "$browser_cmd" "$url"
-elif command -v open >/dev/null 2>&1; then
-  open "$url"
-elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "$url"
-else
-  echo "No browser launcher found. Set BROWSER to your browser command." >&2
-  exit 1
-fi
-'''
-
 [tasks.run-standalone]
 description = "Run the monolithic standalone API role (public + admin) on APP_PORT (default 18080)"
 run = "go run -buildvcs=false ./cmd/api standalone"
@@ -75,23 +58,6 @@ run = "APP_PORT=${APP_PORT_SERVE:-18080} go run -buildvcs=false ./cmd/api serve"
 [tasks.run-control]
 description = "Run the operational/admin role (admin UI/API, migrations/sync; no public queries) on APP_PORT_CONTROL (default 18081)"
 run = "APP_PORT=${APP_PORT_CONTROL:-18081} go run -buildvcs=false ./cmd/api control"
-
-[tasks.dev-split]
-description = "Run the split serve + control roles locally with the dev dependency stack"
-run = '''
-mise run --skip-tools dev-env-up
-mise run --skip-tools run-serve &
-serve_pid=$!
-mise run --skip-tools run-control &
-control_pid=$!
-
-cleanup() {
-  kill "$serve_pid" "$control_pid" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
-
-wait "$serve_pid" "$control_pid"
-'''
 
 [tasks.helm-verify]
 description = "Verify Helm chart lint/template for defaults, production, and development values"

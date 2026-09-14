@@ -2,29 +2,10 @@
 
 set -eu
 
-repo_root() {
-  git rev-parse --show-toplevel 2>/dev/null || pwd
-}
-
 load_defaults() {
   APP_NAME="${APP_NAME:-sekai-master-api}"
-  COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose/dev-compose.yaml}"
   APP_PORT="${APP_PORT:-18080}"
-  KEYCLOAK_PORT="${KEYCLOAK_PORT:-18081}"
-  LOKI_PORT="${LOKI_PORT:-3100}"
   COMPOSE_HOST="${COMPOSE_HOST:-host.docker.internal}"
-  DEV_APP_IMAGE="${DEV_APP_IMAGE:-sekai/sekai-master-api-dev:local}"
-  DEV_APP_CONTAINER="${DEV_APP_CONTAINER:-sekai-master-api-dev}"
-  DEV_APP_VOLUME="${DEV_APP_VOLUME:-sekai-master-api-dev-data}"
-  DEV_APP_NETWORK="${DEV_APP_NETWORK:-sekai-dev}"
-  DEV_APP_INTERNAL_PORT="${DEV_APP_INTERNAL_PORT:-8080}"
-  DEV_APP_MEMORY="${DEV_APP_MEMORY:-2g}"
-  # Soft limit sits below the 2g container hard limit; keep ~256MiB headroom for stacks/cgo to avoid GC thrash during syncs.
-  DEV_APP_GOMEMLIMIT="${DEV_APP_GOMEMLIMIT:-1792MiB}"
-  DEV_REDIS_MEMORY="${DEV_REDIS_MEMORY:-2g}"
-  DEV_MASTER_DATA_AUTO_SYNC="${DEV_MASTER_DATA_AUTO_SYNC:-false}"
-  DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC="${DEV_MASTER_DATA_RECOVER_INTERRUPTED_SYNC:-false}"
-  DEV_OBSERVABILITY_MODE="${DEV_OBSERVABILITY_MODE:-off}"
   DOCKER="${DOCKER:-docker}"
   APP_ENV="${APP_ENV:-development}"
   GO_DOCKER_IMAGE="${GO_DOCKER_IMAGE:-golang:1.27.1-alpine3.23}"
@@ -53,41 +34,4 @@ load_app_env() {
   [ ! -f "./.env.${app_env}.local" ] || . "./.env.${app_env}.local"
   set +a
   load_defaults
-}
-
-compose_cmd() {
-  docker_bin="${DOCKER}"
-  if "$docker_bin" compose version >/dev/null 2>&1; then
-    printf '%s compose' "$docker_bin"
-  elif command -v docker-compose >/dev/null 2>&1; then
-    printf '%s' "docker-compose"
-  else
-    printf '%s compose' "$docker_bin"
-  fi
-}
-
-compose_project_args() {
-  printf '%s\n%s\n' "-p" "${COMPOSE_PROJECT_NAME:-${APP_NAME}}"
-}
-
-compose_file_abs() {
-  root="$(repo_root)"
-  printf '%s/%s' "$root" "${COMPOSE_FILE}"
-}
-
-compose_running_services() {
-  cmd="$(compose_cmd)"
-  set -- $(compose_project_args)
-  $cmd "$@" -f "$(compose_file_abs)" ps --services --status running 2>/dev/null || true
-}
-
-compose_services_running() {
-  running_services="$(compose_running_services)"
-  [ -n "$running_services" ] || return 1
-
-  for service in "$@"; do
-    printf '%s\n' "$running_services" | grep -Fx -- "$service" >/dev/null 2>&1 || return 1
-  done
-
-  return 0
 }

@@ -13,7 +13,7 @@
   - Redis hash for by-id lookups
   - In-memory text index for fuzzy search (current card field: `prefix`)
   - Redis order list for index-based pagination
-- Local infra: Docker Compose semantics with host Docker engine
+- Local infra: dev/test runs against the remote k3s test cluster (ko-built dev image, gitignored `dev-cluster-*` mise tasks); no local container dev stack
 
 ## Repository Conventions
 
@@ -69,16 +69,15 @@ If migrations are changed, also validate migration command path for the target e
 mise run migrate-up
 ```
 
-If compose/dev environment is affected, also validate commands:
+If shell scripts are changed, validate syntax:
 
 ```bash
-mise run dev-env-up
-mise run dev-env-down
+sh -n scripts/<script>.sh
 ```
 
 ## Environment Notes (macOS OrbStack + Windows Docker Desktop)
 
-- Use host Docker CLI with Compose/buildx support.
+- Use host Docker CLI for `test-docker` (Go tests without a host `go`) via `scripts/docker-go.sh`.
 - Keep `DOCKER_HOST`/socket usage configurable (do not hardcode host-specific paths in app code).
 - Prefer reproducible local commands in mise tasks over ad-hoc shell snippets.
 

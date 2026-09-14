@@ -17,73 +17,38 @@ Development defaults to SQLite unless `DATABASE_DRIVER=pgx` is set. Test and pro
 
 ## Local Development
 
-> **Remote-cluster dev is the standard path.** `mise run dev-cluster-rebuild`
-> builds a ko image and deploys it to the remote k3s test cluster next to the dev
-> PostgreSQL/Redis, and `mise run dev-cluster-forward` forwards the single
-> public-API + admin port to `http://localhost:18080`. These tasks are gitignored
-> because they encode private environment details (see `.mise/lib/dev-cluster.sh`).
-> Do not serve or test changes through the local Docker/OrbStack app containers
-> (`mise run dev`, `dev-split`, `dev-metrics`, `dev-full`); the compose-based flow
-> below is legacy and kept for reference.
-
-For host-mode API development:
+For host-mode API development (defaults to SQLite):
 
 ```sh
 mise run run
 ```
 
-For the default lightweight dependency stack:
+To run the roles individually on the host (they need reachable PostgreSQL/Redis
+through `DATABASE_URL` / `REDIS_ADDR`):
 
 ```sh
-mise run dev-env-up
-mise run dev
+mise run run-serve          # public read/query, APP_PORT_SERVE (default 18080)
+mise run run-control        # admin UI/API + lifecycle ownership, APP_PORT_CONTROL (default 18081)
 ```
 
-`mise run dev-env-up` starts only PostgreSQL, Redis, and Keycloak. The default app container runs with `OTEL_ENABLED=false`, no Loki push URL, and no OTLP endpoint, so local development does not require the observability stack.
+The standard development/testing path is the **remote-cluster workflow**:
+`mise run dev-cluster-rebuild` builds a ko image and deploys it to the remote
+k3s test cluster next to the dev PostgreSQL/Redis, and
+`mise run dev-cluster-forward` forwards the single public-API + admin port to
+`http://localhost:18080`. These tasks are gitignored because they encode
+private environment details (see `.mise/lib/dev-cluster.sh` and `AGENTS.md`).
 
-`mise run dev` builds and runs the API container on the `sekai-dev` Docker network. The app container publishes `http://localhost:18080` by default and uses internal service URLs for PostgreSQL, Redis, and Keycloak.
+The former Docker Compose dev stack (local app container, local
+PostgreSQL/Redis/Keycloak, local observability stack) has been removed. Do not
+reintroduce local app containers for serving or testing changes;
+`deploy/compose/app/` only holds the Dockerfile used by CI image builds.
 
-For metrics-only local observability:
+## Tests Without a Host Go Toolchain
 
-```sh
-mise run dev-env-up-metrics
-mise run dev-metrics
-```
-
-This starts PostgreSQL, Redis, Keycloak, Prometheus, and a metrics-only Alloy collector. It enables OTEL metrics export from the app without Loki or Tempo. The app sets `OTEL_TRACING_ENABLED=false`, so it does not install HTTP tracing middleware or export spans to the metrics-only collector.
-
-For the full local observability stack:
-
-```sh
-mise run dev-env-up-full
-mise run dev-full
-```
-
-This starts PostgreSQL, Redis, Keycloak, Loki, Tempo, Prometheus, Alloy, and Grafana, and runs the app with Loki and OTLP endpoints configured.
-
-Useful commands:
-
-- `mise run dev-logs`
-- `mise run dev-down`
-- `mise run dev-env-logs`
-- `mise run dev-env-down`
-- `mise run dev-env-down-purge`
-
-## Docker Requirements
-
-Local development assumes a host Docker engine with Compose and Buildx:
-
-```sh
-docker version
-docker compose version
-docker buildx version
-```
-
-The default compose project name is `sekai-master-api`. Override it with:
-
-```sh
-COMPOSE_PROJECT_NAME=your-name mise run dev-env-up
-```
+`mise run test` uses the host `go` when available. Without one, it falls back
+to `mise run test-docker`, which runs `go test ./...` in a container via
+`scripts/docker-go.sh` with cached module/build volumes. That fallback requires
+a host Docker engine.
 
 ## Migrations
 
@@ -110,23 +75,9 @@ Migration files live in `internal/storage/migrations`.
 
 Logging uses Zap. Configure level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`). If empty, the default is `debug` outside production and `info` in production.
 
-Local observability is opt-in. With OrbStack, common URLs are:
-
-- Grafana: `http://grafana.sekai-master-api.orb.local`
-- Prometheus: `http://prometheus.sekai-master-api.orb.local`
-- Tempo: `http://tempo.sekai-master-api.orb.local`
-
-Open Grafana quickly:
-
-```sh
-mise run dev-logs-ui
-```
-
-Grafana is available only after `mise run dev-env-up-full`; metrics-only mode uses Prometheus directly.
-
-Grafana provisions Loki, Prometheus, Tempo datasources and dashboards for API/network, runtime memory, and master-data metrics.
-
 `OTEL_ENABLED` controls OpenTelemetry metrics initialization. `OTEL_TRACING_ENABLED` controls trace exporter/provider setup and HTTP tracing independently; when omitted it inherits `OTEL_ENABLED` for backward compatibility. Set tracing to `false` when the configured collector does not expose a traces pipeline.
+
+Production observability (metrics, dashboards, log shipping) is deployed on k3s; see [Production Observability on K3s](production-observability-k3s.md).
 
 ## Smoke Check
 
@@ -135,6 +86,30 @@ mise run smoke
 ```
 
 `mise run smoke` requires `ADMIN_BEARER_TOKEN` for protected endpoint checks.
+
+For a deployed endpoint, supply an already-running base URL and a concrete
+public data path. The script waits on `/startupz` and `/readyz` before checking
+the public read:
+
+```sh
+SMOKE_SERVE_BASE_URL=http://localhost:18080 \
+SMOKE_PUBLIC_PATH=/api/v1/versions/jp \
+mise run smoke
+```
+
+Set `SMOKE_CHECK_PROTECTED=true`, `SMOKE_CONTROL_BASE_URL`, and
+`ADMIN_BEARER_TOKEN` only when real OIDC configuration is available. This adds
+serve/control public-route separation, unauthenticated admin-SSE and webhook
+rejection checks, and an authenticated admin profile request; it does not invent
+a dummy OIDC issuer.
+
+The smoke check uses `CURL_CONNECT_TIMEOUT_SECONDS` (default `5`) and
+`CURL_MAX_TIME_SECONDS` (default `15`) to bound individual HTTP requests. Each
+value must be a positive whole-second number from `1` through `60`; the script
+rejects invalid or larger values.
+
+For the Redis-loss recovery drill (`mise run redis-recovery-drill`), see
+[Runbook](runbook.md).
 
 ## Runtime Roles
 
@@ -149,7 +124,7 @@ equivalent:
 ```
 
 An unrecognized subcommand (or no subcommand at all) falls back to
-`standalone`, so plain `mise run run` / `mise run dev` stays compatible with the
+`standalone`, so plain `mise run run` stays compatible with the
 previous monolithic behavior.
 
 ### Role composition
@@ -173,25 +148,12 @@ previous monolithic behavior.
 > (re)built by sync / force-sync in `control` and by warmup in `standalone`, so
 > skipping it for `control` does not remove any persisted-index repair behavior.
 
-### Local split ports
+### Split host runs
 
-`mise run dev` remains the monolithic standalone development path. To run the
-roles split locally on distinct ports (with the dev dependency stack):
-
-```sh
-mise run dev-split          # runs serve (APP_PORT_SERVE, default 18080) + control (APP_PORT_CONTROL, default 18081)
-```
-
-`dev-split` starts **two separate host processes** (`run-serve` and `run-control`)
-sharing the same Redis/Postgres dependency stack; it does not run the container
-`standalone` image. For the existing single-container dev path use `mise run dev`.
-
-or individually:
-
-```sh
-mise run run-serve          # public read/query, APP_PORT_SERVE (default 18080)
-mise run run-control        # admin UI/API + lifecycle ownership, APP_PORT_CONTROL (default 18081)
-```
+`run-serve` and `run-control` start **two separate host processes** on distinct
+ports (`APP_PORT_SERVE`, default 18080, and `APP_PORT_CONTROL`, default 18081)
+sharing the same PostgreSQL/Redis backend; this mirrors the production split
+deployment without containers.
 
 ### OIDC redirect consideration
 
@@ -275,55 +237,3 @@ A split deployment runs `serve` behind the public ingress and `control` behind a
 restricted admin ingress (the same host the OIDC provider is allowed to redirect
 to). Only `standalone` and `control` own migrations, search-index build, and
 sync; `serve` is stateless with respect to those lifecycle jobs.
-
-### Local dependency reset and re-sync
-
-Local Redis uses an AOF-backed `redis-data` named volume with
-`appendfsync everysec`. Therefore `mise run dev-env-down` preserves Redis data
-alongside the Postgres volume. Removing the project volumes is an explicit purge
-operation and requires force sync afterwards because `serve` never rebuilds an
-empty Redis.
-
-Use the opt-in recovery drill to verify that a prefix-scoped Redis loss can be
-recovered through `control` force sync. It requires an already-running split
-deployment, a representative public read URL, a valid admin Bearer token, and a
-real configured master-data region:
-
-```sh
-REDIS_RECOVERY_DRILL_CONFIRM=DELETE_PREFIXED_REDIS_DATA \
-REDIS_ADDR=localhost:6379 \
-MASTER_DATA_REDIS_KEY_PREFIX=sekai:master-data: \
-REDIS_RECOVERY_REGION=jp \
-REDIS_RECOVERY_PUBLIC_URL=http://localhost:18080/api/v1/versions/jp \
-REDIS_RECOVERY_SERVE_URL=http://localhost:18080 \
-REDIS_RECOVERY_CONTROL_URL=http://localhost:18081 \
-ADMIN_BEARER_TOKEN=<admin-token> \
-mise run redis-recovery-drill
-```
-
-The drill deletes only keys matching `MASTER_DATA_REDIS_KEY_PREFIX` through
-`redis-cli --scan` and `UNLINK`; it never uses `KEYS` or `FLUSHALL`. It verifies
-that `serve /readyz` degrades, triggers
-`POST /api/v1/admin/master-data/sync/force` on `control`, then waits for both
-readiness and the representative public read to recover. Run it only against a
-deliberately disposable environment.
-
-For a deployed smoke check, supply an already-running endpoint and a concrete
-public data path. The script waits on `/startupz` and `/readyz` before checking
-the public read:
-
-```sh
-SMOKE_SERVE_BASE_URL=http://localhost:18080 \
-SMOKE_PUBLIC_PATH=/api/v1/versions/jp \
-mise run smoke
-```
-
-Set `SMOKE_CHECK_PROTECTED=true`, `SMOKE_CONTROL_BASE_URL`, and
-`ADMIN_BEARER_TOKEN` only when real OIDC configuration is available. This adds
-serve/control public-route separation, unauthenticated admin-SSE and webhook
-rejection checks, and an authenticated admin profile request; it does not invent
-a dummy OIDC issuer. Both the smoke check and recovery drill use
-`CURL_CONNECT_TIMEOUT_SECONDS` (default `5`) and `CURL_MAX_TIME_SECONDS`
-(default `15`) to bound individual HTTP requests. Each value must be a positive
-whole-second number from `1` through `60`; the scripts reject invalid or larger
-values.

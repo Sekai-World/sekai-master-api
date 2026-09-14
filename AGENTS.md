@@ -29,7 +29,7 @@ ownership is unclear.
   - Optional override: `DATABASE_DRIVER` can override the default with `sqlite` or `pgx`.
 - Migration strategy: use Goose SQL migrations; run automatic migrations on startup.
 - Remote-cluster dev (STANDARD): gitignored `dev-cluster-*` mise tasks build a ko image and run it in the remote k3s test cluster next to the dev dependencies. This is the only sanctioned way to serve and test changes: `mise run dev-cluster-rebuild` to build and deploy, then `mise run dev-cluster-forward` to expose the single public-API + admin port on `http://localhost:18080`. Do NOT serve or test changes through local Docker/OrbStack app containers (`mise run dev`, `dev-split`, `dev-full`); that path is deprecated. See `.mise/lib/dev-cluster.sh` and the workspace `docs/cross-repository/remote-cluster-dev-workflow.md`. Chart `image.command` (>= 0.0.5) supports ko images (`/ko-app/api`); leaving it unset keeps production behavior unchanged.
-- Legacy local dependency orchestration (deprecated for app testing): `deploy/compose/dev-compose.yaml` for PostgreSQL 18, Redis 8, Grafana, and Loki. The compose stack backs the deprecated OrbStack dev tasks and `test-docker` (Go tests when no host `go` exists); agents must not use it to run or verify the API server.
+- Local container dev stack: removed. `deploy/compose/app/` only holds the Dockerfile/entrypoint used by CI image builds; `test-docker` runs Go tests through `scripts/docker-go.sh` without compose. Do not reintroduce local app containers for serving or testing changes — use the remote-cluster workflow above.
 
 ## Agent Roles
 
@@ -92,9 +92,9 @@ Responsible for compose files, scripts, and developer experience.
    - If the change does not touch Go-related files, `go test ./...` is not required; if skipped, state that in the delivery note.
    - If the current environment cannot satisfy runtime requirements, `go test ./...` is not required; if skipped, state that in the delivery note.
    - If the change affects database schema, add a migration file. Do not run DDL directly in business code.
-4. If the change touches compose files or scripts, also check:
-  - `mise run dev-env-up`
-  - `mise run dev-env-down`
+4. If the change touches shell scripts, check syntax with `sh -n <script>`.
+   If it touches `deploy/compose/app/`, remember that Dockerfile backs the CI
+   image builds in `.github/workflows/ci.yml` and `release.yml`.
 5. For failures, fix only issues directly related to the current task.
 6. All git commit messages must use Conventional Commits style, for example `feat(auth): add admin claim rbac` or `fix(sync): recover interrupted startup sync`.
 
@@ -124,7 +124,6 @@ The task is done only when these conditions are met:
 - Unit tests: `mise run test`
 - Migrate up: `mise run migrate-up`
 - Migrate down: `mise run migrate-down`
-- Deprecated local-container flow (do not use to serve/test changes): `mise run dev`, `mise run dev-env-up`, `mise run dev-env-down`
 
 ## Cross-Repository Integration (sekai-master-api → sekai-viewer-reborn)
 
