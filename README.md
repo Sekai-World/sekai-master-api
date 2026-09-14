@@ -15,7 +15,6 @@ Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token vali
 - SQLite for development; PostgreSQL for test and production
 - Redis-backed master-data cache with specialized card/music/event/virtual-live queries
 - Multi-region GitHub master-data sync
-- Local Docker Compose core stack for PostgreSQL, Redis, and Keycloak, with opt-in Prometheus/Grafana/Loki/Tempo/Alloy observability modes
 - Swagger UI in development and test environments
 
 ## Quick Start
@@ -28,34 +27,12 @@ mise run tidy
 mise run run
 ```
 
-> The standard development/testing path for this repository is the remote-cluster
-> workflow: `mise run dev-cluster-rebuild` builds a ko image and deploys it to the
-> remote test cluster, and `mise run dev-cluster-forward` forwards the public API +
-> admin port to `http://localhost:18080`. These tasks are gitignored because they
-> encode private environment details. The local Docker Compose app containers below
-> (`mise run dev`, `dev-metrics`, `dev-full`) are legacy and should not be used to
-> serve or test changes.
-
-For the default lightweight local dependency stack (legacy):
-
-```sh
-mise run dev-env-up
-mise run dev
-```
-
-For local metrics only:
-
-```sh
-mise run dev-env-up-metrics
-mise run dev-metrics
-```
-
-For the full local observability stack:
-
-```sh
-mise run dev-env-up-full
-mise run dev-full
-```
+Host-mode runs default to SQLite. The standard development/testing path for
+this repository is the remote-cluster workflow: `mise run dev-cluster-rebuild`
+builds a ko image and deploys it to the remote test cluster, and
+`mise run dev-cluster-forward` forwards the public API + admin port to
+`http://localhost:18080`. These tasks are gitignored because they encode
+private environment details; see `AGENTS.md` for the workflow.
 
 ## Common Commands
 
@@ -64,13 +41,11 @@ mise run dev-full
 - `mise run lint`: run formatting check and `go vet`
 - `mise run format`: format Go files
 - `mise run swagger`: regenerate Swagger docs
-- `mise run dev-env-up`: start local dependencies
-- `mise run dev-env-up-metrics`: start local dependencies plus Prometheus and metrics-only Alloy
-- `mise run dev-env-up-full`: start local dependencies plus Loki, Tempo, Prometheus, Alloy, and Grafana
-- `mise run dev-env-down`: stop local dependencies
 - `mise run migrate-up`: run migrations up
 - `mise run migrate-down`: run migrations down
+- `mise run smoke`: smoke-check a running endpoint (see Development)
 - `mise run redis-recovery-drill`: verify prefix-scoped Redis loss and control force-sync recovery (destructive; see Development)
+- `mise run admin-open`: open the admin login page of a locally forwarded dev server
 - `sekai-master-api migrate`: run embedded Goose migrations without starting an API role
 
 ## Releasing

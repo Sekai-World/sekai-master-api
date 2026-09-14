@@ -56,29 +56,17 @@ Login flow:
 
 The dashboard can view sync status and trigger normal or force sync for one region or all regions.
 
-## Local Keycloak
+## Local Development Login
 
-`.env.development` is preconfigured for the bundled Keycloak instance.
+The bundled local Keycloak container and `mise run keycloak-token` were removed
+along with the local Docker Compose dev stack. For local development, use the
+remote-cluster dev deployment (see `AGENTS.md`):
 
-- Browser Keycloak URL on OrbStack: `http://keycloak.sekai-master-api.orb.local`
-- Host-mode issuer: `http://localhost:18081/realms/sekai`
-- Container-mode issuer for `mise run dev`: `http://keycloak:8080/realms/sekai`
-- Client ID / audience: `sekai-api`
-- Redirect URI: `http://localhost:18080/api/v1/admin/login/callback`
-- Admin RBAC claim: `groups`
-- Required admin value: `sekai-admin`
-
-Bundled local users:
-
-- Test login user: `alice`
-- Test login password: `alice123!`
-- Keycloak bootstrap admin: `admin`
-- Keycloak bootstrap admin password: `admin`
-
-Fetch a local access token without browser login:
-
-```sh
-mise run keycloak-token
-```
-
-Override local values in `.env.development.local` when needed.
+- `mise run dev-cluster-forward` exposes the dev server on
+  `http://localhost:18080`; its redirect URI
+  `http://localhost:18080/api/v1/admin/login/callback` is already registered
+  with the test cluster's OIDC provider, so `/admin/login` works end-to-end.
+- Admin RBAC is claim-based (`OIDC_ADMIN_CLAIM` / `OIDC_ADMIN_CLAIM_VALUES`).
+- To call admin APIs with a bearer token, log in through the dashboard — the
+  callback page stores the access token in session storage — or obtain one
+  from the configured OIDC provider directly.

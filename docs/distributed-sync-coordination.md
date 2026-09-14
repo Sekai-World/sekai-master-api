@@ -44,7 +44,7 @@ Sync entry points that must become cross-pod mutually exclusive: startup
 |--------|---------|--------|
 | PostgreSQL lease table + durable fencing token | **chosen** | PG is already a hard dependency of `control`, already holds the authoritative sync status (`master_data_sync_status` + history + latest view), and survives Redis loss — the exact disaster the coordinator must stay correct through. Transactions give atomic compare-and-swap acquisition and in-transaction fencing checks. |
 | Redis lease (`SET NX PX`) + `INCR` fencing counter | rejected as primary | The fencing counter would live in the datastore that Redis-loss recovery rebuilds. After a Redis wipe the counter restarts and a partitioned stale owner's old (high) token would compare as valid again, reopening the exact window fencing exists to close. |
-| Kubernetes Lease | rejected | Adds `k8s.io/client-go` + RBAC, couples coordination to cluster machinery while the app already runs split-role on plain hosts (`mise run dev-split`), and still needs a separate durable fencing counter. |
+| Kubernetes Lease | rejected | Adds `k8s.io/client-go` + RBAC, couples coordination to cluster machinery while the app already runs split-role on plain hosts (`run-serve` / `run-control`), and still needs a separate durable fencing counter. |
 
 Redis remains the data plane; it just does not host the coordinator.
 
@@ -210,6 +210,10 @@ at derived stores) and it is what the acceptance tests will demonstrate.
   dependency stack and documented in the runbook.
 
 ### Real-stack takeover drill (executed 2026-09-08)
+
+> Historical record: the local dev compose stack referenced here was removed on
+> 2026-09-09 (the remote-cluster ko workflow replaced it). The drill can be
+> repeated against any disposable PostgreSQL/Redis pair.
 
 Run against the dev dependency stack (`deploy/compose/dev-compose.yaml`:
 PostgreSQL 18 + Redis 8) with two `control`-role processes sharing one
