@@ -186,14 +186,14 @@ func (handler *MasterDataAdminHandler) Lease(c *gin.Context) {
 		return
 	}
 
-	lease := shared.MasterDataLease{}
-	if handler.masterDataSync != nil {
+	lease := (*shared.MasterDataLease)(nil)
+	if handler.masterDataSync != nil && handler.masterDataSync.SyncLeaseCoordinationEnabled() {
 		state, err := handler.masterDataSync.SyncLeaseState(c.Request.Context())
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "MASTER_DATA_LEASE_ERROR", "failed to load master data sync lease state")
 			return
 		}
-		lease = shared.MasterDataLease{
+		lease = &shared.MasterDataLease{
 			Held:      state.Held,
 			Holder:    state.Holder,
 			Token:     state.Token,

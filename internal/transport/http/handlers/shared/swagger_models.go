@@ -1000,8 +1000,8 @@ type MasterDataLease struct {
 }
 
 type MasterDataLeaseResponse struct {
-	Status string          `json:"status"`
-	Lease  MasterDataLease `json:"lease"`
+	Status string           `json:"status"`
+	Lease  *MasterDataLease `json:"lease"` // null when sync lease coordination is disabled
 }
 
 type ProfileUser struct {
