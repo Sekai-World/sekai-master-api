@@ -933,6 +933,33 @@ definitions:
       id: {}
       unit: {}
     type: object
+  shared.GameNewsItemResponse:
+    properties:
+      bannerAssetbundleName: {}
+      browseType: {}
+      displayOrder: {}
+      endAt:
+        type: integer
+        x-nullable: true
+      id: {}
+      informationTag: {}
+      informationType: {}
+      path: {}
+      platform: {}
+      seq: {}
+      startAt:
+        type: integer
+      title: {}
+    required:
+    - startAt
+    type: object
+  shared.GameNewsListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.GameNewsItemResponse'
+        type: array
+    type: object
   shared.GenericObjectResponse:
     additionalProperties: {}
     type: object
@@ -2990,6 +3017,40 @@ paths:
       summary: Get available regions for a gacha id
       tags:
       - gachas
+  /game-news/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Include all game news records
+        in: query
+        name: includeAll
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GameNewsListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List current game news
+      tags:
+      - gameNews
   /gameCharacterUnits/{region}/{id}:
     get:
       parameters:

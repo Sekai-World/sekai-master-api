@@ -21,6 +21,7 @@ import (
 	cardhandlers "sekai-master-api/internal/transport/http/handlers/cards"
 	eventhandlers "sekai-master-api/internal/transport/http/handlers/events"
 	gachahandlers "sekai-master-api/internal/transport/http/handlers/gachas"
+	gamenewshandlers "sekai-master-api/internal/transport/http/handlers/gamenews"
 	lookuphandlers "sekai-master-api/internal/transport/http/handlers/lookups"
 	musichandlers "sekai-master-api/internal/transport/http/handlers/musics"
 	systemhandlers "sekai-master-api/internal/transport/http/handlers/system"
@@ -63,6 +64,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	cardHandler := cardhandlers.NewCardHandler(masterDataSync)
 	musicHandler := musichandlers.NewMusicHandler(masterDataSync)
 	eventHandler := eventhandlers.NewEventHandler(masterDataSync)
+	gameNewsHandler := gamenewshandlers.NewGameNewsHandler(masterDataSync)
 	gachaHandler := gachahandlers.NewGachaHandler(masterDataSync)
 	lookupHandler := lookuphandlers.NewLookupHandler(masterDataSync)
 	virtualLiveHandler := virtuallivehandlers.NewVirtualLiveHandler(masterDataSync)
@@ -94,6 +96,7 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 		cardHandler:            cardHandler,
 		musicHandler:           musicHandler,
 		eventHandler:           eventHandler,
+		gameNewsHandler:        gameNewsHandler,
 		gachaHandler:           gachaHandler,
 		lookupHandler:          lookupHandler,
 		virtualLiveHandler:     virtualLiveHandler,
@@ -183,6 +186,7 @@ type routeDeps struct {
 	cardHandler            *cardhandlers.CardHandler
 	musicHandler           *musichandlers.MusicHandler
 	eventHandler           *eventhandlers.EventHandler
+	gameNewsHandler        *gamenewshandlers.GameNewsHandler
 	gachaHandler           *gachahandlers.GachaHandler
 	lookupHandler          *lookuphandlers.LookupHandler
 	virtualLiveHandler     *virtuallivehandlers.VirtualLiveHandler
@@ -199,7 +203,7 @@ type routeDeps struct {
 func registerRoleRoutes(deps *routeDeps, lifecycleCtx context.Context) {
 	// Public read/query workload.
 	if deps.role == config.AppRoleStandalone || deps.role == config.AppRoleServe {
-		registerPublicRoutes(deps.v1, deps.healthHandler, deps.versionsHandler, deps.cardHandler, deps.musicHandler, deps.eventHandler, deps.gachaHandler, deps.lookupHandler, deps.virtualLiveHandler)
+		registerPublicRoutes(deps.v1, deps.healthHandler, deps.versionsHandler, deps.cardHandler, deps.musicHandler, deps.eventHandler, deps.gameNewsHandler, deps.gachaHandler, deps.lookupHandler, deps.virtualLiveHandler)
 		deps.v1.GET("/build-info", deps.buildInfoHandler.BuildInfo)
 	}
 

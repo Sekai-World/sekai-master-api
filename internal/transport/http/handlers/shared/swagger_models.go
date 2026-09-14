@@ -587,6 +587,25 @@ type EventListResponse struct {
 	Pagination PaginationResponse      `json:"pagination"`
 }
 
+type GameNewsItemResponse struct {
+	ID                    any    `json:"id,omitempty"`
+	Seq                   any    `json:"seq,omitempty"`
+	DisplayOrder          any    `json:"displayOrder,omitempty"`
+	InformationType       any    `json:"informationType,omitempty"`
+	InformationTag        any    `json:"informationTag,omitempty"`
+	BrowseType            any    `json:"browseType,omitempty"`
+	Platform              any    `json:"platform,omitempty"`
+	Title                 any    `json:"title,omitempty"`
+	Path                  any    `json:"path,omitempty"`
+	StartAt               int64  `json:"startAt" binding:"required"`
+	BannerAssetbundleName any    `json:"bannerAssetbundleName,omitempty"`
+	EndAt                 *int64 `json:"endAt,omitempty" extensions:"x-nullable"`
+}
+
+type GameNewsListResponse struct {
+	Items []GameNewsItemResponse `json:"items"`
+}
+
 type ReleaseConditionResponse struct {
 	ID                   int    `json:"id,omitempty"`
 	ReleaseConditionType string `json:"releaseConditionType,omitempty"`
