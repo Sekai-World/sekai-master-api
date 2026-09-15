@@ -30,6 +30,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/musics/:region/list?page=1&page_size=20`
 - `GET /api/v1/musics/:region/:id/difficulties`
 - `GET /api/v1/musics/:region/:id`
+- `GET /api/v1/gachas/:region/list?page=1&page_size=20&ongoing=true&sort_by=id|startAt&sort_order=asc|desc`
 - `GET /api/v1/events/:region/current`
 - `GET /api/v1/events/:region/list?page=1&page_size=20&id=<id>&name=<kw>&unit=<kw>&event_type=<kw>&sort_by=id|startAt&sort_order=asc|desc`
 - `GET /api/v1/events/:region/:id`
@@ -48,6 +49,8 @@ The unit profile members endpoint resolves the unit profile using the trimmed, n
 Event list filters are optional and matched together. `id` is an exact match; `name`, `unit`, and `event_type` are case-insensitive partial matches. `unit` and `event_type` accept comma-separated multiple values, and `unit` is matched against `eventStoryUnits.unit`.
 
 Virtual Live list filters are optional and matched together. `id` is an exact numeric match; `name` is a case-insensitive (trimmed) substring match; `virtual_live_type` is a comma-separated list of virtual live types combined with OR within the parameter and AND combined with other filters. `sort_by` accepts `id` or `startAt`; `sort_order` accepts `asc` or `desc`. The dedicated detail sub-resources (`/items`, `/schedules`, `/setlists`) and `/regions/:id/availability` are also available for virtual lives.
+
+Gacha list requests support the optional `ongoing` boolean. When `ongoing=true`, records are filtered to `startAt <= now <= endAt` before sorting and pagination; omitted or `false` preserves the existing list behavior.
 
 ## Admin Endpoints
 

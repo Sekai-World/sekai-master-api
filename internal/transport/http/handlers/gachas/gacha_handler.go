@@ -45,18 +45,8 @@ func NewGachaHandler(masterDataSync *usecase.MasterDataSyncUsecase) *GachaHandle
 // @Failure 500 {object} shared.ErrorResponse
 // @Router /gachas/{region}/{id} [get]
 func (handler *GachaHandler) ByID(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	id := strings.TrimSpace(c.Param("id"))
-	if region == "" || id == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
-		return
-	}
-	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+	region, id, ok := handler.prepareGachaRequest(c, true)
+	if !ok {
 		return
 	}
 
@@ -92,18 +82,8 @@ func (handler *GachaHandler) ByID(c *gin.Context) {
 // @Failure 500 {object} shared.ErrorResponse
 // @Router /gachas/{region}/{id}/rate-choice-wishes [get]
 func (handler *GachaHandler) RateChoiceWishesByID(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	id := strings.TrimSpace(c.Param("id"))
-	if region == "" || id == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
-		return
-	}
-	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+	region, id, ok := handler.prepareGachaRequest(c, true)
+	if !ok {
 		return
 	}
 
@@ -203,6 +183,7 @@ func (handler *GachaHandler) AvailableRegionsByID(c *gin.Context) {
 // @Param page query int false "Page number"
 // @Param page_size query int false "Page size"
 // @Param spoiler query bool false "Include spoiler content"
+// @Param ongoing query bool false "Only include gachas active now (startAt <= now <= endAt)"
 // @Param sort_by query string false "Sort field (id|startAt)"
 // @Param sort_order query string false "Sort order (asc|desc)"
 // @Success 200 {object} shared.GachaListResponse
@@ -211,17 +192,8 @@ func (handler *GachaHandler) AvailableRegionsByID(c *gin.Context) {
 // @Failure 500 {object} shared.ErrorResponse
 // @Router /gachas/{region}/list [get]
 func (handler *GachaHandler) List(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	if region == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
-		return
-	}
-	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+	region, _, ok := handler.prepareGachaRequest(c, false)
+	if !ok {
 		return
 	}
 
@@ -255,14 +227,24 @@ func (handler *GachaHandler) List(c *gin.Context) {
 		return
 	}
 
-	if !includeSpoilers || sortOptions.Enabled {
+	ongoing, ok := parseOngoingOption(c)
+	if !ok {
+		return
+	}
+
+	if !includeSpoilers || sortOptions.Enabled || ongoing {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "gachas")
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to list gachas")
 			return
 		}
+
+		now := time.Now().UTC()
 		if !includeSpoilers {
-			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+			records = shared.FilterSpoilerItems(records, now)
+		}
+		if ongoing {
+			records = filterOngoingGachas(records, now)
 		}
 		if sortOptions.Enabled {
 			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableGachaFields) {
@@ -307,6 +289,64 @@ func (handler *GachaHandler) buildGachaList(ctx context.Context, region string, 
 		items = append(items, handler.buildGachaListItem(region, record))
 	}
 	return items
+}
+
+func parseOngoingOption(c *gin.Context) (bool, bool) {
+	rawOngoing, exists := c.GetQuery("ongoing")
+	if !exists {
+		return false, true
+	}
+
+	rawOngoing = strings.TrimSpace(rawOngoing)
+	ongoing, err := strconv.ParseBool(rawOngoing)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "ongoing must be a boolean")
+		return false, false
+	}
+
+	return ongoing, true
+}
+
+func filterOngoingGachas(records []map[string]any, now time.Time) []map[string]any {
+	nowMillis := now.UTC().UnixMilli()
+	filtered := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		startAt, startOK := shared.ParseTimestampMillis(record["startAt"])
+		endAt, endOK := shared.ParseTimestampMillis(record["endAt"])
+		if !startOK || !endOK {
+			continue
+		}
+		if startAt > nowMillis || endAt < nowMillis {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+
+	return filtered
+}
+
+func (handler *GachaHandler) prepareGachaRequest(c *gin.Context, requireID bool) (string, string, bool) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return "", "", false
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if requireID {
+		if region == "" || id == "" {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+			return "", "", false
+		}
+	} else if region == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
+		return "", "", false
+	}
+	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+		return "", "", false
+	}
+
+	return region, id, true
 }
 
 func ensureGachaRegionReady(c *gin.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string) bool {

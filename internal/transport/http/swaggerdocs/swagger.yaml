@@ -3217,6 +3217,10 @@ paths:
         in: query
         name: spoiler
         type: boolean
+      - description: Only include gachas active now (startAt <= now <= endAt)
+        in: query
+        name: ongoing
+        type: boolean
       - description: Sort field (id|startAt)
         in: query
         name: sort_by

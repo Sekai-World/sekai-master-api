@@ -2100,6 +2100,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Only include gachas active now (startAt \u003c= now \u003c= endAt)",
+                        "name": "ongoing",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Sort field (id|startAt)",
                         "name": "sort_by",

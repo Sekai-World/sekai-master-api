@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -23,6 +24,7 @@ type fakeGachaHandlerCache struct {
 	hasIndex         bool
 	hasIndexSet      bool
 	listAllCalls     []string
+	listByPageCalls  int
 	searchCalls      int
 	getByIDCalls     []gachaGetByIDCall
 	listAllErr       error
@@ -46,6 +48,79 @@ func newReadyGachaHandler(cache *fakeGachaHandlerCache) *GachaHandler {
 	}
 	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 	return NewGachaHandler(syncUsecase)
+}
+
+func newGachaTestRouter(handler *GachaHandler) *gin.Engine {
+	router := gin.New()
+	router.GET("/api/v1/gachas/:region/:id/rate-choice-wishes", handler.RateChoiceWishesByID)
+	router.GET("/api/v1/gachas/:region/list", handler.List)
+	router.GET("/api/v1/gachas/:region/:id", handler.ByID)
+	return router
+}
+
+func newGachaListTestCache(records []map[string]any) *fakeGachaHandlerCache {
+	return &fakeGachaHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {"gachas": records},
+		},
+		hasRecords: map[string]map[string]bool{
+			"jp": {"gachas": true},
+		},
+	}
+}
+
+func serveGachaRequest(router http.Handler, path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	return resp
+}
+
+func serveGachaListRequest(cache *fakeGachaHandlerCache, path string) *httptest.ResponseRecorder {
+	return serveGachaRequest(newGachaTestRouter(newReadyGachaHandler(cache)), path)
+}
+
+func assertGachaStatus(t *testing.T, response *httptest.ResponseRecorder, expected int) {
+	t.Helper()
+	if response.Code != expected {
+		t.Fatalf("expected status %d, got %d: %s", expected, response.Code, response.Body.String())
+	}
+}
+
+type gachaListTestResponse struct {
+	Items      []map[string]any `json:"items"`
+	Pagination struct {
+		Page       int  `json:"page"`
+		PageSize   int  `json:"page_size"`
+		Total      int  `json:"total"`
+		TotalPages int  `json:"total_pages"`
+		HasNext    bool `json:"has_next"`
+	} `json:"pagination"`
+}
+
+func decodeGachaListResponse(t *testing.T, response *httptest.ResponseRecorder) gachaListTestResponse {
+	t.Helper()
+	var body gachaListTestResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return body
+}
+
+type gachaErrorTestResponse struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+func decodeGachaErrorResponse(t *testing.T, response *httptest.ResponseRecorder) gachaErrorTestResponse {
+	t.Helper()
+	var body gachaErrorTestResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return body
 }
 
 func (store *fakeGachaHandlerStatusStore) Save(_ context.Context, _ masterdata.SyncStatus) error {
@@ -97,6 +172,7 @@ func (cache *fakeGachaHandlerCache) ListAll(_ context.Context, region string, en
 }
 
 func (cache *fakeGachaHandlerCache) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
+	cache.listByPageCalls++
 	records, err := cache.ListAll(ctx, region, entity)
 	if err != nil {
 		return nil, 0, err
@@ -175,10 +251,7 @@ func TestGachaRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t 
 	}
 
 	handler := newReadyGachaHandler(cache)
-	router := gin.New()
-	router.GET("/api/v1/gachas/:region/:id/rate-choice-wishes", handler.RateChoiceWishesByID)
-	router.GET("/api/v1/gachas/:region/list", handler.List)
-	router.GET("/api/v1/gachas/:region/:id", handler.ByID)
+	router := newGachaTestRouter(handler)
 
 	testCases := []struct {
 		name string
@@ -191,14 +264,92 @@ func TestGachaRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t 
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-
-			if resp.Code != http.StatusOK {
-				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-			}
+			assertGachaStatus(t, serveGachaRequest(router, testCase.path), http.StatusOK)
 		})
+	}
+}
+
+func TestGachaListOngoingFiltersBeforeSortingAndPagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	now := time.Now().UTC()
+	cache := newGachaListTestCache([]map[string]any{
+		{"id": 9, "startAt": now.Add(-4 * time.Hour).UnixMilli(), "endAt": now.Add(-2 * time.Hour).UnixMilli()},
+		{"id": 4, "startAt": now.Add(-3 * time.Hour).UnixMilli(), "endAt": now.Add(3 * time.Hour).UnixMilli()},
+		{"id": 3, "startAt": now.Add(-2 * time.Hour).UnixMilli(), "endAt": now.Add(2 * time.Hour).UnixMilli()},
+		{"id": 8, "startAt": now.Add(time.Hour).UnixMilli(), "endAt": now.Add(2 * time.Hour).UnixMilli()},
+	})
+
+	resp := serveGachaListRequest(
+		cache,
+		"/api/v1/gachas/jp/list?ongoing=true&page=2&page_size=1&sort_by=startAt&sort_order=asc",
+	)
+	assertGachaStatus(t, resp, http.StatusOK)
+	body := decodeGachaListResponse(t, resp)
+	if len(body.Items) != 1 || body.Items[0]["id"] != float64(3) {
+		t.Fatalf("expected page 2 to contain ongoing gacha id 3, got %v", body.Items)
+	}
+	if body.Pagination.Page != 2 || body.Pagination.PageSize != 1 || body.Pagination.Total != 2 ||
+		body.Pagination.TotalPages != 2 || body.Pagination.HasNext {
+		t.Fatalf("unexpected pagination: %+v", body.Pagination)
+	}
+	if cache.listByPageCalls != 0 {
+		t.Fatalf("expected ongoing query to use the full list before pagination, got %d ListByPage calls", cache.listByPageCalls)
+	}
+	if len(cache.listAllCalls) != 1 || cache.listAllCalls[0] != "gachas" {
+		t.Fatalf("expected one gacha ListAll call, got %v", cache.listAllCalls)
+	}
+}
+
+func TestGachaListWithoutOngoingPreservesExistingPagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := newGachaListTestCache([]map[string]any{
+		{"id": 1},
+		{"id": 2},
+		{"id": 3},
+	})
+
+	resp := serveGachaListRequest(cache, "/api/v1/gachas/jp/list?spoiler=true&page=1&page_size=2")
+	assertGachaStatus(t, resp, http.StatusOK)
+	body := decodeGachaListResponse(t, resp)
+	if len(body.Items) != 2 || body.Items[0]["id"] != float64(1) || body.Items[1]["id"] != float64(2) {
+		t.Fatalf("expected the first two unfiltered gachas, got %v", body.Items)
+	}
+	if body.Pagination.Total != 3 {
+		t.Fatalf("expected unfiltered total 3, got %d", body.Pagination.Total)
+	}
+	if cache.listByPageCalls != 1 {
+		t.Fatalf("expected the default query to use ListByPage, got %d calls", cache.listByPageCalls)
+	}
+}
+
+func TestGachaListRejectsInvalidOngoing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := newGachaListTestCache(nil)
+
+	resp := serveGachaListRequest(cache, "/api/v1/gachas/jp/list?ongoing=maybe")
+	assertGachaStatus(t, resp, http.StatusBadRequest)
+	body := decodeGachaErrorResponse(t, resp)
+	if body.Error.Code != "INVALID_REQUEST" || body.Error.Message != "ongoing must be a boolean" {
+		t.Fatalf("unexpected error response: %+v", body.Error)
+	}
+	if len(cache.listAllCalls) != 0 || cache.listByPageCalls != 0 {
+		t.Fatalf("expected invalid ongoing query not to list records, got ListAll=%v ListByPage=%d", cache.listAllCalls, cache.listByPageCalls)
+	}
+}
+
+func TestFilterOngoingGachasIncludesBothTimeBoundaries(t *testing.T) {
+	now := time.UnixMilli(1_700_000_000_000).UTC()
+	filtered := filterOngoingGachas([]map[string]any{
+		{"id": 1, "startAt": now.UnixMilli(), "endAt": now.Add(time.Hour).UnixMilli()},
+		{"id": 2, "startAt": now.Add(-time.Hour).UnixMilli(), "endAt": now.UnixMilli()},
+		{"id": 3, "startAt": now.Add(time.Millisecond).UnixMilli(), "endAt": now.Add(time.Hour).UnixMilli()},
+		{"id": 4, "startAt": now.Add(-time.Hour).UnixMilli(), "endAt": now.Add(-time.Millisecond).UnixMilli()},
+		{"id": 5, "startAt": "invalid", "endAt": now.Add(time.Hour).UnixMilli()},
+		{"id": 6, "startAt": now.Add(-time.Hour).UnixMilli()},
+	}, now)
+
+	if len(filtered) != 2 || filtered[0]["id"] != 1 || filtered[1]["id"] != 2 {
+		t.Fatalf("expected boundary-inclusive ongoing ids [1 2], got %v", filtered)
 	}
 }
 
@@ -443,10 +594,7 @@ func TestGachaRecordEndpointsPreserveNotReadyResponseContract(t *testing.T) {
 	}
 	syncUsecase := usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 	handler := NewGachaHandler(syncUsecase)
-	router := gin.New()
-	router.GET("/api/v1/gachas/:region/:id/rate-choice-wishes", handler.RateChoiceWishesByID)
-	router.GET("/api/v1/gachas/:region/list", handler.List)
-	router.GET("/api/v1/gachas/:region/:id", handler.ByID)
+	router := newGachaTestRouter(handler)
 
 	testCases := []struct {
 		name string
@@ -459,23 +607,9 @@ func TestGachaRecordEndpointsPreserveNotReadyResponseContract(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-
-			if resp.Code != http.StatusServiceUnavailable {
-				t.Fatalf("expected status 503, got %d: %s", resp.Code, resp.Body.String())
-			}
-
-			var body struct {
-				Error struct {
-					Code    string `json:"code"`
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-				t.Fatalf("unmarshal response: %v", err)
-			}
+			resp := serveGachaRequest(router, testCase.path)
+			assertGachaStatus(t, resp, http.StatusServiceUnavailable)
+			body := decodeGachaErrorResponse(t, resp)
 			if body.Error.Code != "REGION_NOT_READY" {
 				t.Fatalf("expected REGION_NOT_READY, got %q", body.Error.Code)
 			}
