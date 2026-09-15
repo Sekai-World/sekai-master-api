@@ -45,18 +45,8 @@ func NewGachaHandler(masterDataSync *usecase.MasterDataSyncUsecase) *GachaHandle
 // @Failure 500 {object} shared.ErrorResponse
 // @Router /gachas/{region}/{id} [get]
 func (handler *GachaHandler) ByID(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	id := strings.TrimSpace(c.Param("id"))
-	if region == "" || id == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
-		return
-	}
-	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+	region, id, ok := handler.prepareGachaRequest(c, true)
+	if !ok {
 		return
 	}
 
@@ -92,18 +82,8 @@ func (handler *GachaHandler) ByID(c *gin.Context) {
 // @Failure 500 {object} shared.ErrorResponse
 // @Router /gachas/{region}/{id}/rate-choice-wishes [get]
 func (handler *GachaHandler) RateChoiceWishesByID(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	id := strings.TrimSpace(c.Param("id"))
-	if region == "" || id == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
-		return
-	}
-	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+	region, id, ok := handler.prepareGachaRequest(c, true)
+	if !ok {
 		return
 	}
 
@@ -212,17 +192,8 @@ func (handler *GachaHandler) AvailableRegionsByID(c *gin.Context) {
 // @Failure 500 {object} shared.ErrorResponse
 // @Router /gachas/{region}/list [get]
 func (handler *GachaHandler) List(c *gin.Context) {
-	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
-		return
-	}
-
-	region := strings.TrimSpace(c.Param("region"))
-	if region == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
-		return
-	}
-	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+	region, _, ok := handler.prepareGachaRequest(c, false)
+	if !ok {
 		return
 	}
 
@@ -352,6 +323,30 @@ func filterOngoingGachas(records []map[string]any, now time.Time) []map[string]a
 	}
 
 	return filtered
+}
+
+func (handler *GachaHandler) prepareGachaRequest(c *gin.Context, requireID bool) (string, string, bool) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return "", "", false
+	}
+
+	region := strings.TrimSpace(c.Param("region"))
+	id := strings.TrimSpace(c.Param("id"))
+	if requireID {
+		if region == "" || id == "" {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
+			return "", "", false
+		}
+	} else if region == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
+		return "", "", false
+	}
+	if !ensureGachaRegionReady(c, handler.masterDataSync, region) {
+		return "", "", false
+	}
+
+	return region, id, true
 }
 
 func ensureGachaRegionReady(c *gin.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string) bool {
