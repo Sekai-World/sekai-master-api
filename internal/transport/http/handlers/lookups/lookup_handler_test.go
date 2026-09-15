@@ -781,6 +781,39 @@ func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *te
 	}
 }
 
+func verifyStoryListPage(t *testing.T, router *gin.Engine, path string, expectedTotal int, expectedItem map[string]any) {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Items      []map[string]any `json:"items"`
+		Pagination struct {
+			Total int `json:"total"`
+		} `json:"pagination"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body.Pagination.Total != expectedTotal {
+		t.Fatalf("expected total %d, got %d", expectedTotal, body.Pagination.Total)
+	}
+	if len(body.Items) != expectedTotal {
+		t.Fatalf("expected %d items, got %d", expectedTotal, len(body.Items))
+	}
+	for key, value := range expectedItem {
+		if body.Items[0][key] != value {
+			t.Fatalf("expected item %s=%v, got %v", key, value, body.Items[0][key])
+		}
+	}
+}
+
 func TestStoryLookupListEndpointsReturnPaginatedRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -851,35 +884,41 @@ func TestStoryLookupListEndpointsReturnPaginatedRecords(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-
-			if resp.Code != http.StatusOK {
-				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-			}
-
-			var body struct {
-				Items      []map[string]any `json:"items"`
-				Pagination struct {
-					Total int `json:"total"`
-				} `json:"pagination"`
-			}
-			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-				t.Fatalf("unmarshal response: %v", err)
-			}
-			if body.Pagination.Total != testCase.expectedTotal {
-				t.Fatalf("expected total %d, got %d", testCase.expectedTotal, body.Pagination.Total)
-			}
-			if len(body.Items) != testCase.expectedTotal {
-				t.Fatalf("expected %d items, got %d", testCase.expectedTotal, len(body.Items))
-			}
-			for key, value := range testCase.expectedItem {
-				if body.Items[0][key] != value {
-					t.Fatalf("expected item %s=%v, got %v", key, value, body.Items[0][key])
-				}
-			}
+			verifyStoryListPage(t, router, testCase.path, testCase.expectedTotal, testCase.expectedItem)
 		})
+	}
+}
+
+func verifyReleaseConditionExpansion(t *testing.T, router *gin.Engine, path string) {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(body.Items))
+	}
+	item := body.Items[0]
+	if _, exposed := item["releaseConditionId"]; exposed {
+		t.Fatalf("expected releaseConditionId to be expanded, got %v", item)
+	}
+	expanded, ok := item["releaseCondition"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected expanded releaseCondition object, got %v", item["releaseCondition"])
+	}
+	if expanded["releaseConditionType"] != "story_event" {
+		t.Fatalf("expected releaseCondition content from releaseconditions entity, got %v", expanded)
 	}
 }
 
@@ -922,34 +961,7 @@ func TestStoryLookupListEndpointsExpandTopLevelReleaseCondition(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-
-			if resp.Code != http.StatusOK {
-				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-			}
-
-			var body struct {
-				Items []map[string]any `json:"items"`
-			}
-			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-				t.Fatalf("unmarshal response: %v", err)
-			}
-			if len(body.Items) != 1 {
-				t.Fatalf("expected 1 item, got %d", len(body.Items))
-			}
-			item := body.Items[0]
-			if _, exposed := item["releaseConditionId"]; exposed {
-				t.Fatalf("expected releaseConditionId to be expanded, got %v", item)
-			}
-			expanded, ok := item["releaseCondition"].(map[string]any)
-			if !ok {
-				t.Fatalf("expected expanded releaseCondition object, got %v", item["releaseCondition"])
-			}
-			if expanded["releaseConditionType"] != "story_event" {
-				t.Fatalf("expected releaseCondition content from releaseconditions entity, got %v", expanded)
-			}
+			verifyReleaseConditionExpansion(t, router, testCase.path)
 		})
 	}
 }
