@@ -141,6 +141,14 @@ var subGameCharactersConfig = lookupResourceConfig{
 	sortableFields: []string{"id", "seq"},
 }
 
+var unitStoryEpisodeGroupsConfig = lookupResourceConfig{
+	entity:         "unitstoryepisodegroups",
+	queryErrorCode: "UNIT_STORY_EPISODE_GROUP_QUERY_ERROR",
+	notFoundCode:   "UNIT_STORY_EPISODE_GROUP_NOT_FOUND",
+	resourceLabel:  "unit story episode group",
+	sortableFields: []string{"id", "unit", "unitEpisodeCategory"},
+}
+
 func NewLookupHandler(masterDataSync *usecase.MasterDataSyncUsecase) *LookupHandler {
 	return &LookupHandler{masterDataSync: masterDataSync}
 }
@@ -645,6 +653,25 @@ func (handler *LookupHandler) MobCharactersList(c *gin.Context) {
 // @Router /subGameCharacters/{region}/list [get]
 func (handler *LookupHandler) SubGameCharactersList(c *gin.Context) {
 	handler.list(c, subGameCharactersConfig)
+}
+
+// UnitStoryEpisodeGroupsList godoc
+// @Summary List unit story episode groups by page
+// @Tags unitStoryEpisodeGroups
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /unitStoryEpisodeGroups/{region}/list [get]
+func (handler *LookupHandler) UnitStoryEpisodeGroupsList(c *gin.Context) {
+	handler.list(c, unitStoryEpisodeGroupsConfig)
 }
 
 func (handler *LookupHandler) byID(c *gin.Context, config lookupResourceConfig) {
