@@ -52,6 +52,7 @@ func registerPublicRoutes(
 	v1.GET("/mobCharacters/:region/list", lookupHandler.MobCharactersList)
 	v1.GET("/subGameCharacters/:region/list", lookupHandler.SubGameCharactersList)
 	v1.GET("/unitStoryEpisodeGroups/:region/list", lookupHandler.UnitStoryEpisodeGroupsList)
+	v1.GET("/areas/:region/list", lookupHandler.AreasList)
 	v1.GET("/cards/regions/:id/availability", cardHandler.AvailableRegionsByID)
 	v1.GET("/cards/:region/batch", cardHandler.Batch)
 	v1.GET("/cards/:region/list", cardHandler.List)

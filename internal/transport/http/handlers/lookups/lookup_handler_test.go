@@ -852,6 +852,9 @@ func TestStoryLookupListEndpointsReturnPaginatedRecords(t *testing.T) {
 				"unitstoryepisodegroups": {
 					{"id": 1, "unit": "piapro", "unitEpisodeCategory": "light_sound", "outline": "arc outline"},
 				},
+				"areas": {
+					{"id": 1, "assetbundleName": "area1", "groupId": 10, "areaType": "reality_world", "name": "スクランブル交差点"},
+				},
 			},
 		},
 	}
@@ -868,6 +871,7 @@ func TestStoryLookupListEndpointsReturnPaginatedRecords(t *testing.T) {
 	router.GET("/api/v1/mobCharacters/:region/list", handler.MobCharactersList)
 	router.GET("/api/v1/subGameCharacters/:region/list", handler.SubGameCharactersList)
 	router.GET("/api/v1/unitStoryEpisodeGroups/:region/list", handler.UnitStoryEpisodeGroupsList)
+	router.GET("/api/v1/areas/:region/list", handler.AreasList)
 
 	testCases := []struct {
 		name          string
@@ -885,6 +889,7 @@ func TestStoryLookupListEndpointsReturnPaginatedRecords(t *testing.T) {
 		{name: "mob characters", path: "/api/v1/mobCharacters/jp/list", expectedTotal: 1, expectedItem: map[string]any{"name": "Mob"}},
 		{name: "sub game characters", path: "/api/v1/subGameCharacters/jp/list", expectedTotal: 1, expectedItem: map[string]any{"name": "Sub"}},
 		{name: "unit story episode groups", path: "/api/v1/unitStoryEpisodeGroups/jp/list", expectedTotal: 1, expectedItem: map[string]any{"unitEpisodeCategory": "light_sound"}},
+		{name: "areas", path: "/api/v1/areas/jp/list", expectedTotal: 1, expectedItem: map[string]any{"areaType": "reality_world"}},
 	}
 
 	for _, testCase := range testCases {

@@ -149,6 +149,14 @@ var unitStoryEpisodeGroupsConfig = lookupResourceConfig{
 	sortableFields: []string{"id", "unit", "unitEpisodeCategory"},
 }
 
+var areasConfig = lookupResourceConfig{
+	entity:         "areas",
+	queryErrorCode: "AREA_QUERY_ERROR",
+	notFoundCode:   "AREA_NOT_FOUND",
+	resourceLabel:  "area",
+	sortableFields: []string{"id", "groupId", "name"},
+}
+
 func NewLookupHandler(masterDataSync *usecase.MasterDataSyncUsecase) *LookupHandler {
 	return &LookupHandler{masterDataSync: masterDataSync}
 }
@@ -672,6 +680,25 @@ func (handler *LookupHandler) SubGameCharactersList(c *gin.Context) {
 // @Router /unitStoryEpisodeGroups/{region}/list [get]
 func (handler *LookupHandler) UnitStoryEpisodeGroupsList(c *gin.Context) {
 	handler.list(c, unitStoryEpisodeGroupsConfig)
+}
+
+// AreasList godoc
+// @Summary List areas by page
+// @Tags areas
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /areas/{region}/list [get]
+func (handler *LookupHandler) AreasList(c *gin.Context) {
+	handler.list(c, areasConfig)
 }
 
 func (handler *LookupHandler) byID(c *gin.Context, config lookupResourceConfig) {
