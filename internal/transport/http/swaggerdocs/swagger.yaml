@@ -2742,6 +2742,10 @@ paths:
         in: query
         name: sort_order
         type: string
+      - description: Comma-separated event ids to keep
+        in: query
+        name: event_id
+        type: string
       produces:
       - application/json
       responses:

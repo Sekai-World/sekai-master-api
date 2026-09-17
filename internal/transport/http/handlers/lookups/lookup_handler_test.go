@@ -378,6 +378,60 @@ func TestWorldBloomsListEndpointReturnsPaginatedRecords(t *testing.T) {
 	}
 }
 
+func TestEventStoriesListEndpointFiltersByEventId(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"eventstories": {
+					{"id": 1, "eventId": 34, "eventStoryEpisodes": []any{}},
+					{"id": 2, "eventId": 35, "eventStoryEpisodes": []any{}},
+					{"id": 3, "eventId": 36, "eventStoryEpisodes": []any{}},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/eventStories/:region/list", handler.EventStoriesList)
+
+	fetchItems := func(t *testing.T, query string) []map[string]any {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/eventStories/jp/list"+query, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d: %s", query, resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Items []map[string]any `json:"items"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		return body.Items
+	}
+
+	single := fetchItems(t, "?spoiler=true&event_id=34")
+	if len(single) != 1 || single[0]["eventId"] != float64(34) {
+		t.Fatalf("expected only event 34 stories, got %#v", single)
+	}
+
+	multi := fetchItems(t, "?spoiler=true&event_id=34,36")
+	if len(multi) != 2 || multi[0]["eventId"] != float64(34) || multi[1]["eventId"] != float64(36) {
+		t.Fatalf("expected event 34 and 36 stories in order, got %#v", multi)
+	}
+
+	badRequest := httptest.NewRequest(http.MethodGet, "/api/v1/eventStories/jp/list?spoiler=true&event_id=abc", nil)
+	badResponse := httptest.NewRecorder()
+	router.ServeHTTP(badResponse, badRequest)
+	if badResponse.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for non-numeric event_id, got %d: %s", badResponse.Code, badResponse.Body.String())
+	}
+}
+
 func TestGameCharactersAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

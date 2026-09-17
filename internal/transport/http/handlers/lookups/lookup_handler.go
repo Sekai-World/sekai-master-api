@@ -26,6 +26,10 @@ type lookupResourceConfig struct {
 	resourceLabel          string
 	sortableFields         []string
 	expandReleaseCondition bool
+	// filterableFields maps query params to exact-match numeric record
+	// fields. Filtered requests always load the full entity and filter in
+	// memory, so they bypass the database paging fast path.
+	filterableFields map[string]string
 }
 
 var unitProfilesConfig = lookupResourceConfig{
@@ -81,6 +85,9 @@ var eventStoriesConfig = lookupResourceConfig{
 	notFoundCode:   "EVENT_STORY_NOT_FOUND",
 	resourceLabel:  "event story",
 	sortableFields: []string{"id", "eventId"},
+	filterableFields: map[string]string{
+		"event_id": "eventId",
+	},
 }
 
 var characterProfilesConfig = lookupResourceConfig{
@@ -521,6 +528,7 @@ func (handler *LookupHandler) UnitStoriesList(c *gin.Context) {
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
+// @Param event_id query string false "Comma-separated event ids to keep"
 // @Success 200 {object} shared.GenericRecordListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -796,7 +804,14 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 		return
 	}
 
-	if !includeSpoilers || sortOptions.Enabled {
+	recordFilters, ok := shared.ParseRecordFilters(c, config.filterableFields)
+	if !ok {
+		return
+	}
+
+	// Filtered requests bypass the database paging fast path: filtering and
+	// paging must apply to the same in-memory record set.
+	if !includeSpoilers || sortOptions.Enabled || len(recordFilters) > 0 {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, config.entity)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, config.queryErrorCode, "failed to list "+config.resourceLabel+"s")
@@ -810,6 +825,9 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 				return
 			}
 			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		}
+		if len(recordFilters) > 0 {
+			records = shared.FilterRecordsByNumbers(records, recordFilters)
 		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{

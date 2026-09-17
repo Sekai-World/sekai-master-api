@@ -1452,6 +1452,12 @@ const docTemplate = `{
                         "description": "Sort order (asc|desc)",
                         "name": "sort_order",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated event ids to keep",
+                        "name": "event_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {

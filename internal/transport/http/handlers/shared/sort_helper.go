@@ -233,3 +233,62 @@ func PaginateItems(items []map[string]any, page int, pageSize int) ([]map[string
 		"has_next":    page < totalPages,
 	}
 }
+
+// ParseRecordFilters reads the numeric filter params declared by a lookup
+// resource (query param -> record field). Each value may be a comma-separated
+// list of numbers. It returns false after writing a 400 response when a
+// value is not numeric.
+func ParseRecordFilters(c *gin.Context, filterableFields map[string]string) (map[string][]float64, bool) {
+	filters := make(map[string][]float64)
+	for param, field := range filterableFields {
+		raw := strings.TrimSpace(c.Query(param))
+		if raw == "" {
+			continue
+		}
+		values := make([]float64, 0, 4)
+		for _, part := range strings.Split(raw, ",") {
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+			if err != nil {
+				response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", param+" must be a number or a comma-separated list of numbers")
+				return nil, false
+			}
+			values = append(values, parsed)
+		}
+		filters[field] = values
+	}
+	return filters, true
+}
+
+// FilterRecordsByNumbers keeps the records whose field value equals any of
+// the requested filter values, preserving the original order.
+func FilterRecordsByNumbers(items []map[string]any, filters map[string][]float64) []map[string]any {
+	if len(filters) == 0 {
+		return items
+	}
+	filtered := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		matched := true
+		for field, values := range filters {
+			number, ok := sortableNumericValue(item[field])
+			if !ok {
+				matched = false
+				break
+			}
+			hit := false
+			for _, want := range values {
+				if number == want {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
