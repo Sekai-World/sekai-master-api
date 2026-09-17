@@ -432,6 +432,60 @@ func TestEventStoriesListEndpointFiltersByEventId(t *testing.T) {
 	}
 }
 
+func TestCardEpisodesListEndpointFiltersByCardId(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"cardepisodes": {
+					{"id": 2101, "cardId": 3001, "seq": 1, "title": "EP1"},
+					{"id": 2102, "cardId": 3001, "seq": 2, "title": "EP2"},
+					{"id": 2111, "cardId": 3002, "seq": 1, "title": "Other EP"},
+				},
+			},
+		},
+	}
+
+	handler := newReadyLookupHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/cardEpisodes/:region/list", handler.CardEpisodesList)
+
+	fetchItems := func(t *testing.T, query string) []map[string]any {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/cardEpisodes/jp/list"+query, nil)
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d: %s", query, resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Items []map[string]any `json:"items"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		return body.Items
+	}
+
+	single := fetchItems(t, "?spoiler=true&card_id=3002")
+	if len(single) != 1 || single[0]["cardId"] != float64(3002) {
+		t.Fatalf("expected only card 3002 episodes, got %#v", single)
+	}
+
+	multi := fetchItems(t, "?spoiler=true&card_id=3001,3002")
+	if len(multi) != 3 {
+		t.Fatalf("expected both cards' episodes in order, got %#v", multi)
+	}
+
+	badRequest := httptest.NewRequest(http.MethodGet, "/api/v1/cardEpisodes/jp/list?spoiler=true&card_id=abc", nil)
+	badResponse := httptest.NewRecorder()
+	router.ServeHTTP(badResponse, badRequest)
+	if badResponse.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for non-numeric card_id, got %d: %s", badResponse.Code, badResponse.Body.String())
+	}
+}
+
 func TestGameCharactersAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

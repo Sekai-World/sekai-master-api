@@ -2137,6 +2137,10 @@ paths:
         in: query
         name: sort_order
         type: string
+      - description: Comma-separated card ids to keep
+        in: query
+        name: card_id
+        type: string
       produces:
       - application/json
       responses:

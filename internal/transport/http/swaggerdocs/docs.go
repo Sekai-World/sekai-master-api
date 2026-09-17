@@ -539,6 +539,12 @@ const docTemplate = `{
                         "description": "Sort order (asc|desc)",
                         "name": "sort_order",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated card ids to keep",
+                        "name": "card_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {

@@ -105,6 +105,7 @@ var cardEpisodesConfig = lookupResourceConfig{
 	resourceLabel:          "card episode",
 	sortableFields:         []string{"id", "cardId", "seq"},
 	expandReleaseCondition: true,
+	filterableFields:       map[string]string{"card_id": "cardId"},
 }
 
 var actionSetsConfig = lookupResourceConfig{
@@ -567,6 +568,7 @@ func (handler *LookupHandler) CharacterProfilesList(c *gin.Context) {
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
+// @Param card_id query string false "Comma-separated card ids to keep"
 // @Success 200 {object} shared.GenericRecordListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
