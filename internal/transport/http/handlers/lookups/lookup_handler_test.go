@@ -378,111 +378,114 @@ func TestWorldBloomsListEndpointReturnsPaginatedRecords(t *testing.T) {
 	}
 }
 
-func TestEventStoriesListEndpointFiltersByEventId(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+type lookupListResponse struct {
+	Items      []map[string]any `json:"items"`
+	Pagination struct {
+		Total int `json:"total"`
+	} `json:"pagination"`
+}
 
-	cache := &fakeLookupCache{
-		listByEntity: map[string]map[string][]map[string]any{
-			"jp": {
-				"eventstories": {
-					{"id": 1, "eventId": 34, "eventStoryEpisodes": []any{}},
-					{"id": 2, "eventId": 35, "eventStoryEpisodes": []any{}},
-					{"id": 3, "eventId": 36, "eventStoryEpisodes": []any{}},
-				},
-			},
-		},
+func fetchLookupListResponse(t *testing.T, router *gin.Engine, path string) lookupListResponse {
+	t.Helper()
+	resp := serveLookupRequest(t, router, http.MethodGet, path)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for %s, got %d: %s", path, resp.Code, resp.Body.String())
 	}
+	var body lookupListResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return body
+}
 
-	handler := newReadyLookupHandler(cache)
-	router := gin.New()
-	router.GET("/api/v1/eventStories/:region/list", handler.EventStoriesList)
+type lookupNumericFilterCase struct {
+	name         string
+	resource     string
+	entity       string
+	endpoint     func(*LookupHandler) gin.HandlerFunc
+	field        string
+	records      []map[string]any
+	singleQuery  string
+	singleValues []float64
+	multiQuery   string
+	multiValues  []float64
+	invalidQuery string
+}
 
-	fetchItems := func(t *testing.T, query string) []map[string]any {
-		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/eventStories/jp/list"+query, nil)
-		resp := httptest.NewRecorder()
-		router.ServeHTTP(resp, req)
-		if resp.Code != http.StatusOK {
-			t.Fatalf("expected 200 for %s, got %d: %s", query, resp.Code, resp.Body.String())
+func assertLookupFilterItems(t *testing.T, router *gin.Engine, path string, field string, expected []float64) {
+	t.Helper()
+	body := fetchLookupListResponse(t, router, path)
+	if len(body.Items) != len(expected) {
+		t.Fatalf("expected %d items for %s, got %#v", len(expected), path, body.Items)
+	}
+	for index, value := range expected {
+		if body.Items[index][field] != value {
+			t.Fatalf("expected item %d %s=%v, got %#v", index, field, value, body.Items)
 		}
-		var body struct {
-			Items []map[string]any `json:"items"`
-		}
-		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-			t.Fatalf("unmarshal response: %v", err)
-		}
-		return body.Items
-	}
-
-	single := fetchItems(t, "?spoiler=true&event_id=34")
-	if len(single) != 1 || single[0]["eventId"] != float64(34) {
-		t.Fatalf("expected only event 34 stories, got %#v", single)
-	}
-
-	multi := fetchItems(t, "?spoiler=true&event_id=34,36")
-	if len(multi) != 2 || multi[0]["eventId"] != float64(34) || multi[1]["eventId"] != float64(36) {
-		t.Fatalf("expected event 34 and 36 stories in order, got %#v", multi)
-	}
-
-	badRequest := httptest.NewRequest(http.MethodGet, "/api/v1/eventStories/jp/list?spoiler=true&event_id=abc", nil)
-	badResponse := httptest.NewRecorder()
-	router.ServeHTTP(badResponse, badRequest)
-	if badResponse.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for non-numeric event_id, got %d: %s", badResponse.Code, badResponse.Body.String())
 	}
 }
 
-func TestCardEpisodesListEndpointFiltersByCardId(t *testing.T) {
+func TestLookupListEndpointsFilterByNumericID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &fakeLookupCache{
-		listByEntity: map[string]map[string][]map[string]any{
-			"jp": {
-				"cardepisodes": {
-					{"id": 2101, "cardId": 3001, "seq": 1, "title": "EP1"},
-					{"id": 2102, "cardId": 3001, "seq": 2, "title": "EP2"},
-					{"id": 2111, "cardId": 3002, "seq": 1, "title": "Other EP"},
-				},
+	testCases := []lookupNumericFilterCase{
+		{
+			name:     "event stories by event id",
+			resource: "eventStories",
+			entity:   "eventstories",
+			endpoint: func(handler *LookupHandler) gin.HandlerFunc { return handler.EventStoriesList },
+			field:    "eventId",
+			records: []map[string]any{
+				{"id": 1, "eventId": 34, "eventStoryEpisodes": []any{}},
+				{"id": 2, "eventId": 35, "eventStoryEpisodes": []any{}},
+				{"id": 3, "eventId": 36, "eventStoryEpisodes": []any{}},
 			},
+			singleQuery:  "?spoiler=true&event_id=34",
+			singleValues: []float64{34},
+			multiQuery:   "?spoiler=true&event_id=34,36",
+			multiValues:  []float64{34, 36},
+			invalidQuery: "?spoiler=true&event_id=abc",
+		},
+		{
+			name:     "card episodes by card id",
+			resource: "cardEpisodes",
+			entity:   "cardepisodes",
+			endpoint: func(handler *LookupHandler) gin.HandlerFunc { return handler.CardEpisodesList },
+			field:    "cardId",
+			records: []map[string]any{
+				{"id": 2101, "cardId": 3001, "seq": 1, "title": "EP1"},
+				{"id": 2102, "cardId": 3001, "seq": 2, "title": "EP2"},
+				{"id": 2111, "cardId": 3002, "seq": 1, "title": "Other EP"},
+			},
+			singleQuery:  "?spoiler=true&card_id=3002",
+			singleValues: []float64{3002},
+			multiQuery:   "?spoiler=true&card_id=3001,3002",
+			multiValues:  []float64{3001, 3001, 3002},
+			invalidQuery: "?spoiler=true&card_id=abc",
 		},
 	}
 
-	handler := newReadyLookupHandler(cache)
-	router := gin.New()
-	router.GET("/api/v1/cardEpisodes/:region/list", handler.CardEpisodesList)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cache := &fakeLookupCache{
+				listByEntity: map[string]map[string][]map[string]any{
+					"jp": {testCase.entity: testCase.records},
+				},
+			}
+			handler := newReadyLookupHandler(cache)
+			router := gin.New()
+			basePath := "/api/v1/" + testCase.resource
+			router.GET(basePath+"/:region/list", testCase.endpoint(handler))
+			requestPath := basePath + "/jp/list"
 
-	fetchItems := func(t *testing.T, query string) []map[string]any {
-		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/cardEpisodes/jp/list"+query, nil)
-		resp := httptest.NewRecorder()
-		router.ServeHTTP(resp, req)
-		if resp.Code != http.StatusOK {
-			t.Fatalf("expected 200 for %s, got %d: %s", query, resp.Code, resp.Body.String())
-		}
-		var body struct {
-			Items []map[string]any `json:"items"`
-		}
-		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-			t.Fatalf("unmarshal response: %v", err)
-		}
-		return body.Items
-	}
+			assertLookupFilterItems(t, router, requestPath+testCase.singleQuery, testCase.field, testCase.singleValues)
+			assertLookupFilterItems(t, router, requestPath+testCase.multiQuery, testCase.field, testCase.multiValues)
 
-	single := fetchItems(t, "?spoiler=true&card_id=3002")
-	if len(single) != 1 || single[0]["cardId"] != float64(3002) {
-		t.Fatalf("expected only card 3002 episodes, got %#v", single)
-	}
-
-	multi := fetchItems(t, "?spoiler=true&card_id=3001,3002")
-	if len(multi) != 3 {
-		t.Fatalf("expected both cards' episodes in order, got %#v", multi)
-	}
-
-	badRequest := httptest.NewRequest(http.MethodGet, "/api/v1/cardEpisodes/jp/list?spoiler=true&card_id=abc", nil)
-	badResponse := httptest.NewRecorder()
-	router.ServeHTTP(badResponse, badRequest)
-	if badResponse.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for non-numeric card_id, got %d: %s", badResponse.Code, badResponse.Body.String())
+			badResponse := serveLookupRequest(t, router, http.MethodGet, requestPath+testCase.invalidQuery)
+			if badResponse.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for invalid filter, got %d: %s", badResponse.Code, badResponse.Body.String())
+			}
+		})
 	}
 }
 
@@ -892,23 +895,7 @@ func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *te
 func verifyStoryListPage(t *testing.T, router *gin.Engine, path string, expectedTotal int, expectedItem map[string]any) {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-
-	var body struct {
-		Items      []map[string]any `json:"items"`
-		Pagination struct {
-			Total int `json:"total"`
-		} `json:"pagination"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
+	body := fetchLookupListResponse(t, router, path)
 	if body.Pagination.Total != expectedTotal {
 		t.Fatalf("expected total %d, got %d", expectedTotal, body.Pagination.Total)
 	}
@@ -1010,20 +997,7 @@ func TestStoryLookupListEndpointsReturnPaginatedRecords(t *testing.T) {
 func verifyReleaseConditionExpansion(t *testing.T, router *gin.Engine, path string) {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-
-	var body struct {
-		Items []map[string]any `json:"items"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
+	body := fetchLookupListResponse(t, router, path)
 	if len(body.Items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(body.Items))
 	}
@@ -1113,20 +1087,7 @@ func TestSpecialStoriesListEndpointFiltersUnreleasedByDefault(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/specialStories/jp/list"+testCase.query, nil)
-			resp := httptest.NewRecorder()
-			router.ServeHTTP(resp, req)
-
-			if resp.Code != http.StatusOK {
-				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-			}
-
-			var body struct {
-				Items []map[string]any `json:"items"`
-			}
-			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-				t.Fatalf("unmarshal response: %v", err)
-			}
+			body := fetchLookupListResponse(t, router, "/api/v1/specialStories/jp/list"+testCase.query)
 			if len(body.Items) != testCase.expectedTotal {
 				t.Fatalf("expected %d items, got %d: %v", testCase.expectedTotal, len(body.Items), body.Items)
 			}

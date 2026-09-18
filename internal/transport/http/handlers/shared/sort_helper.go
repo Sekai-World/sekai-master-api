@@ -267,28 +267,28 @@ func FilterRecordsByNumbers(items []map[string]any, filters map[string][]float64
 	}
 	filtered := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		matched := true
-		for field, values := range filters {
-			number, ok := sortableNumericValue(item[field])
-			if !ok {
-				matched = false
-				break
-			}
-			hit := false
-			for _, want := range values {
-				if number == want {
-					hit = true
-					break
-				}
-			}
-			if !hit {
-				matched = false
-				break
-			}
-		}
-		if matched {
+		if recordMatchesNumberFilters(item, filters) {
 			filtered = append(filtered, item)
 		}
 	}
 	return filtered
+}
+
+func recordMatchesNumberFilters(item map[string]any, filters map[string][]float64) bool {
+	for field, values := range filters {
+		number, ok := sortableNumericValue(item[field])
+		if !ok || !containsNumber(values, number) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsNumber(values []float64, number float64) bool {
+	for _, value := range values {
+		if number == value {
+			return true
+		}
+	}
+	return false
 }
