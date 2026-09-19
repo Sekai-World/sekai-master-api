@@ -2047,6 +2047,56 @@ paths:
       summary: Get admin profile
       tags:
       - admin
+  /areas/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GenericRecordListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List areas by page
+      tags:
+      - areas
   /build-info:
     get:
       produces:
@@ -2086,6 +2136,10 @@ paths:
       - description: Sort order (asc|desc)
         in: query
         name: sort_order
+        type: string
+      - description: Comma-separated card ids to keep
+        in: query
+        name: card_id
         type: string
       produces:
       - application/json
@@ -2691,6 +2745,10 @@ paths:
       - description: Sort order (asc|desc)
         in: query
         name: sort_order
+        type: string
+      - description: Comma-separated event ids to keep
+        in: query
+        name: event_id
         type: string
       produces:
       - application/json
@@ -4281,6 +4339,56 @@ paths:
       summary: List unit stories by page
       tags:
       - unitStories
+  /unitStoryEpisodeGroups/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Include spoiler content
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.GenericRecordListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List unit story episode groups by page
+      tags:
+      - unitStoryEpisodeGroups
   /versions:
     get:
       produces:

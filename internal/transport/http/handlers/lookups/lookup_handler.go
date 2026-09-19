@@ -26,6 +26,10 @@ type lookupResourceConfig struct {
 	resourceLabel          string
 	sortableFields         []string
 	expandReleaseCondition bool
+	// filterableFields maps query params to exact-match numeric record
+	// fields. Filtered requests always load the full entity and filter in
+	// memory, so they bypass the database paging fast path.
+	filterableFields map[string]string
 }
 
 var unitProfilesConfig = lookupResourceConfig{
@@ -81,6 +85,9 @@ var eventStoriesConfig = lookupResourceConfig{
 	notFoundCode:   "EVENT_STORY_NOT_FOUND",
 	resourceLabel:  "event story",
 	sortableFields: []string{"id", "eventId"},
+	filterableFields: map[string]string{
+		"event_id": "eventId",
+	},
 }
 
 var characterProfilesConfig = lookupResourceConfig{
@@ -98,6 +105,7 @@ var cardEpisodesConfig = lookupResourceConfig{
 	resourceLabel:          "card episode",
 	sortableFields:         []string{"id", "cardId", "seq"},
 	expandReleaseCondition: true,
+	filterableFields:       map[string]string{"card_id": "cardId"},
 }
 
 var actionSetsConfig = lookupResourceConfig{
@@ -139,6 +147,22 @@ var subGameCharactersConfig = lookupResourceConfig{
 	notFoundCode:   "SUB_GAME_CHARACTER_NOT_FOUND",
 	resourceLabel:  "sub game character",
 	sortableFields: []string{"id", "seq"},
+}
+
+var unitStoryEpisodeGroupsConfig = lookupResourceConfig{
+	entity:         "unitstoryepisodegroups",
+	queryErrorCode: "UNIT_STORY_EPISODE_GROUP_QUERY_ERROR",
+	notFoundCode:   "UNIT_STORY_EPISODE_GROUP_NOT_FOUND",
+	resourceLabel:  "unit story episode group",
+	sortableFields: []string{"id", "unit", "unitEpisodeCategory"},
+}
+
+var areasConfig = lookupResourceConfig{
+	entity:         "areas",
+	queryErrorCode: "AREA_QUERY_ERROR",
+	notFoundCode:   "AREA_NOT_FOUND",
+	resourceLabel:  "area",
+	sortableFields: []string{"id", "groupId", "name"},
 }
 
 func NewLookupHandler(masterDataSync *usecase.MasterDataSyncUsecase) *LookupHandler {
@@ -505,6 +529,7 @@ func (handler *LookupHandler) UnitStoriesList(c *gin.Context) {
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
+// @Param event_id query string false "Comma-separated event ids to keep"
 // @Success 200 {object} shared.GenericRecordListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -543,6 +568,7 @@ func (handler *LookupHandler) CharacterProfilesList(c *gin.Context) {
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
+// @Param card_id query string false "Comma-separated card ids to keep"
 // @Success 200 {object} shared.GenericRecordListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -647,6 +673,44 @@ func (handler *LookupHandler) SubGameCharactersList(c *gin.Context) {
 	handler.list(c, subGameCharactersConfig)
 }
 
+// UnitStoryEpisodeGroupsList godoc
+// @Summary List unit story episode groups by page
+// @Tags unitStoryEpisodeGroups
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /unitStoryEpisodeGroups/{region}/list [get]
+func (handler *LookupHandler) UnitStoryEpisodeGroupsList(c *gin.Context) {
+	handler.list(c, unitStoryEpisodeGroupsConfig)
+}
+
+// AreasList godoc
+// @Summary List areas by page
+// @Tags areas
+// @Produce json
+// @Param region path string true "Region"
+// @Param page query int false "Page number"
+// @Param page_size query int false "Page size"
+// @Param spoiler query bool false "Include spoiler content"
+// @Param sort_by query string false "Sort field"
+// @Param sort_order query string false "Sort order (asc|desc)"
+// @Success 200 {object} shared.GenericRecordListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Router /areas/{region}/list [get]
+func (handler *LookupHandler) AreasList(c *gin.Context) {
+	handler.list(c, areasConfig)
+}
+
 func (handler *LookupHandler) byID(c *gin.Context, config lookupResourceConfig) {
 	if handler.masterDataSync == nil {
 		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
@@ -742,7 +806,14 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 		return
 	}
 
-	if !includeSpoilers || sortOptions.Enabled {
+	recordFilters, ok := shared.ParseRecordFilters(c, config.filterableFields)
+	if !ok {
+		return
+	}
+
+	// Filtered requests bypass the database paging fast path: filtering and
+	// paging must apply to the same in-memory record set.
+	if !includeSpoilers || sortOptions.Enabled || len(recordFilters) > 0 {
 		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, config.entity)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, config.queryErrorCode, "failed to list "+config.resourceLabel+"s")
@@ -756,6 +827,9 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 				return
 			}
 			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
+		}
+		if len(recordFilters) > 0 {
+			records = shared.FilterRecordsByNumbers(records, recordFilters)
 		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
