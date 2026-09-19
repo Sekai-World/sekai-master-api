@@ -1124,6 +1124,46 @@ func TestCardListEndpointFiltersBy3dmvCutIn(t *testing.T) {
 	assertResponsePaginationTotal(t, resp.Body.Bytes(), 1)
 }
 
+func TestCardListEndpointSupportsNameFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1001, "prefix": "Serial numbers style"},
+			{"id": 1002, "prefix": "ワンダーマジカルショータイム"},
+			{"id": 1003, "prefix": "カラフル・サプライズ！"},
+		},
+		listTotal: 3,
+	}
+
+	cardHandler := newReadyCardHandler(cache)
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&name=SERIAL", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
+	assertResponsePaginationTotal(t, resp.Body.Bytes(), 1)
+
+	commaReq := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&name=ワンダー,サプライズ", nil)
+	commaResp := httptest.NewRecorder()
+	router.ServeHTTP(commaResp, commaReq)
+
+	if commaResp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", commaResp.Code)
+	}
+
+	assertResponseItemOrder(t, commaResp.Body.Bytes(), []float64{1002, 1003})
+	assertResponsePaginationTotal(t, commaResp.Body.Bytes(), 2)
+}
+
 func TestCardListSortOrderWithoutSortByReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
