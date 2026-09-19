@@ -69,7 +69,7 @@ func (handler *EventHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, handler.buildEventDetail(c.Request.Context(), region, record))
+	response.JSON(c, http.StatusOK, handler.buildEventDetail(c.Request.Context(), region, record, handler.loadEventUnitLookup(c.Request.Context(), region)))
 }
 
 // DetailByID godoc
@@ -318,7 +318,8 @@ func (handler *EventHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
 			return
 		}
-		records = handler.filterEvents(c.Request.Context(), region, records, filterOptions)
+		lookup := handler.loadEventUnitLookup(c.Request.Context(), region)
+		records = handler.filterEvents(records, filterOptions, lookup)
 		if !includeSpoilers {
 			records = shared.FilterSpoilerItems(records, time.Now().UTC())
 		}
@@ -330,7 +331,7 @@ func (handler *EventHandler) List(c *gin.Context) {
 		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
 		response.JSON(c, http.StatusOK, gin.H{
-			"items":      handler.buildEventList(c.Request.Context(), region, pagedRecords),
+			"items":      handler.buildEventList(c.Request.Context(), region, lookup, pagedRecords),
 			"pagination": pagination,
 		})
 		return
@@ -342,13 +343,14 @@ func (handler *EventHandler) List(c *gin.Context) {
 		return
 	}
 
+	lookup := handler.loadEventUnitLookup(c.Request.Context(), region)
 	totalPages := 0
 	if pageSize > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
-		"items": handler.buildEventList(c.Request.Context(), region, records),
+		"items": handler.buildEventList(c.Request.Context(), region, lookup, records),
 		"pagination": gin.H{
 			"page":        page,
 			"page_size":   pageSize,
@@ -752,7 +754,7 @@ func (handler *EventHandler) buildEventDetailAggregate(ctx context.Context, regi
 	previewRanges := handler.buildEventRewardPreview(ctx, region, rewardRanges)
 
 	return gin.H{
-		"event":            handler.buildEventDetail(ctx, region, record),
+		"event":            handler.buildEventDetail(ctx, region, record, handler.loadEventUnitLookup(ctx, region)),
 		"availableRegions": availableRegions,
 		"isCurrentEvent":   handler.isCurrentEvent(ctx, region, eventID),
 		"bonuses":          bonuses,
@@ -1145,16 +1147,16 @@ func buildCurrentEventBase(record map[string]any) map[string]any {
 	})
 }
 
-func (handler *EventHandler) buildEventList(ctx context.Context, region string, records []map[string]any) []map[string]any {
+func (handler *EventHandler) buildEventList(ctx context.Context, region string, lookup eventUnitLookup, records []map[string]any) []map[string]any {
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		items = append(items, handler.buildEventListItem(ctx, region, record))
+		items = append(items, handler.buildEventListItem(ctx, region, record, lookup))
 	}
 
 	return items
 }
 
-func (handler *EventHandler) buildEventListItem(ctx context.Context, region string, record map[string]any) map[string]any {
+func (handler *EventHandler) buildEventListItem(ctx context.Context, region string, record map[string]any, lookup eventUnitLookup) map[string]any {
 	result := pickFields(record, []string{
 		"id",
 		"name",
@@ -1169,8 +1171,8 @@ func (handler *EventHandler) buildEventListItem(ctx context.Context, region stri
 		return result
 	}
 
-	eventStory := handler.findEventStoryByEventID(ctx, region, shared.NormalizeAnyID(record["id"]))
-	if unit := handler.resolveEventUnitCode(ctx, region, record, eventStory); unit != "" {
+	eventStory := lookup.findEventStory(shared.NormalizeAnyID(record["id"]))
+	if unit := handler.resolveEventUnitCode(record, eventStory, lookup); unit != "" {
 		result["unit"] = unit
 	}
 	if bannerGameCharacterID := handler.resolveBannerGameCharacterID(ctx, region, eventStory); bannerGameCharacterID != nil {
@@ -1180,15 +1182,15 @@ func (handler *EventHandler) buildEventListItem(ctx context.Context, region stri
 	return result
 }
 
-func (handler *EventHandler) buildEventDetail(ctx context.Context, region string, record map[string]any) map[string]any {
+func (handler *EventHandler) buildEventDetail(ctx context.Context, region string, record map[string]any, lookup eventUnitLookup) map[string]any {
 	result := buildEventBase(record)
 	if record == nil || handler == nil || handler.masterDataSync == nil {
 		return result
 	}
 
-	eventStory := handler.findEventStoryByEventID(ctx, region, shared.NormalizeAnyID(record["id"]))
+	eventStory := lookup.findEventStory(shared.NormalizeAnyID(record["id"]))
 
-	if unit := handler.resolveEventUnit(ctx, region, record, eventStory); unit != nil {
+	if unit := handler.resolveEventUnit(record, eventStory, lookup); unit != nil {
 		result["unit"] = unit
 	}
 
@@ -1215,36 +1217,82 @@ func (handler *EventHandler) buildEventDetail(ctx context.Context, region string
 	return result
 }
 
-func (handler *EventHandler) findEventStoryByEventID(ctx context.Context, region string, eventID string) map[string]any {
-	if eventID == "" {
-		return nil
-	}
-
-	records, err := handler.masterDataSync.ListAll(ctx, region, "eventstories")
-	if err != nil {
-		return nil
-	}
-
-	for _, record := range records {
-		if shared.NormalizeAnyID(record["eventId"]) == eventID {
-			return record
-		}
-	}
-
-	return nil
+// eventUnitLookup resolves an event's primary unit from the related
+// collections loaded once per request. The previous per-event resolution
+// re-read the full eventstories/eventstoryunits collections for every
+// event, which made unit-filtered list requests perform O(events) full
+// collection reads (~435 per filtered page on JP).
+type eventUnitLookup struct {
+	storyByEventID map[string]map[string]any
+	unitsByStoryID map[string][]map[string]any
+	profileByUnit  map[string]map[string]any
 }
 
-func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string, record map[string]any, eventStory map[string]any) map[string]any {
-	unitLookup := ""
-	if eventStory != nil {
-		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
-		if eventStoryID != "" {
-			records, err := handler.listRecordsByField(ctx, region, "eventstoryunits", "eventStoryId", eventStoryID)
-			if err == nil {
-				unitLookup = pickPrimaryEventStoryUnit(records)
+// loadEventUnitLookup reads the three collections the unit resolution
+// needs. Read failures leave the affected map empty, matching the
+// previous helpers that swallowed read errors and fell back to the
+// event row's own unit field.
+func (handler *EventHandler) loadEventUnitLookup(ctx context.Context, region string) eventUnitLookup {
+	lookup := eventUnitLookup{}
+	if handler == nil || handler.masterDataSync == nil {
+		return lookup
+	}
+
+	if stories, err := handler.masterDataSync.ListAll(ctx, region, "eventstories"); err == nil {
+		lookup.storyByEventID = make(map[string]map[string]any, len(stories))
+		for _, story := range stories {
+			eventID := shared.NormalizeAnyID(story["eventId"])
+			if eventID != "" {
+				lookup.storyByEventID[eventID] = story
 			}
 		}
 	}
+
+	if units, err := handler.masterDataSync.ListAll(ctx, region, "eventstoryunits"); err == nil {
+		lookup.unitsByStoryID = make(map[string][]map[string]any, len(units))
+		for _, unit := range units {
+			storyID := shared.NormalizeAnyID(unit["eventStoryId"])
+			if storyID != "" {
+				lookup.unitsByStoryID[storyID] = append(lookup.unitsByStoryID[storyID], unit)
+			}
+		}
+	}
+
+	if profiles, err := handler.masterDataSync.ListAll(ctx, region, "unitprofiles"); err == nil {
+		lookup.profileByUnit = make(map[string]map[string]any, len(profiles))
+		for _, profile := range profiles {
+			unit := shared.NormalizeComparableText(profile["unit"])
+			if unit != "" {
+				lookup.profileByUnit[unit] = profile
+			}
+		}
+	}
+
+	return lookup
+}
+
+func (lookup eventUnitLookup) findEventStory(eventID string) map[string]any {
+	if lookup.storyByEventID == nil || eventID == "" {
+		return nil
+	}
+	return lookup.storyByEventID[eventID]
+}
+
+// primaryEventStoryUnit picks the main unit of the event story, or "" when
+// the story is unknown or has no unit rows.
+func (lookup eventUnitLookup) primaryEventStoryUnit(eventStory map[string]any) string {
+	if eventStory == nil {
+		return ""
+	}
+	storyID := shared.NormalizeAnyID(eventStory["id"])
+	if storyID == "" {
+		return ""
+	}
+	return pickPrimaryEventStoryUnit(lookup.unitsByStoryID[storyID])
+}
+
+func (handler *EventHandler) resolveEventUnit(record map[string]any, eventStory map[string]any, lookup eventUnitLookup) map[string]any {
+	unitLookup := lookup.primaryEventStoryUnit(eventStory)
 
 	if unitLookup == "" {
 		unitLookup = shared.NormalizeComparableText(record["unit"])
@@ -1253,25 +1301,17 @@ func (handler *EventHandler) resolveEventUnit(ctx context.Context, region string
 		return nil
 	}
 
-	records, err := handler.listRecordsByComparableField(ctx, region, "unitprofiles", "unit", unitLookup)
-	if err != nil || len(records) == 0 {
+	profile := lookup.profileByUnit[unitLookup]
+	if profile == nil {
 		return nil
 	}
 
-	return pickFields(records[0], []string{"unit", "unitName", "colorCode"})
+	return pickFields(profile, []string{"unit", "unitName", "colorCode"})
 }
 
-func (handler *EventHandler) resolveEventUnitCode(ctx context.Context, region string, record map[string]any, eventStory map[string]any) string {
-	if eventStory != nil {
-		eventStoryID := shared.NormalizeAnyID(eventStory["id"])
-		if eventStoryID != "" {
-			records, err := handler.listRecordsByField(ctx, region, "eventstoryunits", "eventStoryId", eventStoryID)
-			if err == nil {
-				if unit := pickPrimaryEventStoryUnit(records); unit != "" {
-					return unit
-				}
-			}
-		}
+func (handler *EventHandler) resolveEventUnitCode(record map[string]any, eventStory map[string]any, lookup eventUnitLookup) string {
+	if unit := lookup.primaryEventStoryUnit(eventStory); unit != "" {
+		return unit
 	}
 
 	return shared.NormalizeComparableText(record["unit"])
@@ -1293,40 +1333,6 @@ func pickPrimaryEventStoryUnit(records []map[string]any) string {
 	}
 
 	return fallback
-}
-
-func (handler *EventHandler) listRecordsByField(ctx context.Context, region string, entity string, field string, value string) ([]map[string]any, error) {
-	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
-	if err != nil {
-		return nil, err
-	}
-
-	targetValue := shared.NormalizeAnyID(value)
-	items := make([]map[string]any, 0, len(records))
-	for _, record := range records {
-		if shared.NormalizeAnyID(record[field]) != targetValue {
-			continue
-		}
-		items = append(items, record)
-	}
-	return items, nil
-}
-
-func (handler *EventHandler) listRecordsByComparableField(ctx context.Context, region string, entity string, field string, value string) ([]map[string]any, error) {
-	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
-	if err != nil {
-		return nil, err
-	}
-
-	targetValue := shared.NormalizeComparableText(value)
-	items := make([]map[string]any, 0, len(records))
-	for _, record := range records {
-		if shared.NormalizeComparableText(record[field]) != targetValue {
-			continue
-		}
-		items = append(items, record)
-	}
-	return items, nil
 }
 
 func (handler *EventHandler) resolveBannerGameCharacter(ctx context.Context, region string, eventStory map[string]any) map[string]any {
@@ -1446,7 +1452,7 @@ func eventQueryFieldToRecordField(field string) string {
 	}
 }
 
-func (handler *EventHandler) filterEvents(ctx context.Context, region string, records []map[string]any, options eventFilterOptions) []map[string]any {
+func (handler *EventHandler) filterEvents(records []map[string]any, options eventFilterOptions, lookup eventUnitLookup) []map[string]any {
 	if !options.Enabled {
 		return records
 	}
@@ -1454,7 +1460,7 @@ func (handler *EventHandler) filterEvents(ctx context.Context, region string, re
 	filtered := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		if eventMatchesFilters(record, options.Fields) &&
-			handler.eventMatchesUnitFilter(ctx, region, record, options.Units) {
+			handler.eventMatchesUnitFilter(record, options.Units, lookup) {
 			filtered = append(filtered, record)
 		}
 	}
@@ -1462,7 +1468,7 @@ func (handler *EventHandler) filterEvents(ctx context.Context, region string, re
 	return filtered
 }
 
-func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region string, record map[string]any, unitQueries []string) bool {
+func (handler *EventHandler) eventMatchesUnitFilter(record map[string]any, unitQueries []string, lookup eventUnitLookup) bool {
 	queryTexts := normalizeQueryValues(unitQueries)
 	if len(queryTexts) == 0 {
 		return true
@@ -1473,8 +1479,8 @@ func (handler *EventHandler) eventMatchesUnitFilter(ctx context.Context, region 
 		return false
 	}
 
-	eventStory := handler.findEventStoryByEventID(ctx, region, eventID)
-	unitText := handler.resolveEventUnitCode(ctx, region, record, eventStory)
+	eventStory := lookup.findEventStory(eventID)
+	unitText := handler.resolveEventUnitCode(record, eventStory, lookup)
 	return anyQueryExactlyMatches(unitText, queryTexts)
 }
 

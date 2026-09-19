@@ -364,6 +364,12 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 		return
 	}
 
+	bonusData, err := handler.loadCardEventBonusData(c.Request.Context(), region)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card event bonuses")
+		return
+	}
+
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		item := shared.BuildRecordWithReleaseCondition(c.Request.Context(), handler.masterDataSync, region, record)
@@ -381,7 +387,7 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 				item["event"] = eventSummary
 			}
 
-			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(c.Request.Context(), region, eventID, cardRecord, record)
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(eventID, cardRecord, record, bonusData)
 			if err != nil {
 				response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card event bonuses")
 				return
@@ -490,7 +496,28 @@ func (handler *CardHandler) GachaByID(c *gin.Context) {
 	})
 }
 
-func (handler *CardHandler) buildCardEventBonusRange(ctx context.Context, region string, eventID string, card map[string]any, eventCard map[string]any) (float64, float64, bool, error) {
+// cardEventBonusData carries the two collections the deck-bonus match
+// needs, loaded once per request instead of once per event-card row (the
+// previous per-row reads made every card-events listing re-read the full
+// eventdeckbonuses and gamecharacterunits collections for each row).
+type cardEventBonusData struct {
+	deckBonuses        []map[string]any
+	gameCharacterUnits []map[string]any
+}
+
+func (handler *CardHandler) loadCardEventBonusData(ctx context.Context, region string) (cardEventBonusData, error) {
+	deckBonuses, err := handler.masterDataSync.ListAll(ctx, region, "eventdeckbonuses")
+	if err != nil {
+		return cardEventBonusData{}, err
+	}
+	gameCharacterUnits, err := handler.masterDataSync.ListAll(ctx, region, "gamecharacterunits")
+	if err != nil {
+		return cardEventBonusData{}, err
+	}
+	return cardEventBonusData{deckBonuses: deckBonuses, gameCharacterUnits: gameCharacterUnits}, nil
+}
+
+func (handler *CardHandler) buildCardEventBonusRange(eventID string, card map[string]any, eventCard map[string]any, bonusData cardEventBonusData) (float64, float64, bool, error) {
 	eventIDNumber, ok := intFromAny(eventID)
 	if !ok {
 		return 0, 0, false, nil
@@ -507,10 +534,7 @@ func (handler *CardHandler) buildCardEventBonusRange(ctx context.Context, region
 	}
 
 	baseBonus := numberFromAnyOrZero(eventCard["bonusRate"])
-	deckBonus, specialBonus, err := handler.cardEventDeckBonus(ctx, region, eventIDNumber, card, characterID)
-	if err != nil {
-		return 0, 0, false, err
-	}
+	deckBonus, specialBonus := cardEventDeckBonus(bonusData, eventIDNumber, card, characterID)
 	baseBonus += deckBonus + specialBonus
 
 	rarityMin, rarityMax, ok := masterRankBonusRange(eventIDNumber, rarityType)
@@ -521,79 +545,99 @@ func (handler *CardHandler) buildCardEventBonusRange(ctx context.Context, region
 	return baseBonus + rarityMin, baseBonus + rarityMax, true, nil
 }
 
-func (handler *CardHandler) cardEventDeckBonus(ctx context.Context, region string, eventID int, card map[string]any, characterID int) (float64, float64, error) {
-	deckBonuses, err := handler.masterDataSync.ListAll(ctx, region, "eventdeckbonuses")
-	if err != nil {
-		return 0, 0, err
-	}
-	gameCharacterUnits, err := handler.masterDataSync.ListAll(ctx, region, "gamecharacterunits")
-	if err != nil {
-		return 0, 0, err
-	}
+func cardEventDeckBonus(bonusData cardEventBonusData, eventID int, card map[string]any, characterID int) (float64, float64) {
+	unitByID := buildGameCharacterUnitIndex(bonusData.gameCharacterUnits)
+	cardAttr, _ := stringFromAny(card["attr"])
+	cardSupportUnit, _ := stringFromAny(card["supportUnit"])
+	deckBonus := matchEventDeckBonusRate(bonusData.deckBonuses, unitByID, eventID, cardAttr, cardSupportUnit, characterID)
+	specialBonus := virtualSingerSpecialBonus(bonusData.deckBonuses, unitByID, eventID, cardSupportUnit, characterID)
+	return deckBonus, specialBonus
+}
 
+func buildGameCharacterUnitIndex(gameCharacterUnits []map[string]any) map[int]map[string]any {
 	unitByID := make(map[int]map[string]any, len(gameCharacterUnits))
 	for _, unit := range gameCharacterUnits {
-		unitID, ok := intFromAny(unit["id"])
-		if ok {
+		if unitID, ok := intFromAny(unit["id"]); ok {
 			unitByID[unitID] = unit
 		}
 	}
+	return unitByID
+}
 
-	cardAttr, _ := stringFromAny(card["attr"])
-	cardSupportUnit, _ := stringFromAny(card["supportUnit"])
-	var matchedDeckBonus float64
-	matchedDeckBonusFound := false
-	virtualSingerSpecialBonus := 0.0
-	virtualSingerSpecialFound := false
-
+func matchEventDeckBonusRate(deckBonuses []map[string]any, unitByID map[int]map[string]any, eventID int, cardAttr string, cardSupportUnit string, characterID int) float64 {
 	for _, deckBonus := range deckBonuses {
-		bonusEventID, ok := intFromAny(deckBonus["eventId"])
-		if !ok || bonusEventID != eventID {
-			continue
-		}
-
-		deckBonusRate := numberFromAnyOrZero(deckBonus["bonusRate"])
-		deckAttr, hasDeckAttr := stringFromAny(deckBonus["cardAttr"])
-		gameCharacterUnitID, hasGameCharacterUnitID := intFromAny(deckBonus["gameCharacterUnitId"])
-
-		if !hasGameCharacterUnitID {
-			if hasDeckAttr && deckAttr == cardAttr && !matchedDeckBonusFound {
-				matchedDeckBonus = deckBonusRate
-				matchedDeckBonusFound = true
-			}
-			continue
-		}
-
-		unit, found := unitByID[gameCharacterUnitID]
-		if !found {
-			continue
-		}
-		unitCharacterID, ok := intFromAny(unit["gameCharacterId"])
-		if !ok || unitCharacterID != characterID {
-			continue
-		}
-
-		unitCode, _ := stringFromAny(unit["unit"])
-		if characterID >= 21 && !virtualSingerSpecialFound && (unitCode == "piapro" || cardSupportUnit == "none") {
-			virtualSingerSpecialBonus = 15
-			if eventID >= 135 {
-				virtualSingerSpecialBonus += 10
-			}
-			virtualSingerSpecialFound = true
-		}
-
-		attrMatches := !hasDeckAttr || deckAttr == cardAttr
-		if !attrMatches || matchedDeckBonusFound {
-			continue
-		}
-
-		if characterID < 21 || unitCode == "piapro" || cardSupportUnit == unitCode {
-			matchedDeckBonus = deckBonusRate
-			matchedDeckBonusFound = true
+		if rate, matched := matchDeckBonusRow(deckBonus, unitByID, eventID, cardAttr, cardSupportUnit, characterID); matched {
+			return rate
 		}
 	}
+	return 0
+}
 
-	return matchedDeckBonus, virtualSingerSpecialBonus, nil
+func matchDeckBonusRow(deckBonus map[string]any, unitByID map[int]map[string]any, eventID int, cardAttr string, cardSupportUnit string, characterID int) (float64, bool) {
+	if bonusEventID, ok := intFromAny(deckBonus["eventId"]); !ok || bonusEventID != eventID {
+		return 0, false
+	}
+
+	deckAttr, hasDeckAttr := stringFromAny(deckBonus["cardAttr"])
+	rate := numberFromAnyOrZero(deckBonus["bonusRate"])
+	if _, hasGameCharacterUnitID := intFromAny(deckBonus["gameCharacterUnitId"]); !hasGameCharacterUnitID {
+		if hasDeckAttr && deckAttr == cardAttr {
+			return rate, true
+		}
+		return 0, false
+	}
+
+	unitCode, ok := deckBonusRowUnitForCharacter(deckBonus, unitByID, characterID)
+	if !ok {
+		return 0, false
+	}
+	if !deckBonusUnitMatchesCard(unitCode, cardAttr, hasDeckAttr, deckAttr, cardSupportUnit, characterID) {
+		return 0, false
+	}
+	return rate, true
+}
+
+func deckBonusRowUnitForCharacter(deckBonus map[string]any, unitByID map[int]map[string]any, characterID int) (string, bool) {
+	unitID, ok := intFromAny(deckBonus["gameCharacterUnitId"])
+	if !ok {
+		return "", false
+	}
+	unit, found := unitByID[unitID]
+	if !found {
+		return "", false
+	}
+	if unitCharacterID, ok := intFromAny(unit["gameCharacterId"]); !ok || unitCharacterID != characterID {
+		return "", false
+	}
+	unitCode, _ := stringFromAny(unit["unit"])
+	return unitCode, true
+}
+
+func deckBonusUnitMatchesCard(unitCode string, cardAttr string, hasDeckAttr bool, deckAttr string, cardSupportUnit string, characterID int) bool {
+	if characterID >= 21 && unitCode != "piapro" && cardSupportUnit != unitCode {
+		return false
+	}
+	return !hasDeckAttr || deckAttr == cardAttr
+}
+
+func virtualSingerSpecialBonus(deckBonuses []map[string]any, unitByID map[int]map[string]any, eventID int, cardSupportUnit string, characterID int) float64 {
+	if characterID < 21 {
+		return 0
+	}
+	for _, deckBonus := range deckBonuses {
+		if bonusEventID, ok := intFromAny(deckBonus["eventId"]); !ok || bonusEventID != eventID {
+			continue
+		}
+		unitCode, ok := deckBonusRowUnitForCharacter(deckBonus, unitByID, characterID)
+		if !ok || (unitCode != "piapro" && cardSupportUnit != "none") {
+			continue
+		}
+		if eventID >= 135 {
+			return 25
+		}
+		return 15
+	}
+	return 0
 }
 
 func masterRankBonusRange(eventID int, rarityType string) (float64, float64, bool) {
@@ -1407,6 +1451,13 @@ func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region st
 		return nil
 	}
 
+	// Matching the previous per-row tolerance: when the bonus collections
+	// cannot be read, the bonus fields are omitted from every row.
+	bonusData, bonusErr := handler.loadCardEventBonusData(ctx, region)
+	if bonusErr != nil {
+		bonusData = cardEventBonusData{}
+	}
+
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		item := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record)
@@ -1424,7 +1475,7 @@ func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region st
 				item["event"] = eventSummary
 			}
 
-			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(ctx, region, eventID, card, record)
+			bonusMin, bonusMax, ok, err := handler.buildCardEventBonusRange(eventID, card, record, bonusData)
 			if err == nil && ok {
 				item["finalBonusRateMin"] = normalizeBonusRateValue(bonusMin)
 				item["finalBonusRateMax"] = normalizeBonusRateValue(bonusMax)
