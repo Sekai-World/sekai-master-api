@@ -23,6 +23,15 @@ type fakeLookupCache struct {
 	hasRecords   map[string]map[string]bool
 	hasIndex     bool
 	hasIndexSet  bool
+	byIDErr      error
+	byIDCalls    []lookupCacheGetByIDCall
+	searchCalls  int
+}
+
+type lookupCacheGetByIDCall struct {
+	region string
+	entity string
+	id     string
 }
 
 type fakeLookupStatusStore struct {
@@ -63,11 +72,22 @@ func (cache *fakeLookupCache) StoreRegion(_ context.Context, _ string, _ map[str
 }
 
 func (cache *fakeLookupCache) GetByID(_ context.Context, region string, entity string, id string) (map[string]any, bool, error) {
-	regionData, ok := cache.byID[strings.ToLower(strings.TrimSpace(region))]
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
+	cache.byIDCalls = append(cache.byIDCalls, lookupCacheGetByIDCall{
+		region: normalizedRegion,
+		entity: normalizedEntity,
+		id:     id,
+	})
+	if cache.byIDErr != nil {
+		return nil, false, cache.byIDErr
+	}
+
+	regionData, ok := cache.byID[normalizedRegion]
 	if !ok {
 		return nil, false, nil
 	}
-	entityData, ok := regionData[strings.ToLower(strings.TrimSpace(entity))]
+	entityData, ok := regionData[normalizedEntity]
 	if !ok {
 		return nil, false, nil
 	}
@@ -118,6 +138,7 @@ func (cache *fakeLookupCache) ListByPage(_ context.Context, region string, entit
 }
 
 func (cache *fakeLookupCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
+	cache.searchCalls++
 	return []masterdata.SearchMatch{}, nil
 }
 

@@ -316,6 +316,380 @@ func TestStoreRegionPersistsCompactRawJSONRecords(t *testing.T) {
 	}
 }
 
+func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+
+	firstBox := json.RawMessage(`{"id":7001,"resourceBoxPurpose":"event_ranking_reward","resourceBoxType":"event","details":[]}`)
+	secondBox := json.RawMessage(`{"id":7001,"resourceBoxPurpose":"virtual_live_reward","resourceBoxType":"live","details":[]}`)
+	firstDetail := json.RawMessage(`{"id":11,"resourceBoxId":7001,"resourceBoxPurpose":"event_ranking_reward","seq":1,"resourceType":"jewel"}`)
+	secondDetail := json.RawMessage(`{"id":11,"resourceBoxId":7001,"resourceBoxPurpose":"event_ranking_reward","seq":2,"resourceType":"coin"}`)
+	payload := map[string]any{
+		"resourceboxes.json":      []json.RawMessage{firstBox, secondBox},
+		"resourceboxdetails.json": []json.RawMessage{firstDetail, secondDetail},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store composite-key payload: %v", err)
+	}
+
+	boxes, err := cache.ListAll(ctx, "jp", "resourceboxes")
+	if err != nil {
+		t.Fatalf("list resourceboxes: %v", err)
+	}
+	if len(boxes) != 2 {
+		t.Fatalf("expected both same-id resourceboxes, got %d", len(boxes))
+	}
+	if boxes[0]["resourceBoxPurpose"] != "event_ranking_reward" || boxes[1]["resourceBoxPurpose"] != "virtual_live_reward" {
+		t.Fatalf("resourceboxes did not preserve source order and purpose: %v", boxes)
+	}
+	if boxes[0]["id"] != float64(7001) || boxes[1]["id"] != float64(7001) {
+		t.Fatalf("expected original resourcebox IDs to remain in the bodies: %v", boxes)
+	}
+
+	boxKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxes", firstBox)
+	if !ok {
+		t.Fatal("expected first resourcebox to have a composite storage key")
+	}
+	boxKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxes", secondBox)
+	if !ok {
+		t.Fatal("expected second resourcebox to have a composite storage key")
+	}
+	boxFields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", "resourceboxes")).Result()
+	if err != nil {
+		t.Fatalf("read resourcebox hash: %v", err)
+	}
+	if len(boxFields) != 2 || boxFields[boxKeyOne] == "" || boxFields[boxKeyTwo] == "" {
+		t.Fatalf("expected distinct composite resourcebox hash fields, got %v", boxFields)
+	}
+	boxOrder, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", "resourceboxes"), 0, -1).Result()
+	if err != nil {
+		t.Fatalf("read resourcebox order: %v", err)
+	}
+	if len(boxOrder) != 2 || boxOrder[0] != boxKeyOne || boxOrder[1] != boxKeyTwo {
+		t.Fatalf("expected composite keys in source order, got %v", boxOrder)
+	}
+
+	details, err := cache.ListAll(ctx, "jp", "resourceboxdetails")
+	if err != nil {
+		t.Fatalf("list resourceboxdetails: %v", err)
+	}
+	if len(details) != 2 || details[0]["seq"] != float64(1) || details[1]["seq"] != float64(2) {
+		t.Fatalf("expected both detail sequences in source order, got %v", details)
+	}
+	if details[0]["id"] != float64(11) || details[1]["id"] != float64(11) || details[0]["resourceBoxId"] != float64(7001) {
+		t.Fatalf("expected original detail IDs and parent relation in bodies, got %v", details)
+	}
+	detailKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", firstDetail)
+	if !ok {
+		t.Fatal("expected first detail to have a composite storage key")
+	}
+	detailKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", secondDetail)
+	if !ok {
+		t.Fatal("expected second detail to have a composite storage key")
+	}
+	detailFields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", "resourceboxdetails")).Result()
+	if err != nil {
+		t.Fatalf("read resourceboxdetail hash: %v", err)
+	}
+	if len(detailFields) != 2 || detailFields[detailKeyOne] == "" || detailFields[detailKeyTwo] == "" {
+		t.Fatalf("expected distinct composite detail hash fields, got %v", detailFields)
+	}
+
+	page, total, err := cache.ListByPage(ctx, "jp", "resourceboxdetails", 1, 10)
+	if err != nil {
+		t.Fatalf("list resourceboxdetails page: %v", err)
+	}
+	if total != 2 || len(page) != 2 || page[0]["seq"] != float64(1) || page[1]["seq"] != float64(2) {
+		t.Fatalf("expected paginated composite details in order, total=%d items=%v", total, page)
+	}
+
+	for _, lookup := range []struct {
+		entity string
+		id     string
+	}{{"resourceboxes", "7001"}, {"resourceboxdetails", "11"}} {
+		if _, found, err := cache.GetByID(ctx, "jp", lookup.entity, lookup.id); err != nil || found {
+			t.Fatalf("expected bare GetByID lookup to be unsupported for %s, found=%v err=%v", lookup.entity, found, err)
+		}
+	}
+}
+
+func TestStoreRegionCompositeFallbackKeysPreserveIncompleteRecords(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+
+	missingPurpose := map[string]any{"id": 8001, "resourceBoxType": "material"}
+	payload := map[string]any{
+		"resourceboxes.json": []any{
+			missingPurpose,
+			map[string]any{"id": 8001, "resourceBoxType": "material"},
+			map[string]any{"resourceBoxPurpose": "virtual_live_reward", "resourceBoxType": "material"},
+		},
+		"resourceboxdetails.json": []any{
+			map[string]any{"id": 81, "resourceBoxId": 8001, "resourceBoxPurpose": "event_ranking_reward", "resourceType": "jewel"},
+			map[string]any{"id": 81, "resourceBoxId": 8001, "resourceBoxPurpose": "event_ranking_reward", "resourceType": "jewel"},
+			map[string]any{"resourceBoxPurpose": "event_ranking_reward", "seq": 3, "resourceType": "coin"},
+			map[string]any{"resourceBoxId": 8001, "seq": 4, "resourceType": "coin"},
+		},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store incomplete composite records: %v", err)
+	}
+
+	boxes, err := cache.ListAll(ctx, "jp", "resourceboxes")
+	if err != nil {
+		t.Fatalf("list incomplete resourceboxes: %v", err)
+	}
+	if len(boxes) != 3 || boxes[0]["id"] != float64(8001) {
+		t.Fatalf("expected all incomplete resourceboxes with original fields, got %v", boxes)
+	}
+	if _, exists := boxes[0]["resourceBoxPurpose"]; exists {
+		t.Fatalf("fallback storage key must not add a purpose to the record body: %v", boxes[0])
+	}
+	boxFields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", "resourceboxes")).Result()
+	if err != nil {
+		t.Fatalf("read incomplete resourcebox hash: %v", err)
+	}
+	if len(boxFields) != 3 {
+		t.Fatalf("expected identical incomplete boxes not to overwrite, got %d hash fields", len(boxFields))
+	}
+
+	details, err := cache.ListAll(ctx, "jp", "resourceboxdetails")
+	if err != nil {
+		t.Fatalf("list incomplete resourceboxdetails: %v", err)
+	}
+	if len(details) != 4 || details[0]["id"] != float64(81) || details[1]["id"] != float64(81) {
+		t.Fatalf("expected all incomplete details with original fields, got %v", details)
+	}
+	detailFields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", "resourceboxdetails")).Result()
+	if err != nil {
+		t.Fatalf("read incomplete detail hash: %v", err)
+	}
+	if len(detailFields) != 4 {
+		t.Fatalf("expected incomplete details not to overwrite, got %d hash fields", len(detailFields))
+	}
+}
+
+func TestStoreRegionKeepsOrdinaryDuplicateIDBehavior(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+
+	payload := map[string]any{
+		"cards.json": []any{
+			map[string]any{"id": 1, "name": "first"},
+			map[string]any{"id": 1, "name": "second"},
+		},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store duplicate ordinary IDs: %v", err)
+	}
+
+	fields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", "cards")).Result()
+	if err != nil {
+		t.Fatalf("read card hash: %v", err)
+	}
+	if len(fields) != 1 || fields["1"] == "" {
+		t.Fatalf("ordinary entity duplicate IDs should keep using the bare ID field, got %v", fields)
+	}
+	card, found, err := cache.GetByID(ctx, "jp", "cards", "1")
+	if err != nil || !found || card["name"] != "second" {
+		t.Fatalf("expected last ordinary duplicate to remain addressable by bare ID, record=%v found=%v err=%v", card, found, err)
+	}
+	allCards, err := cache.ListAll(ctx, "jp", "cards")
+	if err != nil {
+		t.Fatalf("list duplicate cards: %v", err)
+	}
+	if len(allCards) != 2 || allCards[0]["name"] != "second" || allCards[1]["name"] != "second" {
+		t.Fatalf("ordinary duplicate list behavior changed, got %v", allCards)
+	}
+}
+
+func TestStoreRegionReplacesLegacyCompositeKeysAndSearchArtifacts(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+
+	legacySeeds := []struct {
+		entity     string
+		legacyID   string
+		fileDigest string
+	}{
+		{entity: "resourceboxes", legacyID: "9001", fileDigest: "boxes-digest"},
+		{entity: "resourceboxdetails", legacyID: "41", fileDigest: "details-digest"},
+	}
+	for _, seed := range legacySeeds {
+		if err := cache.client.HSet(ctx, cache.redisEntityKey("jp", seed.entity), seed.legacyID, `{"id":9001,"resourceBoxPurpose":"event_ranking_reward"}`).Err(); err != nil {
+			t.Fatalf("seed legacy %s record: %v", seed.entity, err)
+		}
+		if err := cache.client.RPush(ctx, cache.redisEntityOrderKey("jp", seed.entity), seed.legacyID).Err(); err != nil {
+			t.Fatalf("seed legacy %s order: %v", seed.entity, err)
+		}
+		if err := cache.client.Set(ctx, cache.redisEntityRevisionKey("jp", seed.entity), "legacy-revision", 0).Err(); err != nil {
+			t.Fatalf("seed legacy %s revision: %v", seed.entity, err)
+		}
+		if err := cache.client.Set(ctx, cache.redisEntitySourceDigestKey("jp", seed.entity), seed.fileDigest, 0).Err(); err != nil {
+			t.Fatalf("seed legacy %s source digest: %v", seed.entity, err)
+		}
+		if err := cache.client.Set(ctx, cache.redisEntitySearchIndexKey("jp", seed.entity), "legacy-index", 0).Err(); err != nil {
+			t.Fatalf("seed legacy %s search index: %v", seed.entity, err)
+		}
+		if err := cache.client.Set(ctx, cache.redisEntitySearchIndexVersionKey("jp", seed.entity), "legacy-version", 0).Err(); err != nil {
+			t.Fatalf("seed legacy %s search index version: %v", seed.entity, err)
+		}
+		if err := cache.client.SAdd(ctx, cache.redisRegionSearchIndexEntitiesKey("jp"), seed.entity).Err(); err != nil {
+			t.Fatalf("seed legacy %s search-index membership: %v", seed.entity, err)
+		}
+	}
+
+	boxes := []json.RawMessage{
+		json.RawMessage(`{"id":9001,"resourceBoxPurpose":"event_ranking_reward","details":[]}`),
+		json.RawMessage(`{"id":9001,"resourceBoxPurpose":"virtual_live_reward","details":[]}`),
+	}
+	details := []json.RawMessage{
+		json.RawMessage(`{"id":41,"resourceBoxId":9001,"resourceBoxPurpose":"event_ranking_reward","seq":1}`),
+		json.RawMessage(`{"id":41,"resourceBoxId":9001,"resourceBoxPurpose":"event_ranking_reward","seq":2}`),
+	}
+	payload := map[string]any{
+		"resourceboxes.json":      boxes,
+		"resourceboxdetails.json": details,
+	}
+	fileDigests := map[string]string{
+		"resourceboxes.json":      "boxes-digest",
+		"resourceboxdetails.json": "details-digest",
+	}
+	if err := cache.StoreRegionWithSourceDigests(ctx, "jp", payload, fileDigests); err != nil {
+		t.Fatalf("store migrated composite-key payload: %v", err)
+	}
+
+	for _, entity := range []string{"resourceboxes", "resourceboxdetails"} {
+		fields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", entity)).Result()
+		if err != nil {
+			t.Fatalf("read migrated %s hash: %v", entity, err)
+		}
+		if len(fields) != 2 {
+			t.Fatalf("expected both migrated %s records, got %v", entity, fields)
+		}
+		for field := range fields {
+			if field == "9001" || field == "41" {
+				t.Fatalf("legacy bare field %q remains in %s hash: %v", field, entity, fields)
+			}
+		}
+		assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", entity))
+		assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", entity))
+		assertRedisSetExcludes(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"), entity)
+		order, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", entity), 0, -1).Result()
+		if err != nil {
+			t.Fatalf("read migrated %s order: %v", entity, err)
+		}
+		if len(order) != 2 || order[0] == "9001" || order[0] == "41" || order[1] == "9001" || order[1] == "41" {
+			t.Fatalf("legacy bare IDs remain in %s order: %v", entity, order)
+		}
+	}
+	resourceBoxes, err := cache.ListAll(ctx, "jp", "resourceboxes")
+	if err != nil || len(resourceBoxes) != 2 {
+		t.Fatalf("expected region rewrite to return both independent resourceboxes, got %v err=%v", resourceBoxes, err)
+	}
+
+	for _, seed := range legacySeeds {
+		legacyID := "forced-legacy:" + seed.legacyID
+		if err := cache.client.HSet(ctx, cache.redisEntityKey("jp", seed.entity), legacyID, `{"legacy":true}`).Err(); err != nil {
+			t.Fatalf("seed forced-full-store legacy %s field: %v", seed.entity, err)
+		}
+		if err := cache.client.RPush(ctx, cache.redisEntityOrderKey("jp", seed.entity), legacyID).Err(); err != nil {
+			t.Fatalf("seed forced-full-store legacy %s order: %v", seed.entity, err)
+		}
+	}
+	if err := cache.StoreRegion(masterdata.WithForceFullStore(ctx), "jp", payload); err != nil {
+		t.Fatalf("force-store composite-key payload: %v", err)
+	}
+	for _, seed := range legacySeeds {
+		if exists, err := cache.client.HExists(ctx, cache.redisEntityKey("jp", seed.entity), "forced-legacy:"+seed.legacyID).Result(); err != nil || exists {
+			t.Fatalf("forced full store retained legacy %s hash field, exists=%v err=%v", seed.entity, exists, err)
+		}
+		order, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", seed.entity), 0, -1).Result()
+		if err != nil {
+			t.Fatalf("read forced full store %s order: %v", seed.entity, err)
+		}
+		for _, storageID := range order {
+			if strings.HasPrefix(storageID, "forced-legacy:") {
+				t.Fatalf("forced full store retained legacy %s order entry: %v", seed.entity, order)
+			}
+		}
+	}
+}
+
+func TestCompositeEntitiesDoNotSearchOrBuildIndexes(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+	payload := map[string]any{
+		"resourceboxes.json": []any{
+			map[string]any{"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "name": "searchable box"},
+		},
+		"resourceboxdetails.json": []any{
+			map[string]any{"resourceBoxId": 9001, "resourceBoxPurpose": "event_ranking_reward", "seq": 1, "name": "searchable detail"},
+		},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store composite records: %v", err)
+	}
+
+	for _, entity := range []string{"resourceboxes", "resourceboxdetails"} {
+		assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", entity))
+		assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", entity))
+		matches, err := cache.Search(ctx, "jp", entity, "searchable", []string{"name"}, 10)
+		if err != nil || len(matches) != 0 {
+			t.Fatalf("expected search to be disabled for %s, matches=%v err=%v", entity, matches, err)
+		}
+		assertNoRetainedEntityIndex(t, cache, "jp", entity)
+	}
+
+	// A legacy malformed index must not be decoded or repaired by Search for a
+	// composite-key entity. Explicit index loading is responsible for cleanup.
+	legacyIndex := []byte("not-json")
+	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexKey("jp", "resourceboxes"), legacyIndex, 0).Err(); err != nil {
+		t.Fatalf("seed malformed legacy search index: %v", err)
+	}
+	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexVersionKey("jp", "resourceboxes"), "legacy", 0).Err(); err != nil {
+		t.Fatalf("seed legacy search index version: %v", err)
+	}
+	if err := cache.client.SAdd(ctx, cache.redisRegionSearchIndexEntitiesKey("jp"), "resourceboxes").Err(); err != nil {
+		t.Fatalf("seed legacy search-index membership: %v", err)
+	}
+	if matches, err := cache.Search(ctx, "jp", "resourceboxes", "searchable", []string{"name"}, 10); err != nil || len(matches) != 0 {
+		t.Fatalf("expected disabled composite search to ignore malformed index, matches=%v err=%v", matches, err)
+	}
+	storedIndex, err := cache.client.Get(ctx, cache.redisEntitySearchIndexKey("jp", "resourceboxes")).Bytes()
+	if err != nil || string(storedIndex) != string(legacyIndex) {
+		t.Fatalf("Search should leave stale composite index untouched, body=%q err=%v", storedIndex, err)
+	}
+
+	if _, err := cache.LoadRegionIndexFromRedis(ctx, "jp"); err != nil {
+		t.Fatalf("load indexes and clean legacy composite artifact: %v", err)
+	}
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "resourceboxes"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "resourceboxes"))
+	assertRedisSetExcludes(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"), "resourceboxes")
+
+	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexKey("jp", "resourceboxdetails"), legacyIndex, 0).Err(); err != nil {
+		t.Fatalf("seed malformed detail search index: %v", err)
+	}
+	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexVersionKey("jp", "resourceboxdetails"), "legacy", 0).Err(); err != nil {
+		t.Fatalf("seed detail search index version: %v", err)
+	}
+	if err := cache.client.SAdd(ctx, cache.redisRegionSearchIndexEntitiesKey("jp"), "resourceboxdetails").Err(); err != nil {
+		t.Fatalf("seed detail search-index membership: %v", err)
+	}
+	if _, err := cache.RebuildRegionIndexFromRedis(ctx, "jp"); err != nil {
+		t.Fatalf("rebuild indexes and clean legacy composite artifact: %v", err)
+	}
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", "resourceboxdetails"))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", "resourceboxdetails"))
+	assertRedisSetExcludes(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"), "resourceboxdetails")
+}
+
 func TestStoreRegionRevisionTracksDataAndOrderChanges(t *testing.T) {
 	miniRedis := startTestMiniRedis(t)
 	cache := newStoreRegionTestCache(t, miniRedis)

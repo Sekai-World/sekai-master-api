@@ -54,6 +54,130 @@ type GenericRecordListResponse struct {
 	Pagination PaginationResponse `json:"pagination"`
 }
 
+type MysekaiPhotoDecorationResponse struct {
+	ID              int64  `json:"id"`
+	Seq             int64  `json:"seq"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	AssetbundleName string `json:"assetbundleName"`
+}
+
+type MysekaiPhotoDecorationListResponse struct {
+	Items      []MysekaiPhotoDecorationResponse `json:"items"`
+	Pagination PaginationResponse               `json:"pagination"`
+}
+
+type HonorLevelResponse struct {
+	HonorID         *int64   `json:"honorId,omitempty"`
+	Level           *int64   `json:"level,omitempty"`
+	Bonus           *float64 `json:"bonus,omitempty"`
+	Description     *string  `json:"description,omitempty"`
+	HonorRarity     *string  `json:"honorRarity,omitempty"`
+	AssetbundleName *string  `json:"assetbundleName,omitempty"`
+}
+
+type HonorGroupResponse struct {
+	ID                        *int64  `json:"id,omitempty"`
+	Name                      *string `json:"name,omitempty"`
+	HonorType                 *string `json:"honorType,omitempty"`
+	BackgroundAssetbundleName *string `json:"backgroundAssetbundleName,omitempty"`
+	FrameName                 *string `json:"frameName,omitempty"`
+}
+
+type HonorObjectResponse struct {
+	ID               int64                `json:"id"`
+	Seq              int64                `json:"seq"`
+	GroupID          int64                `json:"groupId"`
+	Name             string               `json:"name"`
+	HonorRarity      string               `json:"honorRarity"`
+	HonorMissionType *string              `json:"honorMissionType,omitempty"`
+	HonorType        *string              `json:"honorType,omitempty"`
+	AssetbundleName  string               `json:"assetbundleName"`
+	Levels           []HonorLevelResponse `json:"levels"`
+	Group            *HonorGroupResponse  `json:"group,omitempty"`
+}
+
+type HonorListResponse struct {
+	Items      []HonorObjectResponse `json:"items"`
+	Pagination PaginationResponse    `json:"pagination"`
+}
+
+type Costume3DObjectResponse struct {
+	ID              int64   `json:"id"`
+	GroupID         *int64  `json:"groupId,omitempty"`
+	ColorID         *int64  `json:"colorId,omitempty"`
+	PartType        *string `json:"partType,omitempty"`
+	Seq             *int64  `json:"seq,omitempty"`
+	Name            *string `json:"name,omitempty"`
+	Designer        *string `json:"designer,omitempty"`
+	CharacterID     *int64  `json:"characterId,omitempty"`
+	Rarity          *string `json:"rarity,omitempty"`
+	Type            *string `json:"type,omitempty"`
+	AssetbundleName *string `json:"assetbundleName,omitempty"`
+	PublishedAt     *int64  `json:"publishedAt,omitempty"`
+}
+
+type Costume3DListResponse struct {
+	Items      []Costume3DObjectResponse `json:"items"`
+	Pagination PaginationResponse        `json:"pagination"`
+}
+
+type MissionRewardResponse struct {
+	ID                *int64                    `json:"id,omitempty"`
+	MissionType       *string                   `json:"missionType,omitempty"`
+	MissionID         *int64                    `json:"missionId,omitempty"`
+	Seq               *int64                    `json:"seq,omitempty"`
+	ResourceBoxID     *int64                    `json:"resourceBoxId,omitempty"`
+	ResourceBoxPurpose *string                  `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxIDs    []int64                   `json:"resourceBoxIds,omitempty"`
+	ResourceType      *string                   `json:"resourceType,omitempty"`
+	ResourceID        *int64                    `json:"resourceId,omitempty"`
+	ResourceLevel     *int64                    `json:"resourceLevel,omitempty"`
+	ResourceQuantity  *int64                    `json:"resourceQuantity,omitempty"`
+	Status            string                    `json:"status"`
+	ResourceBox       *MissionResourceBoxResponse `json:"resourceBox,omitempty"`
+}
+
+type MissionResourceBoxResponse struct {
+	ID                 *int64                         `json:"id,omitempty"`
+	ResourceBoxPurpose *string                        `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxType    *string                        `json:"resourceBoxType,omitempty"`
+	Details            []MissionResourceBoxDetailResponse `json:"details,omitempty"`
+}
+
+type MissionResourceBoxDetailResponse struct {
+	ResourceBoxPurpose *string `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxID      *int64  `json:"resourceBoxId,omitempty"`
+	Seq                *int64  `json:"seq,omitempty"`
+	ResourceType       *string `json:"resourceType,omitempty"`
+	ResourceID         *int64  `json:"resourceId,omitempty"`
+	ResourceLevel      *int64  `json:"resourceLevel,omitempty"`
+	ResourceQuantity   *int64  `json:"resourceQuantity,omitempty"`
+}
+
+type MissionResponse struct {
+	ID                   int64                    `json:"id"`
+	Family               string                   `json:"family"`
+	Seq                  *int64                   `json:"seq,omitempty"`
+	Sentence             *string                  `json:"sentence,omitempty"`
+	ProgressSentence     *string                  `json:"progressSentence,omitempty"`
+	Requirement          *int64                   `json:"requirement,omitempty"`
+	CharacterID          *int64                   `json:"characterId,omitempty"`
+	ParameterGroupID     *int64                   `json:"parameterGroupId,omitempty"`
+	EventID              *int64                   `json:"eventId,omitempty"`
+	ResourceBoxID        *int64                   `json:"resourceBoxId,omitempty"`
+	StoryMissionType     *string                  `json:"storyMissionType,omitempty"`
+	NormalMissionType    *string                  `json:"normalMissionType,omitempty"`
+	CharacterMissionType *string                  `json:"characterMissionType,omitempty"`
+	IsAchievementMission *bool                    `json:"isAchievementMission,omitempty"`
+	Rewards              *[]MissionRewardResponse `json:"rewards,omitempty"`
+}
+
+type MissionListResponse struct {
+	Items      []MissionResponse `json:"items"`
+	Pagination PaginationResponse `json:"pagination"`
+}
+
 type WorldBloomListResponse struct {
 	Items      []map[string]any   `json:"items"`
 	Pagination PaginationResponse `json:"pagination"`

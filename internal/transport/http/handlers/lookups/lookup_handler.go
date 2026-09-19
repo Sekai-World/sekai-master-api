@@ -305,8 +305,8 @@ func (handler *LookupHandler) UnitProfilesAvailableRegionsByUnit(c *gin.Context)
 // @Tags unitProfiles
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -354,8 +354,8 @@ func (handler *LookupHandler) GameCharacterUnitsAvailableRegionsByID(c *gin.Cont
 // @Tags gameCharacterUnits
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -467,8 +467,8 @@ func (handler *LookupHandler) GameCharactersAvailableRegionsByID(c *gin.Context)
 // @Tags gameCharacters
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -486,8 +486,8 @@ func (handler *LookupHandler) GameCharactersList(c *gin.Context) {
 // @Tags worldBlooms
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -505,8 +505,8 @@ func (handler *LookupHandler) WorldBloomsList(c *gin.Context) {
 // @Tags unitStories
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -524,8 +524,8 @@ func (handler *LookupHandler) UnitStoriesList(c *gin.Context) {
 // @Tags eventStories
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -544,8 +544,8 @@ func (handler *LookupHandler) EventStoriesList(c *gin.Context) {
 // @Tags characterProfiles
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -563,8 +563,8 @@ func (handler *LookupHandler) CharacterProfilesList(c *gin.Context) {
 // @Tags cardEpisodes
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -583,8 +583,8 @@ func (handler *LookupHandler) CardEpisodesList(c *gin.Context) {
 // @Tags actionSets
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -602,8 +602,8 @@ func (handler *LookupHandler) ActionSetsList(c *gin.Context) {
 // @Tags specialStories
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -621,8 +621,8 @@ func (handler *LookupHandler) SpecialStoriesList(c *gin.Context) {
 // @Tags character2ds
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -640,8 +640,8 @@ func (handler *LookupHandler) Character2DsList(c *gin.Context) {
 // @Tags mobCharacters
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -659,8 +659,8 @@ func (handler *LookupHandler) MobCharactersList(c *gin.Context) {
 // @Tags subGameCharacters
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -678,8 +678,8 @@ func (handler *LookupHandler) SubGameCharactersList(c *gin.Context) {
 // @Tags unitStoryEpisodeGroups
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -697,8 +697,8 @@ func (handler *LookupHandler) UnitStoryEpisodeGroupsList(c *gin.Context) {
 // @Tags areas
 // @Produce json
 // @Param region path string true "Region"
-// @Param page query int false "Page number"
-// @Param page_size query int false "Page size"
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param spoiler query bool false "Include spoiler content"
 // @Param sort_by query string false "Sort field"
 // @Param sort_order query string false "Sort order (asc|desc)"
@@ -772,28 +772,12 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region is required")
 		return
 	}
-	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, config.entity) {
+	page, pageSize, ok := parseLookupPagination(c)
+	if !ok {
 		return
 	}
-
-	page := 1
-	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
-		parsedPage, err := strconv.Atoi(rawPage)
-		if err != nil || parsedPage <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page must be a positive integer")
-			return
-		}
-		page = parsedPage
-	}
-
-	pageSize := 20
-	if rawPageSize := strings.TrimSpace(c.Query("page_size")); rawPageSize != "" {
-		parsedPageSize, err := strconv.Atoi(rawPageSize)
-		if err != nil || parsedPageSize <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page_size must be a positive integer")
-			return
-		}
-		pageSize = parsedPageSize
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, config.entity) {
+		return
 	}
 
 	sortOptions, ok := shared.ParseListSortOptions(c)

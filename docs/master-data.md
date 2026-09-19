@@ -81,6 +81,8 @@ Search indexes are scoped to fields used by API search paths instead of every sc
 
 `MASTER_DATA_WARM_SEARCH_INDEXES` and the related ensure flow validate that the persisted Redis search indexes needed by search endpoints already exist, or rebuild those persisted indexes when Redis is missing or stale data. Search misses may also rebuild the requested entity index from Redis by-id data. Any decoded indexes created during warmup, ensure, or search are still subject to the same bounded LRU cache; Redis remains the authoritative source. Rebuild cleanup deletes stale search-index payload keys, their matching version keys, and empty region search-index entity sets so Redis key counts do not retain orphaned index metadata.
 
+`resourceboxes` and `resourceboxdetails` use versioned, length-prefixed composite Redis hash fields instead of bare business IDs: resource boxes key on `(id, resourceBoxPurpose)`, and details key on `(resourceBoxId, resourceBoxPurpose, seq)`. The original record body and business fields are unchanged. Records missing any required key component receive deterministic `auto:` keys, with an occurrence suffix for identical incomplete records so they remain independently listable. Use `ListAll` (or `ListByPage`) and filter by the original relationship fields; the legacy `GetByID` interface intentionally reports no match for these entities because a bare ID cannot disambiguate them. These entities are excluded from search indexes and `Search` returns no matches. The next region store migrates legacy bare-ID hash/order entries and removes their stale search-index artifacts, even when the source digest is unchanged.
+
 Query behavior:
 
 - Card by-id reads from Redis hash cache.

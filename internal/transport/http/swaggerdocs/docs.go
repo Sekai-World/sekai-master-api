@@ -34,12 +34,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -416,12 +419,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -455,6 +461,173 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/bondsHonors/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bondsHonors"
+                ],
+                "summary": "List bonds honors by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "id",
+                            "seq",
+                            "bondsGroupId",
+                            "gameCharacterUnitId1",
+                            "gameCharacterUnitId2",
+                            "honorRarity",
+                            "name"
+                        ],
+                        "type": "string",
+                        "description": "Sort field",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
+                        "type": "string",
+                        "description": "Sort order",
+                        "name": "sort_order",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Exact bonds group ID",
+                        "name": "bonds_group_id",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Exact first game character unit ID",
+                        "name": "game_character_unit_id1",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Exact second game character unit ID",
+                        "name": "game_character_unit_id2",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.BondsHonorListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/bondsHonors/{region}/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bondsHonors"
+                ],
+                "summary": "Get a bonds honor by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Bonds honor ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.BondsHonorObjectResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/shared.ErrorResponse"
                         }
@@ -511,12 +684,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -1225,12 +1401,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -1354,12 +1533,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -1412,6 +1594,163 @@ const docTemplate = `{
                 }
             }
         },
+        "/costume3ds/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "costume3ds"
+                ],
+                "summary": "List 3D costumes by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the normalized costume name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated group IDs",
+                        "name": "group_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated color IDs",
+                        "name": "color_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated character IDs",
+                        "name": "character_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc|desc)",
+                        "name": "sort_order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.Costume3DListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/costume3ds/{region}/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "costume3ds"
+                ],
+                "summary": "Get a 3D costume by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "3D costume ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.Costume3DObjectResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/eventStories/{region}/list": {
             "get": {
                 "produces": [
@@ -1430,12 +1769,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -1988,6 +2330,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{region}/{id}/honor-bonuses": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Get typed event honor bonuses by event id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.EventHonorBonusListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{region}/{id}/musics": {
             "get": {
                 "produces": [
@@ -2468,12 +2869,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -2649,12 +3053,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -2844,6 +3251,127 @@ const docTemplate = `{
                 }
             }
         },
+        "/honors/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "honors"
+                ],
+                "summary": "List honors by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.HonorListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/honors/{region}/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "honors"
+                ],
+                "summary": "Get an honor by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Honor ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.HonorObjectResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/internal/github/webhooks/master-data": {
             "post": {
                 "consumes": [
@@ -2915,6 +3443,181 @@ const docTemplate = `{
                 }
             }
         },
+        "/missions/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "missions"
+                ],
+                "summary": "List missions by family and page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "storyMissions",
+                            "characterMissionV2s",
+                            "normalMissions"
+                        ],
+                        "type": "string",
+                        "description": "Mission family",
+                        "name": "family",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated positive mission IDs",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated positive character IDs (characterMissionV2s only)",
+                        "name": "character_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated positive event IDs",
+                        "name": "event_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc|desc)",
+                        "name": "sort_order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MissionListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/missions/{region}/{family}/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "missions"
+                ],
+                "summary": "Get a mission by family and id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "storyMissions",
+                            "characterMissionV2s",
+                            "normalMissions"
+                        ],
+                        "type": "string",
+                        "description": "Mission family",
+                        "name": "family",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Mission ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MissionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/mobCharacters/{region}/list": {
             "get": {
                 "produces": [
@@ -2933,12 +3636,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -3399,6 +4105,127 @@ const docTemplate = `{
                 }
             }
         },
+        "/mysekaiPhotoDecorations/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiPhotoDecorations"
+                ],
+                "summary": "List MySekai photo decorations by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiPhotoDecorationListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/mysekaiPhotoDecorations/{region}/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiPhotoDecorations"
+                ],
+                "summary": "Get a MySekai photo decoration by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Photo decoration ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiPhotoDecorationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/specialStories/{region}/list": {
             "get": {
                 "produces": [
@@ -3417,12 +4244,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -3493,12 +4323,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -3615,12 +4448,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -3809,12 +4645,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -3885,12 +4724,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -4421,12 +5263,15 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page number",
                         "name": "page",
                         "in": "query"
                     },
                     {
+                        "maximum": 100,
+                        "minimum": 1,
                         "type": "integer",
                         "description": "Page size",
                         "name": "page_size",
@@ -4538,6 +5383,115 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "shared.BondsHonorCharacterUnitResponse": {
+            "type": "object",
+            "properties": {
+                "gameCharacterId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.BondsHonorGroupResponse": {
+            "type": "object",
+            "properties": {
+                "characterId1": {
+                    "type": "integer"
+                },
+                "characterId2": {
+                    "type": "integer"
+                },
+                "groupId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.BondsHonorLevelResponse": {
+            "type": "object",
+            "properties": {
+                "bondsHonorId": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "level": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.BondsHonorListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.BondsHonorObjectResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.BondsHonorObjectResponse": {
+            "type": "object",
+            "properties": {
+                "bondsGroup": {
+                    "$ref": "#/definitions/shared.BondsHonorGroupResponse"
+                },
+                "bondsGroupId": {
+                    "type": "integer"
+                },
+                "characterUnit1": {
+                    "$ref": "#/definitions/shared.BondsHonorCharacterUnitResponse"
+                },
+                "characterUnit2": {
+                    "$ref": "#/definitions/shared.BondsHonorCharacterUnitResponse"
+                },
+                "configurableUnitVirtualSinger": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "gameCharacterUnitId1": {
+                    "type": "integer"
+                },
+                "gameCharacterUnitId2": {
+                    "type": "integer"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "levels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.BondsHonorLevelResponse"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pronunciation": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
                 }
             }
         },
@@ -4924,6 +5878,61 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.Costume3DListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.Costume3DObjectResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.Costume3DObjectResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "characterId": {
+                    "type": "integer"
+                },
+                "colorId": {
+                    "type": "integer"
+                },
+                "designer": {
+                    "type": "string"
+                },
+                "groupId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "partType": {
+                    "type": "string"
+                },
+                "publishedAt": {
+                    "type": "integer"
+                },
+                "rarity": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.CurrentEventResponse": {
             "type": "object",
             "properties": {
@@ -5191,6 +6200,106 @@ const docTemplate = `{
                 },
                 "totalRewardCount": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.EventHonorBonusHonorGroupResponse": {
+            "type": "object",
+            "properties": {
+                "backgroundAssetbundleName": {
+                    "type": "string"
+                },
+                "frameName": {
+                    "type": "string"
+                },
+                "honorType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.EventHonorBonusHonorResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "group": {
+                    "$ref": "#/definitions/shared.EventHonorBonusHonorGroupResponse"
+                },
+                "groupId": {
+                    "type": "integer"
+                },
+                "honorMissionType": {
+                    "type": "string"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "honorTypeId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.EventHonorBonusLeaderGameCharacterUnitResponse": {
+            "type": "object",
+            "properties": {
+                "gameCharacterId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.EventHonorBonusListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.EventHonorBonusObjectResponse"
+                    }
+                }
+            }
+        },
+        "shared.EventHonorBonusObjectResponse": {
+            "type": "object",
+            "properties": {
+                "bonusRate": {
+                    "type": "integer"
+                },
+                "eventId": {
+                    "type": "integer"
+                },
+                "honor": {
+                    "$ref": "#/definitions/shared.EventHonorBonusHonorResponse"
+                },
+                "honorId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "leaderGameCharacterId": {
+                    "type": "integer"
+                },
+                "leaderGameCharacterUnit": {
+                    "$ref": "#/definitions/shared.EventHonorBonusLeaderGameCharacterUnitResponse"
                 }
             }
         },
@@ -5931,6 +7040,101 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.HonorGroupResponse": {
+            "type": "object",
+            "properties": {
+                "backgroundAssetbundleName": {
+                    "type": "string"
+                },
+                "frameName": {
+                    "type": "string"
+                },
+                "honorType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.HonorLevelResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "bonus": {
+                    "type": "number"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "honorId": {
+                    "type": "integer"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.HonorListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.HonorObjectResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.HonorObjectResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "group": {
+                    "$ref": "#/definitions/shared.HonorGroupResponse"
+                },
+                "groupId": {
+                    "type": "integer"
+                },
+                "honorMissionType": {
+                    "type": "string"
+                },
+                "honorRarity": {
+                    "type": "string"
+                },
+                "honorType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "levels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.HonorLevelResponse"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
         "shared.LiveStageResponse": {
             "type": "object",
             "properties": {
@@ -6047,6 +7251,166 @@ const docTemplate = `{
                 "dataVersion": {
                     "type": "string",
                     "example": "3.2.1.10"
+                }
+            }
+        },
+        "shared.MissionListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MissionResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MissionResourceBoxDetailResponse": {
+            "type": "object",
+            "properties": {
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "resourceLevel": {
+                    "type": "integer"
+                },
+                "resourceQuantity": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MissionResourceBoxResponse": {
+            "type": "object",
+            "properties": {
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MissionResourceBoxDetailResponse"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceBoxType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MissionResponse": {
+            "type": "object",
+            "properties": {
+                "characterId": {
+                    "type": "integer"
+                },
+                "characterMissionType": {
+                    "type": "string"
+                },
+                "eventId": {
+                    "type": "integer"
+                },
+                "family": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isAchievementMission": {
+                    "type": "boolean"
+                },
+                "normalMissionType": {
+                    "type": "string"
+                },
+                "parameterGroupId": {
+                    "type": "integer"
+                },
+                "progressSentence": {
+                    "type": "string"
+                },
+                "requirement": {
+                    "type": "integer"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "rewards": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MissionRewardResponse"
+                    }
+                },
+                "sentence": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "storyMissionType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MissionRewardResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "missionId": {
+                    "type": "integer"
+                },
+                "missionType": {
+                    "type": "string"
+                },
+                "resourceBox": {
+                    "$ref": "#/definitions/shared.MissionResourceBoxResponse"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "resourceBoxIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "resourceBoxPurpose": {
+                    "type": "string"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "resourceLevel": {
+                    "type": "integer"
+                },
+                "resourceQuantity": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -6249,6 +7613,40 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/shared.MusicVocalResponse"
                     }
+                }
+            }
+        },
+        "shared.MysekaiPhotoDecorationListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiPhotoDecorationResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MysekaiPhotoDecorationResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
                 }
             }
         },
