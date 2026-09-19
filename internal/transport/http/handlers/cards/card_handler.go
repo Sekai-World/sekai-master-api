@@ -773,6 +773,7 @@ func normalizeBonusRateValue(value float64) any {
 // @Param type query string false "Comma-separated card supply IDs or card supply types"
 // @Param attr query string false "Comma-separated card attributes"
 // @Param rarity query string false "Comma-separated card rarity types"
+// @Param name query string false "Comma-separated name queries substring-matched against the card prefix"
 // @Param supportUnit query string false "Comma-separated support units"
 // @Param has3dmvCutIn query bool false "Include cards that have another3dmvCutIns entries"
 // @Param sort_by query string false "Sort field"
@@ -915,6 +916,7 @@ func (handler *CardHandler) List(c *gin.Context) {
 }
 
 type cardListFilterOptions struct {
+	Names        map[string]struct{}
 	Units        map[string]struct{}
 	Characters   map[string]struct{}
 	Skills       map[string]struct{}
@@ -926,7 +928,8 @@ type cardListFilterOptions struct {
 }
 
 func (options cardListFilterOptions) Enabled() bool {
-	return len(options.Units) > 0 ||
+	return len(options.Names) > 0 ||
+		len(options.Units) > 0 ||
 		len(options.Characters) > 0 ||
 		len(options.Skills) > 0 ||
 		len(options.Types) > 0 ||
@@ -938,6 +941,7 @@ func (options cardListFilterOptions) Enabled() bool {
 
 func parseCardListFilterOptions(c *gin.Context) (cardListFilterOptions, bool) {
 	options := cardListFilterOptions{
+		Names:        parseCardListQuerySet(c, "name"),
 		Units:        parseCardListQuerySet(c, "unit"),
 		Characters:   parseCardListQuerySet(c, "character"),
 		Skills:       parseCardListQuerySet(c, "skill"),
@@ -1119,6 +1123,10 @@ func (handler *CardHandler) load3dmvCutInCardIDs(ctx context.Context, region str
 }
 
 func cardMatchesFilterOptions(record map[string]any, options cardListFilterOptions, characterUnits map[string]string, skillTypes map[string]string, cardSupplyTypes map[string]string, cutInCardIDs map[string]struct{}) bool {
+	if len(options.Names) > 0 && !cardPrefixMatches(shared.NormalizeComparableText(record["prefix"]), options.Names) {
+		return false
+	}
+
 	characterID := shared.NormalizeComparableText(record["characterId"])
 	if len(options.Characters) > 0 && !setContains(options.Characters, characterID) {
 		return false
@@ -1165,6 +1173,18 @@ func cardMatchesFilterOptions(record map[string]any, options cardListFilterOptio
 	}
 
 	return true
+}
+
+// cardPrefixMatches reports whether any name query occurs in the normalized
+// card prefix, mirroring the case-insensitive substring match of the events
+// list name filter.
+func cardPrefixMatches(prefixText string, nameQueries map[string]struct{}) bool {
+	for query := range nameQueries {
+		if strings.Contains(prefixText, query) {
+			return true
+		}
+	}
+	return false
 }
 
 func setContains(set map[string]struct{}, value string) bool {

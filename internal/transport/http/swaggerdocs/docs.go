@@ -747,6 +747,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Comma-separated name queries substring-matched against the card prefix",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Comma-separated support units",
                         "name": "supportUnit",
                         "in": "query"
