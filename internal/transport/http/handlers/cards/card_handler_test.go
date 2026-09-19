@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1136,32 +1137,34 @@ func TestCardListEndpointSupportsNameFilter(t *testing.T) {
 		listTotal: 3,
 	}
 
-	cardHandler := newReadyCardHandler(cache)
-
 	router := gin.New()
-	router.GET("/api/v1/cards/:region/list", cardHandler.List)
+	router.GET("/api/v1/cards/:region/list", newReadyCardHandler(cache).List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&name=SERIAL", nil)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.Code)
+	cases := []struct {
+		nameQuery   string
+		expectedIDs []float64
+	}{
+		{nameQuery: "SERIAL", expectedIDs: []float64{1001}},
+		{nameQuery: "ワンダー,サプライズ", expectedIDs: []float64{1002, 1003}},
 	}
+	for _, testCase := range cases {
+		t.Run(testCase.nameQuery, func(t *testing.T) {
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"/api/v1/cards/jp/list?page=1&page_size=20&name="+url.QueryEscape(testCase.nameQuery),
+				nil,
+			)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
 
-	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
-	assertResponsePaginationTotal(t, resp.Body.Bytes(), 1)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", resp.Code)
+			}
 
-	commaReq := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&name=ワンダー,サプライズ", nil)
-	commaResp := httptest.NewRecorder()
-	router.ServeHTTP(commaResp, commaReq)
-
-	if commaResp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", commaResp.Code)
+			assertResponseItemOrder(t, resp.Body.Bytes(), testCase.expectedIDs)
+			assertResponsePaginationTotal(t, resp.Body.Bytes(), float64(len(testCase.expectedIDs)))
+		})
 	}
-
-	assertResponseItemOrder(t, commaResp.Body.Bytes(), []float64{1002, 1003})
-	assertResponsePaginationTotal(t, commaResp.Body.Bytes(), 2)
 }
 
 func TestCardListSortOrderWithoutSortByReturnsBadRequest(t *testing.T) {
