@@ -40,8 +40,11 @@ func parseLookupPagination(c *gin.Context) (int, int, bool) {
 	return page, pageSize, true
 }
 
-func lookupPaginationResponse(page int, pageSize int, total int) shared.PaginationResponse {
-	totalPages := (total + pageSize - 1) / pageSize
+func lookupPaginationResponse(page, pageSize, total int) shared.PaginationResponse {
+	totalPages := 0
+	if pageSize > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
 	return shared.PaginationResponse{
 		Page:       page,
 		PageSize:   pageSize,

@@ -19,6 +19,7 @@ const (
 	bondsHonorGameCharacterUnitsEntity = "gamecharacterunits"
 	bondsHonorQueryErrorCode           = "BONDS_HONOR_QUERY_ERROR"
 	bondsHonorNotFoundCode             = "BONDS_HONOR_NOT_FOUND"
+	bondsHonorInvalidGameCharacterIDs  = "game_character_ids must contain exactly two different positive integers"
 )
 
 var bondsHonorListQueryParameters = map[string]struct{}{
@@ -150,14 +151,14 @@ func (handler *LookupHandler) BondsHonorsList(c *gin.Context) {
 		return
 	}
 
-	var characterUnits map[int64]*shared.BondsHonorCharacterUnitResponse
-	if options.filters.gameCharacterIDs != nil {
-		var loadErr error
-		characterUnits, loadErr = handler.loadBondsHonorCharacterUnits(c.Request.Context(), region)
-		if loadErr != nil {
-			response.Error(c, http.StatusInternalServerError, bondsHonorQueryErrorCode, "failed to query game character units")
-			return
-		}
+	characterUnits, err := handler.loadBondsHonorFilterCharacterUnits(
+		c.Request.Context(),
+		region,
+		options.filters,
+	)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, bondsHonorQueryErrorCode, "failed to query game character units")
+		return
 	}
 
 	records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, bondsHonorsEntity)
@@ -166,17 +167,7 @@ func (handler *LookupHandler) BondsHonorsList(c *gin.Context) {
 		return
 	}
 
-	items := make([]shared.BondsHonorObjectResponse, 0, len(records))
-	for _, record := range records {
-		item := projectBondsHonor(record)
-		if !bondsHonorMatchesFilters(item, options.filters) {
-			continue
-		}
-		if options.filters.gameCharacterIDs != nil && !bondsHonorMatchesGameCharacterFilter(item, *options.filters.gameCharacterIDs, characterUnits) {
-			continue
-		}
-		items = append(items, item)
-	}
+	items := filterBondsHonorRecords(records, options.filters, characterUnits)
 	sortBondsHonorResponses(items, options.sortBy, options.descending)
 
 	total := len(items)
@@ -198,72 +189,110 @@ func parseBondsHonorListOptions(c *gin.Context) (bondsHonorListOptions, bool) {
 	}
 
 	query := c.Request.URL.Query()
-	options := bondsHonorListOptions{
-		page:     1,
-		pageSize: 20,
-		sortBy:   "seq",
+	page, pageSize, ok := parseBondsHonorPaginationOptions(c, query)
+	if !ok {
+		return bondsHonorListOptions{}, false
 	}
 
-	if rawPage, exists, ok := bondsHonorQueryValue(c, query, "page"); !ok {
+	sortBy, descending, ok := parseBondsHonorSortOptions(c, query)
+	if !ok {
 		return bondsHonorListOptions{}, false
+	}
+
+	filters, ok := parseBondsHonorFilters(c, query)
+	if !ok {
+		return bondsHonorListOptions{}, false
+	}
+
+	return bondsHonorListOptions{
+		page:       page,
+		pageSize:   pageSize,
+		sortBy:     sortBy,
+		descending: descending,
+		filters:    filters,
+	}, true
+}
+
+func parseBondsHonorPaginationOptions(c *gin.Context, query map[string][]string) (int, int, bool) {
+	page := 1
+	pageSize := 20
+
+	if rawPage, exists, ok := bondsHonorQueryValue(c, query, "page"); !ok {
+		return 0, 0, false
 	} else if exists {
-		page, err := strconv.Atoi(rawPage)
-		if err != nil || page <= 0 {
+		parsedPage, err := strconv.Atoi(rawPage)
+		if err != nil || parsedPage <= 0 {
 			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page must be a positive integer")
-			return bondsHonorListOptions{}, false
+			return 0, 0, false
 		}
-		options.page = page
+		page = parsedPage
 	}
 
 	if rawPageSize, exists, ok := bondsHonorQueryValue(c, query, "page_size"); !ok {
-		return bondsHonorListOptions{}, false
+		return 0, 0, false
 	} else if exists {
-		pageSize, err := strconv.Atoi(rawPageSize)
-		if err != nil || pageSize <= 0 || pageSize > maxLookupPageSize {
+		parsedPageSize, err := strconv.Atoi(rawPageSize)
+		if err != nil || parsedPageSize <= 0 || parsedPageSize > maxLookupPageSize {
 			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "page_size must be a positive integer no greater than 100")
-			return bondsHonorListOptions{}, false
+			return 0, 0, false
 		}
-		options.pageSize = pageSize
+		pageSize = parsedPageSize
 	}
 
+	return page, pageSize, true
+}
+
+func parseBondsHonorSortOptions(c *gin.Context, query map[string][]string) (string, bool, bool) {
+	sortBy := "seq"
 	if rawSortBy, exists, ok := bondsHonorQueryValue(c, query, "sort_by"); !ok {
-		return bondsHonorListOptions{}, false
+		return "", false, false
 	} else if exists {
-		options.sortBy = rawSortBy
+		sortBy = rawSortBy
 	}
-	if _, valid := bondsHonorSortableFields[options.sortBy]; !valid {
+	if _, valid := bondsHonorSortableFields[sortBy]; !valid {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "sort_by must be one of: bondsGroupId, gameCharacterUnitId1, gameCharacterUnitId2, honorRarity, id, name, seq")
-		return bondsHonorListOptions{}, false
+		return "", false, false
 	}
 
+	descending := false
 	if rawSortOrder, exists, ok := bondsHonorQueryValue(c, query, "sort_order"); !ok {
-		return bondsHonorListOptions{}, false
+		return "", false, false
 	} else if exists {
 		switch strings.ToLower(rawSortOrder) {
 		case "asc":
 		case "desc":
-			options.descending = true
+			descending = true
 		default:
 			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "sort_order must be one of: asc, desc")
-			return bondsHonorListOptions{}, false
+			return "", false, false
 		}
 	}
 
+	return sortBy, descending, true
+}
+
+func parseBondsHonorFilters(c *gin.Context, query map[string][]string) (bondsHonorFilters, bool) {
+	var filters bondsHonorFilters
 	var ok bool
-	if options.filters.bondsGroupID, ok = parseBondsHonorIDFilter(c, query, "bonds_group_id"); !ok {
-		return bondsHonorListOptions{}, false
+
+	filters.bondsGroupID, ok = parseBondsHonorIDFilter(c, query, "bonds_group_id")
+	if !ok {
+		return bondsHonorFilters{}, false
 	}
-	if options.filters.gameCharacterUnitID1, ok = parseBondsHonorIDFilter(c, query, "game_character_unit_id1"); !ok {
-		return bondsHonorListOptions{}, false
+	filters.gameCharacterUnitID1, ok = parseBondsHonorIDFilter(c, query, "game_character_unit_id1")
+	if !ok {
+		return bondsHonorFilters{}, false
 	}
-	if options.filters.gameCharacterUnitID2, ok = parseBondsHonorIDFilter(c, query, "game_character_unit_id2"); !ok {
-		return bondsHonorListOptions{}, false
+	filters.gameCharacterUnitID2, ok = parseBondsHonorIDFilter(c, query, "game_character_unit_id2")
+	if !ok {
+		return bondsHonorFilters{}, false
 	}
-	if options.filters.gameCharacterIDs, ok = parseBondsHonorGameCharacterFilter(c, query); !ok {
-		return bondsHonorListOptions{}, false
+	filters.gameCharacterIDs, ok = parseBondsHonorGameCharacterFilter(c, query)
+	if !ok {
+		return bondsHonorFilters{}, false
 	}
 
-	return options, true
+	return filters, true
 }
 
 func validateBondsHonorQueryParameters(c *gin.Context, allowed map[string]struct{}) bool {
@@ -323,7 +352,7 @@ func parseBondsHonorGameCharacterFilter(c *gin.Context, query map[string][]strin
 
 	parts := strings.Split(rawValue, ",")
 	if len(parts) != 2 {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "game_character_ids must contain exactly two different positive integers")
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", bondsHonorInvalidGameCharacterIDs)
 		return nil, false
 	}
 
@@ -331,13 +360,13 @@ func parseBondsHonorGameCharacterFilter(c *gin.Context, query map[string][]strin
 	for index, part := range parts {
 		value, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
 		if err != nil || value <= 0 {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "game_character_ids must contain exactly two different positive integers")
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", bondsHonorInvalidGameCharacterIDs)
 			return nil, false
 		}
 		values[index] = value
 	}
 	if values[0] == values[1] {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "game_character_ids must contain exactly two different positive integers")
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", bondsHonorInvalidGameCharacterIDs)
 		return nil, false
 	}
 
@@ -411,6 +440,26 @@ func bondsHonorMatchesFilters(item shared.BondsHonorObjectResponse, filters bond
 	return true
 }
 
+func filterBondsHonorRecords(
+	records []map[string]any,
+	filters bondsHonorFilters,
+	characterUnits map[int64]*shared.BondsHonorCharacterUnitResponse,
+) []shared.BondsHonorObjectResponse {
+	items := make([]shared.BondsHonorObjectResponse, 0, len(records))
+	for _, record := range records {
+		item := projectBondsHonor(record)
+		if !bondsHonorMatchesFilters(item, filters) {
+			continue
+		}
+		if filters.gameCharacterIDs != nil && !bondsHonorMatchesGameCharacterFilter(item, *filters.gameCharacterIDs, characterUnits) {
+			continue
+		}
+		items = append(items, item)
+	}
+
+	return items
+}
+
 func bondsHonorMatchesGameCharacterFilter(
 	item shared.BondsHonorObjectResponse,
 	filter bondsHonorGameCharacterFilter,
@@ -436,7 +485,7 @@ func bondsHonorMatchesGameCharacterFilter(
 }
 
 func sortBondsHonorResponses(items []shared.BondsHonorObjectResponse, sortBy string, descending bool) {
-	sort.SliceStable(items, func(leftIndex int, rightIndex int) bool {
+	sort.SliceStable(items, func(leftIndex, rightIndex int) bool {
 		left := items[leftIndex]
 		right := items[rightIndex]
 		leftPresent := bondsHonorSortFieldPresent(left, sortBy)
@@ -477,7 +526,7 @@ func bondsHonorSortFieldPresent(item shared.BondsHonorObjectResponse, sortBy str
 	}
 }
 
-func compareBondsHonorSortField(left shared.BondsHonorObjectResponse, right shared.BondsHonorObjectResponse, sortBy string) int {
+func compareBondsHonorSortField(left, right shared.BondsHonorObjectResponse, sortBy string) int {
 	switch sortBy {
 	case "id":
 		return compareBondsHonorInt64(left.ID, right.ID)
@@ -498,7 +547,7 @@ func compareBondsHonorSortField(left shared.BondsHonorObjectResponse, right shar
 	}
 }
 
-func compareBondsHonorStrings(left *string, right *string) int {
+func compareBondsHonorStrings(left, right *string) int {
 	if left == nil || right == nil {
 		return 0
 	}
@@ -506,7 +555,7 @@ func compareBondsHonorStrings(left *string, right *string) int {
 	return strings.Compare(shared.NormalizeComparableText(*left), shared.NormalizeComparableText(*right))
 }
 
-func compareBondsHonorInt64(left *int64, right *int64) int {
+func compareBondsHonorInt64(left, right *int64) int {
 	if left == nil || right == nil {
 		return 0
 	}
@@ -520,7 +569,7 @@ func compareBondsHonorInt64(left *int64, right *int64) int {
 	}
 }
 
-func compareBondsHonorIDs(left *int64, right *int64) int {
+func compareBondsHonorIDs(left, right *int64) int {
 	if left == nil && right == nil {
 		return 0
 	}
@@ -534,7 +583,7 @@ func compareBondsHonorIDs(left *int64, right *int64) int {
 	return compareBondsHonorInt64(left, right)
 }
 
-func paginateBondsHonorResponses(items []shared.BondsHonorObjectResponse, page int, pageSize int) []shared.BondsHonorObjectResponse {
+func paginateBondsHonorResponses(items []shared.BondsHonorObjectResponse, page, pageSize int) []shared.BondsHonorObjectResponse {
 	totalPages := (len(items) + pageSize - 1) / pageSize
 	if page > totalPages {
 		return []shared.BondsHonorObjectResponse{}
@@ -558,31 +607,13 @@ func (handler *LookupHandler) enrichBondsHonorResponses(
 		return nil
 	}
 
-	needsBonds := false
-	needsCharacterUnits := false
-	for _, item := range items {
-		needsBonds = needsBonds || item.BondsGroupID != nil
-		needsCharacterUnits = needsCharacterUnits || item.GameCharacterUnitID1 != nil || item.GameCharacterUnitID2 != nil
-	}
-
-	bondsGroups := make(map[int64]*shared.BondsHonorGroupResponse)
+	needsBonds, needsCharacterUnits := bondsHonorRelationshipNeeds(items)
+	bondsGroups := map[int64]*shared.BondsHonorGroupResponse{}
 	if needsBonds {
-		records, err := handler.masterDataSync.ListAll(ctx, region, bondsHonorBondsEntity)
+		var err error
+		bondsGroups, err = handler.loadBondsHonorGroups(ctx, region)
 		if err != nil {
 			return err
-		}
-		for _, record := range records {
-			groupID, ok := lookupInt64(record["groupId"])
-			if !ok {
-				continue
-			}
-			if _, exists := bondsGroups[groupID]; !exists {
-				bondsGroups[groupID] = &shared.BondsHonorGroupResponse{
-					GroupID:      lookupOptionalInt64(record["groupId"]),
-					CharacterID1: lookupOptionalInt64(record["characterId1"]),
-					CharacterID2: lookupOptionalInt64(record["characterId2"]),
-				}
-			}
 		}
 	}
 
@@ -594,6 +625,59 @@ func (handler *LookupHandler) enrichBondsHonorResponses(
 		}
 	}
 
+	applyBondsHonorRelationships(items, bondsGroups, characterUnits)
+
+	return nil
+}
+
+func bondsHonorRelationshipNeeds(items []shared.BondsHonorObjectResponse) (bool, bool) {
+	needsBonds := false
+	needsCharacterUnits := false
+	for _, item := range items {
+		if item.BondsGroupID != nil {
+			needsBonds = true
+		}
+		if item.GameCharacterUnitID1 != nil || item.GameCharacterUnitID2 != nil {
+			needsCharacterUnits = true
+		}
+	}
+
+	return needsBonds, needsCharacterUnits
+}
+
+func (handler *LookupHandler) loadBondsHonorGroups(
+	ctx context.Context,
+	region string,
+) (map[int64]*shared.BondsHonorGroupResponse, error) {
+	records, err := handler.masterDataSync.ListAll(ctx, region, bondsHonorBondsEntity)
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make(map[int64]*shared.BondsHonorGroupResponse, len(records))
+	for _, record := range records {
+		groupID, ok := lookupInt64(record["groupId"])
+		if !ok {
+			continue
+		}
+		if _, exists := groups[groupID]; exists {
+			continue
+		}
+		groups[groupID] = &shared.BondsHonorGroupResponse{
+			GroupID:      lookupOptionalInt64(record["groupId"]),
+			CharacterID1: lookupOptionalInt64(record["characterId1"]),
+			CharacterID2: lookupOptionalInt64(record["characterId2"]),
+		}
+	}
+
+	return groups, nil
+}
+
+func applyBondsHonorRelationships(
+	items []shared.BondsHonorObjectResponse,
+	bondsGroups map[int64]*shared.BondsHonorGroupResponse,
+	characterUnits map[int64]*shared.BondsHonorCharacterUnitResponse,
+) {
 	for index := range items {
 		item := &items[index]
 		if item.BondsGroupID != nil {
@@ -606,8 +690,18 @@ func (handler *LookupHandler) enrichBondsHonorResponses(
 			item.CharacterUnit2 = characterUnits[*item.GameCharacterUnitID2]
 		}
 	}
+}
 
-	return nil
+func (handler *LookupHandler) loadBondsHonorFilterCharacterUnits(
+	ctx context.Context,
+	region string,
+	filters bondsHonorFilters,
+) (map[int64]*shared.BondsHonorCharacterUnitResponse, error) {
+	if filters.gameCharacterIDs == nil {
+		return nil, nil
+	}
+
+	return handler.loadBondsHonorCharacterUnits(ctx, region)
 }
 
 func (handler *LookupHandler) loadBondsHonorCharacterUnits(

@@ -242,60 +242,134 @@ func TestEventHonorBonusesTypedEndpointSupportsFiveRegionsAndBatchEnrichment(t *
 
 	for index, region := range regions {
 		t.Run(region, func(t *testing.T) {
-			eventID := strconv.Itoa(100 + index)
-			resp := serveEventHonorBonusRequest(t, router, "/api/v1/events/"+region+"/"+eventID+"/honor-bonuses")
-			if resp.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-			}
-
-			items := decodeEventHonorBonusList(t, resp.Body.Bytes())
-			if len(items) != 1 {
-				t.Fatalf("expected one matching item, got %#v", items)
-			}
-			item := items[0]
-			if item["id"] != float64(30) || item["eventId"] != float64(100+index) || item["honorId"] != float64(200+index) || item["leaderGameCharacterId"] != float64(400+index) || item["bonusRate"] != float64(25) {
-				t.Fatalf("unexpected typed base projection: %#v", item)
-			}
-			if _, leaked := item["unknownField"]; leaked {
-				t.Fatalf("unknown base field leaked: %#v", item)
-			}
-
-			honor, ok := item["honor"].(map[string]any)
-			if !ok || honor["id"] != float64(200+index) || honor["groupId"] != float64(300+index) || honor["name"] != "Honor "+region || honor["honorTypeId"] != float64(7) {
-				t.Fatalf("unexpected honor projection: %#v", item["honor"])
-			}
-			if _, leaked := honor["levels"]; leaked {
-				t.Fatalf("honor levels leaked: %#v", honor)
-			}
-			group, ok := honor["group"].(map[string]any)
-			if !ok || group["id"] != float64(300+index) || group["name"] != "Group "+region || group["honorType"] != "rank" {
-				t.Fatalf("unexpected honor group projection: %#v", honor["group"])
-			}
-
-			unit, ok := item["leaderGameCharacterUnit"].(map[string]any)
-			if !ok || unit["id"] != float64(400+index) || unit["gameCharacterId"] != float64(1400+index) || unit["unit"] != "unit_"+region {
-				t.Fatalf("unexpected leader unit projection: %#v", item["leaderGameCharacterUnit"])
-			}
-			if _, leaked := unit["colorCode"]; leaked {
-				t.Fatalf("unknown leader unit field leaked: %#v", unit)
-			}
-
-			if got := cache.listCalls[region][eventHonorBonusesEntity]; got != 1 {
-				t.Fatalf("expected one event honor bonus ListAll call, got %d", got)
-			}
-			if got := cache.listCalls[region][eventHonorBonusHonorsEntity]; got != 1 {
-				t.Fatalf("expected one honors ListAll call, got %d", got)
-			}
-			if got := cache.listCalls[region][eventHonorBonusHonorGroupsEntity]; got != 1 {
-				t.Fatalf("expected one honor groups ListAll call, got %d", got)
-			}
-			if got := cache.listCalls[region][eventHonorBonusGameCharacterEntity]; got != 1 {
-				t.Fatalf("expected one game character units ListAll call, got %d", got)
-			}
+			assertEventHonorBonusTypedRegionResponse(
+				t,
+				router,
+				cache,
+				region,
+				index,
+			)
 		})
 	}
 
-	if len(cache.getByIDCall) != len(regions) {
+	assertEventHonorBonusParentLookups(t, cache, len(regions))
+}
+
+func assertEventHonorBonusTypedRegionResponse(
+	t *testing.T,
+	router *gin.Engine,
+	cache *eventHonorBonusTrackingCache,
+	region string,
+	index int,
+) {
+	t.Helper()
+
+	eventID := strconv.Itoa(100 + index)
+	resp := serveEventHonorBonusRequest(t, router, "/api/v1/events/"+region+"/"+eventID+"/honor-bonuses")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	items := decodeEventHonorBonusList(t, resp.Body.Bytes())
+	if len(items) != 1 {
+		t.Fatalf("expected one matching item, got %#v", items)
+	}
+
+	item := items[0]
+	assertEventHonorBonusBaseProjection(t, item, index)
+	assertEventHonorBonusHonorProjection(
+		t,
+		item,
+		region,
+		index,
+	)
+	assertEventHonorBonusLeaderUnitProjection(
+		t,
+		item,
+		region,
+		index,
+	)
+	assertEventHonorBonusBatchListCalls(t, cache, region)
+}
+
+func assertEventHonorBonusBaseProjection(t *testing.T, item map[string]any, index int) {
+	t.Helper()
+
+	if item["id"] != float64(30) || item["eventId"] != float64(100+index) ||
+		item["honorId"] != float64(200+index) || item["leaderGameCharacterId"] != float64(400+index) ||
+		item["bonusRate"] != float64(25) {
+		t.Fatalf("unexpected typed base projection: %#v", item)
+	}
+	if _, leaked := item["unknownField"]; leaked {
+		t.Fatalf("unknown base field leaked: %#v", item)
+	}
+}
+
+func assertEventHonorBonusHonorProjection(t *testing.T, item map[string]any, region string, index int) {
+	t.Helper()
+
+	honor, ok := item["honor"].(map[string]any)
+	if !ok || honor["id"] != float64(200+index) || honor["groupId"] != float64(300+index) ||
+		honor["name"] != "Honor "+region || honor["honorTypeId"] != float64(7) {
+		t.Fatalf("unexpected honor projection: %#v", item["honor"])
+	}
+	if _, leaked := honor["levels"]; leaked {
+		t.Fatalf("honor levels leaked: %#v", honor)
+	}
+	assertEventHonorBonusGroupProjection(
+		t,
+		honor,
+		region,
+		index,
+	)
+}
+
+func assertEventHonorBonusGroupProjection(t *testing.T, honor map[string]any, region string, index int) {
+	t.Helper()
+
+	group, ok := honor["group"].(map[string]any)
+	if !ok || group["id"] != float64(300+index) ||
+		group["name"] != "Group "+region || group["honorType"] != "rank" {
+		t.Fatalf("unexpected honor group projection: %#v", honor["group"])
+	}
+}
+
+func assertEventHonorBonusLeaderUnitProjection(t *testing.T, item map[string]any, region string, index int) {
+	t.Helper()
+
+	unit, ok := item["leaderGameCharacterUnit"].(map[string]any)
+	if !ok || unit["id"] != float64(400+index) ||
+		unit["gameCharacterId"] != float64(1400+index) || unit["unit"] != "unit_"+region {
+		t.Fatalf("unexpected leader unit projection: %#v", item["leaderGameCharacterUnit"])
+	}
+	if _, leaked := unit["colorCode"]; leaked {
+		t.Fatalf("unknown leader unit field leaked: %#v", unit)
+	}
+}
+
+func assertEventHonorBonusBatchListCalls(t *testing.T, cache *eventHonorBonusTrackingCache, region string) {
+	t.Helper()
+
+	expectedCalls := []struct {
+		entity string
+		label  string
+	}{
+		{entity: eventHonorBonusesEntity, label: "event honor bonus"},
+		{entity: eventHonorBonusHonorsEntity, label: "honors"},
+		{entity: eventHonorBonusHonorGroupsEntity, label: "honor groups"},
+		{entity: eventHonorBonusGameCharacterEntity, label: "game character units"},
+	}
+	for _, expected := range expectedCalls {
+		if got := cache.listCalls[region][expected.entity]; got != 1 {
+			t.Fatalf("expected one %s ListAll call, got %d", expected.label, got)
+		}
+	}
+}
+
+func assertEventHonorBonusParentLookups(t *testing.T, cache *eventHonorBonusTrackingCache, expectedCount int) {
+	t.Helper()
+
+	if len(cache.getByIDCall) != expectedCount {
 		t.Fatalf("expected one parent GetByID call per request, got %#v", cache.getByIDCall)
 	}
 	for _, call := range cache.getByIDCall {

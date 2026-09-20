@@ -87,7 +87,7 @@ func (handler *EventHandler) buildEventHonorBonusResponses(
 		items = append(items, projectEventHonorBonus(record))
 	}
 
-	sort.SliceStable(items, func(i int, j int) bool {
+	sort.SliceStable(items, func(i, j int) bool {
 		return eventHonorBonusIDLess(items[i].ID, items[j].ID)
 	})
 	if len(items) == 0 {
@@ -111,34 +111,78 @@ func (handler *EventHandler) enrichEventHonorBonusResponses(
 		return err
 	}
 
-	honorsByID := make(map[string]map[string]any, len(honorRecords))
-	groupIDs := make(map[string]struct{})
-	for _, record := range honorRecords {
-		id := shared.NormalizeAnyID(record["id"])
-		if id != "" {
-			honorsByID[id] = record
-		}
+	honorsByID := indexEventHonorBonusHonors(honorRecords)
+	groupIDs := enrichEventHonorBonusHonors(items, honorsByID)
+
+	groupsByID, err := loadEventHonorBonusGroups(
+		ctx,
+		handler.masterDataSync,
+		region,
+		groupIDs,
+	)
+	if err != nil {
+		return err
 	}
-	for index := range items {
-		if items[index].HonorID == nil {
+	enrichEventHonorBonusHonorGroups(items, groupsByID)
+
+	leaderIDs := eventHonorBonusLeaderGameCharacterIDs(items)
+	unitsByID, err := loadEventHonorBonusGameCharacterUnits(
+		ctx,
+		handler.masterDataSync,
+		region,
+		leaderIDs,
+	)
+	if err != nil {
+		return err
+	}
+	enrichEventHonorBonusLeaderGameCharacterUnits(items, unitsByID)
+
+	return nil
+}
+
+func indexEventHonorBonusHonors(records []map[string]any) map[string]map[string]any {
+	honorsByID := make(map[string]map[string]any, len(records))
+	for _, record := range records {
+		id := shared.NormalizeAnyID(record["id"])
+		if id == "" {
 			continue
 		}
-		honorRecord, found := honorsByID[strconv.FormatInt(*items[index].HonorID, 10)]
+		honorsByID[id] = record
+	}
+
+	return honorsByID
+}
+
+func enrichEventHonorBonusHonors(
+	items []shared.EventHonorBonusObjectResponse,
+	honorsByID map[string]map[string]any,
+) map[string]struct{} {
+	groupIDs := make(map[string]struct{})
+	for index := range items {
+		item := &items[index]
+		if item.HonorID == nil {
+			continue
+		}
+
+		honorRecord, found := honorsByID[strconv.FormatInt(*item.HonorID, 10)]
 		if !found {
 			continue
 		}
 
 		honor := projectEventHonorBonusHonor(honorRecord)
-		items[index].Honor = &honor
+		item.Honor = &honor
 		if honor.GroupID != nil {
 			groupIDs[strconv.FormatInt(*honor.GroupID, 10)] = struct{}{}
 		}
 	}
 
-	groupsByID, err := loadEventHonorBonusGroups(ctx, handler.masterDataSync, region, groupIDs)
-	if err != nil {
-		return err
-	}
+	return groupIDs
+}
+
+func enrichEventHonorBonusHonorGroups(
+	items []shared.EventHonorBonusObjectResponse,
+	groupsByID map[string]shared.EventHonorBonusHonorGroupResponse,
+) {
 	for index := range items {
 		honor := items[index].Honor
 		if honor == nil || honor.GroupID == nil {
@@ -146,33 +190,41 @@ func (handler *EventHandler) enrichEventHonorBonusResponses(
 		}
 
 		group, found := groupsByID[strconv.FormatInt(*honor.GroupID, 10)]
-		if found {
-			honor.Group = &group
+		if !found {
+			continue
 		}
+		honor.Group = &group
 	}
+}
 
+func eventHonorBonusLeaderGameCharacterIDs(items []shared.EventHonorBonusObjectResponse) map[string]struct{} {
 	leaderIDs := make(map[string]struct{})
 	for _, item := range items {
-		if item.LeaderGameCharacterID != nil {
-			leaderIDs[strconv.FormatInt(*item.LeaderGameCharacterID, 10)] = struct{}{}
+		if item.LeaderGameCharacterID == nil {
+			continue
 		}
+		leaderIDs[strconv.FormatInt(*item.LeaderGameCharacterID, 10)] = struct{}{}
 	}
-	unitsByID, err := loadEventHonorBonusGameCharacterUnits(ctx, handler.masterDataSync, region, leaderIDs)
-	if err != nil {
-		return err
-	}
+
+	return leaderIDs
+}
+
+func enrichEventHonorBonusLeaderGameCharacterUnits(
+	items []shared.EventHonorBonusObjectResponse,
+	unitsByID map[string]shared.EventHonorBonusLeaderGameCharacterUnitResponse,
+) {
 	for index := range items {
-		if items[index].LeaderGameCharacterID == nil {
+		item := &items[index]
+		if item.LeaderGameCharacterID == nil {
 			continue
 		}
 
-		unit, found := unitsByID[strconv.FormatInt(*items[index].LeaderGameCharacterID, 10)]
-		if found {
-			items[index].LeaderGameCharacterUnit = &unit
+		unit, found := unitsByID[strconv.FormatInt(*item.LeaderGameCharacterID, 10)]
+		if !found {
+			continue
 		}
+		item.LeaderGameCharacterUnit = &unit
 	}
-
-	return nil
 }
 
 func loadEventHonorBonusGroups(
@@ -269,7 +321,7 @@ func projectEventHonorBonusLeaderGameCharacterUnit(record map[string]any) shared
 	}
 }
 
-func eventHonorBonusIDLess(left *int64, right *int64) bool {
+func eventHonorBonusIDLess(left, right *int64) bool {
 	if left == nil {
 		return false
 	}

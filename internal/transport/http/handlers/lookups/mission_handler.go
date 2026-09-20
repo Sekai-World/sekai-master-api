@@ -1,6 +1,7 @@
 package lookups
 
 import (
+	"cmp"
 	"context"
 	"net/http"
 	"sort"
@@ -14,17 +15,18 @@ import (
 )
 
 const (
-	storyMissionsFamily          = "storyMissions"
-	characterMissionV2sFamily    = "characterMissionV2s"
-	normalMissionsFamily         = "normalMissions"
-	storyMissionsEntity          = "storymissions"
-	characterMissionV2sEntity    = "charactermissionv2s"
-	normalMissionsEntity         = "normalmissions"
-	resourceBoxesEntity          = "resourceboxes"
-	resourceBoxDetailsEntity     = "resourceboxdetails"
-	missionQueryErrorCode        = "MISSION_QUERY_ERROR"
-	missionNotFoundCode          = "MISSION_NOT_FOUND"
-	missionRewardResolvedStatus  = "resolved"
+	storyMissionsFamily           = "storyMissions"
+	characterMissionV2sFamily     = "characterMissionV2s"
+	normalMissionsFamily          = "normalMissions"
+	storyMissionsEntity           = "storymissions"
+	characterMissionV2sEntity     = "charactermissionv2s"
+	normalMissionsEntity          = "normalmissions"
+	resourceBoxesEntity           = "resourceboxes"
+	resourceBoxDetailsEntity      = "resourceboxdetails"
+	missionQueryErrorCode         = "MISSION_QUERY_ERROR"
+	missionNotFoundCode           = "MISSION_NOT_FOUND"
+	missionFamilyAllowlistError   = "family must be one of: storyMissions, characterMissionV2s, normalMissions"
+	missionRewardResolvedStatus   = "resolved"
 	missionRewardUnresolvedStatus = "unresolved"
 )
 
@@ -76,6 +78,21 @@ type missionResourceBoxCandidate struct {
 type missionRewardCatalog struct {
 	boxesByID    map[int64][]missionResourceBoxCandidate
 	detailsByBox map[string][]map[string]any
+}
+
+type missionRewardResolutionRequest struct {
+	region string
+	items  []missionItem
+}
+
+type missionOperands[T any] struct {
+	left  T
+	right T
+}
+
+type missionRewardCatalogRequest struct {
+	boxes   []map[string]any
+	details []map[string]any
 }
 
 // MissionsList godoc
@@ -146,7 +163,8 @@ func (handler *LookupHandler) MissionsList(c *gin.Context) {
 
 	total := len(items)
 	pagedItems := paginateMissionItems(items, page, pageSize)
-	if err := handler.resolveMissionRewards(c.Request.Context(), region, pagedItems); err != nil {
+	rewardRequest := missionRewardResolutionRequest{region: region, items: pagedItems}
+	if err := handler.resolveMissionRewards(c.Request.Context(), rewardRequest); err != nil {
 		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to resolve mission rewards")
 		return
 	}
@@ -215,7 +233,8 @@ func (handler *LookupHandler) MissionByID(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to normalize mission")
 		return
 	}
-	if err := handler.resolveMissionRewards(c.Request.Context(), region, items); err != nil {
+	rewardRequest := missionRewardResolutionRequest{region: region, items: items}
+	if err := handler.resolveMissionRewards(c.Request.Context(), rewardRequest); err != nil {
 		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to resolve mission rewards")
 		return
 	}
@@ -225,13 +244,13 @@ func (handler *LookupHandler) MissionByID(c *gin.Context) {
 
 func validateMissionQueryParameters(c *gin.Context, allowFamily bool) bool {
 	allowed := map[string]struct{}{
-		"page":       {},
-		"page_size":  {},
-		"id":         {},
+		"page":         {},
+		"page_size":    {},
+		"id":           {},
 		"character_id": {},
-		"event_id":   {},
-		"sort_by":    {},
-		"sort_order": {},
+		"event_id":     {},
+		"sort_by":      {},
+		"sort_order":   {},
 	}
 	if allowFamily {
 		allowed["family"] = struct{}{}
@@ -251,7 +270,7 @@ func validateMissionQueryParameters(c *gin.Context, allowFamily bool) bool {
 func missionFamilyFromQuery(c *gin.Context) (missionFamilyConfig, bool) {
 	values := c.QueryArray("family")
 	if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "family must be one of: storyMissions, characterMissionV2s, normalMissions")
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", missionFamilyAllowlistError)
 		return missionFamilyConfig{}, false
 	}
 
@@ -261,7 +280,7 @@ func missionFamilyFromQuery(c *gin.Context) (missionFamilyConfig, bool) {
 func missionFamilyFromPath(c *gin.Context) (missionFamilyConfig, bool) {
 	family := strings.TrimSpace(c.Param("family"))
 	if family == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "family must be one of: storyMissions, characterMissionV2s, normalMissions")
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", missionFamilyAllowlistError)
 		return missionFamilyConfig{}, false
 	}
 
@@ -274,12 +293,33 @@ func missionFamilyByName(c *gin.Context, family string) (missionFamilyConfig, bo
 		return config, true
 	}
 
-	response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "family must be one of: storyMissions, characterMissionV2s, normalMissions")
+	response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", missionFamilyAllowlistError)
 	return missionFamilyConfig{}, false
 }
 
 func parseMissionFilters(c *gin.Context, config missionFamilyConfig) (map[string]map[int64]struct{}, bool) {
+	if !validateMissionFilterParameters(c, config) {
+		return nil, false
+	}
+
 	filters := make(map[string]map[int64]struct{})
+	for parameter, field := range config.filterable {
+		values, exists := c.Request.URL.Query()[parameter]
+		if !exists {
+			continue
+		}
+
+		parsedValues, ok := parseMissionFilterParameter(c, parameter, values)
+		if !ok {
+			return nil, false
+		}
+		filters[field] = parsedValues
+	}
+
+	return filters, true
+}
+
+func validateMissionFilterParameters(c *gin.Context, config missionFamilyConfig) bool {
 	for _, parameter := range []string{"id", "character_id", "event_id"} {
 		if _, exists := c.Request.URL.Query()[parameter]; !exists {
 			continue
@@ -288,34 +328,33 @@ func parseMissionFilters(c *gin.Context, config missionFamilyConfig) (map[string
 			continue
 		}
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", parameter+" is not supported for "+config.family)
-		return nil, false
+		return false
 	}
 
-	for parameter, field := range config.filterable {
-		values, exists := c.Request.URL.Query()[parameter]
-		if !exists {
-			continue
-		}
+	return true
+}
 
-		parsedValues := make(map[int64]struct{})
-		for _, rawValue := range values {
-			if strings.TrimSpace(rawValue) == "" {
-				response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", parameter+" must contain positive integer IDs")
-				return nil, false
-			}
-			for _, part := range strings.Split(rawValue, ",") {
-				value, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
-				if err != nil || value <= 0 {
-					response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", parameter+" must contain positive integer IDs")
-					return nil, false
-				}
-				parsedValues[value] = struct{}{}
-			}
+func parseMissionFilterParameter(c *gin.Context, parameter string, values []string) (map[int64]struct{}, bool) {
+	parsedValues := make(map[int64]struct{})
+	for _, rawValue := range values {
+		if strings.TrimSpace(rawValue) == "" {
+			return nil, rejectInvalidMissionFilter(c, parameter)
 		}
-		filters[field] = parsedValues
+		for _, part := range strings.Split(rawValue, ",") {
+			value, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+			if err != nil || value <= 0 {
+				return nil, rejectInvalidMissionFilter(c, parameter)
+			}
+			parsedValues[value] = struct{}{}
+		}
 	}
 
-	return filters, true
+	return parsedValues, true
+}
+
+func rejectInvalidMissionFilter(c *gin.Context, parameter string) bool {
+	response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", parameter+" must contain positive integer IDs")
+	return false
 }
 
 func normalizeMissionRecords(family string, records []map[string]any) []missionItem {
@@ -582,12 +621,18 @@ func sortMissionItems(items []missionItem, field string, descending bool) {
 	sort.SliceStable(items, func(leftIndex, rightIndex int) bool {
 		left := missionSortValue(items[leftIndex].response, field)
 		right := missionSortValue(items[rightIndex].response, field)
-		comparison := compareMissionValues(left, right)
+		comparison := compareMissionValues(missionOperands[any]{left: left, right: right})
 		if comparison == 0 {
-			comparison = compareMissionInt64(items[leftIndex].response.ID, items[rightIndex].response.ID)
+			comparison = compareMissionInt64(missionOperands[int64]{
+				left:  items[leftIndex].response.ID,
+				right: items[rightIndex].response.ID,
+			})
 		}
 		if comparison == 0 {
-			comparison = compareMissionOptionalInt64(items[leftIndex].response.Seq, items[rightIndex].response.Seq)
+			comparison = compareMissionOptionalInt64(missionOperands[*int64]{
+				left:  items[leftIndex].response.Seq,
+				right: items[rightIndex].response.Seq,
+			})
 		}
 		if descending {
 			return comparison > 0
@@ -636,52 +681,74 @@ func optionalMissionValue[T any](value *T) any {
 	return *value
 }
 
-func compareMissionValues(left any, right any) int {
-	if left == nil || right == nil {
-		switch {
-		case left == nil && right == nil:
-			return 0
-		case left == nil:
-			return -1
-		default:
-			return 1
-		}
+func compareMissionValues(operands missionOperands[any]) int {
+	if operands.left == nil || operands.right == nil {
+		return compareMissionNilValues(operands)
 	}
 
-	if leftNumber, ok := lookupInt64(left); ok {
-		if rightNumber, rightOK := lookupInt64(right); rightOK {
-			return compareMissionInt64(leftNumber, rightNumber)
-		}
+	if comparison, ok := compareMissionNumericValues(operands); ok {
+		return comparison
 	}
 
-	if leftBool, ok := left.(bool); ok {
-		if rightBool, rightOK := right.(bool); rightOK {
-			switch {
-			case leftBool == rightBool:
-				return 0
-			case !leftBool:
-				return -1
-			default:
-				return 1
-			}
-		}
+	if comparison, ok := compareMissionBooleanValues(operands); ok {
+		return comparison
 	}
 
-	return strings.Compare(shared.NormalizeComparableText(left), shared.NormalizeComparableText(right))
+	return cmp.Compare(
+		shared.NormalizeComparableText(operands.left),
+		shared.NormalizeComparableText(operands.right),
+	)
 }
 
-func compareMissionInt64(left int64, right int64) int {
+func compareMissionNilValues(operands missionOperands[any]) int {
 	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
+	case operands.left == nil && operands.right == nil:
 		return 0
+	case operands.left == nil:
+		return -1
+	default:
+		return 1
 	}
 }
 
-func compareMissionOptionalInt64(left *int64, right *int64) int {
+func compareMissionNumericValues(operands missionOperands[any]) (int, bool) {
+	leftNumber, ok := lookupInt64(operands.left)
+	if !ok {
+		return 0, false
+	}
+	rightNumber, ok := lookupInt64(operands.right)
+	if !ok {
+		return 0, false
+	}
+
+	return compareMissionInt64(missionOperands[int64]{left: leftNumber, right: rightNumber}), true
+}
+
+func compareMissionBooleanValues(operands missionOperands[any]) (int, bool) {
+	leftBool, ok := operands.left.(bool)
+	if !ok {
+		return 0, false
+	}
+	rightBool, ok := operands.right.(bool)
+	if !ok {
+		return 0, false
+	}
+	switch {
+	case leftBool == rightBool:
+		return 0, true
+	case !leftBool:
+		return -1, true
+	default:
+		return 1, true
+	}
+}
+
+func compareMissionInt64(operands missionOperands[int64]) int {
+	return cmp.Compare(operands.left, operands.right)
+}
+
+func compareMissionOptionalInt64(operands missionOperands[*int64]) int {
+	left, right := operands.left, operands.right
 	if left == nil || right == nil {
 		switch {
 		case left == nil && right == nil:
@@ -693,7 +760,7 @@ func compareMissionOptionalInt64(left *int64, right *int64) int {
 		}
 	}
 
-	return compareMissionInt64(*left, *right)
+	return cmp.Compare(*left, *right)
 }
 
 func paginateMissionItems(items []missionItem, page int, pageSize int) []missionItem {
@@ -711,69 +778,91 @@ func paginateMissionItems(items []missionItem, page int, pageSize int) []mission
 	return items[start:end]
 }
 
-func (handler *LookupHandler) resolveMissionRewards(ctx context.Context, region string, items []missionItem) error {
-	needsCatalog := false
-	for _, item := range items {
-		for _, reference := range item.rewardRefs {
-			if reference.response.ResourceBoxID != nil ||
-				(reference.embeddedBox != nil && !missionRecordHasField(reference.embeddedBox, "details")) {
-				needsCatalog = true
-				break
-			}
-		}
-		if needsCatalog {
-			break
-		}
-	}
-
+func (handler *LookupHandler) resolveMissionRewards(ctx context.Context, request missionRewardResolutionRequest) error {
 	catalog := missionRewardCatalog{}
-	if needsCatalog {
+	if missionRewardCatalogRequired(request.items) {
 		var err error
-		catalog, err = handler.loadMissionRewardCatalog(ctx, region)
+		catalog, err = handler.loadMissionRewardCatalog(ctx, request.region)
 		if err != nil {
 			return err
 		}
 	}
 
-	for index := range items {
-		if !items[index].rewardsPresent {
+	for index := range request.items {
+		item := &request.items[index]
+		if !item.rewardsPresent {
 			continue
 		}
 
-		rewards := make([]shared.MissionRewardResponse, 0, len(items[index].rewardRefs))
-		for _, reference := range items[index].rewardRefs {
-			reward := reference.response
-			reward.Status = missionRewardUnresolvedStatus
-
-			if reference.embeddedBox != nil {
-				if box := projectMissionResourceBox(reference.embeddedBox); box != nil {
-					reward.ResourceBox = box
-					reward.Status = missionRewardResolvedStatus
-					if reward.ResourceBoxID == nil {
-						reward.ResourceBoxID = box.ID
-					}
-					if reward.ResourceBoxPurpose == nil {
-						reward.ResourceBoxPurpose = box.ResourceBoxPurpose
-					}
-				}
-			}
-
-			if reward.ResourceBox == nil && reward.ResourceBoxID != nil && len(reward.ResourceBoxIDs) == 0 {
-				if box, found := catalog.resolve(*reward.ResourceBoxID, reward.ResourceBoxPurpose); found {
-					reward.ResourceBox = box
-					reward.Status = missionRewardResolvedStatus
-					if reward.ResourceBoxPurpose == nil {
-						reward.ResourceBoxPurpose = box.ResourceBoxPurpose
-					}
-				}
-			}
-
-			rewards = append(rewards, reward)
-		}
-		items[index].response.Rewards = &rewards
+		rewards := resolveMissionRewardReferences(catalog, item.rewardRefs)
+		item.response.Rewards = &rewards
 	}
 
 	return nil
+}
+
+func missionRewardCatalogRequired(items []missionItem) bool {
+	for _, item := range items {
+		for _, reference := range item.rewardRefs {
+			if missionRewardReferenceRequiresCatalog(reference) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func missionRewardReferenceRequiresCatalog(reference missionRewardReference) bool {
+	return reference.response.ResourceBoxID != nil ||
+		(reference.embeddedBox != nil && !missionRecordHasField(reference.embeddedBox, "details"))
+}
+
+func resolveMissionRewardReferences(catalog missionRewardCatalog, references []missionRewardReference) []shared.MissionRewardResponse {
+	rewards := make([]shared.MissionRewardResponse, 0, len(references))
+	for _, reference := range references {
+		rewards = append(rewards, resolveMissionRewardReference(catalog, reference))
+	}
+
+	return rewards
+}
+
+func resolveMissionRewardReference(catalog missionRewardCatalog, reference missionRewardReference) shared.MissionRewardResponse {
+	reward := reference.response
+	reward.Status = missionRewardUnresolvedStatus
+	resolveEmbeddedMissionReward(&reward, reference.embeddedBox)
+	resolveCatalogMissionReward(&reward, catalog)
+	return reward
+}
+
+func resolveEmbeddedMissionReward(reward *shared.MissionRewardResponse, embeddedBox map[string]any) {
+	if box := projectMissionResourceBox(embeddedBox); box != nil {
+		reward.ResourceBox = box
+		reward.Status = missionRewardResolvedStatus
+		if reward.ResourceBoxID == nil {
+			reward.ResourceBoxID = box.ID
+		}
+		if reward.ResourceBoxPurpose == nil {
+			reward.ResourceBoxPurpose = box.ResourceBoxPurpose
+		}
+	}
+}
+
+func resolveCatalogMissionReward(reward *shared.MissionRewardResponse, catalog missionRewardCatalog) {
+	if reward.ResourceBox != nil || reward.ResourceBoxID == nil || len(reward.ResourceBoxIDs) != 0 {
+		return
+	}
+
+	box, found := catalog.resolve(*reward.ResourceBoxID, reward.ResourceBoxPurpose)
+	if !found {
+		return
+	}
+
+	reward.ResourceBox = box
+	reward.Status = missionRewardResolvedStatus
+	if reward.ResourceBoxPurpose == nil {
+		reward.ResourceBoxPurpose = box.ResourceBoxPurpose
+	}
 }
 
 func (handler *LookupHandler) loadMissionRewardCatalog(ctx context.Context, region string) (missionRewardCatalog, error) {
@@ -786,14 +875,22 @@ func (handler *LookupHandler) loadMissionRewardCatalog(ctx context.Context, regi
 		return missionRewardCatalog{}, err
 	}
 
-	return buildMissionRewardCatalog(boxes, details), nil
+	return buildMissionRewardCatalog(missionRewardCatalogRequest{boxes: boxes, details: details}), nil
 }
 
-func buildMissionRewardCatalog(boxes []map[string]any, details []map[string]any) missionRewardCatalog {
+func buildMissionRewardCatalog(request missionRewardCatalogRequest) missionRewardCatalog {
 	catalog := missionRewardCatalog{
 		boxesByID:    make(map[int64][]missionResourceBoxCandidate),
 		detailsByBox: make(map[string][]map[string]any),
 	}
+	addMissionResourceBoxCandidates(&catalog, request.boxes)
+	addMissionResourceBoxDetails(&catalog, request.details)
+	sortMissionResourceBoxDetails(catalog.detailsByBox)
+
+	return catalog
+}
+
+func addMissionResourceBoxCandidates(catalog *missionRewardCatalog, boxes []map[string]any) {
 	for _, record := range boxes {
 		id, ok := lookupInt64(record["id"])
 		if !ok || id <= 0 {
@@ -806,6 +903,9 @@ func buildMissionRewardCatalog(boxes []map[string]any, details []map[string]any)
 			purpose: purpose,
 		})
 	}
+}
+
+func addMissionResourceBoxDetails(catalog *missionRewardCatalog, details []map[string]any) {
 	for _, record := range details {
 		parentID, ok := lookupInt64(record["resourceBoxId"])
 		if !ok || parentID <= 0 {
@@ -818,21 +918,27 @@ func buildMissionRewardCatalog(boxes []map[string]any, details []map[string]any)
 		key := missionResourceBoxKey(purpose, parentID)
 		catalog.detailsByBox[key] = append(catalog.detailsByBox[key], record)
 	}
-	for key := range catalog.detailsByBox {
-		sort.SliceStable(catalog.detailsByBox[key], func(leftIndex, rightIndex int) bool {
-			left, leftOK := lookupInt64(catalog.detailsByBox[key][leftIndex]["seq"])
-			right, rightOK := lookupInt64(catalog.detailsByBox[key][rightIndex]["seq"])
-			if leftOK != rightOK {
-				return leftOK
-			}
-			if !leftOK {
-				return false
-			}
-			return left < right
+}
+
+func sortMissionResourceBoxDetails(detailsByBox map[string][]map[string]any) {
+	for key := range detailsByBox {
+		sort.SliceStable(detailsByBox[key], func(leftIndex, rightIndex int) bool {
+			return missionResourceBoxDetailLess(missionOperands[map[string]any]{
+				left:  detailsByBox[key][leftIndex],
+				right: detailsByBox[key][rightIndex],
+			})
 		})
 	}
+}
 
-	return catalog
+func missionResourceBoxDetailLess(operands missionOperands[map[string]any]) bool {
+	leftSequence, leftOK := lookupInt64(operands.left["seq"])
+	rightSequence, rightOK := lookupInt64(operands.right["seq"])
+	if leftOK != rightOK {
+		return leftOK
+	}
+
+	return leftOK && cmp.Compare(leftSequence, rightSequence) < 0
 }
 
 func (catalog missionRewardCatalog) resolve(id int64, purpose *string) (*shared.MissionResourceBoxResponse, bool) {
@@ -904,7 +1010,10 @@ func projectMissionResourceBoxDetails(value any) []shared.MissionResourceBoxDeta
 		items = append(items, projectMissionResourceBoxDetail(record))
 	}
 	sort.SliceStable(items, func(leftIndex, rightIndex int) bool {
-		return compareMissionOptionalInt64(items[leftIndex].Seq, items[rightIndex].Seq) < 0
+		return compareMissionOptionalInt64(missionOperands[*int64]{
+			left:  items[leftIndex].Seq,
+			right: items[rightIndex].Seq,
+		}) < 0
 	})
 
 	return items

@@ -25,7 +25,7 @@ type bondsHonorTrackingCache struct {
 	listAllErrors map[string]error
 }
 
-func (cache *bondsHonorTrackingCache) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
+func (cache *bondsHonorTrackingCache) ListAll(ctx context.Context, region, entity string) ([]map[string]any, error) {
 	cache.listAllCalls = append(cache.listAllCalls, bondsHonorListAllCall{region: region, entity: entity})
 	if err := cache.listAllErrors[entity]; err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func newReadyBondsHonorHandler(cache *fakeLookupCache, regions ...string) *Looku
 	return NewLookupHandler(syncUsecase)
 }
 
-func newBondsHonorRecord(id int64, seq int64, groupID int64, characterUnitID1 int64, characterUnitID2 int64, name string) map[string]any {
+func newBondsHonorRecord(id, seq, groupID, characterUnitID1, characterUnitID2 int64, name string) map[string]any {
 	return map[string]any{
 		"id":                            id,
 		"seq":                           seq,
@@ -88,7 +88,7 @@ func newBondsHonorRecord(id int64, seq int64, groupID int64, characterUnitID1 in
 	}
 }
 
-func newBondsHonorCharacterUnitRecord(id int64, gameCharacterID int64, unit string) map[string]any {
+func newBondsHonorCharacterUnitRecord(id, gameCharacterID int64, unit string) map[string]any {
 	return map[string]any{
 		"id":              id,
 		"gameCharacterId": gameCharacterID,
@@ -133,7 +133,15 @@ func bondsHonorErrorCode(t *testing.T, body []byte) string {
 	return response.Error.Code
 }
 
-func assertBondsHonorProjection(t *testing.T, item map[string]any, id int64, groupID int64, unitID1 int64, unitID2 int64) {
+func assertBondsHonorProjection(t *testing.T, item map[string]any, id, groupID, unitID1, unitID2 int64) {
+	t.Helper()
+
+	assertBondsHonorBaseFields(t, item, id, groupID, unitID1, unitID2)
+	assertBondsHonorLevels(t, item, id)
+	assertBondsHonorRelationships(t, item, groupID, unitID1, unitID2)
+}
+
+func assertBondsHonorBaseFields(t *testing.T, item map[string]any, id, groupID, unitID1, unitID2 int64) {
 	t.Helper()
 
 	if len(item) != 14 {
@@ -148,6 +156,10 @@ func assertBondsHonorProjection(t *testing.T, item map[string]any, id int64, gro
 	if _, leaked := item["unknownRoot"]; leaked {
 		t.Fatalf("unknown root field leaked: %#v", item)
 	}
+}
+
+func assertBondsHonorLevels(t *testing.T, item map[string]any, id int64) {
+	t.Helper()
 
 	levels, ok := item["levels"].([]any)
 	if !ok || len(levels) != 1 {
@@ -157,6 +169,10 @@ func assertBondsHonorProjection(t *testing.T, item map[string]any, id int64, gro
 	if !ok || len(level) != 4 || level["id"] != float64(id*10+1) || level["bondsHonorId"] != float64(id) || level["level"] != float64(1) || level["description"] != "first level" {
 		t.Fatalf("expected bonds honor level fields only, got %#v", levels[0])
 	}
+}
+
+func assertBondsHonorRelationships(t *testing.T, item map[string]any, groupID, unitID1, unitID2 int64) {
+	t.Helper()
 
 	group, ok := item["bondsGroup"].(map[string]any)
 	if !ok || len(group) != 3 || group["groupId"] != float64(groupID) || group["characterId1"] != float64(201) || group["characterId2"] != float64(202) {

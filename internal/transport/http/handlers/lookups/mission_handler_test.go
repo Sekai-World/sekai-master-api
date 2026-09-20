@@ -17,6 +17,13 @@ type missionListCall struct {
 	entity string
 }
 
+type missionListVariantCase struct {
+	name   string
+	path   string
+	family string
+	id     float64
+}
+
 type missionTrackingCache struct {
 	*fakeLookupCache
 	listCalls []missionListCall
@@ -99,26 +106,25 @@ func TestMissionsRejectUnknownFamiliesFiltersAndInvalidIDs(t *testing.T) {
 	}
 }
 
-func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	cache := &missionTrackingCache{
+func newFiveRegionMissionTestCache() *missionTrackingCache {
+	return &missionTrackingCache{
 		fakeLookupCache: &fakeLookupCache{
 			listByEntity: map[string]map[string][]map[string]any{
 				"jp": {
 					normalMissionsEntity: {
 						{
-							"id":               1,
-							"seq":              20,
+							"id":                1,
+							"seq":               20,
 							"normalMissionType": "play_live",
-							"requirement":      10,
-							"sentence":         "JP mission",
+							"requirement":       10,
+							"sentence":          "JP mission",
 							"rewards": []any{map[string]any{
-								"id":             101,
-								"missionType":    "normal_mission",
-								"missionId":      1,
-								"seq":            1,
-								"resourceBoxId":  10,
-								"unknownReward":  "hidden",
+								"id":            101,
+								"missionType":   "normal_mission",
+								"missionId":     1,
+								"seq":           1,
+								"resourceBoxId": 10,
+								"unknownReward": "hidden",
 							}},
 							"unknownMission": true,
 						},
@@ -138,17 +144,17 @@ func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) 
 				"en": {
 					normalMissionsEntity: {
 						{
-							"id":               2,
-							"seq":              30,
+							"id":                2,
+							"seq":               30,
 							"normalMissionType": "read_story",
-							"sentence":         "EN mission",
+							"sentence":          "EN mission",
 							"rewards": []any{map[string]any{
 								"id": 102,
 								"resourceBox": map[string]any{
 									"id":                 20,
 									"resourceBoxPurpose": "normal_mission",
 									"resourceBoxType":    "item",
-									"details": []any{map[string]any{"seq": 1, "resourceType": "jewel"}},
+									"details":            []any{map[string]any{"seq": 1, "resourceType": "jewel"}},
 								},
 							}},
 						},
@@ -160,11 +166,11 @@ func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) 
 				"tw": {
 					normalMissionsEntity: {
 						{
-							"id":               3,
-							"seq":              40,
+							"id":                3,
+							"seq":               40,
 							"normalMissionType": "clear_live",
-							"sentence":         "TW mission",
-							"rewards":          []any{[]any{float64(30)}},
+							"sentence":          "TW mission",
+							"rewards":           []any{[]any{float64(30)}},
 						},
 					},
 					resourceBoxesEntity: {
@@ -175,10 +181,10 @@ func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) 
 				"kr": {
 					characterMissionV2sEntity: {
 						{
-							"id":                   4,
+							"id":                    4,
 							"characterId":           1,
 							"parameterGroupId":      2,
-							"characterMissionType":   "play_live",
+							"characterMissionType":  "play_live",
 							"sentence":              "KR mission",
 							"progressSentence":      "{progress} times",
 							"isAchievementMission":  true,
@@ -202,37 +208,25 @@ func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) 
 			},
 		},
 	}
-	router := newMissionTestRouter(newMissionTestHandler(cache))
+}
 
-	tests := []struct {
-		name   string
-		path   string
-		family string
-		id     float64
-	}{
-		{name: "jp object reward", path: "/api/v1/missions/jp/list?family=normalMissions", family: normalMissionsFamily, id: 1},
-		{name: "en embedded reward", path: "/api/v1/missions/en/list?family=normalMissions", family: normalMissionsFamily, id: 2},
-		{name: "tw selectable reward remains unresolved", path: "/api/v1/missions/tw/list?family=normalMissions", family: normalMissionsFamily, id: 3},
-		{name: "kr character variant", path: "/api/v1/missions/kr/list?family=characterMissionV2s&id=4", family: characterMissionV2sFamily, id: 4},
-		{name: "cn story variant", path: "/api/v1/missions/cn/list?family=storyMissions", family: storyMissionsFamily, id: 5},
+func assertMissionListVariant(t *testing.T, router *gin.Engine, testCase missionListVariantCase) {
+	t.Helper()
+	response := serveLookupRequest(t, router, http.MethodGet, testCase.path)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}
-
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			response := serveLookupRequest(t, router, http.MethodGet, testCase.path)
-			if response.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
-			}
-			items, _ := decodeMissionList(t, response.Body.Bytes())
-			if len(items) != 1 || items[0]["family"] != testCase.family || items[0]["id"] != testCase.id {
-				t.Fatalf("unexpected mission item: %#v", items)
-			}
-			if _, leaked := items[0]["unknownMission"]; leaked {
-				t.Fatalf("unknown mission field leaked: %#v", items[0])
-			}
-		})
+	items, _ := decodeMissionList(t, response.Body.Bytes())
+	if len(items) != 1 || items[0]["family"] != testCase.family || items[0]["id"] != testCase.id {
+		t.Fatalf("unexpected mission item: %#v", items)
 	}
+	if _, leaked := items[0]["unknownMission"]; leaked {
+		t.Fatalf("unknown mission field leaked: %#v", items[0])
+	}
+}
 
+func assertResolvedJPMissionReward(t *testing.T, router *gin.Engine) {
+	t.Helper()
 	jpResponse := serveLookupRequest(t, router, http.MethodGet, "/api/v1/missions/jp/list?family=normalMissions")
 	jpItems, _ := decodeMissionList(t, jpResponse.Body.Bytes())
 	jpReward := jpItems[0]["rewards"].([]any)[0].(map[string]any)
@@ -246,7 +240,10 @@ func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) 
 	if _, leaked := jpDetails[0].(map[string]any)["unknown"]; leaked {
 		t.Fatalf("unknown reward detail field leaked: %#v", jpDetails[0])
 	}
+}
 
+func assertUnresolvedTWMissionReward(t *testing.T, router *gin.Engine) {
+	t.Helper()
 	twResponse := serveLookupRequest(t, router, http.MethodGet, "/api/v1/missions/tw/list?family=normalMissions")
 	twItems, _ := decodeMissionList(t, twResponse.Body.Bytes())
 	twReward := twItems[0]["rewards"].([]any)[0].(map[string]any)
@@ -256,13 +253,19 @@ func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) 
 	if _, expanded := twReward["resourceBox"]; expanded {
 		t.Fatalf("ambiguous TW reward must not be expanded: %#v", twReward)
 	}
+}
 
+func assertKRMissionWithoutRewards(t *testing.T, router *gin.Engine) {
+	t.Helper()
 	krResponse := serveLookupRequest(t, router, http.MethodGet, "/api/v1/missions/kr/list?family=characterMissionV2s&id=6")
 	krItems, _ := decodeMissionList(t, krResponse.Body.Bytes())
 	if _, present := krItems[0]["rewards"]; present {
 		t.Fatalf("missing rewards must be omitted: %#v", krItems[0])
 	}
+}
 
+func assertMissionRewardLookupCalls(t *testing.T, cache *missionTrackingCache) {
+	t.Helper()
 	for _, entity := range []string{resourceBoxesEntity, resourceBoxDetailsEntity} {
 		calls := 0
 		for _, call := range cache.listCalls {
@@ -277,6 +280,31 @@ func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) 
 	if len(cache.byIDCalls) != 0 {
 		t.Fatalf("mission lists must not use GetByID for rewards, got %#v", cache.byIDCalls)
 	}
+}
+
+func TestMissionsProjectFiveRegionVariantsAndResolveRewardsSafely(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := newFiveRegionMissionTestCache()
+	router := newMissionTestRouter(newMissionTestHandler(cache))
+
+	tests := []missionListVariantCase{
+		{name: "jp object reward", path: "/api/v1/missions/jp/list?family=normalMissions", family: normalMissionsFamily, id: 1},
+		{name: "en embedded reward", path: "/api/v1/missions/en/list?family=normalMissions", family: normalMissionsFamily, id: 2},
+		{name: "tw selectable reward remains unresolved", path: "/api/v1/missions/tw/list?family=normalMissions", family: normalMissionsFamily, id: 3},
+		{name: "kr character variant", path: "/api/v1/missions/kr/list?family=characterMissionV2s&id=4", family: characterMissionV2sFamily, id: 4},
+		{name: "cn story variant", path: "/api/v1/missions/cn/list?family=storyMissions", family: storyMissionsFamily, id: 5},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertMissionListVariant(t, router, testCase)
+		})
+	}
+
+	assertResolvedJPMissionReward(t, router)
+	assertUnresolvedTWMissionReward(t, router)
+	assertKRMissionWithoutRewards(t, router)
+	assertMissionRewardLookupCalls(t, cache)
 }
 
 func TestMissionsPaginationAndStableIDTieBreak(t *testing.T) {
@@ -323,8 +351,8 @@ func TestMissionByIDUsesOnlyMissionGetByIDAndReturnsNotFound(t *testing.T) {
 				"jp": {
 					normalMissionsEntity: {
 						"7": {
-							"id":          7,
-							"sentence":    "By ID",
+							"id":            7,
+							"sentence":      "By ID",
 							"resourceBoxId": 70,
 						},
 					},

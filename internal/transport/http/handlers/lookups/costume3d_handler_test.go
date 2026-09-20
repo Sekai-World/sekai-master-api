@@ -74,26 +74,32 @@ func TestCostume3DListProjectsEmbeddedJPAndENRecordsWithEpochMillis(t *testing.T
 				t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 			}
 
-			var body struct {
-				Items []map[string]any `json:"items"`
-			}
-			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-				t.Fatalf("unmarshal list response: %v", err)
-			}
-			if len(body.Items) != 1 {
-				t.Fatalf("expected one costume, got %#v", body.Items)
-			}
-			item := body.Items[0]
-			if item["id"] != test.id || item["name"] != test.name || item["publishedAt"] != float64(test.publishedAtMS) {
-				t.Fatalf("unexpected projected costume: %#v", item)
-			}
-			if len(item) != 12 {
-				t.Fatalf("expected only the 12 stable costume fields, got %#v", item)
-			}
-			if _, exists := item["unknownField"]; exists {
-				t.Fatalf("unexpected source field leaked: %#v", item)
-			}
+			assertCostume3DListProjection(t, resp.Body.Bytes(), test.id, test.name, test.publishedAtMS)
 		})
+	}
+}
+
+func assertCostume3DListProjection(t *testing.T, response []byte, expectedID float64, expectedName string, expectedPublishedAtMS int64) {
+	t.Helper()
+
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(response, &body); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("expected one costume, got %#v", body.Items)
+	}
+	item := body.Items[0]
+	if item["id"] != expectedID || item["name"] != expectedName || item["publishedAt"] != float64(expectedPublishedAtMS) {
+		t.Fatalf("unexpected projected costume: %#v", item)
+	}
+	if len(item) != 12 {
+		t.Fatalf("expected only the 12 stable costume fields, got %#v", item)
+	}
+	if _, exists := item["unknownField"]; exists {
+		t.Fatalf("unexpected source field leaked: %#v", item)
 	}
 }
 

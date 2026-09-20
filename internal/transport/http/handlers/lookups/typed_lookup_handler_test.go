@@ -89,9 +89,8 @@ func TestMysekaiPhotoDecorationEndpointsProjectOnlyStableFields(t *testing.T) {
 	}
 }
 
-func TestHonorsListPreservesSourceOrderAndNormalizesGroupAndLevels(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	cache := &fakeLookupCache{
+func newHonorsListTestCache() *fakeLookupCache {
+	return &fakeLookupCache{
 		byID: map[string]map[string]map[string]map[string]any{
 			"jp": {
 				honorGroupsEntity: {
@@ -162,24 +161,31 @@ func TestHonorsListPreservesSourceOrderAndNormalizesGroupAndLevels(t *testing.T)
 			},
 		},
 	}
-	router := newTypedLookupRouter(newReadyLookupHandler(cache))
-	resp := serveLookupRequest(t, router, http.MethodGet, "/api/v1/honors/jp/list?page=1&page_size=3")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-	}
+}
 
+func decodeHonorListItems(t *testing.T, responseBody []byte) []map[string]any {
+	t.Helper()
 	var body struct {
 		Items []map[string]any `json:"items"`
 	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+	if err := json.Unmarshal(responseBody, &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if len(body.Items) != 3 {
-		t.Fatalf("expected only the current page, got %#v", body.Items)
+	return body.Items
+}
+
+func assertHonorListPage(t *testing.T, items []map[string]any) {
+	t.Helper()
+	if len(items) != 3 {
+		t.Fatalf("expected only the current page, got %#v", items)
 	}
-	if body.Items[0]["id"] != float64(100) || body.Items[1]["id"] != float64(200) || body.Items[2]["id"] != float64(300) {
-		t.Fatalf("honors must preserve source order, got %#v", body.Items)
+	if items[0]["id"] != float64(100) || items[1]["id"] != float64(200) || items[2]["id"] != float64(300) {
+		t.Fatalf("honors must preserve source order, got %#v", items)
 	}
+}
+
+func assertHonorGroupLookups(t *testing.T, cache *fakeLookupCache) {
+	t.Helper()
 	if len(cache.byIDCalls) != 3 {
 		t.Fatalf("expected one same-region lookup per unique current-page group id, got %#v", cache.byIDCalls)
 	}
@@ -189,14 +195,20 @@ func TestHonorsListPreservesSourceOrderAndNormalizesGroupAndLevels(t *testing.T)
 			t.Fatalf("unexpected group lookup at index %d: %+v", index, call)
 		}
 	}
+}
 
-	first := body.Items[0]
+func assertFirstHonorFields(t *testing.T, first map[string]any) {
+	t.Helper()
 	if len(first) != 10 {
 		t.Fatalf("expected only stable honor fields, got %#v", first)
 	}
 	if first["honorMissionType"] != "character_rank" || first["honorType"] != "degree" {
 		t.Fatalf("expected optional honor fields to be projected, got %#v", first)
 	}
+}
+
+func assertFirstHonorGroup(t *testing.T, first map[string]any) {
+	t.Helper()
 	firstGroup, ok := first["group"].(map[string]any)
 	if !ok || firstGroup["name"] != "JP Group" || firstGroup["backgroundAssetbundleName"] != "degree_bg_jp" || firstGroup["frameName"] != "jp_frame" {
 		t.Fatalf("expected same-region typed group enrichment, got %#v", first["group"])
@@ -204,6 +216,10 @@ func TestHonorsListPreservesSourceOrderAndNormalizesGroupAndLevels(t *testing.T)
 	if len(firstGroup) != 5 {
 		t.Fatalf("expected only stable honor-group fields, got %#v", firstGroup)
 	}
+}
+
+func assertFirstHonorLevels(t *testing.T, first map[string]any) {
+	t.Helper()
 	levels, ok := first["levels"].([]any)
 	if !ok || len(levels) != 1 {
 		t.Fatalf("expected invalid level entries to be skipped, got %#v", first["levels"])
@@ -215,8 +231,10 @@ func TestHonorsListPreservesSourceOrderAndNormalizesGroupAndLevels(t *testing.T)
 	if _, leaked := firstLevel["unknownField"]; leaked {
 		t.Fatalf("unexpected unknown level field: %#v", firstLevel)
 	}
+}
 
-	second := body.Items[1]
+func assertSecondHonorFields(t *testing.T, second map[string]any) {
+	t.Helper()
 	if _, exists := second["honorMissionType"]; exists {
 		t.Fatalf("honorMissionType must be omitted when absent, got %#v", second)
 	}
@@ -231,9 +249,32 @@ func TestHonorsListPreservesSourceOrderAndNormalizesGroupAndLevels(t *testing.T)
 	if secondLevel["level"] != float64(2) || secondLevel["bonus"] != float64(0) || len(secondLevel) != 2 {
 		t.Fatalf("expected optional zero level fields to be retained, got %#v", secondLevel)
 	}
-	if _, exists := body.Items[2]["group"]; exists {
-		t.Fatalf("missing honor group must be omitted, got %#v", body.Items[2])
+}
+
+func assertHonorGroupOmitted(t *testing.T, honor map[string]any) {
+	t.Helper()
+	if _, exists := honor["group"]; exists {
+		t.Fatalf("missing honor group must be omitted, got %#v", honor)
 	}
+}
+
+func TestHonorsListPreservesSourceOrderAndNormalizesGroupAndLevels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := newHonorsListTestCache()
+	router := newTypedLookupRouter(newReadyLookupHandler(cache))
+	resp := serveLookupRequest(t, router, http.MethodGet, "/api/v1/honors/jp/list?page=1&page_size=3")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	items := decodeHonorListItems(t, resp.Body.Bytes())
+	assertHonorListPage(t, items)
+	assertHonorGroupLookups(t, cache)
+	assertFirstHonorFields(t, items[0])
+	assertFirstHonorGroup(t, items[0])
+	assertFirstHonorLevels(t, items[0])
+	assertSecondHonorFields(t, items[1])
+	assertHonorGroupOmitted(t, items[2])
 }
 
 func TestHonorByIDProjectsFieldsAndReturnsNotFoundForMissingRecord(t *testing.T) {

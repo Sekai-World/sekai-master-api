@@ -333,6 +333,17 @@ func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
 		t.Fatalf("store composite-key payload: %v", err)
 	}
 
+	assertCompositeResourceBoxList(t, ctx, cache)
+	assertCompositeResourceBoxStorage(t, ctx, cache, [2]json.RawMessage{firstBox, secondBox})
+	assertCompositeResourceBoxDetailList(t, ctx, cache)
+	assertCompositeResourceBoxDetailStorage(t, ctx, cache, [2]json.RawMessage{firstDetail, secondDetail})
+	assertCompositeResourceBoxDetailPage(t, ctx, cache)
+	assertCompositeBareIDLookupsUnavailable(t, ctx, cache)
+}
+
+func assertCompositeResourceBoxList(t *testing.T, ctx context.Context, cache *RedisMasterDataCache) {
+	t.Helper()
+
 	boxes, err := cache.ListAll(ctx, "jp", "resourceboxes")
 	if err != nil {
 		t.Fatalf("list resourceboxes: %v", err)
@@ -346,12 +357,21 @@ func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
 	if boxes[0]["id"] != float64(7001) || boxes[1]["id"] != float64(7001) {
 		t.Fatalf("expected original resourcebox IDs to remain in the bodies: %v", boxes)
 	}
+}
 
-	boxKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxes", firstBox)
+func assertCompositeResourceBoxStorage(
+	t *testing.T,
+	ctx context.Context,
+	cache *RedisMasterDataCache,
+	boxes [2]json.RawMessage,
+) {
+	t.Helper()
+
+	boxKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxes", boxes[0])
 	if !ok {
 		t.Fatal("expected first resourcebox to have a composite storage key")
 	}
-	boxKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxes", secondBox)
+	boxKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxes", boxes[1])
 	if !ok {
 		t.Fatal("expected second resourcebox to have a composite storage key")
 	}
@@ -369,6 +389,10 @@ func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
 	if len(boxOrder) != 2 || boxOrder[0] != boxKeyOne || boxOrder[1] != boxKeyTwo {
 		t.Fatalf("expected composite keys in source order, got %v", boxOrder)
 	}
+}
+
+func assertCompositeResourceBoxDetailList(t *testing.T, ctx context.Context, cache *RedisMasterDataCache) {
+	t.Helper()
 
 	details, err := cache.ListAll(ctx, "jp", "resourceboxdetails")
 	if err != nil {
@@ -380,11 +404,21 @@ func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
 	if details[0]["id"] != float64(11) || details[1]["id"] != float64(11) || details[0]["resourceBoxId"] != float64(7001) {
 		t.Fatalf("expected original detail IDs and parent relation in bodies, got %v", details)
 	}
-	detailKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", firstDetail)
+}
+
+func assertCompositeResourceBoxDetailStorage(
+	t *testing.T,
+	ctx context.Context,
+	cache *RedisMasterDataCache,
+	details [2]json.RawMessage,
+) {
+	t.Helper()
+
+	detailKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", details[0])
 	if !ok {
 		t.Fatal("expected first detail to have a composite storage key")
 	}
-	detailKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", secondDetail)
+	detailKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", details[1])
 	if !ok {
 		t.Fatal("expected second detail to have a composite storage key")
 	}
@@ -395,6 +429,10 @@ func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
 	if len(detailFields) != 2 || detailFields[detailKeyOne] == "" || detailFields[detailKeyTwo] == "" {
 		t.Fatalf("expected distinct composite detail hash fields, got %v", detailFields)
 	}
+}
+
+func assertCompositeResourceBoxDetailPage(t *testing.T, ctx context.Context, cache *RedisMasterDataCache) {
+	t.Helper()
 
 	page, total, err := cache.ListByPage(ctx, "jp", "resourceboxdetails", 1, 10)
 	if err != nil {
@@ -403,6 +441,10 @@ func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
 	if total != 2 || len(page) != 2 || page[0]["seq"] != float64(1) || page[1]["seq"] != float64(2) {
 		t.Fatalf("expected paginated composite details in order, total=%d items=%v", total, page)
 	}
+}
+
+func assertCompositeBareIDLookupsUnavailable(t *testing.T, ctx context.Context, cache *RedisMasterDataCache) {
+	t.Helper()
 
 	for _, lookup := range []struct {
 		entity string
@@ -506,41 +548,23 @@ func TestStoreRegionKeepsOrdinaryDuplicateIDBehavior(t *testing.T) {
 	}
 }
 
+type legacyCompositeEntitySeed struct {
+	entity     string
+	legacyID   string
+	fileDigest string
+}
+
 func TestStoreRegionReplacesLegacyCompositeKeysAndSearchArtifacts(t *testing.T) {
 	miniRedis := startTestMiniRedis(t)
 	cache := newStoreRegionTestCache(t, miniRedis)
 	ctx := context.Background()
 
-	legacySeeds := []struct {
-		entity     string
-		legacyID   string
-		fileDigest string
-	}{
+	legacySeeds := []legacyCompositeEntitySeed{
 		{entity: "resourceboxes", legacyID: "9001", fileDigest: "boxes-digest"},
 		{entity: "resourceboxdetails", legacyID: "41", fileDigest: "details-digest"},
 	}
 	for _, seed := range legacySeeds {
-		if err := cache.client.HSet(ctx, cache.redisEntityKey("jp", seed.entity), seed.legacyID, `{"id":9001,"resourceBoxPurpose":"event_ranking_reward"}`).Err(); err != nil {
-			t.Fatalf("seed legacy %s record: %v", seed.entity, err)
-		}
-		if err := cache.client.RPush(ctx, cache.redisEntityOrderKey("jp", seed.entity), seed.legacyID).Err(); err != nil {
-			t.Fatalf("seed legacy %s order: %v", seed.entity, err)
-		}
-		if err := cache.client.Set(ctx, cache.redisEntityRevisionKey("jp", seed.entity), "legacy-revision", 0).Err(); err != nil {
-			t.Fatalf("seed legacy %s revision: %v", seed.entity, err)
-		}
-		if err := cache.client.Set(ctx, cache.redisEntitySourceDigestKey("jp", seed.entity), seed.fileDigest, 0).Err(); err != nil {
-			t.Fatalf("seed legacy %s source digest: %v", seed.entity, err)
-		}
-		if err := cache.client.Set(ctx, cache.redisEntitySearchIndexKey("jp", seed.entity), "legacy-index", 0).Err(); err != nil {
-			t.Fatalf("seed legacy %s search index: %v", seed.entity, err)
-		}
-		if err := cache.client.Set(ctx, cache.redisEntitySearchIndexVersionKey("jp", seed.entity), "legacy-version", 0).Err(); err != nil {
-			t.Fatalf("seed legacy %s search index version: %v", seed.entity, err)
-		}
-		if err := cache.client.SAdd(ctx, cache.redisRegionSearchIndexEntitiesKey("jp"), seed.entity).Err(); err != nil {
-			t.Fatalf("seed legacy %s search-index membership: %v", seed.entity, err)
-		}
+		seedLegacyCompositeEntity(t, ctx, cache, seed)
 	}
 
 	boxes := []json.RawMessage{
@@ -563,29 +587,8 @@ func TestStoreRegionReplacesLegacyCompositeKeysAndSearchArtifacts(t *testing.T) 
 		t.Fatalf("store migrated composite-key payload: %v", err)
 	}
 
-	for _, entity := range []string{"resourceboxes", "resourceboxdetails"} {
-		fields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", entity)).Result()
-		if err != nil {
-			t.Fatalf("read migrated %s hash: %v", entity, err)
-		}
-		if len(fields) != 2 {
-			t.Fatalf("expected both migrated %s records, got %v", entity, fields)
-		}
-		for field := range fields {
-			if field == "9001" || field == "41" {
-				t.Fatalf("legacy bare field %q remains in %s hash: %v", field, entity, fields)
-			}
-		}
-		assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", entity))
-		assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", entity))
-		assertRedisSetExcludes(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"), entity)
-		order, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", entity), 0, -1).Result()
-		if err != nil {
-			t.Fatalf("read migrated %s order: %v", entity, err)
-		}
-		if len(order) != 2 || order[0] == "9001" || order[0] == "41" || order[1] == "9001" || order[1] == "41" {
-			t.Fatalf("legacy bare IDs remain in %s order: %v", entity, order)
-		}
+	for _, seed := range legacySeeds {
+		assertLegacyCompositeEntityMigration(t, ctx, cache, seed)
 	}
 	resourceBoxes, err := cache.ListAll(ctx, "jp", "resourceboxes")
 	if err != nil || len(resourceBoxes) != 2 {
@@ -593,29 +596,115 @@ func TestStoreRegionReplacesLegacyCompositeKeysAndSearchArtifacts(t *testing.T) 
 	}
 
 	for _, seed := range legacySeeds {
-		legacyID := "forced-legacy:" + seed.legacyID
-		if err := cache.client.HSet(ctx, cache.redisEntityKey("jp", seed.entity), legacyID, `{"legacy":true}`).Err(); err != nil {
-			t.Fatalf("seed forced-full-store legacy %s field: %v", seed.entity, err)
-		}
-		if err := cache.client.RPush(ctx, cache.redisEntityOrderKey("jp", seed.entity), legacyID).Err(); err != nil {
-			t.Fatalf("seed forced-full-store legacy %s order: %v", seed.entity, err)
-		}
+		seedForcedLegacyCompositeEntity(t, ctx, cache, seed)
 	}
 	if err := cache.StoreRegion(masterdata.WithForceFullStore(ctx), "jp", payload); err != nil {
 		t.Fatalf("force-store composite-key payload: %v", err)
 	}
 	for _, seed := range legacySeeds {
-		if exists, err := cache.client.HExists(ctx, cache.redisEntityKey("jp", seed.entity), "forced-legacy:"+seed.legacyID).Result(); err != nil || exists {
-			t.Fatalf("forced full store retained legacy %s hash field, exists=%v err=%v", seed.entity, exists, err)
+		assertForcedLegacyCompositeEntityRemoved(t, ctx, cache, seed)
+	}
+}
+
+func seedLegacyCompositeEntity(
+	t *testing.T,
+	ctx context.Context,
+	cache *RedisMasterDataCache,
+	seed legacyCompositeEntitySeed,
+) {
+	t.Helper()
+
+	if err := cache.client.HSet(ctx, cache.redisEntityKey("jp", seed.entity), seed.legacyID, `{"id":9001,"resourceBoxPurpose":"event_ranking_reward"}`).Err(); err != nil {
+		t.Fatalf("seed legacy %s record: %v", seed.entity, err)
+	}
+	if err := cache.client.RPush(ctx, cache.redisEntityOrderKey("jp", seed.entity), seed.legacyID).Err(); err != nil {
+		t.Fatalf("seed legacy %s order: %v", seed.entity, err)
+	}
+	if err := cache.client.Set(ctx, cache.redisEntityRevisionKey("jp", seed.entity), "legacy-revision", 0).Err(); err != nil {
+		t.Fatalf("seed legacy %s revision: %v", seed.entity, err)
+	}
+	if err := cache.client.Set(ctx, cache.redisEntitySourceDigestKey("jp", seed.entity), seed.fileDigest, 0).Err(); err != nil {
+		t.Fatalf("seed legacy %s source digest: %v", seed.entity, err)
+	}
+	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexKey("jp", seed.entity), "legacy-index", 0).Err(); err != nil {
+		t.Fatalf("seed legacy %s search index: %v", seed.entity, err)
+	}
+	if err := cache.client.Set(ctx, cache.redisEntitySearchIndexVersionKey("jp", seed.entity), "legacy-version", 0).Err(); err != nil {
+		t.Fatalf("seed legacy %s search index version: %v", seed.entity, err)
+	}
+	if err := cache.client.SAdd(ctx, cache.redisRegionSearchIndexEntitiesKey("jp"), seed.entity).Err(); err != nil {
+		t.Fatalf("seed legacy %s search-index membership: %v", seed.entity, err)
+	}
+}
+
+func assertLegacyCompositeEntityMigration(
+	t *testing.T,
+	ctx context.Context,
+	cache *RedisMasterDataCache,
+	seed legacyCompositeEntitySeed,
+) {
+	t.Helper()
+
+	entity := seed.entity
+	fields, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", entity)).Result()
+	if err != nil {
+		t.Fatalf("read migrated %s hash: %v", entity, err)
+	}
+	if len(fields) != 2 {
+		t.Fatalf("expected both migrated %s records, got %v", entity, fields)
+	}
+	for field := range fields {
+		if field == "9001" || field == "41" {
+			t.Fatalf("legacy bare field %q remains in %s hash: %v", field, entity, fields)
 		}
-		order, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", seed.entity), 0, -1).Result()
-		if err != nil {
-			t.Fatalf("read forced full store %s order: %v", seed.entity, err)
-		}
-		for _, storageID := range order {
-			if strings.HasPrefix(storageID, "forced-legacy:") {
-				t.Fatalf("forced full store retained legacy %s order entry: %v", seed.entity, order)
-			}
+	}
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexKey("jp", entity))
+	assertRedisKeyMissing(t, ctx, cache, cache.redisEntitySearchIndexVersionKey("jp", entity))
+	assertRedisSetExcludes(t, ctx, cache, cache.redisRegionSearchIndexEntitiesKey("jp"), entity)
+	order, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", entity), 0, -1).Result()
+	if err != nil {
+		t.Fatalf("read migrated %s order: %v", entity, err)
+	}
+	if len(order) != 2 || order[0] == "9001" || order[0] == "41" || order[1] == "9001" || order[1] == "41" {
+		t.Fatalf("legacy bare IDs remain in %s order: %v", entity, order)
+	}
+}
+
+func seedForcedLegacyCompositeEntity(
+	t *testing.T,
+	ctx context.Context,
+	cache *RedisMasterDataCache,
+	seed legacyCompositeEntitySeed,
+) {
+	t.Helper()
+
+	legacyID := "forced-legacy:" + seed.legacyID
+	if err := cache.client.HSet(ctx, cache.redisEntityKey("jp", seed.entity), legacyID, `{"legacy":true}`).Err(); err != nil {
+		t.Fatalf("seed forced-full-store legacy %s field: %v", seed.entity, err)
+	}
+	if err := cache.client.RPush(ctx, cache.redisEntityOrderKey("jp", seed.entity), legacyID).Err(); err != nil {
+		t.Fatalf("seed forced-full-store legacy %s order: %v", seed.entity, err)
+	}
+}
+
+func assertForcedLegacyCompositeEntityRemoved(
+	t *testing.T,
+	ctx context.Context,
+	cache *RedisMasterDataCache,
+	seed legacyCompositeEntitySeed,
+) {
+	t.Helper()
+
+	if exists, err := cache.client.HExists(ctx, cache.redisEntityKey("jp", seed.entity), "forced-legacy:"+seed.legacyID).Result(); err != nil || exists {
+		t.Fatalf("forced full store retained legacy %s hash field, exists=%v err=%v", seed.entity, exists, err)
+	}
+	order, err := cache.client.LRange(ctx, cache.redisEntityOrderKey("jp", seed.entity), 0, -1).Result()
+	if err != nil {
+		t.Fatalf("read forced full store %s order: %v", seed.entity, err)
+	}
+	for _, storageID := range order {
+		if strings.HasPrefix(storageID, "forced-legacy:") {
+			t.Fatalf("forced full store retained legacy %s order entry: %v", seed.entity, order)
 		}
 	}
 }

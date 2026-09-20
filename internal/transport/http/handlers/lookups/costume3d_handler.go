@@ -150,15 +150,7 @@ func (handler *LookupHandler) Costume3DsList(c *gin.Context) {
 
 	normalizedRecords := normalizeCostume3DRecords(records, groups)
 	normalizedRecords = shared.FilterRecordsByNumbers(normalizedRecords, numericFilters)
-	if nameFilter != "" {
-		filteredRecords := make([]map[string]any, 0, len(normalizedRecords))
-		for _, record := range normalizedRecords {
-			if strings.Contains(shared.NormalizeComparableText(record["name"]), nameFilter) {
-				filteredRecords = append(filteredRecords, record)
-			}
-		}
-		normalizedRecords = filteredRecords
-	}
+	normalizedRecords = filterCostume3DRecordsByName(normalizedRecords, nameFilter)
 
 	if sortOptions.Enabled {
 		if !shared.ValidateSortField(c, sortOptions.Field, normalizedRecords, costume3DSortableFields) {
@@ -210,7 +202,11 @@ func normalizeCostume3DRecords(records []map[string]any, groups map[string]map[s
 			continue
 		}
 
-		id := strconv.FormatInt(normalized["id"].(int64), 10)
+		normalizedID, ok := lookupInt64(normalized["id"])
+		if !ok {
+			continue
+		}
+		id := strconv.FormatInt(normalizedID, 10)
 		if _, exists := seenIDs[id]; exists {
 			continue
 		}
@@ -221,7 +217,22 @@ func normalizeCostume3DRecords(records []map[string]any, groups map[string]map[s
 	return items
 }
 
-func normalizeCostume3DRecord(record map[string]any, group map[string]any) (map[string]any, bool) {
+func filterCostume3DRecordsByName(records []map[string]any, nameFilter string) []map[string]any {
+	if nameFilter == "" {
+		return records
+	}
+
+	filteredRecords := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if strings.Contains(shared.NormalizeComparableText(record["name"]), nameFilter) {
+			filteredRecords = append(filteredRecords, record)
+		}
+	}
+
+	return filteredRecords
+}
+
+func normalizeCostume3DRecord(record, group map[string]any) (map[string]any, bool) {
 	id, ok := lookupInt64(record["id"])
 	if !ok || id <= 0 {
 		return nil, false

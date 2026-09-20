@@ -123,25 +123,25 @@ type Costume3DListResponse struct {
 }
 
 type MissionRewardResponse struct {
-	ID                *int64                    `json:"id,omitempty"`
-	MissionType       *string                   `json:"missionType,omitempty"`
-	MissionID         *int64                    `json:"missionId,omitempty"`
-	Seq               *int64                    `json:"seq,omitempty"`
-	ResourceBoxID     *int64                    `json:"resourceBoxId,omitempty"`
-	ResourceBoxPurpose *string                  `json:"resourceBoxPurpose,omitempty"`
-	ResourceBoxIDs    []int64                   `json:"resourceBoxIds,omitempty"`
-	ResourceType      *string                   `json:"resourceType,omitempty"`
-	ResourceID        *int64                    `json:"resourceId,omitempty"`
-	ResourceLevel     *int64                    `json:"resourceLevel,omitempty"`
-	ResourceQuantity  *int64                    `json:"resourceQuantity,omitempty"`
-	Status            string                    `json:"status"`
-	ResourceBox       *MissionResourceBoxResponse `json:"resourceBox,omitempty"`
+	ID                 *int64                      `json:"id,omitempty"`
+	MissionType        *string                     `json:"missionType,omitempty"`
+	MissionID          *int64                      `json:"missionId,omitempty"`
+	Seq                *int64                      `json:"seq,omitempty"`
+	ResourceBoxID      *int64                      `json:"resourceBoxId,omitempty"`
+	ResourceBoxPurpose *string                     `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxIDs     []int64                     `json:"resourceBoxIds,omitempty"`
+	ResourceType       *string                     `json:"resourceType,omitempty"`
+	ResourceID         *int64                      `json:"resourceId,omitempty"`
+	ResourceLevel      *int64                      `json:"resourceLevel,omitempty"`
+	ResourceQuantity   *int64                      `json:"resourceQuantity,omitempty"`
+	Status             string                      `json:"status"`
+	ResourceBox        *MissionResourceBoxResponse `json:"resourceBox,omitempty"`
 }
 
 type MissionResourceBoxResponse struct {
-	ID                 *int64                         `json:"id,omitempty"`
-	ResourceBoxPurpose *string                        `json:"resourceBoxPurpose,omitempty"`
-	ResourceBoxType    *string                        `json:"resourceBoxType,omitempty"`
+	ID                 *int64                             `json:"id,omitempty"`
+	ResourceBoxPurpose *string                            `json:"resourceBoxPurpose,omitempty"`
+	ResourceBoxType    *string                            `json:"resourceBoxType,omitempty"`
 	Details            []MissionResourceBoxDetailResponse `json:"details,omitempty"`
 }
 
@@ -174,7 +174,7 @@ type MissionResponse struct {
 }
 
 type MissionListResponse struct {
-	Items      []MissionResponse `json:"items"`
+	Items      []MissionResponse  `json:"items"`
 	Pagination PaginationResponse `json:"pagination"`
 }
 
