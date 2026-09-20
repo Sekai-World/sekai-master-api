@@ -130,6 +130,8 @@ const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
 
 const maxRedisEntityRecordBodySize = 64 << 20
 
+const compositeStorageKeyPrefix = "composite:v1:"
+
 const attrCacheHitKey = "cache.hit"
 
 func (index *entitySearchIndex) idsValue(idIndex uint32) string {
@@ -401,7 +403,8 @@ func (task *entityStoreTask) storeEntityLocked(ctx context.Context) error {
 	revision := collector.revision()
 	revisionMatches := !forceFullStore && !revisionMissing && existingRevision == revision
 
-	existingRecords, existingOrder, err := task.loadExistingState(ctx, keys, !forceFullStore && !revisionMatches)
+	fetchExistingState := usesCompositeStorageKey(task.entity) || (!forceFullStore && !revisionMatches)
+	existingRecords, existingOrder, err := task.loadExistingState(ctx, keys, fetchExistingState)
 	if err != nil {
 		return err
 	}
@@ -455,6 +458,9 @@ func (task *entityStoreTask) redisKeys() entityRedisKeys {
 // its stored source digest still matches and the persisted search index is
 // present.
 func (task *entityStoreTask) skipUnchangedBySourceDigest(ctx context.Context, keys entityRedisKeys, forceFullStore bool) (bool, error) {
+	if usesCompositeStorageKey(task.entity) {
+		return false, nil
+	}
 	if !task.hasDigest || task.incomingDigest == "" || forceFullStore {
 		return false, nil
 	}
@@ -511,6 +517,9 @@ func (task *entityStoreTask) loadExistingState(ctx context.Context, keys entityR
 // falls back to rebuilding it when the persisted index went missing. It
 // reports whether the persisted index itself needs rewriting.
 func (task *entityStoreTask) resolveEntityIndex(ctx context.Context, entityChanged bool) (*entitySearchIndex, bool, error) {
+	if usesCompositeStorageKey(task.entity) {
+		return nil, true, nil
+	}
 	if entityChanged {
 		updatedIndex, err := task.buildRecordMapsIndex()
 		if err != nil {
@@ -639,24 +648,26 @@ func (task *entityStoreTask) execEntityPipeline(ctx context.Context, keys entity
 // entityRecordCollector accumulates the normalized records for one entity and
 // derives the content revision from the stored bodies and order.
 type entityRecordCollector struct {
-	cache      *RedisMasterDataCache
-	regionName string
-	entity     string
-	records    map[string]string
-	order      []string
-	recordMaps []map[string]any
-	digest     hash.Hash
+	cache               *RedisMasterDataCache
+	regionName          string
+	entity              string
+	records             map[string]string
+	order               []string
+	recordMaps          []map[string]any
+	fallbackOccurrences map[string]int
+	digest              hash.Hash
 }
 
 func newEntityRecordCollector(cache *RedisMasterDataCache, regionName, entity string, rawRecords []json.RawMessage, legacyRecords []any) *entityRecordCollector {
 	return &entityRecordCollector{
-		cache:      cache,
-		regionName: regionName,
-		entity:     entity,
-		records:    make(map[string]string, len(rawRecords)+len(legacyRecords)),
-		order:      make([]string, 0, len(rawRecords)+len(legacyRecords)),
-		recordMaps: make([]map[string]any, 0, len(legacyRecords)),
-		digest:     sha256.New(),
+		cache:               cache,
+		regionName:          regionName,
+		entity:              entity,
+		records:             make(map[string]string, len(rawRecords)+len(legacyRecords)),
+		order:               make([]string, 0, len(rawRecords)+len(legacyRecords)),
+		recordMaps:          make([]map[string]any, 0, len(legacyRecords)),
+		fallbackOccurrences: make(map[string]int),
+		digest:              sha256.New(),
 	}
 }
 
@@ -687,7 +698,7 @@ func (collector *entityRecordCollector) addLegacyRecords(legacyRecords []any) er
 			return fmt.Errorf("marshal record region %s entity %s: %w", collector.regionName, collector.entity, err)
 		}
 
-		id := recordStorageID(recordMap, body)
+		id := collector.storageID(recordMap, body)
 		if id == "" {
 			continue
 		}
@@ -705,7 +716,7 @@ func (collector *entityRecordCollector) addRawRecords(rawRecords []json.RawMessa
 			continue
 		}
 
-		id := recordStorageIDFromRaw(rawRecord)
+		id := collector.storageIDFromRaw(rawRecord)
 		if id == "" {
 			continue
 		}
@@ -715,6 +726,42 @@ func (collector *entityRecordCollector) addRawRecords(rawRecords []json.RawMessa
 		}
 	}
 	return nil
+}
+
+func (collector *entityRecordCollector) storageID(record map[string]any, body []byte) string {
+	if !usesCompositeStorageKey(collector.entity) {
+		return recordStorageID(record, body)
+	}
+
+	if id, ok := compositeRecordStorageKey(collector.entity, record); ok {
+		return id
+	}
+
+	return collector.fallbackStorageID(body)
+}
+
+func (collector *entityRecordCollector) storageIDFromRaw(body []byte) string {
+	if !usesCompositeStorageKey(collector.entity) {
+		return recordStorageIDFromRaw(body)
+	}
+
+	if id, ok := compositeRecordStorageKeyFromRaw(collector.entity, body); ok {
+		return id
+	}
+
+	return collector.fallbackStorageID(body)
+}
+
+func (collector *entityRecordCollector) fallbackStorageID(body []byte) string {
+	sum := sha256.Sum256(body)
+	baseID := "auto:" + hex.EncodeToString(sum[:])
+	occurrence := collector.fallbackOccurrences[baseID]
+	collector.fallbackOccurrences[baseID] = occurrence + 1
+	if occurrence == 0 {
+		return baseID
+	}
+
+	return baseID + ":" + strconv.Itoa(occurrence)
 }
 
 // revision finalizes the content digest and returns the hex revision.
@@ -774,6 +821,10 @@ func reportCacheWriteProgress(reporter masterdata.ProgressReporter, region strin
 }
 
 func buildEntitySearchIndex(entity string, records []map[string]any) *entitySearchIndex {
+	if usesCompositeStorageKey(entity) {
+		return nil
+	}
+
 	index := &entitySearchIndex{
 		IDs:    make([]string, 0, len(records)),
 		Fields: make(map[string][]searchIndexItem),
@@ -1177,6 +1228,14 @@ func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string
 	if err != nil {
 		return nil, 0, fmt.Errorf("lrange order ids region %s entity %s: %w", regionName, entityName, err)
 	}
+	if usesCompositeStorageKey(entityName) {
+		items, err := cache.getEntityRecordsByIDs(ctx, regionName, entityName, ids)
+		if err != nil {
+			return nil, 0, err
+		}
+		span.SetAttributes(attribute.Int("result.count", len(items)), attribute.Int64("result.total", total))
+		return items, int(total), nil
+	}
 
 	items := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
@@ -1447,6 +1506,12 @@ func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, e
 	if regionName == "" || entityName == "" || recordIDValue == "" {
 		return nil, false, nil
 	}
+	if usesCompositeStorageKey(entityName) {
+		// The legacy GetByID contract accepts a bare business ID and cannot
+		// disambiguate records stored with entity-specific composite keys.
+		span.SetAttributes(attribute.Bool(attrCacheHitKey, false))
+		return nil, false, nil
+	}
 
 	body, err := cache.client.HGet(ctx, cache.redisEntityKey(regionName, entityName), recordIDValue).Bytes()
 	if err != nil {
@@ -1481,6 +1546,10 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	entityName := normalizeKey(entity)
 	normalizedQuery := normalizeSearchText(query)
 	if regionName == "" || entityName == "" || normalizedQuery == "" {
+		return []masterdata.SearchMatch{}, nil
+	}
+	if usesCompositeStorageKey(entityName) {
+		span.SetAttributes(attribute.Int("result.count", 0))
 		return []masterdata.SearchMatch{}, nil
 	}
 
@@ -1641,6 +1710,13 @@ func (cache *RedisMasterDataCache) rebuildEntityIndexFromRedis(
 	if regionName == "" || entityName == "" {
 		return nil, false, nil
 	}
+	if usesCompositeStorageKey(entityName) {
+		if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entityName); err != nil {
+			return nil, false, err
+		}
+		cache.invalidateCachedEntityIndex(regionName, entityName)
+		return nil, false, nil
+	}
 
 	recordMap, err := cache.client.HGetAll(ctx, cache.redisEntityKey(regionName, entityName)).Result()
 	if err != nil {
@@ -1684,6 +1760,12 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 	regionName := normalizeKey(region)
 	if regionName == "" {
 		return false, nil
+	}
+	for _, entity := range compositeStorageKeyEntities {
+		if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entity); err != nil {
+			return false, err
+		}
+		cache.invalidateCachedEntityIndex(regionName, entity)
 	}
 
 	entities, err := cache.client.SMembers(ctx, cache.redisRegionSearchIndexEntitiesKey(regionName)).Result()
@@ -1781,6 +1863,14 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 		}
 
 		hasRecords = true
+		if usesCompositeStorageKey(entity) {
+			if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entity); err != nil {
+				return false, err
+			}
+			cache.invalidateCachedEntityIndex(regionName, entity)
+			continue
+		}
+
 		entityIndex := &entitySearchIndex{
 			IDs:    make([]string, 0, len(recordMap)),
 			Fields: make(map[string][]searchIndexItem),
@@ -2033,7 +2123,7 @@ func (cache *RedisMasterDataCache) RegionIndexStats() []RegionIndexStats {
 }
 
 func (cache *RedisMasterDataCache) cachedEntityIndex(ctx context.Context, region string, entity string) (*entitySearchIndex, bool, error) {
-	if cache == nil || cache.searchIndexCacheEntries <= 0 {
+	if cache == nil || cache.searchIndexCacheEntries <= 0 || usesCompositeStorageKey(entity) {
 		return nil, false, nil
 	}
 
@@ -2073,7 +2163,7 @@ func (cache *RedisMasterDataCache) setCachedEntityIndex(region string, entity st
 	}
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
-	if regionName == "" || entityName == "" || version == "" || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
+	if regionName == "" || entityName == "" || version == "" || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 || usesCompositeStorageKey(entityName) {
 		cache.invalidateCachedEntityIndex(regionName, entityName)
 		return
 	}
@@ -2246,7 +2336,7 @@ func (cache *RedisMasterDataCache) persistEntitySearchIndex(ctx context.Context,
 	indexKey := cache.redisEntitySearchIndexKey(region, entityName)
 	versionKey := cache.redisEntitySearchIndexVersionKey(region, entityName)
 	entitiesKey := cache.redisRegionSearchIndexEntitiesKey(region)
-	if index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
+	if usesCompositeStorageKey(entityName) || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
 		pipe.Del(ctx, indexKey)
 		pipe.Del(ctx, versionKey)
 		pipe.SRem(ctx, entitiesKey, entityName)
@@ -2302,6 +2392,9 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
 	if regionName == "" || entityName == "" {
+		return nil, "", false, nil
+	}
+	if usesCompositeStorageKey(entityName) {
 		return nil, "", false, nil
 	}
 
@@ -2496,6 +2589,163 @@ func entityNameFromPath(filePath string) string {
 	return normalizeKey(name)
 }
 
+var compositeStorageKeyEntities = [...]string{
+	"resourceboxes",
+	"resourceboxdetails",
+}
+
+func compositeStorageKeyFields(entity string) []string {
+	switch normalizeKey(entity) {
+	case "resourceboxes":
+		return []string{"id", "resourceBoxPurpose"}
+	case "resourceboxdetails":
+		return []string{"resourceBoxId", "resourceBoxPurpose", "seq"}
+	default:
+		return nil
+	}
+}
+
+func usesCompositeStorageKey(entity string) bool {
+	return len(compositeStorageKeyFields(entity)) > 0
+}
+
+func compositeRecordStorageKey(entity string, record map[string]any) (string, bool) {
+	fields := compositeStorageKeyFields(entity)
+	if len(fields) == 0 || record == nil {
+		return "", false
+	}
+
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		value, exists := record[field]
+		if !exists {
+			return "", false
+		}
+		part, ok := compositeStorageKeyPart(value)
+		if !ok {
+			return "", false
+		}
+		values = append(values, part)
+	}
+
+	return encodeCompositeStorageKey(entity, fields, values), true
+}
+
+func compositeRecordStorageKeyFromRaw(entity string, body []byte) (string, bool) {
+	fields := compositeStorageKeyFields(entity)
+	if len(fields) == 0 || len(body) == 0 {
+		return "", false
+	}
+
+	var record map[string]json.RawMessage
+	if err := json.Unmarshal(body, &record); err != nil {
+		return "", false
+	}
+
+	values := make([]string, 0, len(fields))
+	for _, field := range fields {
+		rawValue, exists := record[field]
+		if !exists || len(rawValue) == 0 {
+			return "", false
+		}
+
+		decoder := json.NewDecoder(strings.NewReader(string(rawValue)))
+		decoder.UseNumber()
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return "", false
+		}
+		part, ok := compositeStorageKeyPart(value)
+		if !ok {
+			return "", false
+		}
+		values = append(values, part)
+	}
+
+	return encodeCompositeStorageKey(entity, fields, values), true
+}
+
+func compositeStorageKeyPart(value any) (string, bool) {
+	switch typed := value.(type) {
+	case string:
+		part := strings.TrimSpace(typed)
+		return part, part != ""
+	case json.Number:
+		return canonicalCompositeNumber(typed.String())
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) {
+			return "", false
+		}
+		return strconv.FormatFloat(typed, 'f', -1, 64), true
+	case float32:
+		value := float64(typed)
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return "", false
+		}
+		return strconv.FormatFloat(value, 'f', -1, 32), true
+	case int:
+		return strconv.Itoa(typed), true
+	case int8:
+		return strconv.FormatInt(int64(typed), 10), true
+	case int16:
+		return strconv.FormatInt(int64(typed), 10), true
+	case int32:
+		return strconv.FormatInt(int64(typed), 10), true
+	case int64:
+		return strconv.FormatInt(typed, 10), true
+	case uint:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint8:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint16:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint64:
+		return strconv.FormatUint(typed, 10), true
+	case bool:
+		return strconv.FormatBool(typed), true
+	default:
+		return "", false
+	}
+}
+
+func canonicalCompositeNumber(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false
+	}
+	if integer, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return strconv.FormatInt(integer, 10), true
+	}
+	if integer, err := strconv.ParseUint(value, 10, 64); err == nil {
+		return strconv.FormatUint(integer, 10), true
+	}
+
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+		return "", false
+	}
+	return strconv.FormatFloat(number, 'f', -1, 64), true
+}
+
+func encodeCompositeStorageKey(entity string, fields []string, values []string) string {
+	var builder strings.Builder
+	builder.WriteString(compositeStorageKeyPrefix)
+	appendCompositeStorageKeyPart(&builder, normalizeKey(entity))
+	for index, field := range fields {
+		appendCompositeStorageKeyPart(&builder, field)
+		appendCompositeStorageKeyPart(&builder, values[index])
+	}
+	return builder.String()
+}
+
+func appendCompositeStorageKeyPart(builder *strings.Builder, value string) {
+	builder.WriteString(strconv.Itoa(len(value)))
+	builder.WriteByte(':')
+	builder.WriteString(value)
+}
+
 func recordID(record map[string]any) string {
 	idValue, ok := record["id"]
 	if !ok || idValue == nil {
@@ -2613,7 +2863,7 @@ func searchableFields(entity string, record map[string]any) map[string]string {
 
 func isSearchableField(entity string, field string) bool {
 	field = normalizeKey(field)
-	if field == "" {
+	if field == "" || usesCompositeStorageKey(entity) {
 		return false
 	}
 

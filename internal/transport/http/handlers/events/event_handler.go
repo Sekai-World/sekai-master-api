@@ -486,8 +486,12 @@ func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Cont
 		regions = append(regions, "jp")
 	}
 	for _, sourceRegion := range regions {
-		resourceBox, found, err := handler.masterDataSync.GetByID(ctx, sourceRegion, "resourceboxes", resourceBoxID)
-		if err != nil || !found || !isUsableEventRankingResourceBox(resourceBox) {
+		resourceBoxes, err := handler.masterDataSync.ListAll(ctx, sourceRegion, "resourceboxes")
+		if err != nil {
+			continue
+		}
+		resourceBox := findEventRankingResourceBox(resourceBoxes, resourceBoxID)
+		if resourceBox == nil {
 			continue
 		}
 
@@ -496,6 +500,19 @@ func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Cont
 		result["details"] = handler.enrichRewardResourceBoxDetails(ctx, sourceRegion, details)
 		return &resolvedRewardResourceBox{record: result, region: sourceRegion}
 	}
+	return nil
+}
+
+func findEventRankingResourceBox(resourceBoxes []map[string]any, resourceBoxID string) map[string]any {
+	for _, resourceBox := range resourceBoxes {
+		if resourceBox == nil || shared.NormalizeAnyID(resourceBox["id"]) != resourceBoxID {
+			continue
+		}
+		if isUsableEventRankingResourceBox(resourceBox) {
+			return resourceBox
+		}
+	}
+
 	return nil
 }
 

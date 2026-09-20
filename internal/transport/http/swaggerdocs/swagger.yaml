@@ -39,6 +39,77 @@ definitions:
       updated_at:
         type: string
     type: object
+  shared.BondsHonorCharacterUnitResponse:
+    properties:
+      gameCharacterId:
+        type: integer
+      id:
+        type: integer
+      unit:
+        type: string
+    type: object
+  shared.BondsHonorGroupResponse:
+    properties:
+      characterId1:
+        type: integer
+      characterId2:
+        type: integer
+      groupId:
+        type: integer
+    type: object
+  shared.BondsHonorLevelResponse:
+    properties:
+      bondsHonorId:
+        type: integer
+      description:
+        type: string
+      id:
+        type: integer
+      level:
+        type: integer
+    type: object
+  shared.BondsHonorListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.BondsHonorObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.BondsHonorObjectResponse:
+    properties:
+      bondsGroup:
+        $ref: '#/definitions/shared.BondsHonorGroupResponse'
+      bondsGroupId:
+        type: integer
+      characterUnit1:
+        $ref: '#/definitions/shared.BondsHonorCharacterUnitResponse'
+      characterUnit2:
+        $ref: '#/definitions/shared.BondsHonorCharacterUnitResponse'
+      configurableUnitVirtualSinger:
+        type: boolean
+      description:
+        type: string
+      gameCharacterUnitId1:
+        type: integer
+      gameCharacterUnitId2:
+        type: integer
+      honorRarity:
+        type: string
+      id:
+        type: integer
+      levels:
+        items:
+          $ref: '#/definitions/shared.BondsHonorLevelResponse'
+        type: array
+      name:
+        type: string
+      pronunciation:
+        type: string
+      seq:
+        type: integer
+    type: object
   shared.CardBatchItemResponse:
     properties:
       assetbundleName: {}
@@ -300,6 +371,42 @@ definitions:
       unit:
         type: string
     type: object
+  shared.Costume3DListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.Costume3DObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.Costume3DObjectResponse:
+    properties:
+      assetbundleName:
+        type: string
+      characterId:
+        type: integer
+      colorId:
+        type: integer
+      designer:
+        type: string
+      groupId:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      partType:
+        type: string
+      publishedAt:
+        type: integer
+      rarity:
+        type: string
+      seq:
+        type: integer
+      type:
+        type: string
+    type: object
   shared.CurrentEventResponse:
     properties:
       aggregateAt: {}
@@ -479,6 +586,71 @@ definitions:
         type: integer
       totalRewardCount:
         type: integer
+    type: object
+  shared.EventHonorBonusHonorGroupResponse:
+    properties:
+      backgroundAssetbundleName:
+        type: string
+      frameName:
+        type: string
+      honorType:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  shared.EventHonorBonusHonorResponse:
+    properties:
+      assetbundleName:
+        type: string
+      group:
+        $ref: '#/definitions/shared.EventHonorBonusHonorGroupResponse'
+      groupId:
+        type: integer
+      honorMissionType:
+        type: string
+      honorRarity:
+        type: string
+      honorTypeId:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  shared.EventHonorBonusLeaderGameCharacterUnitResponse:
+    properties:
+      gameCharacterId:
+        type: integer
+      id:
+        type: integer
+      unit:
+        type: string
+    type: object
+  shared.EventHonorBonusListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.EventHonorBonusObjectResponse'
+        type: array
+    type: object
+  shared.EventHonorBonusObjectResponse:
+    properties:
+      bonusRate:
+        type: integer
+      eventId:
+        type: integer
+      honor:
+        $ref: '#/definitions/shared.EventHonorBonusHonorResponse'
+      honorId:
+        type: integer
+      id:
+        type: integer
+      leaderGameCharacterId:
+        type: integer
+      leaderGameCharacterUnit:
+        $ref: '#/definitions/shared.EventHonorBonusLeaderGameCharacterUnitResponse'
     type: object
   shared.EventHonorBonusResponse:
     properties:
@@ -992,6 +1164,68 @@ definitions:
       status:
         type: string
     type: object
+  shared.HonorGroupResponse:
+    properties:
+      backgroundAssetbundleName:
+        type: string
+      frameName:
+        type: string
+      honorType:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  shared.HonorLevelResponse:
+    properties:
+      assetbundleName:
+        type: string
+      bonus:
+        type: number
+      description:
+        type: string
+      honorId:
+        type: integer
+      honorRarity:
+        type: string
+      level:
+        type: integer
+    type: object
+  shared.HonorListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.HonorObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.HonorObjectResponse:
+    properties:
+      assetbundleName:
+        type: string
+      group:
+        $ref: '#/definitions/shared.HonorGroupResponse'
+      groupId:
+        type: integer
+      honorMissionType:
+        type: string
+      honorRarity:
+        type: string
+      honorType:
+        type: string
+      id:
+        type: integer
+      levels:
+        items:
+          $ref: '#/definitions/shared.HonorLevelResponse'
+        type: array
+      name:
+        type: string
+      seq:
+        type: integer
+    type: object
   shared.LiveStageResponse:
     properties:
       id: {}
@@ -1068,6 +1302,111 @@ definitions:
         type: integer
       dataVersion:
         example: 3.2.1.10
+        type: string
+    type: object
+  shared.MissionListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MissionResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.MissionResourceBoxDetailResponse:
+    properties:
+      resourceBoxId:
+        type: integer
+      resourceBoxPurpose:
+        type: string
+      resourceId:
+        type: integer
+      resourceLevel:
+        type: integer
+      resourceQuantity:
+        type: integer
+      resourceType:
+        type: string
+      seq:
+        type: integer
+    type: object
+  shared.MissionResourceBoxResponse:
+    properties:
+      details:
+        items:
+          $ref: '#/definitions/shared.MissionResourceBoxDetailResponse'
+        type: array
+      id:
+        type: integer
+      resourceBoxPurpose:
+        type: string
+      resourceBoxType:
+        type: string
+    type: object
+  shared.MissionResponse:
+    properties:
+      characterId:
+        type: integer
+      characterMissionType:
+        type: string
+      eventId:
+        type: integer
+      family:
+        type: string
+      id:
+        type: integer
+      isAchievementMission:
+        type: boolean
+      normalMissionType:
+        type: string
+      parameterGroupId:
+        type: integer
+      progressSentence:
+        type: string
+      requirement:
+        type: integer
+      resourceBoxId:
+        type: integer
+      rewards:
+        items:
+          $ref: '#/definitions/shared.MissionRewardResponse'
+        type: array
+      sentence:
+        type: string
+      seq:
+        type: integer
+      storyMissionType:
+        type: string
+    type: object
+  shared.MissionRewardResponse:
+    properties:
+      id:
+        type: integer
+      missionId:
+        type: integer
+      missionType:
+        type: string
+      resourceBox:
+        $ref: '#/definitions/shared.MissionResourceBoxResponse'
+      resourceBoxId:
+        type: integer
+      resourceBoxIds:
+        items:
+          type: integer
+        type: array
+      resourceBoxPurpose:
+        type: string
+      resourceId:
+        type: integer
+      resourceLevel:
+        type: integer
+      resourceQuantity:
+        type: integer
+      resourceType:
+        type: string
+      seq:
+        type: integer
+      status:
         type: string
     type: object
   shared.MusicArtistResponse:
@@ -1214,6 +1553,28 @@ definitions:
         items:
           $ref: '#/definitions/shared.MusicVocalResponse'
         type: array
+    type: object
+  shared.MysekaiPhotoDecorationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MysekaiPhotoDecorationResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.MysekaiPhotoDecorationResponse:
+    properties:
+      assetbundleName:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      seq:
+        type: integer
     type: object
   shared.PaginationResponse:
     properties:
@@ -1817,10 +2178,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -2057,10 +2421,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -2097,6 +2464,126 @@ paths:
       summary: List areas by page
       tags:
       - areas
+  /bondsHonors/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Bonds honor ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.BondsHonorObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a bonds honor by id
+      tags:
+      - bondsHonors
+  /bondsHonors/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Sort field
+        enum:
+        - id
+        - seq
+        - bondsGroupId
+        - gameCharacterUnitId1
+        - gameCharacterUnitId2
+        - honorRarity
+        - name
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order
+        enum:
+        - asc
+        - desc
+        in: query
+        name: sort_order
+        type: string
+      - description: Exact bonds group ID
+        in: query
+        minimum: 1
+        name: bonds_group_id
+        type: integer
+      - description: Exact first game character unit ID
+        in: query
+        minimum: 1
+        name: game_character_unit_id1
+        type: integer
+      - description: Exact second game character unit ID
+        in: query
+        minimum: 1
+        name: game_character_unit_id2
+        type: integer
+      - description: 'Exactly two distinct underlying game character IDs, comma-separated
+          (for example: 1,2)'
+        in: query
+        name: game_character_ids
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.BondsHonorListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List bonds honors by page
+      tags:
+      - bondsHonors
   /build-info:
     get:
       produces:
@@ -2119,10 +2606,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -2598,10 +3088,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -2683,10 +3176,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -2723,6 +3219,111 @@ paths:
       summary: List character profiles by page
       tags:
       - characterProfiles
+  /costume3ds/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: 3D costume ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.Costume3DObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a 3D costume by id
+      tags:
+      - costume3ds
+  /costume3ds/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Case-insensitive substring of the normalized costume name
+        in: query
+        name: name
+        type: string
+      - description: Comma-separated group IDs
+        in: query
+        name: group_id
+        type: string
+      - description: Comma-separated color IDs
+        in: query
+        name: color_id
+        type: string
+      - description: Comma-separated character IDs
+        in: query
+        name: character_id
+        type: string
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.Costume3DListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List 3D costumes by page
+      tags:
+      - costume3ds
   /eventStories/{region}/list:
     get:
       parameters:
@@ -2733,10 +3334,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -2972,6 +3576,45 @@ paths:
           schema:
             $ref: '#/definitions/shared.ErrorResponse'
       summary: Get bounded event detail aggregate by id
+      tags:
+      - events
+  /events/{region}/{id}/honor-bonuses:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.EventHonorBonusListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get typed event honor bonuses by event id
       tags:
       - events
   /events/{region}/{id}/musics:
@@ -3427,10 +4070,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -3585,10 +4231,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -3667,6 +4316,87 @@ paths:
       summary: Get health status
       tags:
       - system
+  /honors/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Honor ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.HonorObjectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get an honor by id
+      tags:
+      - honors
+  /honors/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.HonorListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List honors by page
+      tags:
+      - honors
   /internal/github/webhooks/master-data:
     post:
       consumes:
@@ -3714,6 +4444,125 @@ paths:
       summary: Receive GitHub master-data webhook
       tags:
       - system
+  /missions/{region}/{family}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Mission family
+        enum:
+        - storyMissions
+        - characterMissionV2s
+        - normalMissions
+        in: path
+        name: family
+        required: true
+        type: string
+      - description: Mission ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MissionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a mission by family and id
+      tags:
+      - missions
+  /missions/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Mission family
+        enum:
+        - storyMissions
+        - characterMissionV2s
+        - normalMissions
+        in: query
+        name: family
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Comma-separated positive mission IDs
+        in: query
+        name: id
+        type: string
+      - description: Comma-separated positive character IDs (characterMissionV2s only)
+        in: query
+        name: character_id
+        type: string
+      - description: Comma-separated positive event IDs
+        in: query
+        name: event_id
+        type: string
+      - description: Sort field
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MissionListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List missions by family and page
+      tags:
+      - missions
   /mobCharacters/{region}/list:
     get:
       parameters:
@@ -3724,10 +4573,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -4036,6 +4888,87 @@ paths:
       summary: Get available regions for a music id
       tags:
       - musics
+  /mysekaiPhotoDecorations/{region}/{id}:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Photo decoration ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiPhotoDecorationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a MySekai photo decoration by id
+      tags:
+      - mysekaiPhotoDecorations
+  /mysekaiPhotoDecorations/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiPhotoDecorationListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List MySekai photo decorations by page
+      tags:
+      - mysekaiPhotoDecorations
   /specialStories/{region}/list:
     get:
       parameters:
@@ -4046,10 +4979,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -4096,10 +5032,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -4224,10 +5163,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -4304,10 +5246,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -4354,10 +5299,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content
@@ -4710,10 +5658,13 @@ paths:
         type: string
       - description: Page number
         in: query
+        minimum: 1
         name: page
         type: integer
       - description: Page size
         in: query
+        maximum: 100
+        minimum: 1
         name: page_size
         type: integer
       - description: Include spoiler content

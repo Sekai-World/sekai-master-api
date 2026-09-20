@@ -131,12 +131,14 @@ func (cache *fakeEventHandlerCache) GetByID(_ context.Context, region string, en
 func (cache *fakeEventHandlerCache) ListAll(_ context.Context, region string, entity string) ([]map[string]any, error) {
 	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
 	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
-	regionData, ok := cache.listByEntity[normalizedRegion]
-	if !ok {
-		return []map[string]any{}, nil
+	regionData := cache.listByEntity[normalizedRegion]
+	records, listed := regionData[normalizedEntity]
+	if !listed && normalizedEntity == "resourceboxes" {
+		for _, record := range cache.byID[normalizedRegion][normalizedEntity] {
+			records = append(records, record)
+		}
 	}
 
-	records := regionData[normalizedEntity]
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		copied := make(map[string]any, len(record))
@@ -1163,6 +1165,32 @@ func TestEventRankingRewardResourceBoxPrefersRegionalRecord(t *testing.T) {
 	resolved := handler.resolveRewardResourceBox(context.Background(), "tw", map[string]any{"resourceBoxId": 9001})
 	if resolved == nil || resolved["details"].([]any)[0].(map[string]any)["resourceQuantity"] != 300 {
 		t.Fatalf("expected regional resource box to win, got %v", resolved)
+	}
+}
+
+func TestEventRankingRewardResourceBoxSelectsPurposeForCollidingID(t *testing.T) {
+	cache := &fakeEventHandlerCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				"resourceboxes": {
+					{"id": 9001, "resourceBoxPurpose": "virtual_live_reward", "details": []any{map[string]any{"resourceQuantity": 999}}},
+					{"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceQuantity": 100}}},
+				},
+			},
+		},
+	}
+	handler := newReadyEventHandler(cache)
+
+	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001})
+	if resourceBox == nil {
+		t.Fatal("expected event ranking resource box to resolve")
+	}
+	if resourceBox["resourceBoxPurpose"] != "event_ranking_reward" {
+		t.Fatalf("expected event ranking purpose, got %v", resourceBox["resourceBoxPurpose"])
+	}
+	details := resourceBox["details"].([]any)
+	if details[0].(map[string]any)["resourceQuantity"] != 100 {
+		t.Fatalf("expected event ranking details, got %v", details[0])
 	}
 }
 
