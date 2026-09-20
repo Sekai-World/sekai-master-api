@@ -557,6 +557,12 @@ const docTemplate = `{
                         "description": "Exact second game character unit ID",
                         "name": "game_character_unit_id2",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Exactly two distinct underlying game character IDs, comma-separated (for example: 1,2)",
+                        "name": "game_character_ids",
+                        "in": "query"
                     }
                 ],
                 "responses": {

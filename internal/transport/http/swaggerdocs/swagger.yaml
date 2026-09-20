@@ -2557,6 +2557,11 @@ paths:
         minimum: 1
         name: game_character_unit_id2
         type: integer
+      - description: 'Exactly two distinct underlying game character IDs, comma-separated
+          (for example: 1,2)'
+        in: query
+        name: game_character_ids
+        type: string
       produces:
       - application/json
       responses:

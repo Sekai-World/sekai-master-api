@@ -88,6 +88,14 @@ func newBondsHonorRecord(id int64, seq int64, groupID int64, characterUnitID1 in
 	}
 }
 
+func newBondsHonorCharacterUnitRecord(id int64, gameCharacterID int64, unit string) map[string]any {
+	return map[string]any{
+		"id":              id,
+		"gameCharacterId": gameCharacterID,
+		"unit":            unit,
+	}
+}
+
 func decodeBondsHonorObject(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
@@ -360,6 +368,130 @@ func TestBondsHonorsByIDOmitsMissingFieldsAndPreservesEmptyLevels(t *testing.T) 
 	}
 }
 
+func TestBondsHonorsGameCharacterIDsFilterMatchesUnorderedUnderlyingCharacters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &bondsHonorTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"jp": {
+					bondsHonorsEntity: {
+						newBondsHonorRecord(1, 1, 70, 11, 12, "Forward"),
+						newBondsHonorRecord(2, 2, 70, 13, 14, "Reverse"),
+						newBondsHonorRecord(3, 3, 70, 15, 16, "Only one character"),
+						newBondsHonorRecord(4, 4, 70, 17, 18, "Missing association"),
+					},
+					bondsHonorGameCharacterUnitsEntity: {
+						newBondsHonorCharacterUnitRecord(11, 1, "unit-a"),
+						newBondsHonorCharacterUnitRecord(12, 2, "unit-b"),
+						newBondsHonorCharacterUnitRecord(13, 2, "unit-c"),
+						newBondsHonorCharacterUnitRecord(14, 1, "unit-d"),
+						newBondsHonorCharacterUnitRecord(15, 1, "unit-e"),
+						newBondsHonorCharacterUnitRecord(16, 3, "unit-f"),
+						newBondsHonorCharacterUnitRecord(17, 1, "unit-g"),
+					},
+				},
+			},
+		},
+	}
+	router := newBondsHonorRouter(newReadyBondsHonorTrackingHandler(cache))
+
+	for _, query := range []string{"1,2", "2,1"} {
+		response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/bondsHonors/jp/list?game_character_ids="+query+"&page_size=100")
+		if response.Code != http.StatusOK {
+			t.Fatalf("expected 200 for game_character_ids=%s, got %d: %s", query, response.Code, response.Body.String())
+		}
+		items, pagination := decodeBondsHonorList(t, response.Body.Bytes())
+		if len(items) != 2 || items[0]["id"] != float64(1) || items[1]["id"] != float64(2) || pagination["total"] != float64(2) {
+			t.Fatalf("expected both unordered pair matches and no partial/missing matches for %s, got items=%#v pagination=%#v", query, items, pagination)
+		}
+		for _, item := range items {
+			if item["characterUnit1"] == nil || item["characterUnit2"] == nil {
+				t.Fatalf("expected current-page character unit enrichment to reuse the filter map: %#v", item)
+			}
+		}
+	}
+}
+
+func TestBondsHonorsGameCharacterIDsCombinesWithExistingFiltersAndPaginatesAfterFiltering(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				bondsHonorsEntity: {
+					newBondsHonorRecord(1, 1, 99, 101, 102, "Not a pair"),
+					newBondsHonorRecord(2, 2, 99, 103, 104, "First match"),
+					newBondsHonorRecord(3, 3, 99, 105, 106, "Second match"),
+					newBondsHonorRecord(4, 4, 98, 107, 108, "Wrong group"),
+				},
+				bondsHonorGameCharacterUnitsEntity: {
+					newBondsHonorCharacterUnitRecord(101, 9, "unit-101"),
+					newBondsHonorCharacterUnitRecord(102, 10, "unit-102"),
+					newBondsHonorCharacterUnitRecord(103, 1, "unit-103"),
+					newBondsHonorCharacterUnitRecord(104, 2, "unit-104"),
+					newBondsHonorCharacterUnitRecord(105, 2, "unit-105"),
+					newBondsHonorCharacterUnitRecord(106, 1, "unit-106"),
+					newBondsHonorCharacterUnitRecord(107, 1, "unit-107"),
+					newBondsHonorCharacterUnitRecord(108, 2, "unit-108"),
+				},
+			},
+		},
+	}
+	router := newBondsHonorRouter(newReadyLookupHandler(cache))
+
+	combined := serveLookupRequest(t, router, http.MethodGet, "/api/v1/bondsHonors/jp/list?game_character_ids=1,2&bonds_group_id=99&game_character_unit_id1=103")
+	if combined.Code != http.StatusOK {
+		t.Fatalf("expected 200 for combined filters, got %d: %s", combined.Code, combined.Body.String())
+	}
+	items, pagination := decodeBondsHonorList(t, combined.Body.Bytes())
+	if len(items) != 1 || items[0]["id"] != float64(2) || pagination["total"] != float64(1) {
+		t.Fatalf("expected existing filters and game_character_ids to combine with AND, got items=%#v pagination=%#v", items, pagination)
+	}
+
+	paged := serveLookupRequest(t, router, http.MethodGet, "/api/v1/bondsHonors/jp/list?game_character_ids=1,2&bonds_group_id=99&page=2&page_size=1")
+	if paged.Code != http.StatusOK {
+		t.Fatalf("expected 200 for filtered page, got %d: %s", paged.Code, paged.Body.String())
+	}
+	items, pagination = decodeBondsHonorList(t, paged.Body.Bytes())
+	if len(items) != 1 || items[0]["id"] != float64(3) || pagination["total"] != float64(2) {
+		t.Fatalf("expected pagination after game-character filtering, got items=%#v pagination=%#v", items, pagination)
+	}
+}
+
+func TestBondsHonorsGameCharacterIDsFilterLoadsUnitsOnce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &bondsHonorTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"jp": {
+					bondsHonorsEntity: {
+						newBondsHonorRecord(1, 1, 70, 11, 12, "Filtered"),
+					},
+					bondsHonorBondsEntity: {{"groupId": 70, "characterId1": 201, "characterId2": 202}},
+					bondsHonorGameCharacterUnitsEntity: {
+						newBondsHonorCharacterUnitRecord(11, 1, "unit-1"),
+						newBondsHonorCharacterUnitRecord(12, 2, "unit-2"),
+					},
+				},
+			},
+		},
+	}
+	router := newBondsHonorRouter(newReadyBondsHonorTrackingHandler(cache))
+	response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/bondsHonors/jp/list?game_character_ids=1,2")
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	counts := make(map[string]int)
+	for _, call := range cache.listAllCalls {
+		counts[call.entity]++
+	}
+	if counts[bondsHonorGameCharacterUnitsEntity] != 1 {
+		t.Fatalf("expected exactly one gamecharacterunits ListAll call, got calls=%+v", cache.listAllCalls)
+	}
+	if counts[bondsHonorBondsEntity] > 1 {
+		t.Fatalf("bonds enrichment must be loaded at most once, got calls=%+v", cache.listAllCalls)
+	}
+}
+
 func TestBondsHonorsListRejectsUnknownAndMalformedParameters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := newBondsHonorRouter(newReadyLookupHandler(&fakeLookupCache{}))
@@ -379,6 +511,18 @@ func TestBondsHonorsListRejectsUnknownAndMalformedParameters(t *testing.T) {
 		{name: "nonpositive unit filter", path: "/api/v1/bondsHonors/jp/list?game_character_unit_id1=0"},
 		{name: "list filter is not a scalar", path: "/api/v1/bondsHonors/jp/list?game_character_unit_id2=1,2"},
 		{name: "duplicate parameter", path: "/api/v1/bondsHonors/jp/list?page=1&page=2"},
+		{name: "game character ids empty", path: "/api/v1/bondsHonors/jp/list?game_character_ids="},
+		{name: "game character ids missing value", path: "/api/v1/bondsHonors/jp/list?game_character_ids"},
+		{name: "game character ids one item", path: "/api/v1/bondsHonors/jp/list?game_character_ids=1"},
+		{name: "game character ids leading missing item", path: "/api/v1/bondsHonors/jp/list?game_character_ids=,2"},
+		{name: "game character ids trailing missing item", path: "/api/v1/bondsHonors/jp/list?game_character_ids=1,"},
+		{name: "game character ids internal missing item", path: "/api/v1/bondsHonors/jp/list?game_character_ids=1,,2"},
+		{name: "game character ids too many items", path: "/api/v1/bondsHonors/jp/list?game_character_ids=1,2,3"},
+		{name: "game character ids duplicate items", path: "/api/v1/bondsHonors/jp/list?game_character_ids=1,1"},
+		{name: "game character ids zero", path: "/api/v1/bondsHonors/jp/list?game_character_ids=0,2"},
+		{name: "game character ids negative", path: "/api/v1/bondsHonors/jp/list?game_character_ids=-1,2"},
+		{name: "game character ids nonnumeric", path: "/api/v1/bondsHonors/jp/list?game_character_ids=one,2"},
+		{name: "game character ids duplicate query key", path: "/api/v1/bondsHonors/jp/list?game_character_ids=1,2&game_character_ids=2,3"},
 	}
 
 	for _, test := range tests {
