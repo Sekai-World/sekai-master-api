@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1122,6 +1123,48 @@ func TestCardListEndpointFiltersBy3dmvCutIn(t *testing.T) {
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1002})
 	assertResponsePaginationTotal(t, resp.Body.Bytes(), 1)
+}
+
+func TestCardListEndpointSupportsNameFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeCardHandlerCache{
+		listItems: []map[string]any{
+			{"id": 1001, "prefix": "Serial numbers style"},
+			{"id": 1002, "prefix": "ワンダーマジカルショータイム"},
+			{"id": 1003, "prefix": "カラフル・サプライズ！"},
+		},
+		listTotal: 3,
+	}
+
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", newReadyCardHandler(cache).List)
+
+	cases := []struct {
+		nameQuery   string
+		expectedIDs []float64
+	}{
+		{nameQuery: "SERIAL", expectedIDs: []float64{1001}},
+		{nameQuery: "ワンダー,サプライズ", expectedIDs: []float64{1002, 1003}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.nameQuery, func(t *testing.T) {
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"/api/v1/cards/jp/list?page=1&page_size=20&name="+url.QueryEscape(testCase.nameQuery),
+				nil,
+			)
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", resp.Code)
+			}
+
+			assertResponseItemOrder(t, resp.Body.Bytes(), testCase.expectedIDs)
+			assertResponsePaginationTotal(t, resp.Body.Bytes(), float64(len(testCase.expectedIDs)))
+		})
+	}
 }
 
 func TestCardListSortOrderWithoutSortByReturnsBadRequest(t *testing.T) {
