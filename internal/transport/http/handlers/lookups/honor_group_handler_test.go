@@ -124,6 +124,14 @@ func TestHonorGroupsListPaginatesDisplayableGroupsAndPreservesMasterOrder(t *tes
 	handler := newHonorGroupListHandler(newHonorGroupListCache())
 	router := newHonorGroupListRouter(handler)
 
+	assertHonorGroupsFirstPage(t, router)
+	assertHonorGroupsSecondPage(t, router)
+	assertHonorGroupsThirdPage(t, router)
+}
+
+func assertHonorGroupsFirstPage(t *testing.T, router *gin.Engine) {
+	t.Helper()
+
 	firstPage := serveLookupRequest(t, router, http.MethodGet, "/api/v1/honorGroups/jp/list?page=1&page_size=1")
 	if firstPage.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", firstPage.Code, firstPage.Body.String())
@@ -150,6 +158,10 @@ func TestHonorGroupsListPaginatesDisplayableGroupsAndPreservesMasterOrder(t *tes
 	if len(firstGroup.Honors[1].Levels) != 2 {
 		t.Fatalf("expected all levels for every nested honor, got %#v", firstGroup.Honors[1].Levels)
 	}
+}
+
+func assertHonorGroupsSecondPage(t *testing.T, router *gin.Engine) {
+	t.Helper()
 
 	secondPage := serveLookupRequest(t, router, http.MethodGet, "/api/v1/honorGroups/jp/list?page=2&page_size=1")
 	secondBody := decodeHonorGroupList(t, secondPage.Body.Bytes())
@@ -157,6 +169,10 @@ func TestHonorGroupsListPaginatesDisplayableGroupsAndPreservesMasterOrder(t *tes
 		t.Fatalf("expected one group on page two, got %#v", secondBody.Items)
 	}
 	requireHonorGroupID(t, secondBody.Items[0], 10)
+}
+
+func assertHonorGroupsThirdPage(t *testing.T, router *gin.Engine) {
+	t.Helper()
 
 	thirdPage := serveLookupRequest(t, router, http.MethodGet, "/api/v1/honorGroups/jp/list?page=3&page_size=1")
 	thirdBody := decodeHonorGroupList(t, thirdPage.Body.Bytes())

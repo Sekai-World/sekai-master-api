@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	honorsEntity               = "honors"
-	honorGroupsEntity          = "honorgroups"
-	honorGroupsDefaultPageSize = 12
-	honorGroupsMaximumPageSize = 24
+	honorsEntity                     = "honors"
+	honorGroupsEntity                = "honorgroups"
+	honorGroupsDefaultPageSize       = 12
+	honorGroupsMaximumPageSize       = 24
+	masterDataServiceNotReadyMessage = "master data service is not ready"
 )
 
 // HonorsByID godoc
@@ -33,7 +34,7 @@ const (
 // @Router /honors/{region}/{id} [get]
 func (handler *LookupHandler) HonorsByID(c *gin.Context) {
 	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", masterDataServiceNotReadyMessage)
 		return
 	}
 
@@ -85,7 +86,7 @@ func (handler *LookupHandler) HonorsByID(c *gin.Context) {
 // @Router /honors/{region}/list [get]
 func (handler *LookupHandler) HonorsList(c *gin.Context) {
 	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", masterDataServiceNotReadyMessage)
 		return
 	}
 
@@ -133,7 +134,7 @@ func (handler *LookupHandler) HonorsList(c *gin.Context) {
 // @Router /honorGroups/{region}/list [get]
 func (handler *LookupHandler) HonorGroupsList(c *gin.Context) {
 	if handler.masterDataSync == nil {
-		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", masterDataServiceNotReadyMessage)
 		return
 	}
 
@@ -193,8 +194,7 @@ func parseHonorGroupsPagination(c *gin.Context) (int, int, bool) {
 }
 
 func buildHonorGroupResponses(
-	groupRecords []map[string]any,
-	honorRecords []map[string]any,
+	groupRecords, honorRecords []map[string]any,
 ) []shared.HonorGroupObjectResponse {
 	honorsByGroupID := make(map[int64][]shared.HonorObjectResponse)
 	for _, record := range honorRecords {
