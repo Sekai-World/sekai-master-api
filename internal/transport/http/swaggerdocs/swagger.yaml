@@ -1164,6 +1164,34 @@ definitions:
       status:
         type: string
     type: object
+  shared.HonorGroupListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.HonorGroupObjectResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.HonorGroupObjectResponse:
+    properties:
+      backgroundAssetbundleName:
+        type: string
+      frameName:
+        type: string
+      honorType:
+        type: string
+      honors:
+        items:
+          $ref: '#/definitions/shared.HonorObjectResponse'
+        type: array
+      id:
+        type: integer
+      name:
+        type: string
+    required:
+    - id
+    type: object
   shared.HonorGroupResponse:
     properties:
       backgroundAssetbundleName:
@@ -4316,6 +4344,48 @@ paths:
       summary: Get health status
       tags:
       - system
+  /honorGroups/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 12
+        description: Page size
+        in: query
+        maximum: 24
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.HonorGroupListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List honor groups by page
+      tags:
+      - honorGroups
   /honors/{region}/{id}:
     get:
       parameters:

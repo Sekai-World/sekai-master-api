@@ -60,6 +60,7 @@ func registerPublicRoutes(
 	v1.GET("/mysekaiPhotoDecorations/:region/:id", lookupHandler.MysekaiPhotoDecorationsByID)
 	v1.GET("/honors/:region/list", lookupHandler.HonorsList)
 	v1.GET("/honors/:region/:id", lookupHandler.HonorsByID)
+	v1.GET("/honorGroups/:region/list", lookupHandler.HonorGroupsList)
 	v1.GET("/bondsHonors/:region/list", lookupHandler.BondsHonorsList)
 	v1.GET("/bondsHonors/:region/:id", lookupHandler.BondsHonorsByID)
 	v1.GET("/costume3ds/:region/list", lookupHandler.Costume3DsList)
