@@ -442,41 +442,40 @@ func TestHonorGroupsListSortsIDPagesAscendingAndDescending(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			firstPage := serveLookupRequest(
-				t,
-				router,
-				http.MethodGet,
-				"/api/v1/honorGroups/jp/list?"+test.firstPageQuery,
-			)
-			if firstPage.Code != http.StatusOK {
-				t.Fatalf("expected 200 on first page, got %d: %s", firstPage.Code, firstPage.Body.String())
-			}
-			firstBody := decodeHonorGroupList(t, firstPage.Body.Bytes())
-			if firstBody.Pagination.Total != 3 || firstBody.Pagination.TotalPages != 2 || !firstBody.Pagination.HasNext {
-				t.Fatalf("expected pagination over all three groups, got %#v", firstBody.Pagination)
-			}
-			if len(firstBody.Items) != len(test.firstPageIDs) {
-				t.Fatalf("expected first page IDs %v, got %#v", test.firstPageIDs, firstBody.Items)
-			}
-			for index, expectedID := range test.firstPageIDs {
-				requireHonorGroupID(t, firstBody.Items[index], expectedID)
-			}
-
-			secondPage := serveLookupRequest(
-				t,
-				router,
-				http.MethodGet,
-				"/api/v1/honorGroups/jp/list?"+test.secondPageQuery,
-			)
-			if secondPage.Code != http.StatusOK {
-				t.Fatalf("expected 200 on second page, got %d: %s", secondPage.Code, secondPage.Body.String())
-			}
-			secondBody := decodeHonorGroupList(t, secondPage.Body.Bytes())
-			if len(secondBody.Items) != 1 || secondBody.Pagination.HasNext {
-				t.Fatalf("expected one final-page result, got %#v", secondBody)
-			}
-			requireHonorGroupID(t, secondBody.Items[0], test.secondPageID)
+			assertHonorGroupsSortedPage(t, router, test.firstPageQuery, test.firstPageIDs, true)
+			assertHonorGroupsSortedPage(t, router, test.secondPageQuery, []int64{test.secondPageID}, false)
 		})
+	}
+}
+
+func assertHonorGroupsSortedPage(
+	t *testing.T,
+	router *gin.Engine,
+	query string,
+	expectedIDs []int64,
+	expectedHasNext bool,
+) {
+	t.Helper()
+
+	response := serveLookupRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/honorGroups/jp/list?"+query,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeHonorGroupList(t, response.Body.Bytes())
+	if body.Pagination.Total != 3 || body.Pagination.TotalPages != 2 || body.Pagination.HasNext != expectedHasNext {
+		t.Fatalf("unexpected pagination for query %q: %#v", query, body.Pagination)
+	}
+	if len(body.Items) != len(expectedIDs) {
+		t.Fatalf("expected group IDs %v, got %#v", expectedIDs, body.Items)
+	}
+	for index, expectedID := range expectedIDs {
+		requireHonorGroupID(t, body.Items[index], expectedID)
 	}
 }
 

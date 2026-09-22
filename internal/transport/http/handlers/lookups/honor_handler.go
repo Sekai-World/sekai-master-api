@@ -172,24 +172,9 @@ func (handler *LookupHandler) HonorGroupsList(c *gin.Context) {
 
 	items := buildHonorGroupResponses(groupRecords, honorRecords)
 	availableHonorTypes := listAvailableHonorTypes(items)
-	if honorType, hasHonorType := c.GetQuery("honor_type"); hasHonorType {
-		filteredItems := make([]shared.HonorGroupObjectResponse, 0, len(items))
-		for _, item := range items {
-			if honorType != "" && item.HonorType != nil && *item.HonorType == honorType {
-				filteredItems = append(filteredItems, item)
-			}
-		}
-		items = filteredItems
-	}
-	if name := shared.NormalizeComparableText(c.Query("name")); name != "" {
-		filteredItems := make([]shared.HonorGroupObjectResponse, 0, len(items))
-		for _, item := range items {
-			if honorGroupMatchesName(item, name) {
-				filteredItems = append(filteredItems, item)
-			}
-		}
-		items = filteredItems
-	}
+	honorType, hasHonorType := c.GetQuery("honor_type")
+	name := shared.NormalizeComparableText(c.Query("name"))
+	items = filterHonorGroupResponses(items, honorType, hasHonorType, name)
 
 	sortHonorGroupResponses(items, descending)
 	pageItems := paginateHonorGroupResponses(items, page, pageSize)
@@ -198,6 +183,25 @@ func (handler *LookupHandler) HonorGroupsList(c *gin.Context) {
 		AvailableHonorTypes: availableHonorTypes,
 		Pagination:          lookupPaginationResponse(page, pageSize, len(items)),
 	})
+}
+
+func filterHonorGroupResponses(
+	items []shared.HonorGroupObjectResponse,
+	honorType string,
+	hasHonorType bool,
+	name string,
+) []shared.HonorGroupObjectResponse {
+	filteredItems := make([]shared.HonorGroupObjectResponse, 0, len(items))
+	for _, item := range items {
+		if hasHonorType && (honorType == "" || item.HonorType == nil || *item.HonorType != honorType) {
+			continue
+		}
+		if name != "" && !honorGroupMatchesName(item, name) {
+			continue
+		}
+		filteredItems = append(filteredItems, item)
+	}
+	return filteredItems
 }
 
 func listAvailableHonorTypes(items []shared.HonorGroupObjectResponse) []string {

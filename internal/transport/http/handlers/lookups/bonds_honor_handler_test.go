@@ -326,22 +326,28 @@ func assertBondsHonorWords(t *testing.T, item map[string]any, expectedIDs []int6
 		t.Fatalf("expected words %v for group %d, got %#v", expectedIDs, groupID, item["words"])
 	}
 	for index, expectedID := range expectedIDs {
-		word, ok := words[index].(map[string]any)
-		if !ok || len(word) != 6 {
-			t.Fatalf("expected six projected word fields, got %#v", words[index])
-		}
-		if word["id"] != float64(expectedID) || word["bondsGroupId"] != float64(groupID) {
-			t.Fatalf("unexpected word/group association: %#v", word)
-		}
-		if word["assetbundleName"] != "word-"+strconv.FormatInt(expectedID, 10) || word["name"] == nil || word["description"] == nil {
-			t.Fatalf("expected all supported word fields to be projected: %#v", word)
-		}
-		if _, exists := word["seq"]; !exists {
-			t.Fatalf("word seq is missing from projection: %#v", word)
-		}
-		if _, exists := word["unknown"]; exists {
-			t.Fatalf("unknown word field leaked into response: %#v", word)
-		}
+		assertBondsHonorWord(t, words[index], expectedID, groupID)
+	}
+}
+
+func assertBondsHonorWord(t *testing.T, value any, expectedID, groupID int64) {
+	t.Helper()
+
+	word, ok := value.(map[string]any)
+	if !ok || len(word) != 6 {
+		t.Fatalf("expected six projected word fields, got %#v", value)
+	}
+	if word["id"] != float64(expectedID) || word["bondsGroupId"] != float64(groupID) {
+		t.Fatalf("unexpected word/group association: %#v", word)
+	}
+	if word["assetbundleName"] != "word-"+strconv.FormatInt(expectedID, 10) || word["name"] == nil || word["description"] == nil {
+		t.Fatalf("expected all supported word fields to be projected: %#v", word)
+	}
+	if _, exists := word["seq"]; !exists {
+		t.Fatalf("word seq is missing from projection: %#v", word)
+	}
+	if _, exists := word["unknown"]; exists {
+		t.Fatalf("unknown word field leaked into response: %#v", word)
 	}
 }
 
