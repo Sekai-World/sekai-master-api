@@ -7,6 +7,15 @@ type BondsHonorLevelResponse struct {
 	Description  *string `json:"description,omitempty"`
 }
 
+type BondsHonorWordResponse struct {
+	ID              *int64  `json:"id,omitempty"`
+	Seq             *int64  `json:"seq,omitempty"`
+	BondsGroupID    *int64  `json:"bondsGroupId,omitempty"`
+	AssetbundleName *string `json:"assetbundleName,omitempty"`
+	Name            *string `json:"name,omitempty"`
+	Description     *string `json:"description,omitempty"`
+}
+
 type BondsHonorGroupResponse struct {
 	GroupID      *int64 `json:"groupId,omitempty"`
 	CharacterID1 *int64 `json:"characterId1,omitempty"`
@@ -31,6 +40,7 @@ type BondsHonorObjectResponse struct {
 	Description                   *string                          `json:"description,omitempty"`
 	ConfigurableUnitVirtualSinger *bool                            `json:"configurableUnitVirtualSinger,omitempty"`
 	Levels                        *[]BondsHonorLevelResponse       `json:"levels,omitempty"`
+	Words                         *[]BondsHonorWordResponse        `json:"words,omitempty"`
 	BondsGroup                    *BondsHonorGroupResponse         `json:"bondsGroup,omitempty"`
 	CharacterUnit1                *BondsHonorCharacterUnitResponse `json:"characterUnit1,omitempty"`
 	CharacterUnit2                *BondsHonorCharacterUnitResponse `json:"characterUnit2,omitempty"`

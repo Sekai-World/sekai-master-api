@@ -16,6 +16,7 @@ import (
 const (
 	bondsHonorsEntity                  = "bondshonors"
 	bondsHonorBondsEntity              = "bonds"
+	bondsHonorWordsEntity              = "bondsHonorWords"
 	bondsHonorGameCharacterUnitsEntity = "gamecharacterunits"
 	bondsHonorQueryErrorCode           = "BONDS_HONOR_QUERY_ERROR"
 	bondsHonorNotFoundCode             = "BONDS_HONOR_NOT_FOUND"
@@ -625,7 +626,16 @@ func (handler *LookupHandler) enrichBondsHonorResponses(
 		}
 	}
 
-	applyBondsHonorRelationships(items, bondsGroups, characterUnits)
+	wordsByGroup := map[int64][]shared.BondsHonorWordResponse{}
+	if needsBonds {
+		var err error
+		wordsByGroup, err = handler.loadBondsHonorWords(ctx, region)
+		if err != nil {
+			return err
+		}
+	}
+
+	applyBondsHonorRelationships(items, bondsGroups, wordsByGroup, characterUnits)
 
 	return nil
 }
@@ -673,15 +683,59 @@ func (handler *LookupHandler) loadBondsHonorGroups(
 	return groups, nil
 }
 
+func (handler *LookupHandler) loadBondsHonorWords(
+	ctx context.Context,
+	region string,
+) (map[int64][]shared.BondsHonorWordResponse, error) {
+	records, err := handler.masterDataSync.ListAll(ctx, region, bondsHonorWordsEntity)
+	if err != nil {
+		return nil, err
+	}
+
+	wordsByGroup := make(map[int64][]shared.BondsHonorWordResponse)
+	for _, record := range records {
+		groupID, ok := lookupInt64(record["bondsGroupId"])
+		if !ok {
+			continue
+		}
+
+		wordsByGroup[groupID] = append(wordsByGroup[groupID], shared.BondsHonorWordResponse{
+			ID:              lookupOptionalInt64(record["id"]),
+			Seq:             lookupOptionalInt64(record["seq"]),
+			BondsGroupID:    lookupOptionalInt64(record["bondsGroupId"]),
+			AssetbundleName: lookupOptionalString(record["assetbundleName"]),
+			Name:            lookupOptionalString(record["name"]),
+			Description:     lookupOptionalString(record["description"]),
+		})
+	}
+
+	for groupID := range wordsByGroup {
+		sort.SliceStable(wordsByGroup[groupID], func(leftIndex, rightIndex int) bool {
+			left := wordsByGroup[groupID][leftIndex]
+			right := wordsByGroup[groupID][rightIndex]
+			if comparison := compareBondsHonorIDs(left.Seq, right.Seq); comparison != 0 {
+				return comparison < 0
+			}
+			return compareBondsHonorIDs(left.ID, right.ID) < 0
+		})
+	}
+
+	return wordsByGroup, nil
+}
+
 func applyBondsHonorRelationships(
 	items []shared.BondsHonorObjectResponse,
 	bondsGroups map[int64]*shared.BondsHonorGroupResponse,
+	wordsByGroup map[int64][]shared.BondsHonorWordResponse,
 	characterUnits map[int64]*shared.BondsHonorCharacterUnitResponse,
 ) {
 	for index := range items {
 		item := &items[index]
 		if item.BondsGroupID != nil {
 			item.BondsGroup = bondsGroups[*item.BondsGroupID]
+			if words := wordsByGroup[*item.BondsGroupID]; len(words) > 0 {
+				item.Words = &words
+			}
 		}
 		if item.GameCharacterUnitID1 != nil {
 			item.CharacterUnit1 = characterUnits[*item.GameCharacterUnitID1]

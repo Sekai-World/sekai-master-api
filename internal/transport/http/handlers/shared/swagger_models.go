@@ -102,6 +102,21 @@ type HonorListResponse struct {
 	Pagination PaginationResponse    `json:"pagination"`
 }
 
+type HonorGroupObjectResponse struct {
+	ID                        int64                 `json:"id" binding:"required"`
+	Name                      *string               `json:"name,omitempty"`
+	HonorType                 *string               `json:"honorType,omitempty"`
+	BackgroundAssetbundleName *string               `json:"backgroundAssetbundleName,omitempty"`
+	FrameName                 *string               `json:"frameName,omitempty"`
+	Honors                    []HonorObjectResponse `json:"honors"`
+}
+
+type HonorGroupListResponse struct {
+	Items               []HonorGroupObjectResponse `json:"items"`
+	AvailableHonorTypes []string                   `json:"availableHonorTypes"`
+	Pagination          PaginationResponse         `json:"pagination"`
+}
+
 type Costume3DObjectResponse struct {
 	ID              int64   `json:"id"`
 	GroupID         *int64  `json:"groupId,omitempty"`
