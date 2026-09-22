@@ -128,7 +128,10 @@ func (handler *LookupHandler) HonorsList(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number" minimum(1)
 // @Param page_size query int false "Page size" minimum(1) maximum(24) default(12)
+// @Param name query string false "Case-insensitive substring of the group or nested honor name"
 // @Param honor_type query string false "Exact honor group type filter"
+// @Param sort_by query string false "Sort field" Enums(id) default(id)
+// @Param sort_order query string false "Sort order" Enums(asc,desc) default(asc)
 // @Success 200 {object} shared.HonorGroupListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -145,6 +148,10 @@ func (handler *LookupHandler) HonorGroupsList(c *gin.Context) {
 		return
 	}
 	page, pageSize, ok := parseHonorGroupsPagination(c)
+	if !ok {
+		return
+	}
+	descending, ok := parseHonorGroupsSortOptions(c)
 	if !ok {
 		return
 	}
@@ -174,7 +181,17 @@ func (handler *LookupHandler) HonorGroupsList(c *gin.Context) {
 		}
 		items = filteredItems
 	}
+	if name := shared.NormalizeComparableText(c.Query("name")); name != "" {
+		filteredItems := make([]shared.HonorGroupObjectResponse, 0, len(items))
+		for _, item := range items {
+			if honorGroupMatchesName(item, name) {
+				filteredItems = append(filteredItems, item)
+			}
+		}
+		items = filteredItems
+	}
 
+	sortHonorGroupResponses(items, descending)
 	pageItems := paginateHonorGroupResponses(items, page, pageSize)
 	response.JSON(c, http.StatusOK, shared.HonorGroupListResponse{
 		Items:               pageItems,
@@ -223,6 +240,49 @@ func parseHonorGroupsPagination(c *gin.Context) (int, int, bool) {
 	}
 
 	return page, pageSize, true
+}
+
+func parseHonorGroupsSortOptions(c *gin.Context) (bool, bool) {
+	sortBy := strings.TrimSpace(c.Query("sort_by"))
+	if sortBy == "" {
+		sortBy = "id"
+	}
+	if sortBy != "id" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "sort_by must be one of: id")
+		return false, false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(c.Query("sort_order"))) {
+	case "", "asc":
+		return false, true
+	case "desc":
+		return true, true
+	default:
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "sort_order must be one of: asc, desc")
+		return false, false
+	}
+}
+
+func honorGroupMatchesName(item shared.HonorGroupObjectResponse, name string) bool {
+	if item.Name != nil && strings.Contains(shared.NormalizeComparableText(*item.Name), name) {
+		return true
+	}
+	for _, honor := range item.Honors {
+		if strings.Contains(shared.NormalizeComparableText(honor.Name), name) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func sortHonorGroupResponses(items []shared.HonorGroupObjectResponse, descending bool) {
+	sort.Slice(items, func(leftIndex, rightIndex int) bool {
+		if descending {
+			return items[leftIndex].ID > items[rightIndex].ID
+		}
+		return items[leftIndex].ID < items[rightIndex].ID
+	})
 }
 
 func buildHonorGroupResponses(

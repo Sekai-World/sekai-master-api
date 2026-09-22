@@ -118,7 +118,7 @@ func requireHonorGroupID(t *testing.T, group shared.HonorGroupObjectResponse, ex
 	}
 }
 
-func TestHonorGroupsListPaginatesDisplayableGroupsAndPreservesMasterOrder(t *testing.T) {
+func TestHonorGroupsListPaginatesDisplayableGroupsByIDAscending(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	handler := newHonorGroupListHandler(newHonorGroupListCache())
@@ -149,18 +149,15 @@ func assertHonorGroupsFirstPage(t *testing.T, router *gin.Engine) {
 	}
 
 	firstGroup := firstBody.Items[0]
-	requireHonorGroupID(t, firstGroup, 30)
-	if len(firstGroup.Honors) != 2 || firstGroup.Honors[0].ID != 301 || firstGroup.Honors[1].ID != 302 {
-		t.Fatalf("expected all group 30 honors in source order, got %#v", firstGroup.Honors)
+	requireHonorGroupID(t, firstGroup, 10)
+	if len(firstGroup.Honors) != 1 || firstGroup.Honors[0].ID != 101 {
+		t.Fatalf("expected the group 10 honor, got %#v", firstGroup.Honors)
 	}
-	if firstGroup.Honors[0].Group == nil || firstGroup.Honors[0].Group.ID == nil || *firstGroup.Honors[0].Group.ID != 30 {
+	if firstGroup.Honors[0].Group == nil || firstGroup.Honors[0].Group.ID == nil || *firstGroup.Honors[0].Group.ID != 10 {
 		t.Fatalf("expected honor group metadata on every honor, got %#v", firstGroup.Honors[0].Group)
 	}
-	if len(firstGroup.Honors[0].Levels) != 1 || firstGroup.Honors[0].Levels[0].HonorID == nil || *firstGroup.Honors[0].Levels[0].HonorID != 301 {
+	if len(firstGroup.Honors[0].Levels) != 1 || firstGroup.Honors[0].Levels[0].HonorID == nil || *firstGroup.Honors[0].Levels[0].HonorID != 101 {
 		t.Fatalf("expected honor levels to be included, got %#v", firstGroup.Honors[0].Levels)
-	}
-	if len(firstGroup.Honors[1].Levels) != 2 {
-		t.Fatalf("expected all levels for every nested honor, got %#v", firstGroup.Honors[1].Levels)
 	}
 }
 
@@ -172,7 +169,20 @@ func assertHonorGroupsSecondPage(t *testing.T, router *gin.Engine) {
 	if len(secondBody.Items) != 1 {
 		t.Fatalf("expected one group on page two, got %#v", secondBody.Items)
 	}
-	requireHonorGroupID(t, secondBody.Items[0], 10)
+	requireHonorGroupID(t, secondBody.Items[0], 30)
+	group := secondBody.Items[0]
+	if len(group.Honors) != 2 || group.Honors[0].ID != 301 || group.Honors[1].ID != 302 {
+		t.Fatalf("expected all group 30 honors in source order, got %#v", group.Honors)
+	}
+	if group.Honors[0].Group == nil || group.Honors[0].Group.ID == nil || *group.Honors[0].Group.ID != 30 {
+		t.Fatalf("expected honor group metadata on every honor, got %#v", group.Honors[0].Group)
+	}
+	if len(group.Honors[0].Levels) != 1 || group.Honors[0].Levels[0].HonorID == nil || *group.Honors[0].Levels[0].HonorID != 301 {
+		t.Fatalf("expected honor levels to be included, got %#v", group.Honors[0].Levels)
+	}
+	if len(group.Honors[1].Levels) != 2 {
+		t.Fatalf("expected all levels for every nested honor, got %#v", group.Honors[1].Levels)
+	}
 }
 
 func assertHonorGroupsThirdPage(t *testing.T, router *gin.Engine) {
@@ -338,6 +348,191 @@ func TestHonorGroupsListEmptyAndUnknownHonorTypeFiltersReturnEmptyResults(t *tes
 				t.Fatalf("expected categories to remain unfiltered, got %#v", body.AvailableHonorTypes)
 			}
 		})
+	}
+}
+
+func TestHonorGroupsListSearchesGroupAndNestedHonorNames(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := newHonorGroupListRouter(newHonorGroupListHandler(newHonorGroupListCache()))
+	tests := []struct {
+		name        string
+		query       string
+		expectedIDs []int64
+	}{
+		{name: "normalized group name", query: "name=%20%20gRoUp%2010%20%20", expectedIDs: []int64{10}},
+		{name: "normalized nested honor name", query: "name=%20%20hOnOr%20302%20%20", expectedIDs: []int64{30}},
+		{name: "empty search", query: "name=", expectedIDs: []int64{10, 30, 40}},
+		{name: "whitespace search", query: "name=%20%20", expectedIDs: []int64{10, 30, 40}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := serveLookupRequest(
+				t,
+				router,
+				http.MethodGet,
+				"/api/v1/honorGroups/jp/list?"+test.query,
+			)
+			if response.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+			}
+
+			body := decodeHonorGroupList(t, response.Body.Bytes())
+			if body.Pagination.Total != len(test.expectedIDs) || len(body.Items) != len(test.expectedIDs) {
+				t.Fatalf("expected %d matches, got %#v", len(test.expectedIDs), body)
+			}
+			for index, expectedID := range test.expectedIDs {
+				requireHonorGroupID(t, body.Items[index], expectedID)
+			}
+		})
+	}
+}
+
+func TestHonorGroupsListNoMatchReturnsStableEmptyResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := newHonorGroupListRouter(newHonorGroupListHandler(newHonorGroupListCache()))
+	path := "/api/v1/honorGroups/jp/list?name=no%20matching%20honor"
+	first := serveLookupRequest(t, router, http.MethodGet, path)
+	second := serveLookupRequest(t, router, http.MethodGet, path)
+	if first.Code != http.StatusOK || second.Code != http.StatusOK {
+		t.Fatalf("expected 200 for no-match search, got %d and %d", first.Code, second.Code)
+	}
+	if first.Body.String() != second.Body.String() {
+		t.Fatalf("expected stable empty responses, got %q and %q", first.Body.String(), second.Body.String())
+	}
+
+	body := decodeHonorGroupList(t, first.Body.Bytes())
+	if body.Items == nil || len(body.Items) != 0 || body.Pagination.Total != 0 || body.Pagination.TotalPages != 0 || body.Pagination.HasNext {
+		t.Fatalf("expected authoritative empty search response, got %#v", body)
+	}
+	if len(body.AvailableHonorTypes) != 2 || body.AvailableHonorTypes[0] != "achievement" ||
+		body.AvailableHonorTypes[1] != "degree" {
+		t.Fatalf("expected types from all displayable groups, got %#v", body.AvailableHonorTypes)
+	}
+}
+
+func TestHonorGroupsListSortsIDPagesAscendingAndDescending(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := newHonorGroupListRouter(newHonorGroupListHandler(newHonorGroupListCache()))
+	tests := []struct {
+		name            string
+		firstPageQuery  string
+		secondPageQuery string
+		firstPageIDs    []int64
+		secondPageID    int64
+	}{
+		{
+			name:            "ascending",
+			firstPageQuery:  "page=1&page_size=2&sort_by=id&sort_order=asc",
+			secondPageQuery: "page=2&page_size=2&sort_by=id&sort_order=asc",
+			firstPageIDs:    []int64{10, 30},
+			secondPageID:    40,
+		},
+		{
+			name:            "descending",
+			firstPageQuery:  "page=1&page_size=2&sort_order=desc",
+			secondPageQuery: "page=2&page_size=2&sort_order=desc",
+			firstPageIDs:    []int64{40, 30},
+			secondPageID:    10,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			firstPage := serveLookupRequest(
+				t,
+				router,
+				http.MethodGet,
+				"/api/v1/honorGroups/jp/list?"+test.firstPageQuery,
+			)
+			if firstPage.Code != http.StatusOK {
+				t.Fatalf("expected 200 on first page, got %d: %s", firstPage.Code, firstPage.Body.String())
+			}
+			firstBody := decodeHonorGroupList(t, firstPage.Body.Bytes())
+			if firstBody.Pagination.Total != 3 || firstBody.Pagination.TotalPages != 2 || !firstBody.Pagination.HasNext {
+				t.Fatalf("expected pagination over all three groups, got %#v", firstBody.Pagination)
+			}
+			if len(firstBody.Items) != len(test.firstPageIDs) {
+				t.Fatalf("expected first page IDs %v, got %#v", test.firstPageIDs, firstBody.Items)
+			}
+			for index, expectedID := range test.firstPageIDs {
+				requireHonorGroupID(t, firstBody.Items[index], expectedID)
+			}
+
+			secondPage := serveLookupRequest(
+				t,
+				router,
+				http.MethodGet,
+				"/api/v1/honorGroups/jp/list?"+test.secondPageQuery,
+			)
+			if secondPage.Code != http.StatusOK {
+				t.Fatalf("expected 200 on second page, got %d: %s", secondPage.Code, secondPage.Body.String())
+			}
+			secondBody := decodeHonorGroupList(t, secondPage.Body.Bytes())
+			if len(secondBody.Items) != 1 || secondBody.Pagination.HasNext {
+				t.Fatalf("expected one final-page result, got %#v", secondBody)
+			}
+			requireHonorGroupID(t, secondBody.Items[0], test.secondPageID)
+		})
+	}
+}
+
+func TestHonorGroupsListRejectsInvalidSortQueryValues(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := newHonorGroupListRouter(newHonorGroupListHandler(newHonorGroupListCache()))
+	for _, query := range []string{"sort_by=name", "sort_order=sideways"} {
+		t.Run(query, func(t *testing.T) {
+			response := serveLookupRequest(
+				t,
+				router,
+				http.MethodGet,
+				"/api/v1/honorGroups/jp/list?"+query,
+			)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for %s, got %d: %s", query, response.Code, response.Body.String())
+			}
+
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode invalid sort response: %v", err)
+			}
+			if body.Error.Code != "INVALID_REQUEST" {
+				t.Fatalf("expected INVALID_REQUEST, got %q", body.Error.Code)
+			}
+		})
+	}
+}
+
+func TestHonorGroupsListAppliesFiltersBeforePagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := newHonorGroupListRouter(newHonorGroupListHandler(newHonorGroupListCache()))
+	response := serveLookupRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/honorGroups/jp/list?page=1&page_size=1&honor_type=achievement&name=%20HONOR%20401%20",
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200 for filtered page, got %d: %s", response.Code, response.Body.String())
+	}
+
+	body := decodeHonorGroupList(t, response.Body.Bytes())
+	if len(body.Items) != 1 || body.Pagination.Total != 1 || body.Pagination.TotalPages != 1 || body.Pagination.HasNext {
+		t.Fatalf("expected pagination after category and name filters, got %#v", body)
+	}
+	requireHonorGroupID(t, body.Items[0], 40)
+	if len(body.AvailableHonorTypes) != 2 || body.AvailableHonorTypes[0] != "achievement" ||
+		body.AvailableHonorTypes[1] != "degree" {
+		t.Fatalf("expected all available types regardless of filters, got %#v", body.AvailableHonorTypes)
 	}
 }
 

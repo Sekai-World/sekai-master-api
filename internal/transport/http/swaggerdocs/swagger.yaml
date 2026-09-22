@@ -4387,9 +4387,28 @@ paths:
         minimum: 1
         name: page_size
         type: integer
+      - description: Case-insensitive substring of the group or nested honor name
+        in: query
+        name: name
+        type: string
       - description: Exact honor group type filter
         in: query
         name: honor_type
+        type: string
+      - default: id
+        description: Sort field
+        enum:
+        - id
+        in: query
+        name: sort_by
+        type: string
+      - default: asc
+        description: Sort order
+        enum:
+        - asc
+        - desc
+        in: query
+        name: sort_order
         type: string
       produces:
       - application/json
