@@ -96,6 +96,18 @@ func newBondsHonorCharacterUnitRecord(id, gameCharacterID int64, unit string) ma
 	}
 }
 
+func newBondsHonorWordRecord(id, seq, groupID int64, name string) map[string]any {
+	return map[string]any{
+		"id":              id,
+		"seq":             seq,
+		"bondsGroupId":    groupID,
+		"assetbundleName": "word-" + strconv.FormatInt(id, 10),
+		"name":            name,
+		"description":     "description-" + name,
+		"unknown":         "must not be exposed",
+	}
+}
+
 func decodeBondsHonorObject(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
@@ -243,6 +255,93 @@ func TestBondsHonorsTypedEndpointsSupportFiveRegions(t *testing.T) {
 			t.Fatalf("expected by-id 200 for %s, got %d: %s", region, byIDResponse.Code, byIDResponse.Body.String())
 		}
 		assertBondsHonorProjection(t, decodeBondsHonorObject(t, byIDResponse.Body.Bytes()), id, groupID, unitID1, unitID2)
+	}
+}
+
+func TestBondsHonorsWordsAreGroupedProjectedAndSortedForListAndByID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	firstHonor := newBondsHonorRecord(1, 1, 77, 11, 12, "First")
+	secondHonor := newBondsHonorRecord(2, 2, 88, 21, 22, "Second")
+	wordRecords := []map[string]any{
+		newBondsHonorWordRecord(22, 2, 77, "Later"),
+		newBondsHonorWordRecord(10, 1, 77, "First tie"),
+		newBondsHonorWordRecord(9, 1, 77, "Second tie"),
+		newBondsHonorWordRecord(30, 1, 88, "Other group"),
+		newBondsHonorWordRecord(40, 1, 99, "Unmatched group"),
+	}
+	cache := &bondsHonorTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			byID: map[string]map[string]map[string]map[string]any{
+				"jp": {bondsHonorsEntity: {"1": firstHonor}},
+			},
+			listByEntity: map[string]map[string][]map[string]any{
+				"jp": {
+					bondsHonorsEntity: {firstHonor, secondHonor},
+					"bondshonorwords": wordRecords,
+				},
+			},
+		},
+	}
+	router := newBondsHonorRouter(newReadyBondsHonorTrackingHandler(cache))
+
+	listResponse := serveLookupRequest(t, router, http.MethodGet, "/api/v1/bondsHonors/jp/list")
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", listResponse.Code, listResponse.Body.String())
+	}
+	items, _ := decodeBondsHonorList(t, listResponse.Body.Bytes())
+	if len(items) != 2 {
+		t.Fatalf("expected two bonds honors, got %#v", items)
+	}
+	assertBondsHonorWords(t, items[0], []int64{9, 10, 22}, 77)
+	assertBondsHonorWords(t, items[1], []int64{30}, 88)
+
+	byIDResponse := serveLookupRequest(t, router, http.MethodGet, "/api/v1/bondsHonors/jp/1")
+	if byIDResponse.Code != http.StatusOK {
+		t.Fatalf("expected by-ID 200, got %d: %s", byIDResponse.Code, byIDResponse.Body.String())
+	}
+	assertBondsHonorWords(t, decodeBondsHonorObject(t, byIDResponse.Body.Bytes()), []int64{9, 10, 22}, 77)
+
+	if bondsHonorWordsEntity != "bondsHonorWords" {
+		t.Fatalf("unexpected Bonds Honor words entity key %q", bondsHonorWordsEntity)
+	}
+	wordReads := 0
+	for _, call := range cache.listAllCalls {
+		if call.entity == "bondsHonorWords" {
+			wordReads++
+			if call.region != "jp" {
+				t.Fatalf("expected words to be loaded from the request region, got %+v", call)
+			}
+		}
+	}
+	if wordReads != 2 {
+		t.Fatalf("expected one words entity read per endpoint request, got %d calls: %+v", wordReads, cache.listAllCalls)
+	}
+}
+
+func assertBondsHonorWords(t *testing.T, item map[string]any, expectedIDs []int64, groupID int64) {
+	t.Helper()
+
+	words, ok := item["words"].([]any)
+	if !ok || len(words) != len(expectedIDs) {
+		t.Fatalf("expected words %v for group %d, got %#v", expectedIDs, groupID, item["words"])
+	}
+	for index, expectedID := range expectedIDs {
+		word, ok := words[index].(map[string]any)
+		if !ok || len(word) != 6 {
+			t.Fatalf("expected six projected word fields, got %#v", words[index])
+		}
+		if word["id"] != float64(expectedID) || word["bondsGroupId"] != float64(groupID) {
+			t.Fatalf("unexpected word/group association: %#v", word)
+		}
+		if word["assetbundleName"] != "word-"+strconv.FormatInt(expectedID, 10) || word["name"] == nil || word["description"] == nil {
+			t.Fatalf("expected all supported word fields to be projected: %#v", word)
+		}
+		if _, exists := word["seq"]; !exists {
+			t.Fatalf("word seq is missing from projection: %#v", word)
+		}
+		if _, exists := word["unknown"]; exists {
+			t.Fatalf("unknown word field leaked into response: %#v", word)
+		}
 	}
 }
 
@@ -661,8 +760,8 @@ func TestBondsHonorsListLoadsEachRelationOnceAndOnlyEnrichesCurrentPage(t *testi
 	if len(items) != 2 || items[0]["id"] != float64(1) || items[1]["id"] != float64(2) {
 		t.Fatalf("expected only the current page, got %#v", items)
 	}
-	if len(cache.listAllCalls) != 3 {
-		t.Fatalf("expected one list call each for the base and two relation entities, got %+v", cache.listAllCalls)
+	if len(cache.listAllCalls) != 4 {
+		t.Fatalf("expected one list call each for the base and three relation entities, got %+v", cache.listAllCalls)
 	}
 	counts := make(map[string]int)
 	for _, call := range cache.listAllCalls {
@@ -671,7 +770,7 @@ func TestBondsHonorsListLoadsEachRelationOnceAndOnlyEnrichesCurrentPage(t *testi
 		}
 		counts[call.entity]++
 	}
-	if counts[bondsHonorsEntity] != 1 || counts[bondsHonorBondsEntity] != 1 || counts[bondsHonorGameCharacterUnitsEntity] != 1 {
+	if counts[bondsHonorsEntity] != 1 || counts[bondsHonorBondsEntity] != 1 || counts[bondsHonorWordsEntity] != 1 || counts[bondsHonorGameCharacterUnitsEntity] != 1 {
 		t.Fatalf("each entity must be loaded once, got counts=%v calls=%+v", counts, cache.listAllCalls)
 	}
 	if len(cache.byIDCalls) != 0 || cache.searchCalls != 0 {
@@ -709,6 +808,46 @@ func TestBondsHonorsStorageErrorsUseQueryErrorCode(t *testing.T) {
 	relationResponse := serveLookupRequest(t, newBondsHonorRouter(newReadyBondsHonorTrackingHandler(relationCache)), http.MethodGet, "/api/v1/bondsHonors/jp/7")
 	if relationResponse.Code != http.StatusInternalServerError || bondsHonorErrorCode(t, relationResponse.Body.Bytes()) != bondsHonorQueryErrorCode {
 		t.Fatalf("expected relationship storage error code %s, got %d: %s", bondsHonorQueryErrorCode, relationResponse.Code, relationResponse.Body.String())
+	}
+}
+
+func TestBondsHonorsWordsStorageErrorsUseQueryErrorCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	baseRecord := newBondsHonorRecord(7, 1, 77, 17, 18, "Words storage failure")
+	listCache := &bondsHonorTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"jp": {bondsHonorsEntity: {baseRecord}},
+			},
+		},
+		listAllErrors: map[string]error{bondsHonorWordsEntity: errors.New("words unavailable")},
+	}
+	listResponse := serveLookupRequest(
+		t,
+		newBondsHonorRouter(newReadyBondsHonorTrackingHandler(listCache)),
+		http.MethodGet,
+		"/api/v1/bondsHonors/jp/list",
+	)
+	if listResponse.Code != http.StatusInternalServerError || bondsHonorErrorCode(t, listResponse.Body.Bytes()) != bondsHonorQueryErrorCode {
+		t.Fatalf("expected list words error code %s, got %d: %s", bondsHonorQueryErrorCode, listResponse.Code, listResponse.Body.String())
+	}
+
+	byIDCache := &bondsHonorTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			byID: map[string]map[string]map[string]map[string]any{
+				"jp": {bondsHonorsEntity: {"7": baseRecord}},
+			},
+		},
+		listAllErrors: map[string]error{bondsHonorWordsEntity: errors.New("words unavailable")},
+	}
+	byIDResponse := serveLookupRequest(
+		t,
+		newBondsHonorRouter(newReadyBondsHonorTrackingHandler(byIDCache)),
+		http.MethodGet,
+		"/api/v1/bondsHonors/jp/7",
+	)
+	if byIDResponse.Code != http.StatusInternalServerError || bondsHonorErrorCode(t, byIDResponse.Body.Bytes()) != bondsHonorQueryErrorCode {
+		t.Fatalf("expected by-ID words error code %s, got %d: %s", bondsHonorQueryErrorCode, byIDResponse.Code, byIDResponse.Body.String())
 	}
 }
 

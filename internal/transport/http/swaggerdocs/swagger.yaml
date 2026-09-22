@@ -109,6 +109,25 @@ definitions:
         type: string
       seq:
         type: integer
+      words:
+        items:
+          $ref: '#/definitions/shared.BondsHonorWordResponse'
+        type: array
+    type: object
+  shared.BondsHonorWordResponse:
+    properties:
+      assetbundleName:
+        type: string
+      bondsGroupId:
+        type: integer
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      seq:
+        type: integer
     type: object
   shared.CardBatchItemResponse:
     properties:

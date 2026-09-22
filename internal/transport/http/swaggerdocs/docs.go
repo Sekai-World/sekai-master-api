@@ -5566,6 +5566,35 @@ const docTemplate = `{
                 },
                 "seq": {
                     "type": "integer"
+                },
+                "words": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.BondsHonorWordResponse"
+                    }
+                }
+            }
+        },
+        "shared.BondsHonorWordResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "bondsGroupId": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
                 }
             }
         },
