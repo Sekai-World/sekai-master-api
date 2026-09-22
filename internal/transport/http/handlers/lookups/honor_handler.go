@@ -3,6 +3,7 @@ package lookups
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -127,6 +128,7 @@ func (handler *LookupHandler) HonorsList(c *gin.Context) {
 // @Param region path string true "Region"
 // @Param page query int false "Page number" minimum(1)
 // @Param page_size query int false "Page size" minimum(1) maximum(24) default(12)
+// @Param honor_type query string false "Exact honor group type filter"
 // @Success 200 {object} shared.HonorGroupListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -162,11 +164,41 @@ func (handler *LookupHandler) HonorGroupsList(c *gin.Context) {
 	}
 
 	items := buildHonorGroupResponses(groupRecords, honorRecords)
+	availableHonorTypes := listAvailableHonorTypes(items)
+	if honorType, hasHonorType := c.GetQuery("honor_type"); hasHonorType {
+		filteredItems := make([]shared.HonorGroupObjectResponse, 0, len(items))
+		for _, item := range items {
+			if honorType != "" && item.HonorType != nil && *item.HonorType == honorType {
+				filteredItems = append(filteredItems, item)
+			}
+		}
+		items = filteredItems
+	}
+
 	pageItems := paginateHonorGroupResponses(items, page, pageSize)
 	response.JSON(c, http.StatusOK, shared.HonorGroupListResponse{
-		Items:      pageItems,
-		Pagination: lookupPaginationResponse(page, pageSize, len(items)),
+		Items:               pageItems,
+		AvailableHonorTypes: availableHonorTypes,
+		Pagination:          lookupPaginationResponse(page, pageSize, len(items)),
 	})
+}
+
+func listAvailableHonorTypes(items []shared.HonorGroupObjectResponse) []string {
+	types := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, item := range items {
+		if item.HonorType == nil || *item.HonorType == "" {
+			continue
+		}
+		if _, exists := seen[*item.HonorType]; exists {
+			continue
+		}
+
+		seen[*item.HonorType] = struct{}{}
+		types = append(types, *item.HonorType)
+	}
+	sort.Strings(types)
+	return types
 }
 
 func parseHonorGroupsPagination(c *gin.Context) (int, int, bool) {

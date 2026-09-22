@@ -3295,6 +3295,12 @@ const docTemplate = `{
                         "description": "Page size",
                         "name": "page_size",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Exact honor group type filter",
+                        "name": "honor_type",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -7146,6 +7152,12 @@ const docTemplate = `{
         "shared.HonorGroupListResponse": {
             "type": "object",
             "properties": {
+                "availableHonorTypes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "items": {
                     "type": "array",
                     "items": {

@@ -112,8 +112,9 @@ type HonorGroupObjectResponse struct {
 }
 
 type HonorGroupListResponse struct {
-	Items      []HonorGroupObjectResponse `json:"items"`
-	Pagination PaginationResponse         `json:"pagination"`
+	Items               []HonorGroupObjectResponse `json:"items"`
+	AvailableHonorTypes []string                   `json:"availableHonorTypes"`
+	Pagination          PaginationResponse         `json:"pagination"`
 }
 
 type Costume3DObjectResponse struct {

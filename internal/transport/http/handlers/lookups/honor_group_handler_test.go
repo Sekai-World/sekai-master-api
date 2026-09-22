@@ -50,9 +50,9 @@ func newHonorGroupListCache() *honorGroupListCache {
 				"jp": {
 					honorGroupsEntity: {
 						{"id": 30, "name": "Group 30", "honorType": "degree"},
-						{"id": 20, "name": "Empty group"},
-						{"id": 10, "name": "Group 10", "frameName": "frame_10"},
-						{"id": 40, "name": "Group 40"},
+						{"id": 20, "name": "Empty group", "honorType": "not-displayable"},
+						{"id": 10, "name": "Group 10", "honorType": "", "frameName": "frame_10"},
+						{"id": 40, "name": "Group 40", "honorType": "achievement"},
 					},
 					honorsEntity: {
 						{
@@ -139,6 +139,10 @@ func assertHonorGroupsFirstPage(t *testing.T, router *gin.Engine) {
 	firstBody := decodeHonorGroupList(t, firstPage.Body.Bytes())
 	if firstBody.Pagination.Total != 3 || firstBody.Pagination.TotalPages != 3 || !firstBody.Pagination.HasNext {
 		t.Fatalf("expected group-count pagination for three displayable groups, got %#v", firstBody.Pagination)
+	}
+	if len(firstBody.AvailableHonorTypes) != 2 || firstBody.AvailableHonorTypes[0] != "achievement" ||
+		firstBody.AvailableHonorTypes[1] != "degree" {
+		t.Fatalf("expected sorted types from displayable groups, got %#v", firstBody.AvailableHonorTypes)
 	}
 	if len(firstBody.Items) != 1 {
 		t.Fatalf("expected one group on page one, got %#v", firstBody.Items)
@@ -234,6 +238,106 @@ func TestHonorGroupsListReturnsEmptyPageForOutOfRangePage(t *testing.T) {
 	body := decodeHonorGroupList(t, response.Body.Bytes())
 	if len(body.Items) != 0 || body.Pagination.Total != 3 || body.Pagination.TotalPages != 3 || body.Pagination.HasNext {
 		t.Fatalf("expected authoritative empty out-of-range page, got %#v", body)
+	}
+}
+
+func TestHonorGroupsListFiltersExactHonorTypeBeforePagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := newHonorGroupListCache()
+	cache.listByEntity["jp"][honorGroupsEntity] = append(
+		cache.listByEntity["jp"][honorGroupsEntity],
+		map[string]any{"id": 50, "name": "Group 50", "honorType": "degree"},
+		map[string]any{"id": 60, "name": "Group 60", "honorType": "degree_plus"},
+	)
+	cache.listByEntity["jp"][honorsEntity] = append(
+		cache.listByEntity["jp"][honorsEntity],
+		map[string]any{
+			"id":              501,
+			"seq":             5,
+			"groupId":         50,
+			"name":            "Honor 501",
+			"honorRarity":     "rarity_normal",
+			"assetbundleName": "honor_501",
+			"levels":          []any{map[string]any{"honorId": 501, "level": 1}},
+		},
+		map[string]any{"id": 601, "groupId": 60, "name": "Honor 601"},
+	)
+	router := newHonorGroupListRouter(newHonorGroupListHandler(cache))
+
+	firstPage := serveLookupRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/honorGroups/jp/list?page=1&page_size=1&honor_type=degree",
+	)
+	if firstPage.Code != http.StatusOK {
+		t.Fatalf("expected 200 for honor type filter, got %d: %s", firstPage.Code, firstPage.Body.String())
+	}
+	firstBody := decodeHonorGroupList(t, firstPage.Body.Bytes())
+	if firstBody.Pagination.Total != 2 || firstBody.Pagination.TotalPages != 2 || !firstBody.Pagination.HasNext {
+		t.Fatalf("expected pagination over two exact matches, got %#v", firstBody.Pagination)
+	}
+	if len(firstBody.AvailableHonorTypes) != 3 || firstBody.AvailableHonorTypes[0] != "achievement" ||
+		firstBody.AvailableHonorTypes[1] != "degree" || firstBody.AvailableHonorTypes[2] != "degree_plus" {
+		t.Fatalf("expected all sorted displayable types before filtering, got %#v", firstBody.AvailableHonorTypes)
+	}
+	if len(firstBody.Items) != 1 {
+		t.Fatalf("expected one first-page group, got %#v", firstBody.Items)
+	}
+	firstGroup := firstBody.Items[0]
+	requireHonorGroupID(t, firstGroup, 30)
+	if len(firstGroup.Honors) != 2 || firstGroup.Honors[0].ID != 301 || firstGroup.Honors[1].ID != 302 {
+		t.Fatalf("expected all nested honors for the matching group, got %#v", firstGroup.Honors)
+	}
+	if firstGroup.Honors[0].Group == nil || firstGroup.Honors[0].Group.HonorType == nil ||
+		*firstGroup.Honors[0].Group.HonorType != "degree" {
+		t.Fatalf("expected nested group metadata to remain intact, got %#v", firstGroup.Honors[0].Group)
+	}
+
+	secondPage := serveLookupRequest(
+		t,
+		router,
+		http.MethodGet,
+		"/api/v1/honorGroups/jp/list?page=2&page_size=1&honor_type=degree",
+	)
+	if secondPage.Code != http.StatusOK {
+		t.Fatalf("expected 200 for second filtered page, got %d: %s", secondPage.Code, secondPage.Body.String())
+	}
+	secondBody := decodeHonorGroupList(t, secondPage.Body.Bytes())
+	if len(secondBody.Items) != 1 || secondBody.Items[0].ID != 50 {
+		t.Fatalf("expected second exact match on page two, got %#v", secondBody.Items)
+	}
+	if secondBody.Pagination.Total != 2 || secondBody.Pagination.TotalPages != 2 || secondBody.Pagination.HasNext {
+		t.Fatalf("expected final filtered pagination metadata, got %#v", secondBody.Pagination)
+	}
+}
+
+func TestHonorGroupsListEmptyAndUnknownHonorTypeFiltersReturnEmptyResults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := newHonorGroupListRouter(newHonorGroupListHandler(newHonorGroupListCache()))
+	for _, query := range []string{"honor_type=", "honor_type=unknown"} {
+		t.Run(query, func(t *testing.T) {
+			response := serveLookupRequest(
+				t,
+				router,
+				http.MethodGet,
+				"/api/v1/honorGroups/jp/list?"+query,
+			)
+			if response.Code != http.StatusOK {
+				t.Fatalf("expected 200 for empty category results, got %d: %s", response.Code, response.Body.String())
+			}
+
+			body := decodeHonorGroupList(t, response.Body.Bytes())
+			if body.Items == nil || len(body.Items) != 0 || body.Pagination.Total != 0 || body.Pagination.TotalPages != 0 || body.Pagination.HasNext {
+				t.Fatalf("expected valid empty filtered response, got %#v", body)
+			}
+			if len(body.AvailableHonorTypes) != 2 || body.AvailableHonorTypes[0] != "achievement" ||
+				body.AvailableHonorTypes[1] != "degree" {
+				t.Fatalf("expected categories to remain unfiltered, got %#v", body.AvailableHonorTypes)
+			}
+		})
 	}
 }
 
