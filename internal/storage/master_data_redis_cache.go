@@ -2592,6 +2592,7 @@ func entityNameFromPath(filePath string) string {
 var compositeStorageKeyEntities = [...]string{
 	"resourceboxes",
 	"resourceboxdetails",
+	"charactermissionv2parametergroups",
 }
 
 func compositeStorageKeyFields(entity string) []string {
@@ -2600,6 +2601,8 @@ func compositeStorageKeyFields(entity string) []string {
 		return []string{"id", "resourceBoxPurpose"}
 	case "resourceboxdetails":
 		return []string{"resourceBoxId", "resourceBoxPurpose", "seq"}
+	case "charactermissionv2parametergroups":
+		return []string{"id", "seq"}
 	default:
 		return nil
 	}

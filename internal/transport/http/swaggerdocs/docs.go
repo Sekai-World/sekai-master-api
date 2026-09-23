@@ -1527,6 +1527,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/characterMissionV2ParameterGroups/{region}/{id}/levels": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "missions"
+                ],
+                "summary": "List Character Mission V2 levels for a parameter group",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Parameter group ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MissionParameterGroupLevelsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/characterProfiles/{region}/list": {
             "get": {
                 "produces": [
@@ -1583,6 +1658,75 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/shared.GenericRecordListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/characterRanks/{region}/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "characterRanks"
+                ],
+                "summary": "List Character Rank references for a character",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Character ID",
+                        "name": "character_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.CharacterRankListResponse"
                         }
                     },
                     "400": {
@@ -5970,6 +6114,49 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.CharacterRankListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.CharacterRankResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.CharacterRankResponse": {
+            "type": "object",
+            "properties": {
+                "characterId": {
+                    "type": "integer"
+                },
+                "characterRank": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "power1BonusRate": {
+                    "type": "number"
+                },
+                "power2BonusRate": {
+                    "type": "number"
+                },
+                "power3BonusRate": {
+                    "type": "number"
+                },
+                "rewardResourceBoxes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MissionResourceBoxResponse"
+                    }
+                }
+            }
+        },
         "shared.CharacterResponse": {
             "type": "object",
             "properties": {
@@ -7453,6 +7640,71 @@ const docTemplate = `{
                 }
             }
         },
+        "shared.MissionParameterGroupLevelResponse": {
+            "type": "object",
+            "properties": {
+                "exp": {
+                    "type": "integer"
+                },
+                "quantity": {
+                    "type": "integer"
+                },
+                "requirement": {
+                    "type": "integer"
+                },
+                "reward": {
+                    "$ref": "#/definitions/shared.MissionParameterGroupLevelRewardResponse"
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MissionParameterGroupLevelRewardResponse": {
+            "type": "object",
+            "properties": {
+                "resourceQuantity": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MissionParameterGroupLevelsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MissionParameterGroupLevelResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MissionParameterGroupResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "lastLevel": {
+                    "$ref": "#/definitions/shared.MissionParameterGroupLevelResponse"
+                },
+                "previewLevels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MissionParameterGroupLevelResponse"
+                    }
+                },
+                "totalLevels": {
+                    "type": "integer"
+                }
+            }
+        },
         "shared.MissionResourceBoxDetailResponse": {
             "type": "object",
             "properties": {
@@ -7522,6 +7774,9 @@ const docTemplate = `{
                 },
                 "normalMissionType": {
                     "type": "string"
+                },
+                "parameterGroup": {
+                    "$ref": "#/definitions/shared.MissionParameterGroupResponse"
                 },
                 "parameterGroupId": {
                     "type": "integer"

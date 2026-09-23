@@ -170,22 +170,63 @@ type MissionResourceBoxDetailResponse struct {
 	ResourceQuantity   *int64  `json:"resourceQuantity,omitempty"`
 }
 
+type MissionParameterGroupLevelResponse struct {
+	Seq         int64                                     `json:"seq"`
+	Requirement int64                                     `json:"requirement"`
+	Exp         *int64                                    `json:"exp,omitempty"`
+	Quantity    *int64                                    `json:"quantity,omitempty"`
+	Reward      *MissionParameterGroupLevelRewardResponse `json:"reward,omitempty"`
+}
+
+type MissionParameterGroupLevelRewardResponse struct {
+	ResourceQuantity *int64 `json:"resourceQuantity,omitempty"`
+	ResourceType     string `json:"resourceType"`
+}
+
+type MissionParameterGroupResponse struct {
+	ID            int64                                `json:"id"`
+	TotalLevels   int                                  `json:"totalLevels"`
+	PreviewLevels []MissionParameterGroupLevelResponse `json:"previewLevels"`
+	LastLevel     *MissionParameterGroupLevelResponse  `json:"lastLevel,omitempty"`
+}
+
+type MissionParameterGroupLevelsResponse struct {
+	Items      []MissionParameterGroupLevelResponse `json:"items"`
+	Pagination PaginationResponse                   `json:"pagination"`
+}
+
+type CharacterRankResponse struct {
+	ID                  int64                        `json:"id"`
+	CharacterID         int64                        `json:"characterId"`
+	CharacterRank       int64                        `json:"characterRank"`
+	Power1BonusRate     *float64                     `json:"power1BonusRate,omitempty"`
+	Power2BonusRate     *float64                     `json:"power2BonusRate,omitempty"`
+	Power3BonusRate     *float64                     `json:"power3BonusRate,omitempty"`
+	RewardResourceBoxes []MissionResourceBoxResponse `json:"rewardResourceBoxes,omitempty"`
+}
+
+type CharacterRankListResponse struct {
+	Items      []CharacterRankResponse `json:"items"`
+	Pagination PaginationResponse      `json:"pagination"`
+}
+
 type MissionResponse struct {
-	ID                   int64                    `json:"id"`
-	Family               string                   `json:"family"`
-	Seq                  *int64                   `json:"seq,omitempty"`
-	Sentence             *string                  `json:"sentence,omitempty"`
-	ProgressSentence     *string                  `json:"progressSentence,omitempty"`
-	Requirement          *int64                   `json:"requirement,omitempty"`
-	CharacterID          *int64                   `json:"characterId,omitempty"`
-	ParameterGroupID     *int64                   `json:"parameterGroupId,omitempty"`
-	EventID              *int64                   `json:"eventId,omitempty"`
-	ResourceBoxID        *int64                   `json:"resourceBoxId,omitempty"`
-	StoryMissionType     *string                  `json:"storyMissionType,omitempty"`
-	NormalMissionType    *string                  `json:"normalMissionType,omitempty"`
-	CharacterMissionType *string                  `json:"characterMissionType,omitempty"`
-	IsAchievementMission *bool                    `json:"isAchievementMission,omitempty"`
-	Rewards              *[]MissionRewardResponse `json:"rewards,omitempty"`
+	ID                   int64                          `json:"id"`
+	Family               string                         `json:"family"`
+	Seq                  *int64                         `json:"seq,omitempty"`
+	Sentence             *string                        `json:"sentence,omitempty"`
+	ProgressSentence     *string                        `json:"progressSentence,omitempty"`
+	Requirement          *int64                         `json:"requirement,omitempty"`
+	CharacterID          *int64                         `json:"characterId,omitempty"`
+	ParameterGroupID     *int64                         `json:"parameterGroupId,omitempty"`
+	EventID              *int64                         `json:"eventId,omitempty"`
+	ResourceBoxID        *int64                         `json:"resourceBoxId,omitempty"`
+	StoryMissionType     *string                        `json:"storyMissionType,omitempty"`
+	NormalMissionType    *string                        `json:"normalMissionType,omitempty"`
+	CharacterMissionType *string                        `json:"characterMissionType,omitempty"`
+	IsAchievementMission *bool                          `json:"isAchievementMission,omitempty"`
+	ParameterGroup       *MissionParameterGroupResponse `json:"parameterGroup,omitempty"`
+	Rewards              *[]MissionRewardResponse       `json:"rewards,omitempty"`
 }
 
 type MissionListResponse struct {

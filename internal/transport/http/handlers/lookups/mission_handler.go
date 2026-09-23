@@ -15,19 +15,23 @@ import (
 )
 
 const (
-	storyMissionsFamily           = "storyMissions"
-	characterMissionV2sFamily     = "characterMissionV2s"
-	normalMissionsFamily          = "normalMissions"
-	storyMissionsEntity           = "storymissions"
-	characterMissionV2sEntity     = "charactermissionv2s"
-	normalMissionsEntity          = "normalmissions"
-	resourceBoxesEntity           = "resourceboxes"
-	resourceBoxDetailsEntity      = "resourceboxdetails"
-	missionQueryErrorCode         = "MISSION_QUERY_ERROR"
-	missionNotFoundCode           = "MISSION_NOT_FOUND"
-	missionFamilyAllowlistError   = "family must be one of: storyMissions, characterMissionV2s, normalMissions"
-	missionRewardResolvedStatus   = "resolved"
-	missionRewardUnresolvedStatus = "unresolved"
+	storyMissionsFamily                     = "storyMissions"
+	characterMissionV2sFamily               = "characterMissionV2s"
+	normalMissionsFamily                    = "normalMissions"
+	storyMissionsEntity                     = "storymissions"
+	characterMissionV2sEntity               = "charactermissionv2s"
+	characterMissionV2ParameterGroupsEntity = "charactermissionv2parametergroups"
+	characterMissionV2ExJsonsEntity         = "charactermissionv2exjsons"
+	characterRanksEntity                    = "characterranks"
+	normalMissionsEntity                    = "normalmissions"
+	resourceBoxesEntity                     = "resourceboxes"
+	resourceBoxDetailsEntity                = "resourceboxdetails"
+	missionQueryErrorCode                   = "MISSION_QUERY_ERROR"
+	missionNotFoundCode                     = "MISSION_NOT_FOUND"
+	missionParameterGroupNotFoundCode       = "MISSION_PARAMETER_GROUP_NOT_FOUND"
+	missionFamilyAllowlistError             = "family must be one of: storyMissions, characterMissionV2s, normalMissions"
+	missionRewardResolvedStatus             = "resolved"
+	missionRewardUnresolvedStatus           = "unresolved"
 )
 
 type missionFamilyConfig struct {
@@ -94,6 +98,8 @@ type missionRewardCatalogRequest struct {
 	boxes   []map[string]any
 	details []map[string]any
 }
+
+type missionParameterGroupCatalog map[int64][]shared.MissionParameterGroupLevelResponse
 
 // MissionsList godoc
 // @Summary List missions by family and page
@@ -170,6 +176,10 @@ func (handler *LookupHandler) MissionsList(c *gin.Context) {
 	}
 
 	itemsResponse := make([]shared.MissionResponse, 0, len(pagedItems))
+	if err := handler.resolveMissionParameterGroups(c.Request.Context(), region, config.family, pagedItems); err != nil {
+		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to resolve mission parameter groups")
+		return
+	}
 	for _, item := range pagedItems {
 		itemsResponse = append(itemsResponse, item.response)
 	}
@@ -233,6 +243,10 @@ func (handler *LookupHandler) MissionByID(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to normalize mission")
 		return
 	}
+	if err := handler.resolveMissionParameterGroups(c.Request.Context(), region, config.family, items); err != nil {
+		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to resolve mission parameter groups")
+		return
+	}
 	rewardRequest := missionRewardResolutionRequest{region: region, items: items}
 	if err := handler.resolveMissionRewards(c.Request.Context(), rewardRequest); err != nil {
 		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to resolve mission rewards")
@@ -240,6 +254,211 @@ func (handler *LookupHandler) MissionByID(c *gin.Context) {
 	}
 
 	response.JSON(c, http.StatusOK, items[0].response)
+}
+
+// CharacterMissionV2ParameterGroupLevels godoc
+// @Summary List Character Mission V2 levels for a parameter group
+// @Tags missions
+// @Produce json
+// @Param region path string true "Region"
+// @Param id path int true "Parameter group ID" minimum(1)
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
+// @Success 200 {object} shared.MissionParameterGroupLevelsResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 404 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Router /characterMissionV2ParameterGroups/{region}/{id}/levels [get]
+func (handler *LookupHandler) CharacterMissionV2ParameterGroupLevels(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+
+	region, ok := parseTypedLookupRegion(c, handler.masterDataSync)
+	if !ok {
+		return
+	}
+	groupID, ok := parseTypedLookupID(c)
+	if !ok {
+		return
+	}
+	page, pageSize, ok := parseLookupPagination(c)
+	if !ok {
+		return
+	}
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, characterMissionV2ParameterGroupsEntity) {
+		return
+	}
+
+	records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, characterMissionV2ParameterGroupsEntity)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to list mission parameter group levels")
+		return
+	}
+	parsedID, _ := strconv.ParseInt(groupID, 10, 64)
+	levels := buildMissionParameterGroupCatalog(records)[parsedID]
+	if len(levels) == 0 {
+		response.Error(c, http.StatusNotFound, missionParameterGroupNotFoundCode, "mission parameter group not found")
+		return
+	}
+
+	resourceTypes, err := handler.loadMissionParameterGroupResourceTypes(c.Request.Context(), region)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to resolve mission parameter group rewards")
+		return
+	}
+	levels = addMissionParameterGroupRewards(levels, resourceTypes[parsedID])
+	pageLevels := paginateMissionParameterGroupLevels(levels, page, pageSize)
+	response.JSON(c, http.StatusOK, shared.MissionParameterGroupLevelsResponse{
+		Items:      pageLevels,
+		Pagination: lookupPaginationResponse(page, pageSize, len(levels)),
+	})
+}
+
+// CharacterRanksList godoc
+// @Summary List Character Rank references for a character
+// @Tags characterRanks
+// @Produce json
+// @Param region path string true "Region"
+// @Param character_id query int true "Character ID" minimum(1)
+// @Param page query int false "Page number" minimum(1)
+// @Param page_size query int false "Page size" minimum(1) maximum(100)
+// @Success 200 {object} shared.CharacterRankListResponse
+// @Failure 400 {object} shared.ErrorResponse
+// @Failure 500 {object} shared.ErrorResponse
+// @Failure 503 {object} shared.ErrorResponse
+// @Router /characterRanks/{region}/list [get]
+func (handler *LookupHandler) CharacterRanksList(c *gin.Context) {
+	if handler.masterDataSync == nil {
+		response.Error(c, http.StatusServiceUnavailable, "MASTER_DATA_DISABLED", "master data service is not ready")
+		return
+	}
+	region, ok := parseTypedLookupRegion(c, handler.masterDataSync)
+	if !ok {
+		return
+	}
+	characterID, ok := parsePositiveQueryID(c, "character_id")
+	if !ok {
+		return
+	}
+	page, pageSize, ok := parseLookupPagination(c)
+	if !ok {
+		return
+	}
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, characterRanksEntity) {
+		return
+	}
+
+	ranks, err := handler.masterDataSync.ListAll(c.Request.Context(), region, characterRanksEntity)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to list character ranks")
+		return
+	}
+	boxes, err := handler.masterDataSync.ListAll(c.Request.Context(), region, resourceBoxesEntity)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to resolve character rank rewards")
+		return
+	}
+	items := projectCharacterRankResponses(ranks, boxes, characterID)
+	response.JSON(c, http.StatusOK, shared.CharacterRankListResponse{
+		Items:      paginateCharacterRankResponses(items, page, pageSize),
+		Pagination: lookupPaginationResponse(page, pageSize, len(items)),
+	})
+}
+
+func parsePositiveQueryID(c *gin.Context, key string) (int64, bool) {
+	rawValue, exists := c.GetQuery(key)
+	if !exists || strings.TrimSpace(rawValue) == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", key+" must be a positive integer")
+		return 0, false
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(rawValue), 10, 64)
+	if err != nil || id <= 0 {
+		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", key+" must be a positive integer")
+		return 0, false
+	}
+	return id, true
+}
+
+func projectCharacterRankResponses(
+	rankRecords []map[string]any,
+	resourceBoxRecords []map[string]any,
+	characterID int64,
+) []shared.CharacterRankResponse {
+	rewardBoxesByID := make(map[int64][]map[string]any)
+	for _, record := range resourceBoxRecords {
+		id, ok := lookupInt64(record["id"])
+		if !ok || id <= 0 || !strings.EqualFold(strings.TrimSpace(lookupString(record["resourceBoxPurpose"])), "character_rank_reward") {
+			continue
+		}
+		rewardBoxesByID[id] = append(rewardBoxesByID[id], record)
+	}
+
+	items := make([]shared.CharacterRankResponse, 0)
+	for _, record := range rankRecords {
+		recordCharacterID, ok := lookupInt64(record["characterId"])
+		if !ok || recordCharacterID != characterID {
+			continue
+		}
+		id, ok := lookupInt64(record["id"])
+		if !ok {
+			continue
+		}
+		rank, ok := lookupInt64(record["characterRank"])
+		if !ok {
+			continue
+		}
+		item := shared.CharacterRankResponse{
+			ID:                  id,
+			CharacterID:         recordCharacterID,
+			CharacterRank:       rank,
+			Power1BonusRate:     lookupOptionalFloat64(record["power1BonusRate"]),
+			Power2BonusRate:     lookupOptionalFloat64(record["power2BonusRate"]),
+			Power3BonusRate:     lookupOptionalFloat64(record["power3BonusRate"]),
+			RewardResourceBoxes: make([]shared.MissionResourceBoxResponse, 0),
+		}
+		for _, resourceBoxID := range lookupPositiveInt64List(record["rewardResourceBoxIds"]) {
+			for _, boxRecord := range rewardBoxesByID[resourceBoxID] {
+				if box := projectMissionResourceBox(boxRecord); box != nil {
+					item.RewardResourceBoxes = append(item.RewardResourceBoxes, *box)
+				}
+			}
+		}
+		items = append(items, item)
+	}
+	sort.SliceStable(items, func(left, right int) bool {
+		return items[left].CharacterRank < items[right].CharacterRank
+	})
+	return items
+}
+
+func lookupPositiveInt64List(value any) []int64 {
+	values := make([]int64, 0)
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			if parsed, ok := lookupInt64(item); ok && parsed > 0 {
+				values = append(values, parsed)
+			}
+		}
+	case []int64:
+		for _, item := range typed {
+			if item > 0 {
+				values = append(values, item)
+			}
+		}
+	}
+	return values
+}
+
+func paginateCharacterRankResponses(items []shared.CharacterRankResponse, page int, pageSize int) []shared.CharacterRankResponse {
+	start := (page - 1) * pageSize
+	if start >= len(items) {
+		return []shared.CharacterRankResponse{}
+	}
+	return items[start:minInt(start+pageSize, len(items))]
 }
 
 func validateMissionQueryParameters(c *gin.Context, allowFamily bool) bool {
@@ -776,6 +995,152 @@ func paginateMissionItems(items []missionItem, page int, pageSize int) []mission
 	}
 
 	return items[start:end]
+}
+
+func (handler *LookupHandler) resolveMissionParameterGroups(ctx context.Context, region string, family string, items []missionItem) error {
+	if family != characterMissionV2sFamily {
+		return nil
+	}
+
+	records, err := handler.masterDataSync.ListAll(ctx, region, characterMissionV2ParameterGroupsEntity)
+	if err != nil {
+		return err
+	}
+
+	groups := buildMissionParameterGroupCatalog(records)
+	resourceTypes, err := handler.loadMissionParameterGroupResourceTypes(ctx, region)
+	if err != nil {
+		return err
+	}
+	for index := range items {
+		parameterGroupID := items[index].response.ParameterGroupID
+		if parameterGroupID == nil {
+			continue
+		}
+
+		levels, ok := groups[*parameterGroupID]
+		if ok {
+			items[index].response.ParameterGroup = buildMissionParameterGroupResponse(*parameterGroupID, addMissionParameterGroupRewards(levels, resourceTypes[*parameterGroupID]))
+		}
+	}
+
+	return nil
+}
+
+func buildMissionParameterGroupCatalog(records []map[string]any) missionParameterGroupCatalog {
+	groups := make(missionParameterGroupCatalog)
+	for _, record := range records {
+		id, ok := lookupInt64(record["id"])
+		if !ok || id <= 0 {
+			continue
+		}
+		seq, ok := lookupInt64(record["seq"])
+		if !ok {
+			continue
+		}
+		requirement, ok := lookupInt64(record["requirement"])
+		if !ok {
+			continue
+		}
+
+		level := shared.MissionParameterGroupLevelResponse{
+			Seq:         seq,
+			Requirement: requirement,
+		}
+		if value, exists := record["exp"]; exists {
+			level.Exp = lookupOptionalInt64(value)
+		}
+		if value, exists := record["quantity"]; exists {
+			level.Quantity = lookupOptionalInt64(value)
+		}
+		groups[id] = append(groups[id], level)
+	}
+
+	for id, levels := range groups {
+		sort.SliceStable(levels, func(leftIndex, rightIndex int) bool {
+			return levels[leftIndex].Seq < levels[rightIndex].Seq
+		})
+		groups[id] = levels
+	}
+
+	return groups
+}
+
+func buildMissionParameterGroupResponse(id int64, levels []shared.MissionParameterGroupLevelResponse) *shared.MissionParameterGroupResponse {
+	previewCount := minInt(len(levels), 3)
+	preview := append([]shared.MissionParameterGroupLevelResponse(nil), levels[:previewCount]...)
+	var last *shared.MissionParameterGroupLevelResponse
+	if len(levels) > 0 {
+		lastValue := levels[len(levels)-1]
+		last = &lastValue
+	}
+	return &shared.MissionParameterGroupResponse{
+		ID:            id,
+		TotalLevels:   len(levels),
+		PreviewLevels: preview,
+		LastLevel:     last,
+	}
+}
+
+func paginateMissionParameterGroupLevels(levels []shared.MissionParameterGroupLevelResponse, page int, pageSize int) []shared.MissionParameterGroupLevelResponse {
+	start := (page - 1) * pageSize
+	if start >= len(levels) {
+		return []shared.MissionParameterGroupLevelResponse{}
+	}
+	end := minInt(start+pageSize, len(levels))
+	return levels[start:end]
+}
+
+func addMissionParameterGroupRewards(levels []shared.MissionParameterGroupLevelResponse, resourceType string) []shared.MissionParameterGroupLevelResponse {
+	result := append([]shared.MissionParameterGroupLevelResponse(nil), levels...)
+	for index := range result {
+		quantity := result[index].Quantity
+		if resourceType == "" || quantity == nil || *quantity <= 0 {
+			continue
+		}
+		result[index].Reward = &shared.MissionParameterGroupLevelRewardResponse{
+			ResourceQuantity: quantity,
+			ResourceType:     resourceType,
+		}
+	}
+	return result
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func (handler *LookupHandler) loadMissionParameterGroupResourceTypes(ctx context.Context, region string) (map[int64]string, error) {
+	missions, err := handler.masterDataSync.ListAll(ctx, region, characterMissionV2sEntity)
+	if err != nil {
+		return nil, err
+	}
+	exRecords, err := handler.masterDataSync.ListAll(ctx, region, characterMissionV2ExJsonsEntity)
+	if err != nil {
+		return nil, err
+	}
+	exTypes := make(map[string]string, len(exRecords))
+	for _, record := range exRecords {
+		missionType := strings.TrimSpace(lookupString(record["characterMissionType"]))
+		resourceType := strings.TrimSpace(lookupString(record["resourceType"]))
+		if missionType != "" && resourceType != "" {
+			exTypes[missionType] = resourceType
+		}
+	}
+	resourceTypes := make(map[int64]string)
+	for _, mission := range missions {
+		missionGroupID, ok := lookupInt64(mission["parameterGroupId"])
+		if !ok || missionGroupID <= 0 {
+			continue
+		}
+		if resourceType := exTypes[strings.TrimSpace(lookupString(mission["characterMissionType"]))]; resourceType != "" {
+			resourceTypes[missionGroupID] = resourceType
+		}
+	}
+	return resourceTypes, nil
 }
 
 func (handler *LookupHandler) resolveMissionRewards(ctx context.Context, request missionRewardResolutionRequest) error {

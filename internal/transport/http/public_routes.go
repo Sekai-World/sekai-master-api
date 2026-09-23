@@ -56,6 +56,8 @@ func registerPublicRoutes(
 	v1.GET("/missions/:region/list", lookupHandler.MissionsList)
 	v1.GET("/missions/:region/:family/:id", lookupHandler.MissionByID)
 	v1.GET("/missions/:region/:family/", lookupHandler.MissionByID)
+	v1.GET("/characterMissionV2ParameterGroups/:region/:id/levels", lookupHandler.CharacterMissionV2ParameterGroupLevels)
+	v1.GET("/characterRanks/:region/list", lookupHandler.CharacterRanksList)
 	v1.GET("/mysekaiPhotoDecorations/:region/list", lookupHandler.MysekaiPhotoDecorationsList)
 	v1.GET("/mysekaiPhotoDecorations/:region/:id", lookupHandler.MysekaiPhotoDecorationsByID)
 	v1.GET("/honors/:region/list", lookupHandler.HonorsList)

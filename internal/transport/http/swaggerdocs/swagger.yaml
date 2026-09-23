@@ -361,6 +361,34 @@ definitions:
     - items
     - missingIds
     type: object
+  shared.CharacterRankListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.CharacterRankResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.CharacterRankResponse:
+    properties:
+      characterId:
+        type: integer
+      characterRank:
+        type: integer
+      id:
+        type: integer
+      power1BonusRate:
+        type: number
+      power2BonusRate:
+        type: number
+      power3BonusRate:
+        type: number
+      rewardResourceBoxes:
+        items:
+          $ref: '#/definitions/shared.MissionResourceBoxResponse'
+        type: array
+    type: object
   shared.CharacterResponse:
     properties:
       firstName:
@@ -1364,6 +1392,48 @@ definitions:
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
     type: object
+  shared.MissionParameterGroupLevelResponse:
+    properties:
+      exp:
+        type: integer
+      quantity:
+        type: integer
+      requirement:
+        type: integer
+      reward:
+        $ref: '#/definitions/shared.MissionParameterGroupLevelRewardResponse'
+      seq:
+        type: integer
+    type: object
+  shared.MissionParameterGroupLevelRewardResponse:
+    properties:
+      resourceQuantity:
+        type: integer
+      resourceType:
+        type: string
+    type: object
+  shared.MissionParameterGroupLevelsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MissionParameterGroupLevelResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.MissionParameterGroupResponse:
+    properties:
+      id:
+        type: integer
+      lastLevel:
+        $ref: '#/definitions/shared.MissionParameterGroupLevelResponse'
+      previewLevels:
+        items:
+          $ref: '#/definitions/shared.MissionParameterGroupLevelResponse'
+        type: array
+      totalLevels:
+        type: integer
+    type: object
   shared.MissionResourceBoxDetailResponse:
     properties:
       resourceBoxId:
@@ -1410,6 +1480,8 @@ definitions:
         type: boolean
       normalMissionType:
         type: string
+      parameterGroup:
+        $ref: '#/definitions/shared.MissionParameterGroupResponse'
       parameterGroupId:
         type: integer
       progressSentence:
@@ -3217,6 +3289,57 @@ paths:
       summary: Get Character3D mappings by IDs
       tags:
       - character3ds
+  /characterMissionV2ParameterGroups/{region}/{id}/levels:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Parameter group ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MissionParameterGroupLevelsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List Character Mission V2 levels for a parameter group
+      tags:
+      - missions
   /characterProfiles/{region}/list:
     get:
       parameters:
@@ -3270,6 +3393,53 @@ paths:
       summary: List character profiles by page
       tags:
       - characterProfiles
+  /characterRanks/{region}/list:
+    get:
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Character ID
+        in: query
+        minimum: 1
+        name: character_id
+        required: true
+        type: integer
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.CharacterRankListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List Character Rank references for a character
+      tags:
+      - characterRanks
   /costume3ds/{region}/{id}:
     get:
       parameters:

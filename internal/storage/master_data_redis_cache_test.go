@@ -341,6 +341,68 @@ func TestStoreRegionUsesCompositeKeysForResourceBoxesAndDetails(t *testing.T) {
 	assertCompositeBareIDLookupsUnavailable(t, ctx, cache)
 }
 
+func TestStoreRegionUsesCompositeKeysForCharacterMissionV2ParameterGroups(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+	entity := "charactermissionv2parametergroups"
+	first := json.RawMessage(`{"id":42,"seq":1,"requirement":1000}`)
+	second := json.RawMessage(`{"id":42,"seq":2,"requirement":2000}`)
+
+	if !usesCompositeStorageKey("characterMissionV2ParameterGroups") {
+		t.Fatal("expected character mission V2 parameter groups to use composite storage keys")
+	}
+	fields := compositeStorageKeyFields("characterMissionV2ParameterGroups")
+	if len(fields) != 2 || fields[0] != "id" || fields[1] != "seq" {
+		t.Fatalf("expected character mission V2 parameter group key fields [id seq], got %v", fields)
+	}
+
+	firstKey, ok := compositeRecordStorageKeyFromRaw("characterMissionV2ParameterGroups", first)
+	if !ok {
+		t.Fatal("expected first character mission V2 parameter group to have a composite storage key")
+	}
+	secondKey, ok := compositeRecordStorageKeyFromRaw("characterMissionV2ParameterGroups", second)
+	if !ok {
+		t.Fatal("expected second character mission V2 parameter group to have a composite storage key")
+	}
+	expectedFirstKey := encodeCompositeStorageKey(entity, []string{"id", "seq"}, []string{"42", "1"})
+	if firstKey != expectedFirstKey {
+		t.Fatalf("expected composite key %q, got %q", expectedFirstKey, firstKey)
+	}
+	if firstKey == secondKey {
+		t.Fatalf("expected different sequences to produce distinct composite keys, got %q", firstKey)
+	}
+
+	payload := map[string]any{
+		"characterMissionV2ParameterGroups.json": []json.RawMessage{first, second},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store character mission V2 parameter groups: %v", err)
+	}
+
+	groups, err := cache.ListAll(ctx, "jp", entity)
+	if err != nil {
+		t.Fatalf("list character mission V2 parameter groups: %v", err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("expected both character mission V2 parameter group levels, got %v", groups)
+	}
+	if groups[0]["id"] != float64(42) || groups[0]["seq"] != float64(1) || groups[0]["requirement"] != float64(1000) {
+		t.Fatalf("expected first parameter group to preserve original fields, got %v", groups[0])
+	}
+	if groups[1]["id"] != float64(42) || groups[1]["seq"] != float64(2) || groups[1]["requirement"] != float64(2000) {
+		t.Fatalf("expected second parameter group to preserve original fields, got %v", groups[1])
+	}
+
+	stored, err := cache.client.HGetAll(ctx, cache.redisEntityKey("jp", entity)).Result()
+	if err != nil {
+		t.Fatalf("read character mission V2 parameter group hash: %v", err)
+	}
+	if len(stored) != 2 || stored[firstKey] == "" || stored[secondKey] == "" {
+		t.Fatalf("expected distinct composite parameter group hash fields, got %v", stored)
+	}
+}
+
 func assertCompositeResourceBoxList(t *testing.T, ctx context.Context, cache *RedisMasterDataCache) {
 	t.Helper()
 
