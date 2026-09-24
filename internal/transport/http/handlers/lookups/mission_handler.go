@@ -358,12 +358,12 @@ func (handler *LookupHandler) CharacterRanksList(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to list character ranks")
 		return
 	}
-	boxesByID, err := handler.loadMissionResourceBoxIndex(c.Request.Context(), region)
+	catalog, err := handler.loadMissionRewardCatalog(c.Request.Context(), region)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to resolve character rank rewards")
 		return
 	}
-	items := projectCharacterRankResponses(ranks, boxesByID, characterID)
+	items := projectCharacterRankResponses(ranks, catalog, characterID)
 	response.JSON(c, http.StatusOK, shared.CharacterRankListResponse{
 		Items:      paginateCharacterRankResponses(items, page, pageSize),
 		Pagination: lookupPaginationResponse(page, pageSize, len(items)),
@@ -386,7 +386,7 @@ func parsePositiveQueryID(c *gin.Context, key string) (int64, bool) {
 
 func projectCharacterRankResponses(
 	rankRecords []map[string]any,
-	resourceBoxesByID map[int64][]missionResourceBoxCandidate,
+	catalog missionRewardCatalog,
 	characterID int64,
 ) []shared.CharacterRankResponse {
 	items := make([]shared.CharacterRankResponse, 0)
@@ -413,11 +413,11 @@ func projectCharacterRankResponses(
 			RewardResourceBoxes: make([]shared.MissionResourceBoxResponse, 0),
 		}
 		for _, resourceBoxID := range lookupPositiveInt64List(record["rewardResourceBoxIds"]) {
-			for _, candidate := range resourceBoxesByID[resourceBoxID] {
+			for _, candidate := range catalog.boxesByID[resourceBoxID] {
 				if !strings.EqualFold(candidate.purpose, "character_rank_reward") {
 					continue
 				}
-				if box := projectMissionResourceBox(candidate.record); box != nil {
+				if box := catalog.projectCandidate(candidate); box != nil {
 					item.RewardResourceBoxes = append(item.RewardResourceBoxes, *box)
 				}
 			}
@@ -619,6 +619,15 @@ func normalizeMissionRecord(family string, record map[string]any) (missionItem, 
 	if rewards, exists := record["rewards"]; exists {
 		item.rewardsPresent = true
 		item.rewardRefs = normalizeMissionRewards(rewards)
+		if family == normalMissionsFamily {
+			// TW/KR/CN store normal mission rewards as bare box-ID groups ([[5]])
+			// without a missionType, so the family supplies the purpose instead.
+			for index := range item.rewardRefs {
+				if item.rewardRefs[index].lookupPurpose == "" {
+					item.rewardRefs[index].lookupPurpose = missionRewardBoxPurpose
+				}
+			}
+		}
 	}
 	if !item.rewardsPresent && item.response.ResourceBoxID != nil {
 		item.rewardsPresent = true
@@ -1363,18 +1372,23 @@ func (catalog missionRewardCatalog) resolve(id int64, purpose *string) (*shared.
 		return nil, false
 	}
 
-	candidate := matching[0]
+	box := catalog.projectCandidate(matching[0])
+	return box, box != nil
+}
+
+// projectCandidate projects a resource box, joining details from
+// resourceboxdetails when the box record does not embed them (TW/KR/CN).
+func (catalog missionRewardCatalog) projectCandidate(candidate missionResourceBoxCandidate) *shared.MissionResourceBoxResponse {
 	box := projectMissionResourceBox(candidate.record)
 	if box == nil {
-		return nil, false
+		return nil
 	}
 	if !missionRecordHasField(candidate.record, "details") {
 		for _, detail := range catalog.detailsByBox[missionResourceBoxKey(candidate.purpose, candidate.id)] {
 			box.Details = append(box.Details, projectMissionResourceBoxDetail(detail))
 		}
 	}
-
-	return box, true
+	return box
 }
 
 func missionResourceBoxKey(purpose string, id int64) string {
