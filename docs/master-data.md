@@ -38,6 +38,7 @@ Set `MASTER_DATA_GITHUB_TOKEN` if higher GitHub API rate limits are needed.
 - If Redis data is missing but local backup exists, cache is restored from backup.
 - Changed regions download one GitHub tarball for the resolved commit and extract JSON files under the configured path.
 - Cache writes are incremental: changed records are upserted and deleted records are removed.
+- A changed region's whole extracted payload stays in memory from extraction through the Redis store and local backup (about 290 MB of compact JSON records for JP at 6.8.0). During the store, each entity's search index is built by decoding one record at a time instead of holding every decoded record map. Stored record bodies are zstd-compressed by pooled single-concurrency encoders, whose output matches the default encoder byte for byte, and record reads share one decoder. Measured on JP 6.8.0 at file concurrency 8 (`GOMEMLIMIT=900MiB`), a forced full store now peaks at about 510 MiB live heap instead of about 764 MiB.
 - Sync status is persisted in `master_data_sync_status`; latest status is exposed through `master_data_sync_status_latest`.
 - Sync status includes region, state, file count, source info, source commit, sync duration, and timestamps.
 - Sync events are exposed through `GET /api/v1/admin/master-data/events`.
