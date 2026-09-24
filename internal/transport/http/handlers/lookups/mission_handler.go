@@ -32,6 +32,11 @@ const (
 	missionFamilyAllowlistError             = "family must be one of: storyMissions, characterMissionV2s, normalMissions"
 	missionRewardResolvedStatus             = "resolved"
 	missionRewardUnresolvedStatus           = "unresolved"
+	// Reward references that name no resource-box purpose use these to pick the
+	// box: story missions store only a top-level resourceBoxId, and every
+	// `*_mission` reward entry points at `mission_reward` boxes in master data.
+	storyMissionRewardBoxPurpose = "story_mission"
+	missionRewardBoxPurpose      = "mission_reward"
 )
 
 type missionFamilyConfig struct {
@@ -71,6 +76,8 @@ type missionItem struct {
 type missionRewardReference struct {
 	response    shared.MissionRewardResponse
 	embeddedBox map[string]any
+	// lookupPurpose selects the resource box when response carries no purpose.
+	lookupPurpose string
 }
 
 type missionResourceBoxCandidate struct {
@@ -615,12 +622,16 @@ func normalizeMissionRecord(family string, record map[string]any) (missionItem, 
 	}
 	if !item.rewardsPresent && item.response.ResourceBoxID != nil {
 		item.rewardsPresent = true
-		item.rewardRefs = []missionRewardReference{{
+		reference := missionRewardReference{
 			response: shared.MissionRewardResponse{
 				ResourceBoxID: item.response.ResourceBoxID,
 				Status:        missionRewardUnresolvedStatus,
 			},
-		}}
+		}
+		if family == storyMissionsFamily {
+			reference.lookupPurpose = storyMissionRewardBoxPurpose
+		}
+		item.rewardRefs = []missionRewardReference{reference}
 	}
 
 	return item, true
@@ -752,10 +763,16 @@ func normalizeMissionRewardMap(record map[string]any) missionRewardReference {
 		}
 	}
 
-	return missionRewardReference{
+	reference := missionRewardReference{
 		response:    response,
 		embeddedBox: embeddedBox,
 	}
+	if response.ResourceBoxPurpose == nil && response.MissionType != nil &&
+		strings.HasSuffix(strings.TrimSpace(*response.MissionType), "_mission") {
+		reference.lookupPurpose = missionRewardBoxPurpose
+	}
+
+	return reference
 }
 
 func setMissionRewardInt64(target **int64, record map[string]any, field string) {
@@ -1185,7 +1202,7 @@ func resolveMissionRewardReference(catalog missionRewardCatalog, reference missi
 	reward := reference.response
 	reward.Status = missionRewardUnresolvedStatus
 	resolveEmbeddedMissionReward(&reward, reference.embeddedBox)
-	resolveCatalogMissionReward(&reward, catalog)
+	resolveCatalogMissionReward(&reward, catalog, reference.lookupPurpose)
 	return reward
 }
 
@@ -1202,12 +1219,19 @@ func resolveEmbeddedMissionReward(reward *shared.MissionRewardResponse, embedded
 	}
 }
 
-func resolveCatalogMissionReward(reward *shared.MissionRewardResponse, catalog missionRewardCatalog) {
+func resolveCatalogMissionReward(reward *shared.MissionRewardResponse, catalog missionRewardCatalog, lookupPurpose string) {
 	if reward.ResourceBox != nil || reward.ResourceBoxID == nil || len(reward.ResourceBoxIDs) != 0 {
 		return
 	}
 
 	box, found := catalog.resolve(*reward.ResourceBoxID, reward.ResourceBoxPurpose)
+	if reward.ResourceBoxPurpose == nil && lookupPurpose != "" {
+		// The bare ID is often shared by boxes of many purposes; prefer the
+		// family's purpose and keep the ID-only match when that finds nothing.
+		if purposeBox, purposeFound := catalog.resolve(*reward.ResourceBoxID, &lookupPurpose); purposeFound {
+			box, found = purposeBox, true
+		}
+	}
 	if !found {
 		return
 	}
