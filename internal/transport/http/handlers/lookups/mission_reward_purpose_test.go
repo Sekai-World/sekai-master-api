@@ -1,6 +1,7 @@
 package lookups
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -84,5 +85,69 @@ func TestMissionRewardsUseFamilyPurposeWhenBoxIDsAreShared(t *testing.T) {
 	}
 	if byID[13]["status"] != missionRewardUnresolvedStatus {
 		t.Fatalf("expected a shared ID without a mission_reward box to stay unresolved, got %#v", byID[13])
+	}
+}
+
+// TW/KR/CN keep resource-box contents in resourceboxdetails and store normal
+// mission rewards as bare box-ID groups.
+func TestRegionalMissionAndRankRewardsJoinSeparateDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	detail := func(id int, purpose string, resourceType string, quantity int) map[string]any {
+		return map[string]any{
+			"resourceBoxId":      id,
+			"resourceBoxPurpose": purpose,
+			"seq":                1,
+			"resourceType":       resourceType,
+			"resourceQuantity":   quantity,
+		}
+	}
+	cache := &missionTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"tw": {
+					normalMissionsEntity: {
+						{"id": 1, "seq": 1, "requirement": 1, "sentence": "Make a friend", "rewards": []any{[]any{5}}},
+					},
+					characterRanksEntity: {
+						{"id": 2, "characterId": 1, "characterRank": 2, "rewardResourceBoxIds": []any{1002}},
+					},
+					resourceBoxesEntity: {
+						{"id": 5, "resourceBoxPurpose": "ad_reward", "resourceBoxType": "expand"},
+						{"id": 5, "resourceBoxPurpose": "mission_reward", "resourceBoxType": "expand"},
+						{"id": 1002, "resourceBoxPurpose": "character_rank_reward", "resourceBoxType": "expand"},
+					},
+					resourceBoxDetailsEntity: {
+						detail(5, "ad_reward", "coin", 500),
+						detail(5, "mission_reward", "jewel", 50),
+						detail(1002, "character_rank_reward", "material", 2),
+					},
+				},
+			},
+		},
+	}
+	router := newMissionTestRouter(newMissionTestHandler(cache))
+
+	normal := serveLookupRequest(t, router, http.MethodGet, "/api/v1/missions/tw/list?family=normalMissions")
+	normalItems, _ := decodeMissionList(t, normal.Body.Bytes())
+	reward := normalItems[0]["rewards"].([]any)[0].(map[string]any)
+	if reward["status"] != missionRewardResolvedStatus || reward["resourceBoxPurpose"] != "mission_reward" {
+		t.Fatalf("expected a bare-ID normal mission reward to resolve its mission_reward box, got %#v", reward)
+	}
+	details := reward["resourceBox"].(map[string]any)["details"].([]any)
+	if len(details) != 1 || details[0].(map[string]any)["resourceType"] != "jewel" {
+		t.Fatalf("expected mission_reward details joined from resourceboxdetails, got %#v", details)
+	}
+
+	ranks := serveLookupRequest(t, router, http.MethodGet, "/api/v1/characterRanks/tw/list?character_id=1")
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(ranks.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode character ranks: %v", err)
+	}
+	boxes := body.Items[0]["rewardResourceBoxes"].([]any)
+	rankDetails := boxes[0].(map[string]any)["details"].([]any)
+	if len(rankDetails) != 1 || rankDetails[0].(map[string]any)["resourceType"] != "material" {
+		t.Fatalf("expected character rank details joined from resourceboxdetails, got %#v", boxes)
 	}
 }
