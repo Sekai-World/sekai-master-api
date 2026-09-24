@@ -118,13 +118,26 @@ var relationshipSearchableFields = map[string]struct{}{
 	"virtualliveid":  {},
 }
 
+// Each pooled encoder only serves one EncodeAll call at a time, so it keeps a
+// single internal encoder instead of one per GOMAXPROCS. EncodeAll output does
+// not depend on the concurrency setting.
 var redisEntityEncoderPool = sync.Pool{New: func() any {
-	encoder, err := zstd.NewWriter(nil)
+	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
 	if err != nil {
 		panic(err)
 	}
 	return encoder
 }}
+
+// redisEntityDecoder is shared by every record read; DecodeAll is safe for
+// concurrent use, and building a decoder per record costs ~20 KiB of garbage.
+var redisEntityDecoder = func() *zstd.Decoder {
+	decoder, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxRedisEntityRecordBodySize))
+	if err != nil {
+		panic(err)
+	}
+	return decoder
+}()
 
 const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
 
@@ -543,34 +556,45 @@ func (task *entityStoreTask) resolveEntityIndex(ctx context.Context, entityChang
 	return updatedIndex, true, nil
 }
 
-// buildRecordMapsIndex resolves the incoming records as generic maps (using
-// the pre-parsed legacy maps when available) and builds the search index.
+// buildRecordMapsIndex builds the search index from the pre-parsed legacy maps
+// when available, otherwise from the raw records.
 func (task *entityStoreTask) buildRecordMapsIndex() (*entitySearchIndex, error) {
-	recordMaps := task.collector.recordMaps
-	if !task.hasLegacyRecords {
-		recordMaps = rawRecordMaps(task.rawRecords)
+	if task.hasLegacyRecords {
+		return buildEntitySearchIndex(task.entity, task.collector.recordMaps), nil
 	}
-	return buildEntitySearchIndex(task.entity, recordMaps), nil
+	return buildRawRecordsSearchIndex(task.entity, task.rawRecords), nil
 }
 
-// rawRecordMaps decodes raw JSON records into generic maps, skipping empty or
-// undecodable entries.
-func rawRecordMaps(rawRecords []json.RawMessage) []map[string]any {
-	maps := make([]map[string]any, 0, len(rawRecords))
-	for _, rawRecord := range rawRecords {
-		if len(rawRecord) == 0 {
-			continue
-		}
-		var recordMap map[string]any
-		if err := json.Unmarshal(rawRecord, &recordMap); err != nil {
-			continue
-		}
-		if len(recordMap) == 0 {
-			continue
-		}
-		maps = append(maps, recordMap)
+// buildRawRecordsSearchIndex decodes and indexes raw JSON records one at a
+// time, so a large entity never holds every decoded record map at once.
+func buildRawRecordsSearchIndex(entity string, rawRecords []json.RawMessage) *entitySearchIndex {
+	if usesCompositeStorageKey(entity) {
+		return nil
 	}
-	return maps
+
+	builder := newEntitySearchIndexBuilder(len(rawRecords))
+	for _, rawRecord := range rawRecords {
+		if recordMap := rawRecordMap(rawRecord); recordMap != nil {
+			builder.add(entity, recordMap)
+		}
+	}
+	return builder.build()
+}
+
+// rawRecordMap decodes one raw JSON record into a generic map. Empty or
+// undecodable records return nil.
+func rawRecordMap(rawRecord json.RawMessage) map[string]any {
+	if len(rawRecord) == 0 {
+		return nil
+	}
+	var recordMap map[string]any
+	if err := json.Unmarshal(rawRecord, &recordMap); err != nil {
+		return nil
+	}
+	if len(recordMap) == 0 {
+		return nil
+	}
+	return recordMap
 }
 
 // diffEntityRecords computes the upsert and delete sets against the existing
@@ -825,65 +849,85 @@ func buildEntitySearchIndex(entity string, records []map[string]any) *entitySear
 		return nil
 	}
 
-	index := &entitySearchIndex{
-		IDs:    make([]string, 0, len(records)),
-		Fields: make(map[string][]searchIndexItem),
-	}
-	idIndexes := make(map[string]uint32, len(records))
-	textRefs := make(map[string]textSpan)
-	textBlob := strings.Builder{}
-
+	builder := newEntitySearchIndexBuilder(len(records))
 	for _, recordMap := range records {
 		if recordMap == nil {
 			continue
 		}
+		builder.add(entity, recordMap)
+	}
+	return builder.build()
+}
 
-		id := recordID(recordMap)
+// entitySearchIndexBuilder accumulates one entity's search index record by
+// record, so callers can decode each record just before adding it.
+type entitySearchIndexBuilder struct {
+	index     *entitySearchIndex
+	idIndexes map[string]uint32
+	textRefs  map[string]textSpan
+	textBlob  strings.Builder
+}
+
+func newEntitySearchIndexBuilder(capacity int) *entitySearchIndexBuilder {
+	return &entitySearchIndexBuilder{
+		index: &entitySearchIndex{
+			IDs:    make([]string, 0, capacity),
+			Fields: make(map[string][]searchIndexItem),
+		},
+		idIndexes: make(map[string]uint32, capacity),
+		textRefs:  make(map[string]textSpan),
+	}
+}
+
+func (builder *entitySearchIndexBuilder) add(entity string, recordMap map[string]any) {
+	id := recordID(recordMap)
+	if id == "" {
+		body, err := json.Marshal(recordMap)
+		if err != nil {
+			return
+		}
+		id = recordStorageID(recordMap, body)
 		if id == "" {
-			body, err := json.Marshal(recordMap)
-			if err != nil {
-				continue
-			}
-			id = recordStorageID(recordMap, body)
-			if id == "" {
-				continue
-			}
-		}
-
-		idIndex, exists := idIndexes[id]
-		if !exists {
-			idIndex = uint32(len(index.IDs))
-			index.IDs = append(index.IDs, id)
-			idIndexes[id] = idIndex
-		}
-
-		searchable := searchableFields(entity, recordMap)
-		for field, normalizedText := range searchable {
-			span, ok := textRefs[normalizedText]
-			if !ok {
-				offset := uint32(textBlob.Len())
-				textBlob.WriteString(normalizedText)
-				span = textSpan{
-					Offset: offset,
-					Length: uint32(len(normalizedText)),
-				}
-				textRefs[normalizedText] = span
-			}
-
-			index.Fields[field] = append(index.Fields[field], searchIndexItem{
-				IDIndex:    idIndex,
-				TextOffset: span.Offset,
-				TextLength: span.Length,
-			})
+			return
 		}
 	}
 
-	if len(index.IDs) == 0 || len(index.Fields) == 0 {
+	idIndex, exists := builder.idIndexes[id]
+	if !exists {
+		idIndex = uint32(len(builder.index.IDs))
+		builder.index.IDs = append(builder.index.IDs, id)
+		builder.idIndexes[id] = idIndex
+	}
+
+	searchable := searchableFields(entity, recordMap)
+	for field, normalizedText := range searchable {
+		span, ok := builder.textRefs[normalizedText]
+		if !ok {
+			offset := uint32(builder.textBlob.Len())
+			builder.textBlob.WriteString(normalizedText)
+			span = textSpan{
+				Offset: offset,
+				Length: uint32(len(normalizedText)),
+			}
+			builder.textRefs[normalizedText] = span
+		}
+
+		builder.index.Fields[field] = append(builder.index.Fields[field], searchIndexItem{
+			IDIndex:    idIndex,
+			TextOffset: span.Offset,
+			TextLength: span.Length,
+		})
+	}
+}
+
+// build returns the finished index, or nil when no record had an ID or a
+// searchable field.
+func (builder *entitySearchIndexBuilder) build() *entitySearchIndex {
+	if len(builder.index.IDs) == 0 || len(builder.index.Fields) == 0 {
 		return nil
 	}
-	index.TextBlob = textBlob.String()
-
-	return index
+	builder.index.TextBlob = builder.textBlob.String()
+	return builder.index
 }
 
 func compactLegacySearchIndex(entity string, fields map[string][]legacySearchIndexItem) *entitySearchIndex {
@@ -1453,12 +1497,7 @@ func redisEntityRecordBody(raw any, region string, entity string, id string) ([]
 		return body, nil
 	}
 
-	decoder, err := zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxRedisEntityRecordBodySize))
-	if err != nil {
-		return nil, fmt.Errorf("create zstd decoder region %s entity %s id %s: %w", region, entity, id, err)
-	}
-	decompressed, err := decoder.DecodeAll([]byte(strings.TrimPrefix(string(body), redisEntityRecordZstdV1Prefix)), nil)
-	decoder.Close()
+	decompressed, err := redisEntityDecoder.DecodeAll([]byte(strings.TrimPrefix(string(body), redisEntityRecordZstdV1Prefix)), nil)
 	if err != nil {
 		if errors.Is(err, zstd.ErrDecoderSizeExceeded) {
 			return nil, fmt.Errorf("compressed record exceeds %d byte limit region %s entity %s id %s: %w", maxRedisEntityRecordBodySize, region, entity, id, err)

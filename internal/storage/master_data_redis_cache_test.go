@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/klauspost/compress/zstd"
 
 	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/domain/masterdata"
@@ -89,6 +90,100 @@ func TestRedisEntityRecordRejectsOversizedDecompressedPayload(t *testing.T) {
 	_, err = redisEntityRecordBody(stored, "jp", "cards", "4")
 	if err == nil || !strings.Contains(err.Error(), "compressed record exceeds 67108864 byte limit region jp entity cards id 4") {
 		t.Fatalf("expected contextual oversized record error, got %v", err)
+	}
+}
+
+func TestRedisEntityRecordEncodingMatchesDefaultEncoder(t *testing.T) {
+	// Stored bodies feed the entity revision digest, so the pooled encoder's
+	// settings must not change the bytes it produces.
+	defaultEncoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatalf("new default encoder: %v", err)
+	}
+	defer defaultEncoder.Close()
+
+	bodies := [][]byte{
+		[]byte(`{"id":1,"name":"alpha"}`),
+		[]byte(strings.Repeat(`{"resourceType":"jewel","resourceQuantity":100},`, 2000)),
+	}
+	for _, body := range bodies {
+		stored, err := marshalRedisEntityRecord(body)
+		if err != nil {
+			t.Fatalf("marshal record: %v", err)
+		}
+		want := redisEntityRecordZstdV1Prefix + string(defaultEncoder.EncodeAll(body, nil))
+		if stored != want {
+			t.Fatalf("expected pooled encoder output to match the default encoder for a %d-byte body", len(body))
+		}
+	}
+}
+
+func TestRedisEntityRecordDecodesConcurrently(t *testing.T) {
+	const workers = 8
+	stored := make([]string, workers)
+	for index := range stored {
+		body, err := marshalRedisEntityRecord([]byte(fmt.Sprintf(`{"id":%d,"name":"%s"}`, index, strings.Repeat("x", index*100))))
+		if err != nil {
+			t.Fatalf("marshal record %d: %v", index, err)
+		}
+		stored[index] = body
+	}
+
+	errs := make(chan error, workers)
+	for index := range stored {
+		go func() {
+			for range 50 {
+				record, err := unmarshalRedisEntityRecord(stored[index], "jp", "cards", fmt.Sprint(index))
+				if err != nil {
+					errs <- err
+					return
+				}
+				if record["name"] != strings.Repeat("x", index*100) {
+					errs <- fmt.Errorf("record %d decoded to %v", index, record["name"])
+					return
+				}
+			}
+			errs <- nil
+		}()
+	}
+	for range workers {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBuildRawRecordsSearchIndexMatchesDecodedRecords(t *testing.T) {
+	// One searchable field per record keeps the text blob order deterministic.
+	rawRecords := []json.RawMessage{
+		json.RawMessage(`{"id":1,"name":"Alpha"}`),
+		nil,
+		json.RawMessage(`{}`),
+		json.RawMessage(`not-json`),
+		json.RawMessage(`{"name":"No ID"}`),
+		json.RawMessage(`{"id":2,"name":"Alpha"}`),
+		json.RawMessage(`{"id":1,"name":"Duplicate"}`),
+		json.RawMessage(`{"id":3,"assetbundleName":"not searchable"}`),
+	}
+	decodedRecords := []map[string]any{
+		{"id": float64(1), "name": "Alpha"},
+		{"name": "No ID"},
+		{"id": float64(2), "name": "Alpha"},
+		{"id": float64(1), "name": "Duplicate"},
+		{"id": float64(3), "assetbundleName": "not searchable"},
+	}
+
+	got := buildRawRecordsSearchIndex("skills", rawRecords)
+	want := buildEntitySearchIndex("skills", decodedRecords)
+	if want == nil || !equalEntitySearchIndex(got, want) {
+		t.Fatalf("expected streamed index %+v to match decoded index %+v", got, want)
+	}
+
+	if index := buildRawRecordsSearchIndex("resourceBoxes", rawRecords); index != nil {
+		t.Fatalf("expected no search index for composite-key entity, got %+v", index)
+	}
+	if index := buildRawRecordsSearchIndex("skills", []json.RawMessage{json.RawMessage(`{"id":1}`)}); index != nil {
+		t.Fatalf("expected no search index without searchable fields, got %+v", index)
 	}
 }
 
