@@ -94,11 +94,6 @@ type missionOperands[T any] struct {
 	right T
 }
 
-type missionRewardCatalogRequest struct {
-	boxes   []map[string]any
-	details []map[string]any
-}
-
 type missionParameterGroupCatalog map[int64][]shared.MissionParameterGroupLevelResponse
 
 // MissionsList godoc
@@ -356,12 +351,12 @@ func (handler *LookupHandler) CharacterRanksList(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to list character ranks")
 		return
 	}
-	boxes, err := handler.masterDataSync.ListAll(c.Request.Context(), region, resourceBoxesEntity)
+	boxesByID, err := handler.loadMissionResourceBoxIndex(c.Request.Context(), region)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to resolve character rank rewards")
 		return
 	}
-	items := projectCharacterRankResponses(ranks, boxes, characterID)
+	items := projectCharacterRankResponses(ranks, boxesByID, characterID)
 	response.JSON(c, http.StatusOK, shared.CharacterRankListResponse{
 		Items:      paginateCharacterRankResponses(items, page, pageSize),
 		Pagination: lookupPaginationResponse(page, pageSize, len(items)),
@@ -384,18 +379,9 @@ func parsePositiveQueryID(c *gin.Context, key string) (int64, bool) {
 
 func projectCharacterRankResponses(
 	rankRecords []map[string]any,
-	resourceBoxRecords []map[string]any,
+	resourceBoxesByID map[int64][]missionResourceBoxCandidate,
 	characterID int64,
 ) []shared.CharacterRankResponse {
-	rewardBoxesByID := make(map[int64][]map[string]any)
-	for _, record := range resourceBoxRecords {
-		id, ok := lookupInt64(record["id"])
-		if !ok || id <= 0 || !strings.EqualFold(strings.TrimSpace(lookupString(record["resourceBoxPurpose"])), "character_rank_reward") {
-			continue
-		}
-		rewardBoxesByID[id] = append(rewardBoxesByID[id], record)
-	}
-
 	items := make([]shared.CharacterRankResponse, 0)
 	for _, record := range rankRecords {
 		recordCharacterID, ok := lookupInt64(record["characterId"])
@@ -420,8 +406,11 @@ func projectCharacterRankResponses(
 			RewardResourceBoxes: make([]shared.MissionResourceBoxResponse, 0),
 		}
 		for _, resourceBoxID := range lookupPositiveInt64List(record["rewardResourceBoxIds"]) {
-			for _, boxRecord := range rewardBoxesByID[resourceBoxID] {
-				if box := projectMissionResourceBox(boxRecord); box != nil {
+			for _, candidate := range resourceBoxesByID[resourceBoxID] {
+				if !strings.EqualFold(candidate.purpose, "character_rank_reward") {
+					continue
+				}
+				if box := projectMissionResourceBox(candidate.record); box != nil {
 					item.RewardResourceBoxes = append(item.RewardResourceBoxes, *box)
 				}
 			}
@@ -1231,46 +1220,72 @@ func resolveCatalogMissionReward(reward *shared.MissionRewardResponse, catalog m
 }
 
 func (handler *LookupHandler) loadMissionRewardCatalog(ctx context.Context, region string) (missionRewardCatalog, error) {
-	boxes, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxesEntity)
+	boxesByID, err := handler.loadMissionResourceBoxIndex(ctx, region)
 	if err != nil {
 		return missionRewardCatalog{}, err
 	}
-	details, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxDetailsEntity)
+	detailsByBox, err := handler.loadMissionResourceBoxDetailIndex(ctx, region)
 	if err != nil {
 		return missionRewardCatalog{}, err
 	}
 
-	return buildMissionRewardCatalog(missionRewardCatalogRequest{boxes: boxes, details: details}), nil
+	return missionRewardCatalog{boxesByID: boxesByID, detailsByBox: detailsByBox}, nil
 }
 
-func buildMissionRewardCatalog(request missionRewardCatalogRequest) missionRewardCatalog {
-	catalog := missionRewardCatalog{
-		boxesByID:    make(map[int64][]missionResourceBoxCandidate),
-		detailsByBox: make(map[string][]map[string]any),
+// loadMissionResourceBoxIndex returns resource boxes grouped by ID. Decoding
+// every resource box is the dominant cost of mission and character-rank reward
+// lookups, so the index is reused while the entity revision is unchanged.
+func (handler *LookupHandler) loadMissionResourceBoxIndex(ctx context.Context, region string) (map[int64][]missionResourceBoxCandidate, error) {
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, resourceBoxesEntity)
+	if err != nil {
+		return nil, err
 	}
-	addMissionResourceBoxCandidates(&catalog, request.boxes)
-	addMissionResourceBoxDetails(&catalog, request.details)
-	sortMissionResourceBoxDetails(catalog.detailsByBox)
 
-	return catalog
+	return handler.resourceBoxIndexes.load(ctx, region, revision, func(ctx context.Context) (map[int64][]missionResourceBoxCandidate, error) {
+		boxes, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxesEntity)
+		if err != nil {
+			return nil, err
+		}
+		return indexMissionResourceBoxes(boxes), nil
+	})
 }
 
-func addMissionResourceBoxCandidates(catalog *missionRewardCatalog, boxes []map[string]any) {
+func (handler *LookupHandler) loadMissionResourceBoxDetailIndex(ctx context.Context, region string) (map[string][]map[string]any, error) {
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, resourceBoxDetailsEntity)
+	if err != nil {
+		return nil, err
+	}
+
+	return handler.resourceBoxDetailIndexes.load(ctx, region, revision, func(ctx context.Context) (map[string][]map[string]any, error) {
+		details, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxDetailsEntity)
+		if err != nil {
+			return nil, err
+		}
+		detailsByBox := indexMissionResourceBoxDetails(details)
+		sortMissionResourceBoxDetails(detailsByBox)
+		return detailsByBox, nil
+	})
+}
+
+func indexMissionResourceBoxes(boxes []map[string]any) map[int64][]missionResourceBoxCandidate {
+	boxesByID := make(map[int64][]missionResourceBoxCandidate)
 	for _, record := range boxes {
 		id, ok := lookupInt64(record["id"])
 		if !ok || id <= 0 {
 			continue
 		}
 		purpose := strings.TrimSpace(lookupString(record["resourceBoxPurpose"]))
-		catalog.boxesByID[id] = append(catalog.boxesByID[id], missionResourceBoxCandidate{
+		boxesByID[id] = append(boxesByID[id], missionResourceBoxCandidate{
 			record:  record,
 			id:      id,
 			purpose: purpose,
 		})
 	}
+	return boxesByID
 }
 
-func addMissionResourceBoxDetails(catalog *missionRewardCatalog, details []map[string]any) {
+func indexMissionResourceBoxDetails(details []map[string]any) map[string][]map[string]any {
+	detailsByBox := make(map[string][]map[string]any)
 	for _, record := range details {
 		parentID, ok := lookupInt64(record["resourceBoxId"])
 		if !ok || parentID <= 0 {
@@ -1281,8 +1296,9 @@ func addMissionResourceBoxDetails(catalog *missionRewardCatalog, details []map[s
 			continue
 		}
 		key := missionResourceBoxKey(purpose, parentID)
-		catalog.detailsByBox[key] = append(catalog.detailsByBox[key], record)
+		detailsByBox[key] = append(detailsByBox[key], record)
 	}
+	return detailsByBox
 }
 
 func sortMissionResourceBoxDetails(detailsByBox map[string][]map[string]any) {

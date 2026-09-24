@@ -62,6 +62,10 @@ type MasterDataCacheEntityInspector interface {
 	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
 }
 
+type MasterDataCacheEntityRevisionLoader interface {
+	EntityRevision(ctx context.Context, region string, entity string) (string, error)
+}
+
 type MasterDataCacheVersionStorer interface {
 	StoreRegionVersionPayload(ctx context.Context, region string, version any) error
 }
@@ -1761,6 +1765,27 @@ func (usecase *MasterDataSyncUsecase) HasEntityRecords(ctx context.Context, regi
 	}
 
 	return false, nil
+}
+
+// EntityRevision returns the persisted content revision of an entity. An empty
+// revision means the cache cannot report one, so callers must not reuse
+// process-local data derived from that entity.
+func (usecase *MasterDataSyncUsecase) EntityRevision(ctx context.Context, region string, entity string) (string, error) {
+	if usecase == nil || usecase.cache == nil {
+		return "", nil
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
+	if region == "" || entity == "" {
+		return "", nil
+	}
+
+	if loader, ok := usecase.cache.(MasterDataCacheEntityRevisionLoader); ok {
+		return loader.EntityRevision(ctx, region, entity)
+	}
+
+	return "", nil
 }
 
 func (usecase *MasterDataSyncUsecase) HasSuccessfulSync(ctx context.Context, region string) (bool, error) {
