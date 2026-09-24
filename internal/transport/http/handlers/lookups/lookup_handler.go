@@ -17,6 +17,11 @@ import (
 
 type LookupHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
+
+	// Process-local reward lookups shared by mission and character-rank
+	// endpoints, revalidated against each entity's persisted revision.
+	resourceBoxIndexes       revisionCache[map[int64][]missionResourceBoxCandidate]
+	resourceBoxDetailIndexes revisionCache[map[string][]map[string]any]
 }
 
 type lookupResourceConfig struct {

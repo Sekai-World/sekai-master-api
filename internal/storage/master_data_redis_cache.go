@@ -1268,6 +1268,28 @@ func (cache *RedisMasterDataCache) HasEntityRecords(ctx context.Context, region 
 	return count > 0, nil
 }
 
+// EntityRevision returns the persisted content revision of one entity, or an
+// empty string when no revision has been stored yet. Sync rewrites the revision
+// only when the entity's stored records or order change, so read-only callers
+// can use it to validate process-local derived caches.
+func (cache *RedisMasterDataCache) EntityRevision(ctx context.Context, region string, entity string) (string, error) {
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	if regionName == "" || entityName == "" {
+		return "", nil
+	}
+
+	revision, err := cache.client.Get(ctx, cache.redisEntityRevisionKey(regionName, entityName)).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get revision region %s entity %s: %w", regionName, entityName, err)
+	}
+
+	return strings.TrimSpace(revision), nil
+}
+
 func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
 	ctx, span := tracing.StartSpan(ctx, "redis.master_data.list_all", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)))
 	var err error

@@ -39,7 +39,7 @@ func (cache *missionTrackingCache) ListAll(ctx context.Context, region string, e
 	return cache.fakeLookupCache.ListAll(ctx, region, entity)
 }
 
-func newMissionTestHandler(cache *missionTrackingCache) *LookupHandler {
+func newMissionTestHandler(cache usecase.MasterDataCache) *LookupHandler {
 	regions := []string{"jp", "en", "tw", "kr", "cn"}
 	sources := make([]masterdata.Source, 0, len(regions))
 	statuses := make([]masterdata.SyncStatus, 0, len(regions))
