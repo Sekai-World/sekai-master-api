@@ -5640,6 +5640,10 @@ const docTemplate = `{
         "shared.BondsHonorCharacterUnitResponse": {
             "type": "object",
             "properties": {
+                "colorCode": {
+                    "description": "ColorCode is the unit's color, such as \"#33aaee\"; it tints that\ncharacter's half of the degree background.",
+                    "type": "string"
+                },
                 "gameCharacterId": {
                     "type": "integer"
                 },

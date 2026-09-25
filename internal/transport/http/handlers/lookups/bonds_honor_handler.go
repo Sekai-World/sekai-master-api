@@ -780,6 +780,7 @@ func (handler *LookupHandler) loadBondsHonorCharacterUnits(
 			ID:              lookupOptionalInt64(record["id"]),
 			GameCharacterID: lookupOptionalInt64(record["gameCharacterId"]),
 			Unit:            lookupOptionalString(record["unit"]),
+			ColorCode:       lookupOptionalString(record["colorCode"]),
 		}
 	}
 

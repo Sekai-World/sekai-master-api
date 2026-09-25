@@ -26,6 +26,9 @@ type BondsHonorCharacterUnitResponse struct {
 	ID              *int64  `json:"id,omitempty"`
 	GameCharacterID *int64  `json:"gameCharacterId,omitempty"`
 	Unit            *string `json:"unit,omitempty"`
+	// ColorCode is the unit's color, such as "#33aaee"; it tints that
+	// character's half of the degree background.
+	ColorCode *string `json:"colorCode,omitempty"`
 }
 
 type BondsHonorObjectResponse struct {
