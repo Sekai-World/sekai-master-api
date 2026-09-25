@@ -1,16 +1,10 @@
 package lookups
 
-import "context"
+import (
+	"context"
 
-// missionRewardItemEntities maps reward resource types to the master-data
-// entity that names them. Only item types with an ID-addressed master record
-// are listed; common currencies such as jewel or coin need no lookup.
-var missionRewardItemEntities = map[string]string{
-	"gacha_ticket":          "gachatickets",
-	"material":              "materials",
-	"skill_practice_ticket": "skillpracticetickets",
-	"boost_item":            "boostitems",
-}
+	"sekai-master-api/internal/transport/http/handlers/shared"
+)
 
 // missionRewardItem is the display metadata of one rewarded item.
 type missionRewardItem struct {
@@ -32,8 +26,8 @@ func (index missionRewardItemIndex) lookup(resourceType *string, resourceID *int
 // loadMissionRewardItems returns the display metadata of every item type a
 // reward can reference. Each entity is decoded once per revision.
 func (handler *LookupHandler) loadMissionRewardItems(ctx context.Context, region string) (missionRewardItemIndex, error) {
-	index := make(missionRewardItemIndex, len(missionRewardItemEntities))
-	for resourceType, entity := range missionRewardItemEntities {
+	index := make(missionRewardItemIndex, len(shared.RewardItemEntities))
+	for resourceType, entity := range shared.RewardItemEntities {
 		items, err := handler.loadMissionRewardItemEntity(ctx, region, entity)
 		if err != nil {
 			return nil, err

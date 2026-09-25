@@ -882,6 +882,11 @@ definitions:
     properties:
       honor:
         $ref: '#/definitions/shared.EventRewardHonorResponse'
+      resourceAssetbundleName:
+        description: |-
+          ResourceAssetbundleName is the rewarded item's asset bundle name; only
+          gacha tickets carry one, and their icon path depends on it.
+        type: string
       resourceBoxId:
         type: integer
       resourceBoxPurpose:
@@ -890,6 +895,11 @@ definitions:
         type: integer
       resourceLevel:
         type: integer
+      resourceName:
+        description: |-
+          ResourceName is the rewarded item's localized name for gacha tickets,
+          materials, skill practice tickets, and boost items.
+        type: string
       resourceQuantity:
         type: integer
       resourceType:
@@ -2164,10 +2174,20 @@ definitions:
     properties:
       honor:
         $ref: '#/definitions/shared.EventRewardHonorResponse'
+      resourceAssetbundleName:
+        description: |-
+          ResourceAssetbundleName is the rewarded item's asset bundle name; only
+          gacha tickets carry one, and their icon path depends on it.
+        type: string
       resourceId:
         type: integer
       resourceLevel:
         type: integer
+      resourceName:
+        description: |-
+          ResourceName is the rewarded item's localized name for gacha tickets,
+          materials, skill practice tickets, and boost items.
+        type: string
       resourceQuantity:
         type: integer
       resourceType:
