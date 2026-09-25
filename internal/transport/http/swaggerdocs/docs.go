@@ -6154,6 +6154,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/shared.MissionResourceBoxResponse"
                     }
+                },
+                "totalExp": {
+                    "description": "TotalExp is the cumulative character rank EXP needed to reach this rank,\nfrom the same-region ` + "`" + `levels` + "`" + ` record with levelType \"character\".",
+                    "type": "integer"
                 }
             }
         },

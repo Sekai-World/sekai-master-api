@@ -24,6 +24,8 @@ type LookupHandler struct {
 	resourceBoxDetailIndexes revisionCache[map[string][]map[string]any]
 	// Keyed by region and item entity; see shared.RewardItemEntities.
 	rewardItemIndexes revisionCache[map[int64]missionRewardItem]
+	// Cumulative EXP per character rank, keyed by region.
+	characterRankTotalExps revisionCache[map[int64]int64]
 }
 
 type lookupResourceConfig struct {

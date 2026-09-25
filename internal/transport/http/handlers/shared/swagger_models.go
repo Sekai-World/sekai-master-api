@@ -202,12 +202,15 @@ type MissionParameterGroupLevelsResponse struct {
 }
 
 type CharacterRankResponse struct {
-	ID                  int64                        `json:"id"`
-	CharacterID         int64                        `json:"characterId"`
-	CharacterRank       int64                        `json:"characterRank"`
-	Power1BonusRate     *float64                     `json:"power1BonusRate,omitempty"`
-	Power2BonusRate     *float64                     `json:"power2BonusRate,omitempty"`
-	Power3BonusRate     *float64                     `json:"power3BonusRate,omitempty"`
+	ID              int64    `json:"id"`
+	CharacterID     int64    `json:"characterId"`
+	CharacterRank   int64    `json:"characterRank"`
+	Power1BonusRate *float64 `json:"power1BonusRate,omitempty"`
+	Power2BonusRate *float64 `json:"power2BonusRate,omitempty"`
+	Power3BonusRate *float64 `json:"power3BonusRate,omitempty"`
+	// TotalExp is the cumulative character rank EXP needed to reach this rank,
+	// from the same-region `levels` record with levelType "character".
+	TotalExp            *int64                       `json:"totalExp,omitempty"`
 	RewardResourceBoxes []MissionResourceBoxResponse `json:"rewardResourceBoxes,omitempty"`
 }
 
