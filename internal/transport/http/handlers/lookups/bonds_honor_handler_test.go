@@ -191,11 +191,12 @@ func assertBondsHonorRelationships(t *testing.T, item map[string]any, groupID, u
 		t.Fatalf("expected bonds group matched by groupId and projected narrowly, got %#v", item["bondsGroup"])
 	}
 	unit1, ok := item["characterUnit1"].(map[string]any)
-	if !ok || len(unit1) != 3 || unit1["id"] != float64(unitID1) || unit1["gameCharacterId"] != float64(unitID1+1000) || unit1["unit"] != "unit-1" {
+	// colorCode tints the unit's half of the degree background.
+	if !ok || len(unit1) != 4 || unit1["id"] != float64(unitID1) || unit1["gameCharacterId"] != float64(unitID1+1000) || unit1["unit"] != "unit-1" || unit1["colorCode"] != "#33aaee" {
 		t.Fatalf("expected typed first character unit, got %#v", item["characterUnit1"])
 	}
 	unit2, ok := item["characterUnit2"].(map[string]any)
-	if !ok || len(unit2) != 3 || unit2["id"] != float64(unitID2) || unit2["gameCharacterId"] != float64(unitID2+1000) || unit2["unit"] != "unit-2" {
+	if !ok || len(unit2) != 4 || unit2["id"] != float64(unitID2) || unit2["gameCharacterId"] != float64(unitID2+1000) || unit2["unit"] != "unit-2" || unit2["colorCode"] != "#ffdd44" {
 		t.Fatalf("expected typed second character unit, got %#v", item["characterUnit2"])
 	}
 }
@@ -227,8 +228,8 @@ func TestBondsHonorsTypedEndpointsSupportFiveRegions(t *testing.T) {
 				"unknown":      "must not be exposed",
 			}},
 			bondsHonorGameCharacterUnitsEntity: {
-				{"id": unitID1, "gameCharacterId": unitID1 + 1000, "unit": "unit-1", "unknown": "hidden"},
-				{"id": unitID2, "gameCharacterId": unitID2 + 1000, "unit": "unit-2", "unknown": "hidden"},
+				{"id": unitID1, "gameCharacterId": unitID1 + 1000, "unit": "unit-1", "colorCode": "#33aaee", "unknown": "hidden"},
+				{"id": unitID2, "gameCharacterId": unitID2 + 1000, "unit": "unit-2", "colorCode": "#ffdd44", "unknown": "hidden"},
 			},
 		}
 	}
