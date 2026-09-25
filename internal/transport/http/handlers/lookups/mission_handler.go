@@ -1138,9 +1138,12 @@ func (handler *LookupHandler) loadMissionParameterGroupResourceTypes(ctx context
 	if err != nil {
 		return nil, err
 	}
+	// Each record names an EX mission type (for example play_live_ex) and the
+	// base type it extends (play_live). EX missions carry the EX type, so it is
+	// the key; the base type's missions have no EX reward.
 	exTypes := make(map[string]string, len(exRecords))
 	for _, record := range exRecords {
-		missionType := strings.TrimSpace(lookupString(record["characterMissionType"]))
+		missionType := strings.TrimSpace(lookupString(record["characterMissionExType"]))
 		resourceType := strings.TrimSpace(lookupString(record["resourceType"]))
 		if missionType != "" && resourceType != "" {
 			exTypes[missionType] = resourceType
