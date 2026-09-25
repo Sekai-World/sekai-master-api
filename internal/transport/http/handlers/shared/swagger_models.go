@@ -168,6 +168,12 @@ type MissionResourceBoxDetailResponse struct {
 	ResourceID         *int64  `json:"resourceId,omitempty"`
 	ResourceLevel      *int64  `json:"resourceLevel,omitempty"`
 	ResourceQuantity   *int64  `json:"resourceQuantity,omitempty"`
+	// ResourceName is the rewarded item's localized name for gacha tickets,
+	// materials, skill practice tickets, and boost items.
+	ResourceName *string `json:"resourceName,omitempty"`
+	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
+	// gacha tickets carry one, and their icon path depends on it.
+	ResourceAssetbundleName *string `json:"resourceAssetbundleName,omitempty"`
 }
 
 type MissionParameterGroupLevelResponse struct {
@@ -870,6 +876,12 @@ type EventRewardResourceBoxDetail struct {
 	ResourceLevel      int                       `json:"resourceLevel,omitempty"`
 	ResourceQuantity   int                       `json:"resourceQuantity,omitempty"`
 	Honor              *EventRewardHonorResponse `json:"honor,omitempty"`
+	// ResourceName is the rewarded item's localized name for gacha tickets,
+	// materials, skill practice tickets, and boost items.
+	ResourceName string `json:"resourceName,omitempty"`
+	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
+	// gacha tickets carry one, and their icon path depends on it.
+	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
 }
 
 type EventRewardHonorResponse struct {
@@ -1066,6 +1078,12 @@ type VirtualLiveRewardResourceBoxDetail struct {
 	ResourceQuantity int                       `json:"resourceQuantity,omitempty"`
 	Seq              int                       `json:"seq,omitempty"`
 	Honor            *EventRewardHonorResponse `json:"honor,omitempty"`
+	// ResourceName is the rewarded item's localized name for gacha tickets,
+	// materials, skill practice tickets, and boost items.
+	ResourceName string `json:"resourceName,omitempty"`
+	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
+	// gacha tickets carry one, and their icon path depends on it.
+	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
 }
 
 type VirtualLiveAppeal struct {

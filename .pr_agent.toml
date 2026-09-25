@@ -1,5 +1,5 @@
 # Provider secrets belong in GitHub Actions secrets, never in this file:
-# GEMINI_API_KEY and OPENROUTER_API_KEY.
+# GEMINI_API_KEY.
 
 [config]
 response_language = "en-US"

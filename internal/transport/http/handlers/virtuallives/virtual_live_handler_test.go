@@ -466,6 +466,40 @@ func TestVirtualLiveByIDExpandsVirtualLiveRewardResourceBox(t *testing.T) {
 	}
 }
 
+func TestVirtualLiveRewardDetailsNameTheirItems(t *testing.T) {
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gachatickets": {
+					"17": {"id": 17, "name": "Mission Gacha Ticket", "assetbundleName": "mission_gacha_ticket", "gachaDisplayType": "normal"},
+				},
+				"skillpracticetickets": {"2": {"id": 2, "name": "Skill Score (Intermediate)"}},
+			},
+		},
+	}
+	handler := newReadyVirtualLiveHandler(cache)
+
+	details := enrichVirtualLiveRewardResourceBoxDetails(context.Background(), handler, "jp", []any{
+		map[string]any{"resourceType": "gacha_ticket", "resourceId": 17, "resourceQuantity": 1, "seq": 1},
+		map[string]any{"resourceType": "skill_practice_ticket", "resourceId": 2, "resourceQuantity": 3, "seq": 2},
+		map[string]any{"resourceType": "gacha_ticket", "resourceId": 99, "resourceQuantity": 1, "seq": 3},
+		map[string]any{"resourceType": "jewel", "resourceId": 17, "resourceQuantity": 100, "seq": 4},
+	})
+
+	ticket := details[0].(map[string]any)
+	if ticket["resourceName"] != "Mission Gacha Ticket" || ticket["resourceAssetbundleName"] != "mission_gacha_ticket" {
+		t.Fatalf("expected the gacha ticket name and asset bundle, got %v", ticket)
+	}
+	if details[1].(map[string]any)["resourceName"] != "Skill Score (Intermediate)" {
+		t.Fatalf("expected the skill practice ticket name, got %v", details[1])
+	}
+	for _, index := range []int{2, 3} {
+		if _, exists := details[index].(map[string]any)["resourceName"]; exists {
+			t.Fatalf("expected detail %d without resourceName, got %v", index, details[index])
+		}
+	}
+}
+
 func TestVirtualLiveByIDSameIDWrongPurposeDoesNotExpandResourceBox(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

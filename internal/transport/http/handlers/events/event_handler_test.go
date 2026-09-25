@@ -1216,6 +1216,45 @@ func TestEventRankingRewardJPFallbackEnrichesHonorFromJP(t *testing.T) {
 	}
 }
 
+func TestEventRankingRewardDetailsNameTheirItems(t *testing.T) {
+	cache := &fakeEventHandlerCache{byID: map[string]map[string]map[string]map[string]any{
+		"jp": {
+			"resourceboxes": {"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{
+				map[string]any{"resourceType": "gacha_ticket", "resourceId": 17, "resourceQuantity": 1, "seq": 1},
+				map[string]any{"resourceType": "material", "resourceId": 13, "resourceQuantity": 10, "seq": 2},
+				map[string]any{"resourceType": "gacha_ticket", "resourceId": 99, "resourceQuantity": 1, "seq": 3},
+				map[string]any{"resourceType": "jewel", "resourceId": 17, "resourceQuantity": 100, "seq": 4},
+			}}},
+			"gachatickets": {"17": {"id": 17, "name": "Mission Gacha Ticket", "assetbundleName": "mission_gacha_ticket", "gachaDisplayType": "normal"}},
+			"materials":    {"13": {"id": 13, "name": "Music Card"}},
+		},
+	}}
+	handler := newReadyEventHandler(cache)
+	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001})
+	if resourceBox == nil {
+		t.Fatal("expected event ranking resource box to resolve")
+	}
+	details := resourceBox["details"].([]any)
+
+	ticket := details[0].(map[string]any)
+	if ticket["resourceName"] != "Mission Gacha Ticket" || ticket["resourceAssetbundleName"] != "mission_gacha_ticket" {
+		t.Fatalf("expected the gacha ticket name and asset bundle, got %v", ticket)
+	}
+	material := details[1].(map[string]any)
+	if material["resourceName"] != "Music Card" {
+		t.Fatalf("expected the material name, got %v", material)
+	}
+	if _, exists := material["resourceAssetbundleName"]; exists {
+		t.Fatalf("expected no asset bundle for a material, got %v", material)
+	}
+	// A missing ticket record and a currency stay unnamed.
+	for _, index := range []int{2, 3} {
+		if _, exists := details[index].(map[string]any)["resourceName"]; exists {
+			t.Fatalf("expected detail %d without resourceName, got %v", index, details[index])
+		}
+	}
+}
+
 func TestEventRankingRewardMissingResourceBoxesRemainSparse(t *testing.T) {
 	handler := newReadyEventHandler(&fakeEventHandlerCache{})
 	rewards := []any{map[string]any{"id": 701, "resourceBoxId": 9001}}

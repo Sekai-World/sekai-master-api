@@ -89,6 +89,7 @@ type missionResourceBoxCandidate struct {
 type missionRewardCatalog struct {
 	boxesByID    map[int64][]missionResourceBoxCandidate
 	detailsByBox map[string][]map[string]any
+	items        missionRewardItemIndex
 }
 
 type missionRewardResolutionRequest struct {
@@ -1137,9 +1138,12 @@ func (handler *LookupHandler) loadMissionParameterGroupResourceTypes(ctx context
 	if err != nil {
 		return nil, err
 	}
+	// Each record names an EX mission type (for example play_live_ex) and the
+	// base type it extends (play_live). EX missions carry the EX type, so it is
+	// the key; the base type's missions have no EX reward.
 	exTypes := make(map[string]string, len(exRecords))
 	for _, record := range exRecords {
-		missionType := strings.TrimSpace(lookupString(record["characterMissionType"]))
+		missionType := strings.TrimSpace(lookupString(record["characterMissionExType"]))
 		resourceType := strings.TrimSpace(lookupString(record["resourceType"]))
 		if missionType != "" && resourceType != "" {
 			exTypes[missionType] = resourceType
@@ -1261,8 +1265,12 @@ func (handler *LookupHandler) loadMissionRewardCatalog(ctx context.Context, regi
 	if err != nil {
 		return missionRewardCatalog{}, err
 	}
+	items, err := handler.loadMissionRewardItems(ctx, region)
+	if err != nil {
+		return missionRewardCatalog{}, err
+	}
 
-	return missionRewardCatalog{boxesByID: boxesByID, detailsByBox: detailsByBox}, nil
+	return missionRewardCatalog{boxesByID: boxesByID, detailsByBox: detailsByBox, items: items}, nil
 }
 
 // loadMissionResourceBoxIndex returns resource boxes grouped by ID. Decoding
@@ -1386,6 +1394,13 @@ func (catalog missionRewardCatalog) projectCandidate(candidate missionResourceBo
 	if !missionRecordHasField(candidate.record, "details") {
 		for _, detail := range catalog.detailsByBox[missionResourceBoxKey(candidate.purpose, candidate.id)] {
 			box.Details = append(box.Details, projectMissionResourceBoxDetail(detail))
+		}
+	}
+	for index := range box.Details {
+		detail := &box.Details[index]
+		if item, ok := catalog.items.lookup(detail.ResourceType, detail.ResourceID); ok {
+			detail.ResourceName = item.name
+			detail.ResourceAssetbundleName = item.assetbundleName
 		}
 	}
 	return box

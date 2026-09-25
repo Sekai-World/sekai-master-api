@@ -537,6 +537,11 @@ func (handler *EventHandler) enrichRewardResourceBoxDetails(ctx context.Context,
 		if honor := handler.resolveRewardHonor(ctx, region, detailRecord); honor != nil {
 			detail["honor"] = honor
 		}
+		if handler != nil && handler.masterDataSync != nil {
+			for key, value := range shared.RewardItemFields(ctx, handler.masterDataSync.GetByID, region, detailRecord) {
+				detail[key] = value
+			}
+		}
 		items = append(items, detail)
 	}
 

@@ -6897,6 +6897,10 @@ const docTemplate = `{
                 "honor": {
                     "$ref": "#/definitions/shared.EventRewardHonorResponse"
                 },
+                "resourceAssetbundleName": {
+                    "description": "ResourceAssetbundleName is the rewarded item's asset bundle name; only\ngacha tickets carry one, and their icon path depends on it.",
+                    "type": "string"
+                },
                 "resourceBoxId": {
                     "type": "integer"
                 },
@@ -6908,6 +6912,10 @@ const docTemplate = `{
                 },
                 "resourceLevel": {
                     "type": "integer"
+                },
+                "resourceName": {
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, and boost items.",
+                    "type": "string"
                 },
                 "resourceQuantity": {
                     "type": "integer"
@@ -7708,6 +7716,10 @@ const docTemplate = `{
         "shared.MissionResourceBoxDetailResponse": {
             "type": "object",
             "properties": {
+                "resourceAssetbundleName": {
+                    "description": "ResourceAssetbundleName is the rewarded item's asset bundle name; only\ngacha tickets carry one, and their icon path depends on it.",
+                    "type": "string"
+                },
                 "resourceBoxId": {
                     "type": "integer"
                 },
@@ -7719,6 +7731,10 @@ const docTemplate = `{
                 },
                 "resourceLevel": {
                     "type": "integer"
+                },
+                "resourceName": {
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, and boost items.",
+                    "type": "string"
                 },
                 "resourceQuantity": {
                     "type": "integer"
@@ -8756,11 +8772,19 @@ const docTemplate = `{
                 "honor": {
                     "$ref": "#/definitions/shared.EventRewardHonorResponse"
                 },
+                "resourceAssetbundleName": {
+                    "description": "ResourceAssetbundleName is the rewarded item's asset bundle name; only\ngacha tickets carry one, and their icon path depends on it.",
+                    "type": "string"
+                },
                 "resourceId": {
                     "type": "integer"
                 },
                 "resourceLevel": {
                     "type": "integer"
+                },
+                "resourceName": {
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, and boost items.",
+                    "type": "string"
                 },
                 "resourceQuantity": {
                     "type": "integer"

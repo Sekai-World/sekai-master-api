@@ -505,6 +505,57 @@ func TestCharacterMissionParameterGroupLevelsPaginatesAndReturnsMissingGroup(t *
 	}
 }
 
+func TestCharacterMissionExLevelsCarryTheExReward(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &missionTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"jp": {
+					characterMissionV2sEntity: {
+						{"id": 1001, "characterId": 1, "parameterGroupId": 1, "characterMissionType": "play_live"},
+						{"id": 1101, "characterId": 1, "parameterGroupId": 101, "characterMissionType": "play_live_ex"},
+					},
+					characterMissionV2ParameterGroupsEntity: {
+						{"id": 1, "seq": 1, "requirement": 10, "exp": 1, "quantity": 0},
+						{"id": 101, "seq": 1, "requirement": 500, "exp": 1, "quantity": 0},
+						{"id": 101, "seq": 31, "requirement": 1500, "exp": 0, "quantity": 100},
+					},
+					characterMissionV2ExJsonsEntity: {
+						{"id": 1, "characterMissionExType": "play_live_ex", "characterMissionType": "play_live", "resourceType": "material"},
+					},
+				},
+			},
+		},
+	}
+	router := newMissionTestRouter(newMissionTestHandler(cache))
+
+	levelsOf := func(groupID string) []map[string]any {
+		t.Helper()
+		response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/characterMissionV2ParameterGroups/jp/"+groupID+"/levels")
+		var body struct {
+			Items []map[string]any `json:"items"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode parameter group %s levels: %v", groupID, err)
+		}
+		return body.Items
+	}
+
+	exLevels := levelsOf("101")
+	if _, ok := exLevels[0]["reward"]; ok {
+		t.Fatalf("expected no reward on an EX level without quantity, got %#v", exLevels[0])
+	}
+	reward, ok := exLevels[1]["reward"].(map[string]any)
+	if !ok || reward["resourceType"] != "material" || reward["resourceQuantity"] != float64(100) {
+		t.Fatalf("expected the final EX level to carry material ×100, got %#v", exLevels[1])
+	}
+	for _, level := range levelsOf("1") {
+		if _, ok := level["reward"]; ok {
+			t.Fatalf("expected the base mission's levels without an EX reward, got %#v", level)
+		}
+	}
+}
+
 func TestCharacterRanksListFiltersCharacterAndResolvesOnlyCharacterRankRewardBoxes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cache := &missionTrackingCache{
