@@ -22,6 +22,8 @@ type LookupHandler struct {
 	// endpoints, revalidated against each entity's persisted revision.
 	resourceBoxIndexes       revisionCache[map[int64][]missionResourceBoxCandidate]
 	resourceBoxDetailIndexes revisionCache[map[string][]map[string]any]
+	// Keyed by region and item entity; see missionRewardItemEntities.
+	rewardItemIndexes revisionCache[map[int64]missionRewardItem]
 }
 
 type lookupResourceConfig struct {

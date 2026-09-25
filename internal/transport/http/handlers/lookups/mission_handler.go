@@ -89,6 +89,7 @@ type missionResourceBoxCandidate struct {
 type missionRewardCatalog struct {
 	boxesByID    map[int64][]missionResourceBoxCandidate
 	detailsByBox map[string][]map[string]any
+	items        missionRewardItemIndex
 }
 
 type missionRewardResolutionRequest struct {
@@ -1261,8 +1262,12 @@ func (handler *LookupHandler) loadMissionRewardCatalog(ctx context.Context, regi
 	if err != nil {
 		return missionRewardCatalog{}, err
 	}
+	items, err := handler.loadMissionRewardItems(ctx, region)
+	if err != nil {
+		return missionRewardCatalog{}, err
+	}
 
-	return missionRewardCatalog{boxesByID: boxesByID, detailsByBox: detailsByBox}, nil
+	return missionRewardCatalog{boxesByID: boxesByID, detailsByBox: detailsByBox, items: items}, nil
 }
 
 // loadMissionResourceBoxIndex returns resource boxes grouped by ID. Decoding
@@ -1386,6 +1391,13 @@ func (catalog missionRewardCatalog) projectCandidate(candidate missionResourceBo
 	if !missionRecordHasField(candidate.record, "details") {
 		for _, detail := range catalog.detailsByBox[missionResourceBoxKey(candidate.purpose, candidate.id)] {
 			box.Details = append(box.Details, projectMissionResourceBoxDetail(detail))
+		}
+	}
+	for index := range box.Details {
+		detail := &box.Details[index]
+		if item, ok := catalog.items.lookup(detail.ResourceType, detail.ResourceID); ok {
+			detail.ResourceName = item.name
+			detail.ResourceAssetbundleName = item.assetbundleName
 		}
 	}
 	return box
