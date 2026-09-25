@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"container/list"
 	"context"
 	"crypto/sha1"
@@ -467,6 +468,17 @@ func (task *entityStoreTask) redisKeys() entityRedisKeys {
 	}
 }
 
+// storageLayoutVersion tags stored source digests. Bump it when the way
+// records are keyed or encoded changes, so the next sync rewrites files whose
+// source did not change instead of skipping them.
+//
+// 2: numeric ids are keyed in decimal ("1010201", not "1.010201e+06").
+const storageLayoutVersion = "2"
+
+func storedSourceDigest(digest string) string {
+	return "layout" + storageLayoutVersion + ":" + digest
+}
+
 // skipUnchangedBySourceDigest reports whether the file can be skipped because
 // its stored source digest still matches and the persisted search index is
 // present.
@@ -483,7 +495,7 @@ func (task *entityStoreTask) skipUnchangedBySourceDigest(ctx context.Context, ke
 		return false, fmt.Errorf("get redis source digest for region %s entity %s: %w", task.regionName, task.entity, digestErr)
 	}
 	_, revisionErr := task.cache.client.Get(ctx, keys.revision).Result()
-	if digestErr != nil || revisionErr != nil || storedDigest != task.incomingDigest {
+	if digestErr != nil || revisionErr != nil || storedDigest != storedSourceDigest(task.incomingDigest) {
 		return false, nil
 	}
 
@@ -661,7 +673,7 @@ func (task *entityStoreTask) execEntityPipeline(ctx context.Context, keys entity
 		pipe.Set(ctx, keys.revision, plan.revision, 0)
 	}
 	if task.hasDigest && task.incomingDigest != "" {
-		pipe.Set(ctx, keys.sourceDigest, task.incomingDigest, 0)
+		pipe.Set(ctx, keys.sourceDigest, storedSourceDigest(task.incomingDigest), 0)
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		return "", fmt.Errorf("incremental update region %s entity %s: %w", task.regionName, task.entity, err)
@@ -2816,7 +2828,16 @@ func recordID(record map[string]any) string {
 		return ""
 	}
 
-	return strings.TrimSpace(fmt.Sprintf("%v", idValue))
+	return formatRecordID(idValue)
+}
+
+// formatRecordID renders an id the way lookups spell it. Numbers are decimal:
+// "%v" on a decoded float64 gives "1.010201e+06" for ids of a million or more.
+func formatRecordID(value any) string {
+	if id, ok := compositeStorageKeyPart(value); ok {
+		return id
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 
 func recordStorageID(record map[string]any, body []byte) string {
@@ -2838,9 +2859,11 @@ func recordStorageIDFromRaw(body []byte) string {
 		ID json.RawMessage `json:"id"`
 	}
 	if err := json.Unmarshal(body, &fields); err == nil && len(fields.ID) > 0 && string(fields.ID) != "null" {
+		decoder := json.NewDecoder(bytes.NewReader(fields.ID))
+		decoder.UseNumber()
 		var value any
-		if json.Unmarshal(fields.ID, &value) == nil {
-			if id := strings.TrimSpace(fmt.Sprintf("%v", value)); id != "" {
+		if decoder.Decode(&value) == nil {
+			if id := formatRecordID(value); id != "" {
 				return id
 			}
 		}
