@@ -468,6 +468,18 @@ func (task *entityStoreTask) redisKeys() entityRedisKeys {
 	}
 }
 
+// errExponentRecordIDs reports records still keyed by the float exponent form
+// that storage layout 1 produced for ids of a million or more.
+var errExponentRecordIDs = errors.New("records keyed by exponent-form ids need a re-store")
+
+func isExponentRecordID(id string) bool {
+	if !strings.Contains(id, "e+") {
+		return false
+	}
+	_, err := strconv.ParseFloat(id, 64)
+	return err == nil
+}
+
 // storageLayoutVersion tags stored source digests. Bump it when the way
 // records are keyed or encoded changes, so the next sync rewrites files whose
 // source did not change instead of skipping them.
@@ -1954,6 +1966,11 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 		for id, raw := range recordMap {
 			if strings.TrimSpace(id) == "" {
 				continue
+			}
+			if isExponentRecordID(id) {
+				// Skipping the sync would keep ids GetByID cannot find; a
+				// restore or full sync rewrites them in decimal.
+				return false, fmt.Errorf("region %s entity %s id %q: %w", regionName, entity, id, errExponentRecordIDs)
 			}
 
 			record, err := unmarshalRedisEntityRecord(raw, regionName, entity, id)

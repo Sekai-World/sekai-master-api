@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"sort"
@@ -478,6 +479,12 @@ func TestStoreRegionRewritesExponentKeysForUnchangedSources(t *testing.T) {
 		t.Fatalf("seed legacy layout: %v", err)
 	}
 
+	// An unchanged upstream commit skips the sync only if the index rebuild
+	// succeeds, so it must refuse exponent keys.
+	if rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, "jp"); rebuilt || !errors.Is(err, errExponentRecordIDs) {
+		t.Fatalf("expected rebuild to reject exponent keys, got rebuilt=%v err=%v", rebuilt, err)
+	}
+
 	if err := cache.StoreRegionWithSourceDigests(ctx, "jp", payload, fileDigests); err != nil {
 		t.Fatalf("store payload: %v", err)
 	}
@@ -492,6 +499,9 @@ func TestStoreRegionRewritesExponentKeysForUnchangedSources(t *testing.T) {
 	}
 	if record, found, err := cache.GetByID(ctx, "jp", "bondsHonors", "1010201"); err != nil || !found || record["name"] != "bonds low" {
 		t.Fatalf("expected id=1010201 after rewrite, got found=%v value=%v err=%v", found, record, err)
+	}
+	if rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, "jp"); !rebuilt || err != nil {
+		t.Fatalf("expected rebuild after rewrite, got rebuilt=%v err=%v", rebuilt, err)
 	}
 }
 
