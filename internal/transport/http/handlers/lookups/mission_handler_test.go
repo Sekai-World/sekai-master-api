@@ -556,6 +556,44 @@ func TestCharacterMissionExLevelsCarryTheExReward(t *testing.T) {
 	}
 }
 
+func TestCharacterRanksCarryTheirCumulativeExp(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &missionTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"kr": {
+					characterRanksEntity: {
+						{"id": 1, "characterId": 1, "characterRank": 1},
+						{"id": 5, "characterId": 1, "characterRank": 5},
+						{"id": 9, "characterId": 1, "characterRank": 9},
+					},
+					// TW/KR/CN level records carry no id.
+					levelsEntity: {
+						{"levelType": "character", "level": 1, "totalExp": 0},
+						{"levelType": "character", "level": 5, "totalExp": 10},
+						{"levelType": "user", "level": 9, "totalExp": 999},
+					},
+				},
+			},
+		},
+	}
+	router := newMissionTestRouter(newMissionTestHandler(cache))
+
+	response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/characterRanks/kr/list?character_id=1")
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode character ranks: %v", err)
+	}
+	if body.Items[0]["totalExp"] != float64(0) || body.Items[1]["totalExp"] != float64(10) {
+		t.Fatalf("expected ranks 1 and 5 to carry their character-level EXP, got %#v", body.Items)
+	}
+	if _, ok := body.Items[2]["totalExp"]; ok {
+		t.Fatalf("expected no totalExp without a character level record, got %#v", body.Items[2])
+	}
+}
+
 func TestCharacterRanksListFiltersCharacterAndResolvesOnlyCharacterRankRewardBoxes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cache := &missionTrackingCache{

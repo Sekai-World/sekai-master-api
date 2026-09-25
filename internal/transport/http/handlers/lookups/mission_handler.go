@@ -26,6 +26,7 @@ const (
 	normalMissionsEntity                    = "normalmissions"
 	resourceBoxesEntity                     = "resourceboxes"
 	resourceBoxDetailsEntity                = "resourceboxdetails"
+	levelsEntity                            = "levels"
 	missionQueryErrorCode                   = "MISSION_QUERY_ERROR"
 	missionNotFoundCode                     = "MISSION_NOT_FOUND"
 	missionParameterGroupNotFoundCode       = "MISSION_PARAMETER_GROUP_NOT_FOUND"
@@ -364,7 +365,12 @@ func (handler *LookupHandler) CharacterRanksList(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to resolve character rank rewards")
 		return
 	}
-	items := projectCharacterRankResponses(ranks, catalog, characterID)
+	totalExps, err := handler.loadCharacterRankTotalExps(c.Request.Context(), region)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to resolve character rank EXP")
+		return
+	}
+	items := projectCharacterRankResponses(ranks, catalog, totalExps, characterID)
 	response.JSON(c, http.StatusOK, shared.CharacterRankListResponse{
 		Items:      paginateCharacterRankResponses(items, page, pageSize),
 		Pagination: lookupPaginationResponse(page, pageSize, len(items)),
@@ -388,6 +394,7 @@ func parsePositiveQueryID(c *gin.Context, key string) (int64, bool) {
 func projectCharacterRankResponses(
 	rankRecords []map[string]any,
 	catalog missionRewardCatalog,
+	totalExps map[int64]int64,
 	characterID int64,
 ) []shared.CharacterRankResponse {
 	items := make([]shared.CharacterRankResponse, 0)
@@ -412,6 +419,9 @@ func projectCharacterRankResponses(
 			Power2BonusRate:     lookupOptionalFloat64(record["power2BonusRate"]),
 			Power3BonusRate:     lookupOptionalFloat64(record["power3BonusRate"]),
 			RewardResourceBoxes: make([]shared.MissionResourceBoxResponse, 0),
+		}
+		if totalExp, ok := totalExps[rank]; ok {
+			item.TotalExp = &totalExp
 		}
 		for _, resourceBoxID := range lookupPositiveInt64List(record["rewardResourceBoxIds"]) {
 			for _, candidate := range catalog.boxesByID[resourceBoxID] {
@@ -1468,4 +1478,33 @@ func projectMissionResourceBoxDetail(record map[string]any) shared.MissionResour
 func missionRecordHasField(record map[string]any, field string) bool {
 	_, exists := record[field]
 	return exists
+}
+
+// loadCharacterRankTotalExps maps each character rank to the cumulative EXP it
+// needs, from the `levels` records with levelType "character". Every character
+// shares the table; it is decoded once per entity revision.
+func (handler *LookupHandler) loadCharacterRankTotalExps(ctx context.Context, region string) (map[int64]int64, error) {
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, levelsEntity)
+	if err != nil {
+		return nil, err
+	}
+
+	return handler.characterRankTotalExps.load(ctx, region, revision, func(ctx context.Context) (map[int64]int64, error) {
+		levels, err := handler.masterDataSync.ListAll(ctx, region, levelsEntity)
+		if err != nil {
+			return nil, err
+		}
+		totalExps := make(map[int64]int64)
+		for _, record := range levels {
+			if !strings.EqualFold(strings.TrimSpace(lookupString(record["levelType"])), "character") {
+				continue
+			}
+			level, levelOK := lookupInt64(record["level"])
+			totalExp, expOK := lookupInt64(record["totalExp"])
+			if levelOK && expOK {
+				totalExps[level] = totalExp
+			}
+		}
+		return totalExps, nil
+	})
 }
