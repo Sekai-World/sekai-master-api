@@ -86,6 +86,8 @@ Search indexes are scoped to fields used by API search paths instead of every sc
 
 Mission and character-rank reward lookups decode every `resourceboxes` record (and, for missions, every `resourceboxdetails` record) to join rewards, which costs seconds per request for large regions. The lookup handler therefore keeps one decoded index per region and entity in process memory and reuses it while the entity's Redis `:revision` key is unchanged. Sync rewrites `:revision` only when an entity's stored records or order change, so every request revalidates with one `GET` and any process picks up another process's sync on its next read. An entity without a stored revision is decoded on every request and never cached. The cached indexes are read-only and bounded to one entry per region and entity.
 
+The same revision-keyed cache (`shared.RevisionCache`) backs every other read that would otherwise decode a large entity per request: event ranking reward boxes (event rewards and the event detail preview), virtual live reward boxes, the gacha list projection, the slim card list projection, the card-to-pickup-gacha index (card detail and card gachas), and the normalized 3D costume list. Handlers must not decode `resourceboxes`, `gachas`, `cards`, or `costume3ds` with `ListAll` per request or per item; the API latency budget is under 1 s per request and never over 3 s. `ListAll` fetches and decodes up to eight HMGET batches concurrently, which bounds the first (uncached) request after a deploy or an entity change.
+
 Query behavior:
 
 - Card by-id reads from Redis hash cache.
