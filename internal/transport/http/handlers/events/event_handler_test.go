@@ -151,6 +151,28 @@ func (cache *fakeEventHandlerCache) ListAll(_ context.Context, region string, en
 	return items, nil
 }
 
+func (cache *fakeEventHandlerCache) GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	records := make([]map[string]any, len(ids))
+	for index, id := range ids {
+		record, found, err := cache.GetByID(ctx, region, entity, id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			records[index] = record
+		}
+	}
+	return records, nil
+}
+
+func (cache *fakeEventHandlerCache) GetByCompositeKeys(ctx context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error) {
+	records, err := cache.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+	return testutil.MatchCompositeKeys(records, keys), nil
+}
+
 func (cache *fakeEventHandlerCache) ListByPage(_ context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
 	if page <= 0 {
 		page = 1

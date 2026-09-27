@@ -79,6 +79,30 @@ func (cache *fakeVirtualLiveHandlerCache) GetByID(_ context.Context, region stri
 	return record, true, nil
 }
 
+func (cache *fakeVirtualLiveHandlerCache) GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	records := make([]map[string]any, len(ids))
+	for index, id := range ids {
+		record, found, err := cache.GetByID(ctx, region, entity, id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			records[index] = record
+		}
+	}
+	return records, nil
+}
+
+// GetByCompositeKeys reads the fake's records directly so it does not count as
+// a full-entity ListAll.
+func (cache *fakeVirtualLiveHandlerCache) GetByCompositeKeys(_ context.Context, _ string, entity string, keys []map[string]any) ([]map[string]any, error) {
+	records := cache.listItems
+	if entityItems, ok := cache.listByEntity[strings.ToLower(strings.TrimSpace(entity))]; ok {
+		records = entityItems
+	}
+	return testutil.MatchCompositeKeys(records, keys), nil
+}
+
 func (cache *fakeVirtualLiveHandlerCache) ListAll(_ context.Context, _ string, entity string) ([]map[string]any, error) {
 	cache.listAllCalls = append(cache.listAllCalls, entity)
 	source := cache.listItems
@@ -1558,79 +1582,50 @@ func TestVirtualLiveItemsEndpointPassesThroughRawPayload(t *testing.T) {
 	}
 }
 
-type revisionTrackingVirtualLiveCache struct {
-	*fakeVirtualLiveHandlerCache
-	revision string
-}
-
-func (cache *revisionTrackingVirtualLiveCache) EntityRevision(_ context.Context, _ string, entity string) (string, error) {
-	if entity == "resourceboxes" {
-		return cache.revision, nil
-	}
-	return "", nil
-}
-
-func TestVirtualLiveByIDDecodesResourceBoxesOncePerRevision(t *testing.T) {
+func TestVirtualLiveByIDReadsRewardBoxesByCompositeKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &revisionTrackingVirtualLiveCache{
-		fakeVirtualLiveHandlerCache: &fakeVirtualLiveHandlerCache{
-			byID: map[string]map[string]map[string]map[string]any{
-				"jp": {"virtuallives": {"501": {
-					"id":                 501,
-					"virtualLiveRewards": []any{map[string]any{"id": 1, "resourceBoxId": 1}},
-				}}},
-			},
-			listByEntity: map[string][]map[string]any{
-				"resourceboxes": {{
-					"id":                 1,
-					"resourceBoxPurpose": "virtual_live_reward",
-					"resourceBoxType":    "material",
-					"details":            []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 300}},
-				}},
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {"virtuallives": {"501": {
+				"id": 501,
+				"virtualLiveRewards": []any{
+					map[string]any{"id": 1, "resourceBoxId": 1},
+					map[string]any{"id": 2, "resourceBoxId": 2},
+				},
+			}}},
+		},
+		listByEntity: map[string][]map[string]any{
+			"resourceboxes": {
+				{"id": 1, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 999}}},
+				{"id": 1, "resourceBoxPurpose": "virtual_live_reward", "details": []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 300}}},
+				{"id": 2, "resourceBoxPurpose": "virtual_live_reward", "details": []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 50}}},
 			},
 		},
-		revision: "r1",
 	}
-	statusStore := &fakeVirtualLiveHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
-	handler := NewVirtualLiveHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1))
 	router := gin.New()
-	router.GET("/api/v1/virtualLives/:region/:id", handler.ByID)
+	router.GET("/api/v1/virtualLives/:region/:id", newReadyVirtualLiveHandler(cache).ByID)
 
-	resourceBoxDecodes := func() int {
-		count := 0
-		for _, entity := range cache.listAllCalls {
-			if entity == "resourceboxes" {
-				count++
-			}
-		}
-		return count
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	get := func() {
-		t.Helper()
-		resp := httptest.NewRecorder()
-		router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil))
-		if resp.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-		}
-		var body map[string]any
-		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-			t.Fatalf("unmarshal response: %v", err)
-		}
-		reward := body["virtualLiveRewards"].([]any)[0].(map[string]any)
-		if reward["resourceBox"] == nil {
-			t.Fatalf("expected resourceBox to be expanded, got %v", reward)
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	for index, wantQuantity := range []float64{300, 50} {
+		reward := body["virtualLiveRewards"].([]any)[index].(map[string]any)
+		box, _ := reward["resourceBox"].(map[string]any)
+		details, _ := box["details"].([]any)
+		if len(details) != 1 || details[0].(map[string]any)["resourceQuantity"] != wantQuantity {
+			t.Fatalf("reward %d: expected the virtual_live_reward box, got %v", index, box)
 		}
 	}
-
-	get()
-	get()
-	if got := resourceBoxDecodes(); got != 1 {
-		t.Fatalf("expected resource boxes decoded once for an unchanged revision, got %d", got)
-	}
-	cache.revision = "r2"
-	get()
-	if got := resourceBoxDecodes(); got != 2 {
-		t.Fatalf("expected a new revision to rebuild the index, got %d decodes", got)
+	for _, entity := range cache.listAllCalls {
+		if entity == "resourceboxes" {
+			t.Fatalf("expected no full resourceboxes read, got %v", cache.listAllCalls)
+		}
 	}
 }

@@ -16,10 +16,6 @@ import (
 
 type VirtualLiveHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
-
-	// virtual_live_reward resource boxes by ID, per region, reused while the
-	// resourceboxes revision is unchanged.
-	rewardResourceBoxes shared.RevisionCache[map[string]map[string]any]
 }
 
 type virtualLiveRelatedData struct {
@@ -449,7 +445,7 @@ func (handler *VirtualLiveHandler) buildVirtualLiveWithRelated(
 	}
 
 	if rawRewards, hasRewards := record["virtualLiveRewards"]; hasRewards {
-		resourceBoxes := handler.loadResourceBoxes(ctx, region)
+		resourceBoxes := handler.loadRewardResourceBoxes(ctx, region, rawRewards)
 		result["virtualLiveRewards"] = handler.buildVirtualLiveRewards(ctx, region, rawRewards, resourceBoxes)
 	}
 
@@ -515,30 +511,42 @@ func (handler *VirtualLiveHandler) buildVirtualLiveRewards(ctx context.Context, 
 	return rewards
 }
 
-// loadResourceBoxes returns the region's virtual_live_reward resource boxes by
-// ID. resourceboxes IDs are not unique across resourceBoxPurpose, so the index
-// is built from the full list rather than GetByID. Decoding that list dominates
-// the request, so the index is reused while the entity revision is unchanged.
-func (handler *VirtualLiveHandler) loadResourceBoxes(ctx context.Context, region string) map[string]map[string]any {
+// loadRewardResourceBoxes reads the virtual_live_reward boxes the rewards
+// reference, by ID, in one composite-key read. resourceboxes IDs are not
+// unique across resourceBoxPurpose, so a bare-ID lookup cannot select them.
+func (handler *VirtualLiveHandler) loadRewardResourceBoxes(ctx context.Context, region string, rawRewards any) map[string]map[string]any {
 	if handler == nil || handler.masterDataSync == nil {
 		return nil
 	}
 
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "resourceboxes")
-	if err != nil {
-		return nil
-	}
-	boxes, err := handler.rewardResourceBoxes.Load(ctx, region, revision, func(ctx context.Context) (map[string]map[string]any, error) {
-		boxes, err := handler.masterDataSync.ListAll(ctx, region, "resourceboxes")
-		if err != nil {
-			return nil, err
+	items, _ := rawRewards.([]any)
+	ids := make([]string, 0, len(items))
+	keys := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		reward, ok := item.(map[string]any)
+		if !ok {
+			continue
 		}
-		return indexVirtualLiveRewardResourceBoxes(boxes), nil
-	})
+		if id := shared.NormalizeAnyID(reward["resourceBoxId"]); id != "" {
+			ids = append(ids, id)
+			keys = append(keys, map[string]any{"id": id, "resourceBoxPurpose": "virtual_live_reward"})
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+
+	boxes, err := handler.masterDataSync.GetByCompositeKeys(ctx, region, "resourceboxes", keys)
 	if err != nil {
 		return nil
 	}
-	return boxes
+	byID := make(map[string]map[string]any, len(boxes))
+	for index, box := range boxes {
+		if box != nil {
+			byID[ids[index]] = box
+		}
+	}
+	return byID
 }
 
 func (handler *VirtualLiveHandler) preloadVirtualLiveRelatedData(
