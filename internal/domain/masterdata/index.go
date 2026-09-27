@@ -93,7 +93,7 @@ func IndexKeys(record map[string]any, index string) []string {
 			return nil
 		}
 
-		next := make([]string, 0, len(keys)*len(parts))
+		next := make([]string, 0, len(keys))
 		for _, prefix := range keys {
 			for _, part := range parts {
 				next = append(next, appendIndexKeyPart(prefix, part, len(fields)))
