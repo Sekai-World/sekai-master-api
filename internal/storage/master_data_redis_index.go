@@ -179,12 +179,21 @@ func (cache *RedisMasterDataCache) ListByIndex(ctx context.Context, region strin
 	pipe := cache.client.Pipeline()
 	versionCmd := pipe.Get(ctx, cache.redisEntityIndexVersionKey(regionName, entityName))
 	valuesCmd := pipe.HMGet(ctx, cache.redisEntityIndexKey(regionName, entityName, index), keys...)
+	storedCmd := pipe.Exists(ctx, cache.redisEntityKey(regionName, entityName))
 	_, _ = pipe.Exec(ctx)
-	for _, cmdErr := range []error{versionCmd.Err(), valuesCmd.Err()} {
+	for _, cmdErr := range []error{versionCmd.Err(), valuesCmd.Err(), storedCmd.Err()} {
 		if cmdErr != nil && !errors.Is(cmdErr, redis.Nil) {
 			err = fmt.Errorf("read index %s region %s entity %s: %w", index, regionName, entityName, cmdErr)
 			return nil, err
 		}
+	}
+	if storedCmd.Val() == 0 {
+		// A region without this entity (TW has no musiccategories) has no
+		// records and so no index to build.
+		for _, position := range positions {
+			results[position] = make([]map[string]any, 0)
+		}
+		return results, nil
 	}
 	if version, _ := versionCmd.Result(); version != masterdata.IndexVersion(entityName) {
 		logging.FromContext(ctx).Warnw("master data index not built; scanning entity", "region", regionName, "entity", entityName, "index", index)
