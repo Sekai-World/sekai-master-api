@@ -13,10 +13,12 @@ import (
 	"hash"
 	"math"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -1296,25 +1298,9 @@ func (cache *RedisMasterDataCache) ListByPage(ctx context.Context, region string
 	if err != nil {
 		return nil, 0, fmt.Errorf("lrange order ids region %s entity %s: %w", regionName, entityName, err)
 	}
-	if usesCompositeStorageKey(entityName) {
-		items, err := cache.getEntityRecordsByIDs(ctx, regionName, entityName, ids)
-		if err != nil {
-			return nil, 0, err
-		}
-		span.SetAttributes(attribute.Int("result.count", len(items)), attribute.Int64("result.total", total))
-		return items, int(total), nil
-	}
-
-	items := make([]map[string]any, 0, len(ids))
-	for _, id := range ids {
-		record, found, err := cache.GetByID(ctx, regionName, entityName, id)
-		if err != nil {
-			return nil, 0, err
-		}
-		if !found {
-			continue
-		}
-		items = append(items, record)
+	items, err := cache.getEntityRecordsByIDs(ctx, regionName, entityName, ids)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	span.SetAttributes(attribute.Int("result.count", len(items)), attribute.Int64("result.total", total))
@@ -1411,106 +1397,204 @@ func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, e
 	return items, err
 }
 
-// redisEntityReadConcurrency bounds the HMGET batches one entity read fetches
-// and decodes at once. Decoding dominates reads of large entities, so batches
-// run in parallel instead of one after another.
+// redisEntityReadConcurrency bounds the HMGET batches one read fetches at once.
 const redisEntityReadConcurrency = 8
 
+// redisEntityDecodeChunk is how many records a decode worker claims at a time.
+const redisEntityDecodeChunk = 32
+
+// GetByIDs returns the records stored under ids, aligned with ids, with nil
+// for an ID that has no record. Like GetByID, a bare ID never matches a record
+// of a composite-key entity; use GetByCompositeKeys for those.
+func (cache *RedisMasterDataCache) GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.get_by_ids", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)), attribute.Int("request.count", len(ids)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	records := make([]map[string]any, len(ids))
+	if regionName == "" || entityName == "" || len(ids) == 0 || usesCompositeStorageKey(entityName) {
+		return records, nil
+	}
+
+	keys := make([]string, 0, len(ids))
+	positions := make([]int, 0, len(ids))
+	for index, id := range ids {
+		if key := strings.TrimSpace(id); key != "" {
+			keys = append(keys, key)
+			positions = append(positions, index)
+		}
+	}
+	found, err := cache.fetchEntityRecords(ctx, regionName, entityName, keys)
+	if err != nil {
+		return nil, err
+	}
+	for index, record := range found {
+		records[positions[index]] = record
+	}
+	return records, nil
+}
+
+// GetByCompositeKeys returns the records of a composite-key entity (see
+// compositeStorageKeyFields) whose key fields equal each key, aligned with
+// keys. A key missing any key field, or a key with no record, yields nil.
+func (cache *RedisMasterDataCache) GetByCompositeKeys(ctx context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "redis.master_data.get_by_composite_keys", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)), attribute.Int("request.count", len(keys)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	regionName := normalizeKey(region)
+	entityName := normalizeKey(entity)
+	records := make([]map[string]any, len(keys))
+	if regionName == "" || entityName == "" || len(keys) == 0 || !usesCompositeStorageKey(entityName) {
+		return records, nil
+	}
+
+	storageKeys := make([]string, 0, len(keys))
+	positions := make([]int, 0, len(keys))
+	for index, key := range keys {
+		if storageKey, ok := compositeRecordStorageKey(entityName, key); ok {
+			storageKeys = append(storageKeys, storageKey)
+			positions = append(positions, index)
+		}
+	}
+	found, err := cache.fetchEntityRecords(ctx, regionName, entityName, storageKeys)
+	if err != nil {
+		return nil, err
+	}
+	for index, record := range found {
+		records[positions[index]] = record
+	}
+	return records, nil
+}
+
 func (cache *RedisMasterDataCache) getEntityRecordsByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
-	if len(ids) == 0 {
+	records, err := cache.fetchEntityRecords(ctx, region, entity, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		if record != nil {
+			items = append(items, record)
+		}
+	}
+	return items, nil
+}
+
+func (cache *RedisMasterDataCache) getEntityRecordsByIDsMapped(ctx context.Context, region string, entity string, ids []string) (map[string]map[string]any, error) {
+	records, err := cache.fetchEntityRecords(ctx, region, entity, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]map[string]any, len(records))
+	for index, record := range records {
+		if record != nil {
+			result[ids[index]] = record
+		}
+	}
+	return result, nil
+}
+
+// fetchEntityRecords reads the records stored under keys and returns them
+// aligned with keys, with nil for a key that has no record. HMGET batches are
+// fetched concurrently and records are decoded on every available core, so a
+// large read is not bound to one goroutine.
+func (cache *RedisMasterDataCache) fetchEntityRecords(ctx context.Context, region string, entity string, keys []string) ([]map[string]any, error) {
+	if len(keys) == 0 {
 		return []map[string]any{}, nil
 	}
 
+	bodies, err := cache.fetchEntityRecordBodies(ctx, region, entity, keys)
+	if err != nil {
+		return nil, err
+	}
+	return decodeEntityRecords(bodies, region, entity, keys)
+}
+
+func (cache *RedisMasterDataCache) fetchEntityRecordBodies(ctx context.Context, region string, entity string, keys []string) ([]any, error) {
 	const hmgetBatchSize = 500
 
 	entityKey := cache.redisEntityKey(region, entity)
-	batchCount := (len(ids) + hmgetBatchSize - 1) / hmgetBatchSize
-	batches := make([][]map[string]any, batchCount)
+	bodies := make([]any, len(keys))
+	batchCount := (len(keys) + hmgetBatchSize - 1) / hmgetBatchSize
 	errs := make([]error, batchCount)
 	slots := make(chan struct{}, redisEntityReadConcurrency)
 	var wait sync.WaitGroup
 	for batch := range batchCount {
 		start := batch * hmgetBatchSize
-		batchIDs := ids[start:min(start+hmgetBatchSize, len(ids))]
+		end := min(start+hmgetBatchSize, len(keys))
 		slots <- struct{}{}
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
 			defer func() { <-slots }()
-			batches[batch], errs[batch] = cache.getEntityRecordBatch(ctx, region, entity, entityKey, batchIDs)
+			values, err := cache.client.HMGet(ctx, entityKey, keys[start:end]...).Result()
+			if err != nil {
+				errs[batch] = fmt.Errorf("hmget region %s entity %s: %w", region, entity, err)
+				return
+			}
+			copy(bodies[start:end], values)
 		}()
 	}
 	wait.Wait()
 
-	items := make([]map[string]any, 0, len(ids))
-	for batch, records := range batches {
-		if errs[batch] != nil {
-			return nil, errs[batch]
-		}
-		items = append(items, records...)
-	}
-
-	return items, nil
-}
-
-// getEntityRecordBatch reads and decodes one HMGET batch, skipping missing IDs.
-func (cache *RedisMasterDataCache) getEntityRecordBatch(ctx context.Context, region string, entity string, entityKey string, batchIDs []string) ([]map[string]any, error) {
-	values, err := cache.client.HMGet(ctx, entityKey, batchIDs...).Result()
-	if err != nil {
-		return nil, fmt.Errorf("hmget region %s entity %s: %w", region, entity, err)
-	}
-
-	records := make([]map[string]any, 0, len(values))
-	for index, raw := range values {
-		if raw == nil {
-			continue
-		}
-
-		record, err := unmarshalRedisEntityRecord(raw, region, entity, batchIDs[index])
+	for _, err := range errs {
 		if err != nil {
 			return nil, err
 		}
-		records = append(records, record)
 	}
-
-	return records, nil
+	return bodies, nil
 }
 
-func (cache *RedisMasterDataCache) getEntityRecordsByIDsMapped(ctx context.Context, region string, entity string, ids []string) (map[string]map[string]any, error) {
-	if len(ids) == 0 {
-		return map[string]map[string]any{}, nil
+// decodeEntityRecords decodes HMGET values aligned with keys. Workers claim
+// chunks of records, so a few very large records (gachas, cards) spread across
+// cores as evenly as many small ones.
+func decodeEntityRecords(bodies []any, region string, entity string, keys []string) ([]map[string]any, error) {
+	records := make([]map[string]any, len(bodies))
+	chunks := (len(bodies) + redisEntityDecodeChunk - 1) / redisEntityDecodeChunk
+	workers := min(runtime.GOMAXPROCS(0), chunks)
+	errs := make([]error, workers)
+	var next atomic.Int64
+	var wait sync.WaitGroup
+	for worker := range workers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for {
+				start := int(next.Add(redisEntityDecodeChunk)) - redisEntityDecodeChunk
+				if start >= len(bodies) {
+					return
+				}
+				for index := start; index < min(start+redisEntityDecodeChunk, len(bodies)); index++ {
+					if bodies[index] == nil {
+						continue
+					}
+					record, err := unmarshalRedisEntityRecord(bodies[index], region, entity, keys[index])
+					if err != nil {
+						errs[worker] = err
+						return
+					}
+					records[index] = record
+				}
+			}
+		}()
 	}
+	wait.Wait()
 
-	const hmgetBatchSize = 500
-
-	entityKey := cache.redisEntityKey(region, entity)
-	result := make(map[string]map[string]any, len(ids))
-	for start := 0; start < len(ids); start += hmgetBatchSize {
-		end := start + hmgetBatchSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-
-		batchIDs := ids[start:end]
-		values, err := cache.client.HMGet(ctx, entityKey, batchIDs...).Result()
+	for _, err := range errs {
 		if err != nil {
-			return nil, fmt.Errorf("hmget region %s entity %s: %w", region, entity, err)
-		}
-
-		for index, raw := range values {
-			if raw == nil {
-				continue
-			}
-
-			record, err := unmarshalRedisEntityRecord(raw, region, entity, batchIDs[index])
-			if err != nil {
-				return nil, err
-			}
-			result[batchIDs[index]] = record
+			return nil, err
 		}
 	}
-
-	return result, nil
+	return records, nil
 }
 
 func unmarshalRedisEntityRecord(raw any, region string, entity string, id string) (map[string]any, error) {
