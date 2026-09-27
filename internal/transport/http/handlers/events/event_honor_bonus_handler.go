@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -73,17 +74,13 @@ func (handler *EventHandler) buildEventHonorBonusResponses(
 	region string,
 	eventID string,
 ) ([]shared.EventHonorBonusObjectResponse, error) {
-	records, err := handler.masterDataSync.ListAll(ctx, region, eventHonorBonusesEntity)
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, eventHonorBonusesEntity, "eventId", [][]any{{eventID}})
 	if err != nil {
 		return nil, err
 	}
 
-	targetEventID := shared.NormalizeAnyID(eventID)
-	items := make([]shared.EventHonorBonusObjectResponse, 0, len(records))
-	for _, record := range records {
-		if shared.NormalizeAnyID(record["eventId"]) != targetEventID {
-			continue
-		}
+	items := make([]shared.EventHonorBonusObjectResponse, 0, len(matches[0]))
+	for _, record := range matches[0] {
 		items = append(items, projectEventHonorBonus(record))
 	}
 
@@ -106,7 +103,7 @@ func (handler *EventHandler) enrichEventHonorBonusResponses(
 	region string,
 	items []shared.EventHonorBonusObjectResponse,
 ) error {
-	honorRecords, err := handler.masterDataSync.ListAll(ctx, region, eventHonorBonusHonorsEntity)
+	honorRecords, err := getEventHonorBonusRecords(ctx, handler.masterDataSync, region, eventHonorBonusHonorsEntity, eventHonorBonusHonorIDs(items))
 	if err != nil {
 		return err
 	}
@@ -138,6 +135,36 @@ func (handler *EventHandler) enrichEventHonorBonusResponses(
 	enrichEventHonorBonusLeaderGameCharacterUnits(items, unitsByID)
 
 	return nil
+}
+
+// eventHonorBonusReader reads the records a response joins, by ID.
+type eventHonorBonusReader interface {
+	GetByIDs(context.Context, string, string, []string) ([]map[string]any, error)
+}
+
+// getEventHonorBonusRecords reads entity's records with the given IDs in one
+// batched read, skipping misses.
+func getEventHonorBonusRecords(ctx context.Context, reader eventHonorBonusReader, region string, entity string, ids map[string]struct{}) ([]map[string]any, error) {
+	keys := make([]string, 0, len(ids))
+	for id := range ids {
+		keys = append(keys, id)
+	}
+	sort.Strings(keys)
+	records, err := reader.GetByIDs(ctx, region, entity, keys)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(records, func(record map[string]any) bool { return record == nil }), nil
+}
+
+func eventHonorBonusHonorIDs(items []shared.EventHonorBonusObjectResponse) map[string]struct{} {
+	ids := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.HonorID != nil {
+			ids[strconv.FormatInt(*item.HonorID, 10)] = struct{}{}
+		}
+	}
+	return ids
 }
 
 func indexEventHonorBonusHonors(records []map[string]any) map[string]map[string]any {
@@ -229,9 +256,7 @@ func enrichEventHonorBonusLeaderGameCharacterUnits(
 
 func loadEventHonorBonusGroups(
 	ctx context.Context,
-	masterDataSync interface {
-		ListAll(context.Context, string, string) ([]map[string]any, error)
-	},
+	masterDataSync eventHonorBonusReader,
 	region string,
 	groupIDs map[string]struct{},
 ) (map[string]shared.EventHonorBonusHonorGroupResponse, error) {
@@ -240,7 +265,7 @@ func loadEventHonorBonusGroups(
 		return groupsByID, nil
 	}
 
-	records, err := masterDataSync.ListAll(ctx, region, eventHonorBonusHonorGroupsEntity)
+	records, err := getEventHonorBonusRecords(ctx, masterDataSync, region, eventHonorBonusHonorGroupsEntity, groupIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -256,9 +281,7 @@ func loadEventHonorBonusGroups(
 
 func loadEventHonorBonusGameCharacterUnits(
 	ctx context.Context,
-	masterDataSync interface {
-		ListAll(context.Context, string, string) ([]map[string]any, error)
-	},
+	masterDataSync eventHonorBonusReader,
 	region string,
 	unitIDs map[string]struct{},
 ) (map[string]shared.EventHonorBonusLeaderGameCharacterUnitResponse, error) {
@@ -267,7 +290,7 @@ func loadEventHonorBonusGameCharacterUnits(
 		return unitsByID, nil
 	}
 
-	records, err := masterDataSync.ListAll(ctx, region, eventHonorBonusGameCharacterEntity)
+	records, err := getEventHonorBonusRecords(ctx, masterDataSync, region, eventHonorBonusGameCharacterEntity, unitIDs)
 	if err != nil {
 		return nil, err
 	}

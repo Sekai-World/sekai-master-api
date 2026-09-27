@@ -151,8 +151,10 @@ func (cache *fakeEventHandlerCache) ListAll(_ context.Context, region string, en
 	return items, nil
 }
 
+// GetByIDs reads byID first and then listByEntity, like one batched read.
 func (cache *fakeEventHandlerCache) GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
 	records := make([]map[string]any, len(ids))
+	listed := cache.listByEntity[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))]
 	for index, id := range ids {
 		record, found, err := cache.GetByID(ctx, region, entity, id)
 		if err != nil {
@@ -160,6 +162,13 @@ func (cache *fakeEventHandlerCache) GetByIDs(ctx context.Context, region string,
 		}
 		if found {
 			records[index] = record
+			continue
+		}
+		for _, candidate := range listed {
+			if shared.NormalizeAnyID(candidate["id"]) == id {
+				records[index] = candidate
+				break
+			}
 		}
 	}
 	return records, nil

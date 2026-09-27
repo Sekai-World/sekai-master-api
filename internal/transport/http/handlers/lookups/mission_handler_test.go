@@ -31,6 +31,13 @@ type missionTrackingCache struct {
 	listErrors map[string]error
 }
 
+func (cache *missionTrackingCache) ListByIndex(ctx context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error) {
+	if err, ok := cache.listErrors[entity]; ok {
+		return nil, err
+	}
+	return cache.fakeLookupCache.ListByIndex(ctx, region, entity, index, lookups)
+}
+
 func (cache *missionTrackingCache) ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error) {
 	cache.listCalls = append(cache.listCalls, missionListCall{region: region, entity: entity})
 	if err, ok := cache.listErrors[entity]; ok {
@@ -273,16 +280,20 @@ func assertKRMissionWithoutRewards(t *testing.T, router *gin.Engine) {
 
 func assertMissionRewardLookupCalls(t *testing.T, cache *missionTrackingCache) {
 	t.Helper()
-	for _, entity := range []string{resourceBoxesEntity, resourceBoxDetailsEntity} {
-		calls := 0
-		for _, call := range cache.listCalls {
-			if call.entity == entity {
-				calls++
-			}
+	for _, call := range cache.listCalls {
+		if call.entity == resourceBoxesEntity || call.entity == resourceBoxDetailsEntity {
+			t.Fatalf("mission rewards must read resource boxes through indexes, got ListAll calls %#v", cache.listCalls)
 		}
-		if calls != 5 {
-			t.Fatalf("expected one batched %s ListAll call per reward-bearing region, got %d calls: %#v", entity, calls, cache.listCalls)
+	}
+	boxReads := 0
+	for _, call := range cache.indexCalls {
+		if call.entity == resourceBoxesEntity && call.index == "id" {
+			boxReads++
 		}
+	}
+	// jp, tw, and cn list box rewards, and jp and tw are requested twice.
+	if boxReads != 5 {
+		t.Fatalf("expected one batched resource box index read per request with box rewards, got %#v", cache.indexCalls)
 	}
 	if len(cache.byIDCalls) != 0 {
 		t.Fatalf("mission lists must not use GetByID for rewards, got %#v", cache.byIDCalls)
@@ -450,14 +461,19 @@ func TestCharacterMissionParameterGroupsAreJoinedAndOrdered(t *testing.T) {
 		t.Fatalf("parameter group thresholds must not populate scalar requirement: %#v", items[0])
 	}
 
-	groupCalls := 0
 	for _, call := range cache.listCalls {
 		if call.entity == characterMissionV2ParameterGroupsEntity {
-			groupCalls++
+			t.Fatalf("expected parameter groups read through the id index, got ListAll calls %#v", cache.listCalls)
 		}
 	}
-	if groupCalls != 1 {
-		t.Fatalf("expected one parameter-group ListAll call, got %d: %#v", groupCalls, cache.listCalls)
+	groupReads := 0
+	for _, call := range cache.indexCalls {
+		if call.entity == characterMissionV2ParameterGroupsEntity && call.index == "id" {
+			groupReads++
+		}
+	}
+	if groupReads != 1 {
+		t.Fatalf("expected one batched parameter-group index read, got %#v", cache.indexCalls)
 	}
 }
 

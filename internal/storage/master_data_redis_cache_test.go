@@ -3580,3 +3580,8 @@ func TestGetByCompositeKeysSelectsEachKeysRecord(t *testing.T) {
 // Handlers rely on direct batch and composite reads; without them composite
 // lookups fail instead of degrading to full-entity scans.
 var _ usecase.MasterDataCacheBatchReader = (*RedisMasterDataCache)(nil)
+
+var (
+	_ usecase.MasterDataCacheIndexReader        = (*RedisMasterDataCache)(nil)
+	_ usecase.MasterDataCacheEntityIndexEnsurer = (*RedisMasterDataCache)(nil)
+)

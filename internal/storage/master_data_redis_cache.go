@@ -343,6 +343,7 @@ type entityRedisKeys struct {
 	order        string
 	revision     string
 	sourceDigest string
+	indexVersion string
 }
 
 // entityStoreTask carries one payload file's entity store work for
@@ -436,6 +437,12 @@ func (task *entityStoreTask) storeEntityLocked(ctx context.Context) error {
 
 	toUpsert, toDelete := diffEntityRecords(existingRecords, collector.records, recordsChanged)
 
+	storedIndexVersion, err := task.cache.storedEntityIndexVersion(ctx, keys.indexVersion)
+	if err != nil {
+		return err
+	}
+	rebuildIndexes := entityChanged || storedIndexVersion != masterdata.IndexVersion(task.entity)
+
 	updatedIndexVersion, err := task.execEntityPipeline(ctx, keys, entityWritePlan{
 		toUpsert:            toUpsert,
 		toDelete:            toDelete,
@@ -445,6 +452,9 @@ func (task *entityStoreTask) storeEntityLocked(ctx context.Context) error {
 		revisionMatches:     revisionMatches,
 		persistIndexChanged: persistIndexChanged,
 		updatedIndex:        updatedIndex,
+		rebuildIndexes:      rebuildIndexes,
+		staleIndexVersion:   storedIndexVersion,
+		indexes:             collector.indexes,
 	})
 	if err != nil {
 		return err
@@ -467,6 +477,7 @@ func (task *entityStoreTask) redisKeys() entityRedisKeys {
 		order:        task.cache.redisEntityOrderKey(task.regionName, task.entity),
 		revision:     task.cache.redisEntityRevisionKey(task.regionName, task.entity),
 		sourceDigest: task.cache.redisEntitySourceDigestKey(task.regionName, task.entity),
+		indexVersion: task.cache.redisEntityIndexVersionKey(task.regionName, task.entity),
 	}
 }
 
@@ -511,6 +522,11 @@ func (task *entityStoreTask) skipUnchangedBySourceDigest(ctx context.Context, ke
 	_, revisionErr := task.cache.client.Get(ctx, keys.revision).Result()
 	if digestErr != nil || revisionErr != nil || storedDigest != storedSourceDigest(task.incomingDigest) {
 		return false, nil
+	}
+
+	storedIndexVersion, err := task.cache.storedEntityIndexVersion(ctx, keys.indexVersion)
+	if err != nil || storedIndexVersion != masterdata.IndexVersion(task.entity) {
+		return false, err
 	}
 
 	found, indexErr := task.cache.persistedEntitySearchIndexExists(ctx, task.regionName, task.entity)
@@ -657,12 +673,18 @@ type entityWritePlan struct {
 	revisionMatches     bool
 	persistIndexChanged bool
 	updatedIndex        *entitySearchIndex
+	// rebuildIndexes rewrites the relation indexes from indexes, removing the
+	// ones staleIndexVersion names.
+	rebuildIndexes    bool
+	staleIndexVersion string
+	indexes           map[string]map[string][]string
 }
 
-// execEntityPipeline writes the entity diff to Redis in one pipeline and
-// returns the persisted search index version when one was written.
+// execEntityPipeline writes the entity diff to Redis in one MULTI/EXEC
+// transaction, so readers never see relation indexes that disagree with the
+// records, and returns the persisted search index version when one was written.
 func (task *entityStoreTask) execEntityPipeline(ctx context.Context, keys entityRedisKeys, plan entityWritePlan) (string, error) {
-	pipe := task.cache.client.Pipeline()
+	pipe := task.cache.client.TxPipeline()
 	if len(plan.toUpsert) > 0 {
 		pipe.HSet(ctx, keys.entity, plan.toUpsert)
 	}
@@ -682,6 +704,11 @@ func (task *entityStoreTask) execEntityPipeline(ctx context.Context, keys entity
 	updatedIndexVersion := ""
 	if plan.persistIndexChanged {
 		updatedIndexVersion = task.cache.persistEntitySearchIndex(ctx, pipe, task.regionName, task.entity, plan.updatedIndex)
+	}
+	if plan.rebuildIndexes {
+		if err := task.cache.writeEntityIndexes(ctx, pipe, task.regionName, task.entity, plan.staleIndexVersion, plan.indexes); err != nil {
+			return "", err
+		}
 	}
 	if !plan.revisionMatches {
 		pipe.Set(ctx, keys.revision, plan.revision, 0)
@@ -706,6 +733,9 @@ type entityRecordCollector struct {
 	recordMaps          []map[string]any
 	fallbackOccurrences map[string]int
 	digest              hash.Hash
+	// indexes holds the entity's relation indexes: index name -> key -> the
+	// storage keys of the records carrying it, in stored order.
+	indexes map[string]map[string][]string
 }
 
 func newEntityRecordCollector(cache *RedisMasterDataCache, regionName, entity string, rawRecords []json.RawMessage, legacyRecords []any) *entityRecordCollector {
@@ -718,6 +748,7 @@ func newEntityRecordCollector(cache *RedisMasterDataCache, regionName, entity st
 		recordMaps:          make([]map[string]any, 0, len(legacyRecords)),
 		fallbackOccurrences: make(map[string]int),
 		digest:              sha256.New(),
+		indexes:             newEntityIndexes(entity),
 	}
 }
 
@@ -731,6 +762,12 @@ func (collector *entityRecordCollector) appendStoredRecord(id string, body []byt
 	collector.order = append(collector.order, id)
 	if recordMap != nil {
 		collector.recordMaps = append(collector.recordMaps, recordMap)
+	}
+	if len(collector.indexes) > 0 {
+		if recordMap == nil {
+			recordMap = rawRecordMap(body)
+		}
+		addToEntityIndexes(collector.indexes, id, recordMap)
 	}
 	_, _ = collector.digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
 	return nil
@@ -2870,68 +2907,10 @@ func compositeRecordStorageKeyFromRaw(entity string, body []byte) (string, bool)
 	return encodeCompositeStorageKey(entity, fields, values), true
 }
 
+// compositeStorageKeyPart renders one composite key component; relation index
+// keys use the same canonical form so lookups match stored keys.
 func compositeStorageKeyPart(value any) (string, bool) {
-	switch typed := value.(type) {
-	case string:
-		part := strings.TrimSpace(typed)
-		return part, part != ""
-	case json.Number:
-		return canonicalCompositeNumber(typed.String())
-	case float64:
-		if math.IsNaN(typed) || math.IsInf(typed, 0) {
-			return "", false
-		}
-		return strconv.FormatFloat(typed, 'f', -1, 64), true
-	case float32:
-		value := float64(typed)
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return "", false
-		}
-		return strconv.FormatFloat(value, 'f', -1, 32), true
-	case int:
-		return strconv.Itoa(typed), true
-	case int8:
-		return strconv.FormatInt(int64(typed), 10), true
-	case int16:
-		return strconv.FormatInt(int64(typed), 10), true
-	case int32:
-		return strconv.FormatInt(int64(typed), 10), true
-	case int64:
-		return strconv.FormatInt(typed, 10), true
-	case uint:
-		return strconv.FormatUint(uint64(typed), 10), true
-	case uint8:
-		return strconv.FormatUint(uint64(typed), 10), true
-	case uint16:
-		return strconv.FormatUint(uint64(typed), 10), true
-	case uint32:
-		return strconv.FormatUint(uint64(typed), 10), true
-	case uint64:
-		return strconv.FormatUint(typed, 10), true
-	case bool:
-		return strconv.FormatBool(typed), true
-	default:
-		return "", false
-	}
-}
-
-func canonicalCompositeNumber(value string) (string, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", false
-	}
-	if integer, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return strconv.FormatInt(integer, 10), true
-	}
-	if integer, err := strconv.ParseUint(value, 10, 64); err == nil {
-		return strconv.FormatUint(integer, 10), true
-	}
-
-	number, err := strconv.ParseFloat(value, 64)
-	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
-		return "", false
-	}
-	return strconv.FormatFloat(number, 'f', -1, 64), true
+	return masterdata.CanonicalKeyPart(value)
 }
 
 func encodeCompositeStorageKey(entity string, fields []string, values []string) string {

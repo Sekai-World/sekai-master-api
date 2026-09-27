@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/transport/http/handlers/shared"
+	"sekai-master-api/internal/transport/http/handlers/testutil"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -25,6 +27,7 @@ type fakeLookupCache struct {
 	hasIndexSet  bool
 	byIDErr      error
 	byIDCalls    []lookupCacheGetByIDCall
+	indexCalls   []lookupCacheIndexCall
 	searchCalls  int
 }
 
@@ -96,6 +99,60 @@ func (cache *fakeLookupCache) GetByID(_ context.Context, region string, entity s
 		return nil, false, nil
 	}
 	return record, true, nil
+}
+
+type lookupCacheIndexCall struct {
+	region string
+	entity string
+	index  string
+}
+
+// GetByIDs reads records like the batched Redis read: without recording
+// per-item GetByID calls.
+func (cache *fakeLookupCache) GetByIDs(_ context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
+	records := make([]map[string]any, len(ids))
+	for position, id := range ids {
+		if record, ok := cache.byID[normalizedRegion][normalizedEntity][id]; ok {
+			records[position] = record
+			continue
+		}
+		for _, record := range cache.listByEntity[normalizedRegion][normalizedEntity] {
+			if shared.NormalizeAnyID(record["id"]) == id {
+				records[position] = record
+				break
+			}
+		}
+	}
+	return records, nil
+}
+
+func (cache *fakeLookupCache) GetByCompositeKeys(_ context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error) {
+	records := cache.listByEntity[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))]
+	return testutil.MatchCompositeKeys(records, keys), nil
+}
+
+// ListByIndex answers relation index reads from listByEntity and records them,
+// without counting as a full-entity ListAll.
+func (cache *fakeLookupCache) ListByIndex(_ context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error) {
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
+	cache.indexCalls = append(cache.indexCalls, lookupCacheIndexCall{region: normalizedRegion, entity: normalizedEntity, index: index})
+	results := make([][]map[string]any, len(lookups))
+	for position, lookup := range lookups {
+		results[position] = make([]map[string]any, 0)
+		key, ok := masterdata.IndexLookupKey(lookup...)
+		if !ok {
+			continue
+		}
+		for _, record := range cache.listByEntity[normalizedRegion][normalizedEntity] {
+			if slices.Contains(masterdata.IndexKeys(record, index), key) {
+				results[position] = append(results[position], record)
+			}
+		}
+	}
+	return results, nil
 }
 
 func (cache *fakeLookupCache) ListAll(_ context.Context, region string, entity string) ([]map[string]any, error) {
