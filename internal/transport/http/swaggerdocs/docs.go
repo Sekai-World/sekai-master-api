@@ -6928,11 +6928,15 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, and boost items.",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, and titles (honors and\nKizuna titles).",
                     "type": "string"
                 },
                 "resourceQuantity": {
                     "type": "integer"
+                },
+                "resourceRarity": {
+                    "description": "ResourceRarity is a rewarded title's rarity (low, middle, high, highest);\nit picks the title reward icon.",
+                    "type": "string"
                 },
                 "resourceType": {
                     "type": "string"
@@ -7747,11 +7751,15 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, and boost items.",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, and titles (honors and\nKizuna titles).",
                     "type": "string"
                 },
                 "resourceQuantity": {
                     "type": "integer"
+                },
+                "resourceRarity": {
+                    "description": "ResourceRarity is a rewarded title's rarity (low, middle, high, highest);\nit picks the title reward icon.",
+                    "type": "string"
                 },
                 "resourceType": {
                     "type": "string"
@@ -8797,11 +8805,15 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, and boost items.",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, and titles (honors and\nKizuna titles).",
                     "type": "string"
                 },
                 "resourceQuantity": {
                     "type": "integer"
+                },
+                "resourceRarity": {
+                    "description": "ResourceRarity is a rewarded title's rarity (low, middle, high, highest);\nit picks the title reward icon.",
+                    "type": "string"
                 },
                 "resourceType": {
                     "type": "string"

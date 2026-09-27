@@ -10,6 +10,7 @@ import (
 type missionRewardItem struct {
 	name            *string
 	assetbundleName *string
+	rarity          *string
 }
 
 // missionRewardItemIndex holds reward items by resource type, then by ID.
@@ -28,7 +29,7 @@ func (index missionRewardItemIndex) lookup(resourceType *string, resourceID *int
 func (handler *LookupHandler) loadMissionRewardItems(ctx context.Context, region string) (missionRewardItemIndex, error) {
 	index := make(missionRewardItemIndex, len(shared.RewardItemEntities))
 	for resourceType, entity := range shared.RewardItemEntities {
-		items, err := handler.loadMissionRewardItemEntity(ctx, region, entity)
+		items, err := handler.loadMissionRewardItemEntity(ctx, region, entity, shared.RewardItemCarriesAssetbundleName(resourceType))
 		if err != nil {
 			return nil, err
 		}
@@ -37,7 +38,7 @@ func (handler *LookupHandler) loadMissionRewardItems(ctx context.Context, region
 	return index, nil
 }
 
-func (handler *LookupHandler) loadMissionRewardItemEntity(ctx context.Context, region string, entity string) (map[int64]missionRewardItem, error) {
+func (handler *LookupHandler) loadMissionRewardItemEntity(ctx context.Context, region string, entity string, withAssetbundleName bool) (map[int64]missionRewardItem, error) {
 	revision, err := handler.masterDataSync.EntityRevision(ctx, region, entity)
 	if err != nil {
 		return nil, err
@@ -54,10 +55,14 @@ func (handler *LookupHandler) loadMissionRewardItemEntity(ctx context.Context, r
 			if !ok {
 				continue
 			}
-			items[id] = missionRewardItem{
-				name:            lookupOptionalString(record["name"]),
-				assetbundleName: lookupOptionalString(record["assetbundleName"]),
+			item := missionRewardItem{
+				name:   lookupOptionalString(record["name"]),
+				rarity: lookupOptionalString(record["honorRarity"]),
 			}
+			if withAssetbundleName {
+				item.assetbundleName = lookupOptionalString(record["assetbundleName"])
+			}
+			items[id] = item
 		}
 		return items, nil
 	})
