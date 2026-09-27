@@ -3,7 +3,6 @@ package virtuallives
 import (
 	"context"
 
-	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -36,16 +35,12 @@ func findVirtualLiveRelatedRecord(
 		return nil
 	}
 
-	records, err := masterDataSync.ListAll(ctx, region, entity)
+	matches, err := masterDataSync.ListByIndex(ctx, region, entity, "virtualLiveId", [][]any{{virtualLiveID}})
 	if err != nil {
 		return nil
 	}
 
-	targetVirtualLiveID := shared.NormalizeAnyID(virtualLiveID)
-	for _, record := range records {
-		if shared.NormalizeAnyID(record["virtualLiveId"]) != targetVirtualLiveID {
-			continue
-		}
+	for _, record := range matches[0] {
 
 		pamphlet := make(map[string]any, len(record))
 		for key, value := range record {

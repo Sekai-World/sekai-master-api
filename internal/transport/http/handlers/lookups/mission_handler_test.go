@@ -461,14 +461,19 @@ func TestCharacterMissionParameterGroupsAreJoinedAndOrdered(t *testing.T) {
 		t.Fatalf("parameter group thresholds must not populate scalar requirement: %#v", items[0])
 	}
 
-	groupCalls := 0
 	for _, call := range cache.listCalls {
 		if call.entity == characterMissionV2ParameterGroupsEntity {
-			groupCalls++
+			t.Fatalf("expected parameter groups read through the id index, got ListAll calls %#v", cache.listCalls)
 		}
 	}
-	if groupCalls != 1 {
-		t.Fatalf("expected one parameter-group ListAll call, got %d: %#v", groupCalls, cache.listCalls)
+	groupReads := 0
+	for _, call := range cache.indexCalls {
+		if call.entity == characterMissionV2ParameterGroupsEntity && call.index == "id" {
+			groupReads++
+		}
+	}
+	if groupReads != 1 {
+		t.Fatalf("expected one batched parameter-group index read, got %#v", cache.indexCalls)
 	}
 }
 

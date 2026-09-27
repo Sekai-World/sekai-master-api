@@ -297,13 +297,13 @@ func (handler *LookupHandler) CharacterMissionV2ParameterGroupLevels(c *gin.Cont
 		return
 	}
 
-	records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, characterMissionV2ParameterGroupsEntity)
+	parsedID, _ := strconv.ParseInt(groupID, 10, 64)
+	matches, err := handler.masterDataSync.ListByIndex(c.Request.Context(), region, characterMissionV2ParameterGroupsEntity, "id", [][]any{{parsedID}})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, missionQueryErrorCode, "failed to list mission parameter group levels")
 		return
 	}
-	parsedID, _ := strconv.ParseInt(groupID, 10, 64)
-	levels := buildMissionParameterGroupCatalog(records)[parsedID]
+	levels := buildMissionParameterGroupCatalog(matches[0])[parsedID]
 	if len(levels) == 0 {
 		response.Error(c, http.StatusNotFound, missionParameterGroupNotFoundCode, "mission parameter group not found")
 		return
@@ -1034,12 +1034,18 @@ func (handler *LookupHandler) resolveMissionParameterGroups(ctx context.Context,
 		return nil
 	}
 
-	records, err := handler.masterDataSync.ListAll(ctx, region, characterMissionV2ParameterGroupsEntity)
+	lookups := make([][]any, 0, len(items))
+	for _, item := range items {
+		if item.response.ParameterGroupID != nil {
+			lookups = append(lookups, []any{*item.response.ParameterGroupID})
+		}
+	}
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, characterMissionV2ParameterGroupsEntity, "id", lookups)
 	if err != nil {
 		return err
 	}
 
-	groups := buildMissionParameterGroupCatalog(records)
+	groups := buildMissionParameterGroupCatalog(slices.Concat(matches...))
 	resourceTypes, err := handler.loadMissionParameterGroupResourceTypes(ctx, region)
 	if err != nil {
 		return err
