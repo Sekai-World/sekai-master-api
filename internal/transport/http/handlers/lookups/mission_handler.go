@@ -1292,7 +1292,7 @@ func (handler *LookupHandler) loadMissionResourceBoxIndex(ctx context.Context, r
 		return nil, err
 	}
 
-	return handler.resourceBoxIndexes.load(ctx, region, revision, func(ctx context.Context) (map[int64][]missionResourceBoxCandidate, error) {
+	return handler.resourceBoxIndexes.Load(ctx, region, revision, func(ctx context.Context) (map[int64][]missionResourceBoxCandidate, error) {
 		boxes, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxesEntity)
 		if err != nil {
 			return nil, err
@@ -1307,7 +1307,7 @@ func (handler *LookupHandler) loadMissionResourceBoxDetailIndex(ctx context.Cont
 		return nil, err
 	}
 
-	return handler.resourceBoxDetailIndexes.load(ctx, region, revision, func(ctx context.Context) (map[string][]map[string]any, error) {
+	return handler.resourceBoxDetailIndexes.Load(ctx, region, revision, func(ctx context.Context) (map[string][]map[string]any, error) {
 		details, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxDetailsEntity)
 		if err != nil {
 			return nil, err
@@ -1490,7 +1490,7 @@ func (handler *LookupHandler) loadCharacterRankTotalExps(ctx context.Context, re
 		return nil, err
 	}
 
-	return handler.characterRankTotalExps.load(ctx, region, revision, func(ctx context.Context) (map[int64]int64, error) {
+	return handler.characterRankTotalExps.Load(ctx, region, revision, func(ctx context.Context) (map[int64]int64, error) {
 		levels, err := handler.masterDataSync.ListAll(ctx, region, levelsEntity)
 		if err != nil {
 			return nil, err

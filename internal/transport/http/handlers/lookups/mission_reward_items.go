@@ -60,7 +60,7 @@ func (handler *LookupHandler) loadMissionRewardItemEntity(ctx context.Context, r
 		return nil, err
 	}
 
-	return handler.rewardItemIndexes.load(ctx, region+"\x00"+entity, revision, func(ctx context.Context) (map[int64]missionRewardItem, error) {
+	return handler.rewardItemIndexes.Load(ctx, region+"\x00"+entity, revision, func(ctx context.Context) (map[int64]missionRewardItem, error) {
 		records, err := handler.masterDataSync.ListAll(ctx, region, entity)
 		if err != nil {
 			return nil, err

@@ -1,15 +1,15 @@
-package lookups
+package shared
 
 import (
 	"context"
 	"sync"
 )
 
-// revisionCache keeps one derived, read-only value per region and reuses it
+// RevisionCache keeps one derived, read-only value per region and reuses it
 // while the source entity's persisted revision is unchanged. Sync may run in a
 // different process, so every read revalidates against the revision the caller
 // read from Redis instead of relying on in-process invalidation.
-type revisionCache[T any] struct {
+type RevisionCache[T any] struct {
 	mu      sync.Mutex
 	entries map[string]*revisionCacheEntry[T]
 }
@@ -22,11 +22,11 @@ type revisionCacheEntry[T any] struct {
 	value    T
 }
 
-// load returns the cached value for region when it was built from revision,
+// Load returns the cached value for region when it was built from revision,
 // otherwise it builds, stores, and returns a new value. An empty revision means
 // the source cannot be validated, so the value is built and never cached.
 // Cached values are shared across requests and must not be mutated.
-func (cache *revisionCache[T]) load(ctx context.Context, region string, revision string, build func(context.Context) (T, error)) (T, error) {
+func (cache *RevisionCache[T]) Load(ctx context.Context, region string, revision string, build func(context.Context) (T, error)) (T, error) {
 	if revision == "" {
 		return build(ctx)
 	}
@@ -48,7 +48,7 @@ func (cache *revisionCache[T]) load(ctx context.Context, region string, revision
 	return value, nil
 }
 
-func (cache *revisionCache[T]) entry(region string) *revisionCacheEntry[T] {
+func (cache *RevisionCache[T]) entry(region string) *revisionCacheEntry[T] {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if cache.entries == nil {

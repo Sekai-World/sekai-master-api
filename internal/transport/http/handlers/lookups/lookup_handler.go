@@ -20,12 +20,12 @@ type LookupHandler struct {
 
 	// Process-local reward lookups shared by mission and character-rank
 	// endpoints, revalidated against each entity's persisted revision.
-	resourceBoxIndexes       revisionCache[map[int64][]missionResourceBoxCandidate]
-	resourceBoxDetailIndexes revisionCache[map[string][]map[string]any]
+	resourceBoxIndexes       shared.RevisionCache[map[int64][]missionResourceBoxCandidate]
+	resourceBoxDetailIndexes shared.RevisionCache[map[string][]map[string]any]
 	// Keyed by region and item entity; see shared.RewardItemEntities.
-	rewardItemIndexes revisionCache[map[int64]missionRewardItem]
+	rewardItemIndexes shared.RevisionCache[map[int64]missionRewardItem]
 	// Cumulative EXP per character rank, keyed by region.
-	characterRankTotalExps revisionCache[map[int64]int64]
+	characterRankTotalExps shared.RevisionCache[map[int64]int64]
 }
 
 type lookupResourceConfig struct {
