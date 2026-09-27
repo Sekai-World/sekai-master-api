@@ -3129,3 +3129,46 @@ func TestStartSyncInterruptedByLifecycleCancellation(t *testing.T) {
 		t.Fatalf("expected interrupted sync completion event")
 	}
 }
+
+type indexEnsuringSyncCache struct {
+	*fakeSyncCache
+	ensureErr   error
+	ensureCalls int
+}
+
+func (cache *indexEnsuringSyncCache) EnsureEntityIndexes(_ context.Context, _ string) ([]string, error) {
+	cache.ensureCalls++
+	return []string{"gachas"}, cache.ensureErr
+}
+
+func TestSyncAllBuildsRelationIndexesWhenSkippingUnchangedCommit(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		ensureErr  error
+		wantLoaded bool
+	}{
+		{name: "indexes built, sync skipped"},
+		{name: "index build failed, full sync", ensureErr: errors.New("redis down"), wantLoaded: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
+			previousStatus := masterdata.SyncStatus{Region: "jp", Status: "success", SourceCommit: "abc123", Source: source}
+			loader := &fakeSyncLoader{
+				resolvedByZone: map[string]string{"jp": "abc123"},
+				payloadByZone:  map[string]map[string]any{"jp": {"cards.json": []any{map[string]any{"id": 1}}}},
+			}
+			cache := &indexEnsuringSyncCache{fakeSyncCache: &fakeSyncCache{rebuildFromRedisOK: true}, ensureErr: test.ensureErr}
+			usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus}), nil, 1)
+
+			if err := usecase.SyncAll(context.Background()); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if cache.ensureCalls != 1 {
+				t.Fatalf("expected one relation index check, got %d", cache.ensureCalls)
+			}
+			if loaded := loader.loadCalls > 0; loaded != test.wantLoaded {
+				t.Fatalf("expected full sync=%v, got loadCalls=%d", test.wantLoaded, loader.loadCalls)
+			}
+		})
+	}
+}

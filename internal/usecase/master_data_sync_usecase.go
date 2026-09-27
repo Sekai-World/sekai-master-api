@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,6 +49,18 @@ type MasterDataCache interface {
 type MasterDataCacheBatchReader interface {
 	GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error)
 	GetByCompositeKeys(ctx context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error)
+}
+
+// MasterDataCacheIndexReader reads records through the relation indexes built
+// at sync time (see masterdata.EntityIndexes).
+type MasterDataCacheIndexReader interface {
+	ListByIndex(ctx context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error)
+}
+
+// MasterDataCacheEntityIndexEnsurer builds relation indexes that are missing
+// or out of date for data already in the cache.
+type MasterDataCacheEntityIndexEnsurer interface {
+	EnsureEntityIndexes(ctx context.Context, region string) ([]string, error)
 }
 
 // ErrCompositeReadUnsupported reports a cache that cannot read composite-key
@@ -921,6 +934,17 @@ func (task *regionSyncTask) trySkipViaRedisIndexRebuild(ctx, regionCtx context.C
 		task.usecase.logf("sync compare region=%s commit=%s redis_cache=empty fallback=full_sync", task.source.Region, task.resolvedCommit)
 		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but redis cache missing, fallback to full sync", task.now)
 		return false
+	}
+	if ensurer, ok := task.usecase.cache.(MasterDataCacheEntityIndexEnsurer); ok {
+		indexed, ensureErr := ensurer.EnsureEntityIndexes(regionCtx, task.source.Region)
+		if ensureErr != nil {
+			task.usecase.logf("sync compare region=%s commit=%s relation_index_ensure=failed error=%v fallback=full_sync", task.source.Region, task.resolvedCommit, ensureErr)
+			task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but relation index build failed, fallback to full sync", task.now)
+			return false
+		}
+		if len(indexed) > 0 {
+			task.usecase.logf("sync compare region=%s commit=%s relation_indexes_built=%v", task.source.Region, task.resolvedCommit, indexed)
+		}
 	}
 	if !task.usecase.ensureVersionCachePopulated(regionCtx, task.source, task.resolvedCommit, nil) {
 		task.usecase.logf("sync compare region=%s commit=%s redis_index_rebuilt=true version_cache=missing fallback=full_sync", task.source.Region, task.resolvedCommit)
@@ -2246,6 +2270,45 @@ func (usecase *MasterDataSyncUsecase) GetByIDs(ctx context.Context, region strin
 		}
 	}
 	return records, nil
+}
+
+// ListByIndex returns, for each lookup, the records whose indexed fields equal
+// the lookup's values (in the index's field order), in stored order. A cache
+// without index reads is scanned, which only test doubles rely on.
+func (usecase *MasterDataSyncUsecase) ListByIndex(ctx context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.list_by_index", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))), attribute.String("index", index), attribute.Int("request.count", len(lookups)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	results := make([][]map[string]any, len(lookups))
+	if usecase.cache == nil {
+		return results, nil
+	}
+	if reader, ok := usecase.cache.(MasterDataCacheIndexReader); ok {
+		results, err = reader.ListByIndex(ctx, region, entity, index, lookups)
+		return results, err
+	}
+
+	var records []map[string]any
+	records, err = usecase.cache.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+	for position, lookup := range lookups {
+		results[position] = make([]map[string]any, 0)
+		key, ok := masterdata.IndexLookupKey(lookup...)
+		if !ok {
+			continue
+		}
+		for _, record := range records {
+			if slices.Contains(masterdata.IndexKeys(record, index), key) {
+				results[position] = append(results[position], record)
+			}
+		}
+	}
+	return results, nil
 }
 
 // GetByCompositeKeys returns the records of a composite-key entity (such as
