@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -46,6 +47,47 @@ func (cache *eventHonorBonusTrackingCache) ListAll(
 	}
 
 	return cache.fakeEventHandlerCache.ListAll(ctx, region, entity)
+}
+
+// ListByIndex and GetByIDs count the index and batched reads per entity and
+// fail like ListAll when listErrors names the entity.
+func (cache *eventHonorBonusTrackingCache) ListByIndex(ctx context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error) {
+	cache.countRead(region, "index:"+entity)
+	if err := cache.listErrors[entity]; err != nil {
+		return nil, err
+	}
+	records, err := cache.fakeEventHandlerCache.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+	results := make([][]map[string]any, len(lookups))
+	for position, lookup := range lookups {
+		key, _ := masterdata.IndexLookupKey(lookup...)
+		for _, record := range records {
+			if slices.Contains(masterdata.IndexKeys(record, index), key) {
+				results[position] = append(results[position], record)
+			}
+		}
+	}
+	return results, nil
+}
+
+func (cache *eventHonorBonusTrackingCache) GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	cache.countRead(region, "ids:"+entity)
+	if err := cache.listErrors[entity]; err != nil {
+		return nil, err
+	}
+	return cache.fakeEventHandlerCache.GetByIDs(ctx, region, entity, ids)
+}
+
+func (cache *eventHonorBonusTrackingCache) countRead(region string, read string) {
+	if cache.listCalls == nil {
+		cache.listCalls = make(map[string]map[string]int)
+	}
+	if cache.listCalls[region] == nil {
+		cache.listCalls[region] = make(map[string]int)
+	}
+	cache.listCalls[region][read]++
 }
 
 func (cache *eventHonorBonusTrackingCache) GetByID(
@@ -350,18 +392,23 @@ func assertEventHonorBonusLeaderUnitProjection(t *testing.T, item map[string]any
 func assertEventHonorBonusBatchListCalls(t *testing.T, cache *eventHonorBonusTrackingCache, region string) {
 	t.Helper()
 
-	expectedCalls := []struct {
-		entity string
-		label  string
+	expectedReads := []struct {
+		read  string
+		label string
 	}{
-		{entity: eventHonorBonusesEntity, label: "event honor bonus"},
-		{entity: eventHonorBonusHonorsEntity, label: "honors"},
-		{entity: eventHonorBonusHonorGroupsEntity, label: "honor groups"},
-		{entity: eventHonorBonusGameCharacterEntity, label: "game character units"},
+		{read: "index:" + eventHonorBonusesEntity, label: "event honor bonus index read"},
+		{read: "ids:" + eventHonorBonusHonorsEntity, label: "batched honors read"},
+		{read: "ids:" + eventHonorBonusHonorGroupsEntity, label: "batched honor groups read"},
+		{read: "ids:" + eventHonorBonusGameCharacterEntity, label: "batched game character units read"},
 	}
-	for _, expected := range expectedCalls {
-		if got := cache.listCalls[region][expected.entity]; got != 1 {
-			t.Fatalf("expected one %s ListAll call, got %d", expected.label, got)
+	for _, expected := range expectedReads {
+		if got := cache.listCalls[region][expected.read]; got != 1 {
+			t.Fatalf("expected one %s, got %d: %v", expected.label, got, cache.listCalls[region])
+		}
+	}
+	for _, entity := range []string{eventHonorBonusesEntity, eventHonorBonusHonorsEntity, eventHonorBonusHonorGroupsEntity, eventHonorBonusGameCharacterEntity} {
+		if got := cache.listCalls[region][entity]; got != 0 {
+			t.Fatalf("expected no full %s read, got %d", entity, got)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,7 +70,7 @@ func (handler *EventHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	response.JSON(c, http.StatusOK, handler.buildEventDetail(c.Request.Context(), region, record, handler.loadEventUnitLookup(c.Request.Context(), region)))
+	response.JSON(c, http.StatusOK, handler.buildEventDetail(c.Request.Context(), region, record, handler.loadEventUnitLookup(c.Request.Context(), region, []map[string]any{record})))
 }
 
 // DetailByID godoc
@@ -318,7 +319,11 @@ func (handler *EventHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "EVENT_QUERY_ERROR", "failed to list events")
 			return
 		}
-		lookup := handler.loadEventUnitLookup(c.Request.Context(), region)
+		// The unit filter needs every event's story; otherwise only the page's.
+		var lookup eventUnitLookup
+		if len(filterOptions.Units) > 0 {
+			lookup = handler.loadEventUnitLookup(c.Request.Context(), region, records)
+		}
 		records = handler.filterEvents(records, filterOptions, lookup)
 		if !includeSpoilers {
 			records = shared.FilterSpoilerItems(records, time.Now().UTC())
@@ -330,6 +335,9 @@ func (handler *EventHandler) List(c *gin.Context) {
 			shared.SortResponseItems(records, sortOptions.Field, sortOptions.Descending)
 		}
 		pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
+		if len(filterOptions.Units) == 0 {
+			lookup = handler.loadEventUnitLookup(c.Request.Context(), region, pagedRecords)
+		}
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      handler.buildEventList(c.Request.Context(), region, lookup, pagedRecords),
 			"pagination": pagination,
@@ -343,7 +351,7 @@ func (handler *EventHandler) List(c *gin.Context) {
 		return
 	}
 
-	lookup := handler.loadEventUnitLookup(c.Request.Context(), region)
+	lookup := handler.loadEventUnitLookup(c.Request.Context(), region, records)
 	totalPages := 0
 	if pageSize > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
@@ -772,7 +780,7 @@ func (handler *EventHandler) buildEventDetailAggregate(ctx context.Context, regi
 	previewRanges := handler.buildEventRewardPreview(ctx, region, rewardRanges)
 
 	return gin.H{
-		"event":            handler.buildEventDetail(ctx, region, record, handler.loadEventUnitLookup(ctx, region)),
+		"event":            handler.buildEventDetail(ctx, region, record, handler.loadEventUnitLookup(ctx, region, []map[string]any{record})),
 		"availableRegions": availableRegions,
 		"isCurrentEvent":   handler.isCurrentEvent(ctx, region, eventID),
 		"bonuses":          bonuses,
@@ -1036,17 +1044,13 @@ func (handler *EventHandler) ensureEventExists(c *gin.Context, region string, id
 }
 
 func (handler *EventHandler) findEventBonusItems(ctx context.Context, region string, eventID string, entity string) ([]map[string]any, error) {
-	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, entity, "eventId", [][]any{{eventID}})
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]map[string]any, 0, len(records))
-	targetEventID := shared.NormalizeAnyID(eventID)
-	for _, record := range records {
-		if shared.NormalizeAnyID(record["eventId"]) != targetEventID {
-			continue
-		}
+	items := make([]map[string]any, 0, len(matches[0]))
+	for _, record := range matches[0] {
 		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record))
 	}
 
@@ -1250,28 +1254,40 @@ type eventUnitLookup struct {
 // needs. Read failures leave the affected map empty, matching the
 // previous helpers that swallowed read errors and fell back to the
 // event row's own unit field.
-func (handler *EventHandler) loadEventUnitLookup(ctx context.Context, region string) eventUnitLookup {
+// loadEventUnitLookup reads the stories and story units of events through the
+// eventId and eventStoryId indexes, plus the small unit profile table.
+func (handler *EventHandler) loadEventUnitLookup(ctx context.Context, region string, events []map[string]any) eventUnitLookup {
 	lookup := eventUnitLookup{}
 	if handler == nil || handler.masterDataSync == nil {
 		return lookup
 	}
 
-	if stories, err := handler.masterDataSync.ListAll(ctx, region, "eventstories"); err == nil {
-		lookup.storyByEventID = make(map[string]map[string]any, len(stories))
-		for _, story := range stories {
+	eventLookups := make([][]any, 0, len(events))
+	for _, event := range events {
+		if eventID := shared.NormalizeAnyID(event["id"]); eventID != "" {
+			eventLookups = append(eventLookups, []any{eventID})
+		}
+	}
+	if stories, err := handler.masterDataSync.ListByIndex(ctx, region, "eventstories", "eventId", eventLookups); err == nil {
+		lookup.storyByEventID = make(map[string]map[string]any, len(eventLookups))
+		storyLookups := make([][]any, 0, len(eventLookups))
+		for _, story := range slices.Concat(stories...) {
 			eventID := shared.NormalizeAnyID(story["eventId"])
 			if eventID != "" {
 				lookup.storyByEventID[eventID] = story
 			}
+			if storyID := shared.NormalizeAnyID(story["id"]); storyID != "" {
+				storyLookups = append(storyLookups, []any{storyID})
+			}
 		}
-	}
 
-	if units, err := handler.masterDataSync.ListAll(ctx, region, "eventstoryunits"); err == nil {
-		lookup.unitsByStoryID = make(map[string][]map[string]any, len(units))
-		for _, unit := range units {
-			storyID := shared.NormalizeAnyID(unit["eventStoryId"])
-			if storyID != "" {
-				lookup.unitsByStoryID[storyID] = append(lookup.unitsByStoryID[storyID], unit)
+		if units, err := handler.masterDataSync.ListByIndex(ctx, region, "eventstoryunits", "eventStoryId", storyLookups); err == nil {
+			lookup.unitsByStoryID = make(map[string][]map[string]any, len(storyLookups))
+			for _, unit := range slices.Concat(units...) {
+				storyID := shared.NormalizeAnyID(unit["eventStoryId"])
+				if storyID != "" {
+					lookup.unitsByStoryID[storyID] = append(lookup.unitsByStoryID[storyID], unit)
+				}
 			}
 		}
 	}

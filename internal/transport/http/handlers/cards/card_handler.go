@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -392,7 +393,7 @@ func (handler *CardHandler) EventsByID(c *gin.Context) {
 		return
 	}
 
-	bonusData, err := handler.loadCardEventBonusData(c.Request.Context(), region)
+	bonusData, err := handler.loadCardEventBonusData(c.Request.Context(), region, records)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to query card event bonuses")
 		return
@@ -493,11 +494,20 @@ type cardEventBonusData struct {
 	gameCharacterUnits []map[string]any
 }
 
-func (handler *CardHandler) loadCardEventBonusData(ctx context.Context, region string) (cardEventBonusData, error) {
-	deckBonuses, err := handler.masterDataSync.ListAll(ctx, region, "eventdeckbonuses")
+// loadCardEventBonusData reads the deck bonuses of the events the card's event
+// rows belong to, through the eventId index.
+func (handler *CardHandler) loadCardEventBonusData(ctx context.Context, region string, eventCards []map[string]any) (cardEventBonusData, error) {
+	lookups := make([][]any, 0, len(eventCards))
+	for _, eventCard := range eventCards {
+		if eventID := shared.NormalizeAnyID(eventCard["eventId"]); eventID != "" {
+			lookups = append(lookups, []any{eventID})
+		}
+	}
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, "eventdeckbonuses", "eventId", lookups)
 	if err != nil {
 		return cardEventBonusData{}, err
 	}
+	deckBonuses := slices.Concat(matches...)
 	gameCharacterUnits, err := handler.masterDataSync.ListAll(ctx, region, "gamecharacterunits")
 	if err != nil {
 		return cardEventBonusData{}, err
@@ -1491,7 +1501,7 @@ func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region st
 
 	// Matching the previous per-row tolerance: when the bonus collections
 	// cannot be read, the bonus fields are omitted from every row.
-	bonusData, bonusErr := handler.loadCardEventBonusData(ctx, region)
+	bonusData, bonusErr := handler.loadCardEventBonusData(ctx, region, records)
 	if bonusErr != nil {
 		bonusData = cardEventBonusData{}
 	}
@@ -1525,21 +1535,14 @@ func (handler *CardHandler) buildCardDetailEvents(ctx context.Context, region st
 	return items
 }
 
+// listRecordsByField returns entity's records whose field equals value, read
+// through the relation index named after field.
 func (handler *CardHandler) listRecordsByField(ctx context.Context, region string, entity string, field string, value string) ([]map[string]any, error) {
-	records, err := handler.masterDataSync.ListAll(ctx, region, entity)
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, entity, field, [][]any{{value}})
 	if err != nil {
 		return nil, err
 	}
-
-	targetValue := shared.NormalizeAnyID(value)
-	items := make([]map[string]any, 0, len(records))
-	for _, record := range records {
-		if shared.NormalizeAnyID(record[field]) != targetValue {
-			continue
-		}
-		items = append(items, record)
-	}
-	return items, nil
+	return matches[0], nil
 }
 
 func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region string, id string) []map[string]any {

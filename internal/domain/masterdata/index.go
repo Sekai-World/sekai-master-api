@@ -18,11 +18,27 @@ const indexLayoutVersion = "1"
 // ","; a field path steps into objects with "." and indexes every element of
 // an array it reaches.
 var entityIndexes = map[string][]string{
-	"characterranks":     {"characterId"},
-	"gachas":             {"gachaPickups.cardId"},
-	"levels":             {"levelType"},
-	"resourceboxdetails": {"resourceBoxId,resourceBoxPurpose"},
-	"resourceboxes":      {"id"},
+	"cardepisodes":                      {"cardId"},
+	"charactermissionv2parametergroups": {"id"},
+	"characterranks":                    {"characterId"},
+	"eventcardbonuslimits":              {"eventId"},
+	"eventcards":                        {"cardId", "eventId"},
+	"eventdeckbonuses":                  {"eventId"},
+	"eventhonorbonuses":                 {"eventId"},
+	"eventmusics":                       {"eventId"},
+	"eventmysekaifixturegamecharacterperformancebonuslimits": {"eventId"},
+	"eventstories":         {"eventId"},
+	"eventstoryunits":      {"eventStoryId"},
+	"gachas":               {"gachaPickups.cardId"},
+	"musiccategories":      {"musicId"},
+	"musicdifficulties":    {"musicId"},
+	"musictags":            {"musicId"},
+	"musicvocals":          {"musicId"},
+	"levels":               {"levelType"},
+	"resourceboxdetails":   {"resourceBoxId,resourceBoxPurpose"},
+	"resourceboxes":        {"id"},
+	"virtuallivepamphlets": {"virtualLiveId"},
+	"virtuallivetickets":   {"virtualLiveId"},
 }
 
 // EntityIndexes returns the relation indexes defined for entity.
