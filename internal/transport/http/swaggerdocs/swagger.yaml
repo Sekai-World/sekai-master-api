@@ -2725,6 +2725,11 @@ paths:
         in: query
         name: game_character_ids
         type: string
+      - description: Case-insensitive substring of the honor name or of one of its
+          words
+        in: query
+        name: name
+        type: string
       produces:
       - application/json
       responses:

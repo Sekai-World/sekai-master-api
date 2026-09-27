@@ -32,6 +32,7 @@ var bondsHonorListQueryParameters = map[string]struct{}{
 	"game_character_unit_id1": {},
 	"game_character_unit_id2": {},
 	"game_character_ids":      {},
+	"name":                    {},
 }
 
 var bondsHonorSortableFields = map[string]struct{}{
@@ -57,6 +58,8 @@ type bondsHonorFilters struct {
 	gameCharacterUnitID1 *int64
 	gameCharacterUnitID2 *int64
 	gameCharacterIDs     *bondsHonorGameCharacterFilter
+	// name is a normalized substring of the honor name or one of its words.
+	name string
 }
 
 type bondsHonorGameCharacterFilter struct {
@@ -129,6 +132,7 @@ func (handler *LookupHandler) BondsHonorsByID(c *gin.Context) {
 // @Param game_character_unit_id1 query int false "Exact first game character unit ID" minimum(1)
 // @Param game_character_unit_id2 query int false "Exact second game character unit ID" minimum(1)
 // @Param game_character_ids query string false "Exactly two distinct underlying game character IDs, comma-separated (for example: 1,2)"
+// @Param name query string false "Case-insensitive substring of the honor name or of one of its words"
 // @Success 200 {object} shared.BondsHonorListResponse
 // @Failure 400 {object} shared.ErrorResponse
 // @Failure 503 {object} shared.ErrorResponse
@@ -169,6 +173,14 @@ func (handler *LookupHandler) BondsHonorsList(c *gin.Context) {
 	}
 
 	items := filterBondsHonorRecords(records, options.filters, characterUnits)
+	if options.filters.name != "" {
+		words, err := handler.loadBondsHonorWords(c.Request.Context(), region)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, bondsHonorQueryErrorCode, "failed to query bonds honor words")
+			return
+		}
+		items = filterBondsHonorsByName(items, options.filters.name, words)
+	}
 	sortBondsHonorResponses(items, options.sortBy, options.descending)
 
 	total := len(items)
@@ -292,6 +304,7 @@ func parseBondsHonorFilters(c *gin.Context, query map[string][]string) (bondsHon
 	if !ok {
 		return bondsHonorFilters{}, false
 	}
+	filters.name = shared.NormalizeComparableText(c.Query("name"))
 
 	return filters, true
 }
@@ -459,6 +472,41 @@ func filterBondsHonorRecords(
 	}
 
 	return items
+}
+
+// filterBondsHonorsByName keeps honors whose name or any word of their bonds
+// group contains name, which is already normalized.
+func filterBondsHonorsByName(
+	items []shared.BondsHonorObjectResponse,
+	name string,
+	wordsByGroup map[int64][]shared.BondsHonorWordResponse,
+) []shared.BondsHonorObjectResponse {
+	matched := items[:0]
+	for _, item := range items {
+		if bondsHonorMatchesName(item, name, wordsByGroup) {
+			matched = append(matched, item)
+		}
+	}
+	return matched
+}
+
+func bondsHonorMatchesName(
+	item shared.BondsHonorObjectResponse,
+	name string,
+	wordsByGroup map[int64][]shared.BondsHonorWordResponse,
+) bool {
+	if item.Name != nil && strings.Contains(shared.NormalizeComparableText(*item.Name), name) {
+		return true
+	}
+	if item.BondsGroupID == nil {
+		return false
+	}
+	for _, word := range wordsByGroup[*item.BondsGroupID] {
+		if word.Name != nil && strings.Contains(shared.NormalizeComparableText(*word.Name), name) {
+			return true
+		}
+	}
+	return false
 }
 
 func bondsHonorMatchesGameCharacterFilter(
