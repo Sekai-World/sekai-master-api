@@ -21,6 +21,11 @@ import (
 
 type GachaHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
+
+	// List items of every gacha, per region. Gachas carry their full detail and
+	// behavior lists, so decoding them dominates the list; the projection is
+	// reused while the entity revision is unchanged.
+	listItems shared.RevisionCache[[]map[string]any]
 }
 
 var sortableGachaFields = []string{
@@ -233,11 +238,13 @@ func (handler *GachaHandler) List(c *gin.Context) {
 	}
 
 	if !includeSpoilers || sortOptions.Enabled || ongoing {
-		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "gachas")
+		records, err := handler.loadGachaListItems(c.Request.Context(), region)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to list gachas")
 			return
 		}
+		// The cached slice is shared, so sort a copy.
+		records = append([]map[string]any(nil), records...)
 
 		now := time.Now().UTC()
 		if !includeSpoilers {
@@ -280,6 +287,27 @@ func (handler *GachaHandler) List(c *gin.Context) {
 			"total_pages": totalPages,
 			"has_next":    page < totalPages,
 		},
+	})
+}
+
+// loadGachaListItems returns every gacha's list fields, which include the
+// fields that spoiler filtering, the ongoing filter, and sorting read.
+func (handler *GachaHandler) loadGachaListItems(ctx context.Context, region string) ([]map[string]any, error) {
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "gachas")
+	if err != nil {
+		return nil, err
+	}
+
+	return handler.listItems.Load(ctx, region, revision, func(ctx context.Context) ([]map[string]any, error) {
+		records, err := handler.masterDataSync.ListAll(ctx, region, "gachas")
+		if err != nil {
+			return nil, err
+		}
+		items := make([]map[string]any, 0, len(records))
+		for _, record := range records {
+			items = append(items, handler.buildGachaListItem(region, record))
+		}
+		return items, nil
 	})
 }
 

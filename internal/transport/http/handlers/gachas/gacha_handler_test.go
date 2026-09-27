@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -917,5 +918,61 @@ func TestRateChoiceWishesEndpointSkipsMalformedProjectedValues(t *testing.T) {
 	}
 	if body.Items[0].ID != "1" || body.Items[0].LotteryType != "valid" || body.Items[0].SelectCount != 2 || body.Items[0].Seq != 1 {
 		t.Fatalf("unexpected valid item: %+v", body.Items[0])
+	}
+}
+
+type revisionTrackingGachaCache struct {
+	*fakeGachaHandlerCache
+	revision string
+}
+
+func (cache *revisionTrackingGachaCache) EntityRevision(_ context.Context, _ string, entity string) (string, error) {
+	if entity == "gachas" {
+		return cache.revision, nil
+	}
+	return "", nil
+}
+
+func TestGachaListDecodesGachasOncePerRevisionAndSortsCopies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &revisionTrackingGachaCache{
+		fakeGachaHandlerCache: newGachaListTestCache([]map[string]any{
+			{"id": 1, "name": "first", "startAt": 1000, "gachaDetails": []any{map[string]any{"cardId": 1}}},
+			{"id": 2, "name": "second", "startAt": 2000},
+		}),
+		revision: "r1",
+	}
+	statusStore := &fakeGachaHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
+	router := newGachaTestRouter(NewGachaHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)))
+
+	ids := func(path string) []any {
+		t.Helper()
+		resp := serveGachaRequest(router, path)
+		assertGachaStatus(t, resp, http.StatusOK)
+		body := decodeGachaListResponse(t, resp)
+		result := make([]any, 0, len(body.Items))
+		for _, item := range body.Items {
+			if _, leaked := item["gachaDetails"]; leaked {
+				t.Fatalf("expected list items without detail fields, got %v", item)
+			}
+			result = append(result, item["id"])
+		}
+		return result
+	}
+
+	if got := ids("/api/v1/gachas/jp/list?sort_by=id&sort_order=desc"); !reflect.DeepEqual(got, []any{2.0, 1.0}) {
+		t.Fatalf("expected descending ids, got %v", got)
+	}
+	if got := ids("/api/v1/gachas/jp/list"); !reflect.DeepEqual(got, []any{1.0, 2.0}) {
+		t.Fatalf("expected the cached order to survive an earlier sort, got %v", got)
+	}
+	if len(cache.listAllCalls) != 1 {
+		t.Fatalf("expected gachas decoded once for an unchanged revision, got %v", cache.listAllCalls)
+	}
+	cache.revision = "r2"
+	ids("/api/v1/gachas/jp/list")
+	if len(cache.listAllCalls) != 2 {
+		t.Fatalf("expected a new revision to rebuild the list, got %v", cache.listAllCalls)
 	}
 }
