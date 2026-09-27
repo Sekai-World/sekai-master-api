@@ -18,11 +18,6 @@ import (
 
 type EventHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
-
-	// Usable event ranking reward resource boxes by ID, per region. Decoding
-	// every resource box dominates reward lookups, so the index is reused while
-	// the entity revision is unchanged.
-	rankingResourceBoxes shared.RevisionCache[map[string]map[string]any]
 }
 
 const eventDetailRewardPreviewLimit = 4
@@ -491,11 +486,7 @@ func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Cont
 		regions = append(regions, "jp")
 	}
 	for _, sourceRegion := range regions {
-		resourceBoxes, err := handler.loadEventRankingResourceBoxes(ctx, sourceRegion)
-		if err != nil {
-			continue
-		}
-		resourceBox := resourceBoxes[resourceBoxID]
+		resourceBox := handler.loadEventRankingResourceBox(ctx, sourceRegion, resourceBoxID)
 		if resourceBox == nil {
 			continue
 		}
@@ -508,36 +499,17 @@ func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Cont
 	return nil
 }
 
-func (handler *EventHandler) loadEventRankingResourceBoxes(ctx context.Context, region string) (map[string]map[string]any, error) {
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "resourceboxes")
-	if err != nil {
-		return nil, err
-	}
-
-	return handler.rankingResourceBoxes.Load(ctx, region, revision, func(ctx context.Context) (map[string]map[string]any, error) {
-		resourceBoxes, err := handler.masterDataSync.ListAll(ctx, region, "resourceboxes")
-		if err != nil {
-			return nil, err
-		}
-		return indexEventRankingResourceBoxes(resourceBoxes), nil
+// loadEventRankingResourceBox reads the region's event_ranking_reward box by
+// its composite key. resourceboxes IDs are not unique across purposes, and a
+// box without details (TW/KR/CN keep them in resourceboxdetails) is unusable.
+func (handler *EventHandler) loadEventRankingResourceBox(ctx context.Context, region string, resourceBoxID string) map[string]any {
+	boxes, err := handler.masterDataSync.GetByCompositeKeys(ctx, region, "resourceboxes", []map[string]any{
+		{"id": resourceBoxID, "resourceBoxPurpose": "event_ranking_reward"},
 	})
-}
-
-// indexEventRankingResourceBoxes keeps the first usable event ranking reward
-// box for each ID; boxes of other purposes can share an ID.
-func indexEventRankingResourceBoxes(resourceBoxes []map[string]any) map[string]map[string]any {
-	index := make(map[string]map[string]any)
-	for _, resourceBox := range resourceBoxes {
-		if resourceBox == nil || !isUsableEventRankingResourceBox(resourceBox) {
-			continue
-		}
-		id := shared.NormalizeAnyID(resourceBox["id"])
-		if _, seen := index[id]; id != "" && !seen {
-			index[id] = resourceBox
-		}
+	if err != nil || len(boxes) == 0 || boxes[0] == nil || !isUsableEventRankingResourceBox(boxes[0]) {
+		return nil
 	}
-
-	return index
+	return boxes[0]
 }
 
 func isUsableEventRankingResourceBox(resourceBox map[string]any) bool {

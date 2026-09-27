@@ -18,6 +18,7 @@ import (
 
 	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/usecase"
 )
 
 var redisSearchIndexBenchmarkSink *RedisMasterDataCache
@@ -3510,3 +3511,72 @@ func TestListAllKeepsStoredOrderAcrossConcurrentBatches(t *testing.T) {
 		}
 	}
 }
+
+func TestGetByIDsReturnsRecordsAlignedWithIDs(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+
+	if err := cache.StoreRegion(ctx, "jp", map[string]any{
+		"cards.json": []json.RawMessage{
+			json.RawMessage(`{"id":1,"prefix":"alpha"}`),
+			json.RawMessage(`{"id":1010201,"prefix":"beta"}`),
+		},
+		"resourceBoxes.json": []json.RawMessage{
+			json.RawMessage(`{"id":1,"resourceBoxPurpose":"event_ranking_reward"}`),
+		},
+	}); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	records, err := cache.GetByIDs(ctx, "jp", "cards", []string{"1010201", "404", " 1 ", ""})
+	if err != nil {
+		t.Fatalf("get by ids: %v", err)
+	}
+	if len(records) != 4 || records[0]["prefix"] != "beta" || records[1] != nil || records[2]["prefix"] != "alpha" || records[3] != nil {
+		t.Fatalf("expected records aligned with ids and nil for misses, got %v", records)
+	}
+
+	boxes, err := cache.GetByIDs(ctx, "jp", "resourceboxes", []string{"1"})
+	if err != nil {
+		t.Fatalf("get composite entity by ids: %v", err)
+	}
+	if len(boxes) != 1 || boxes[0] != nil {
+		t.Fatalf("expected a bare ID never to match a composite-key record, got %v", boxes)
+	}
+}
+
+func TestGetByCompositeKeysSelectsEachKeysRecord(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+
+	if err := cache.StoreRegion(ctx, "jp", map[string]any{
+		"resourceBoxes.json": []json.RawMessage{
+			json.RawMessage(`{"id":7001,"resourceBoxPurpose":"event_ranking_reward","resourceBoxType":"expand"}`),
+			json.RawMessage(`{"id":7001,"resourceBoxPurpose":"virtual_live_reward","resourceBoxType":"material"}`),
+		},
+	}); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	records, err := cache.GetByCompositeKeys(ctx, "jp", "resourceboxes", []map[string]any{
+		{"id": "7001", "resourceBoxPurpose": "virtual_live_reward"},
+		{"id": float64(7001), "resourceBoxPurpose": "event_ranking_reward"},
+		{"id": 7001, "resourceBoxPurpose": "mission_reward"},
+		{"id": 7001},
+	})
+	if err != nil {
+		t.Fatalf("get by composite keys: %v", err)
+	}
+	if len(records) != 4 ||
+		records[0]["resourceBoxType"] != "material" ||
+		records[1]["resourceBoxType"] != "expand" ||
+		records[2] != nil || records[3] != nil {
+		t.Fatalf("expected each key's own record and nil for misses or partial keys, got %v", records)
+	}
+}
+
+// Handlers rely on direct batch and composite reads; without them composite
+// lookups fail instead of degrading to full-entity scans.
+var _ usecase.MasterDataCacheBatchReader = (*RedisMasterDataCache)(nil)
