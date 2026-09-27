@@ -12,6 +12,14 @@ func TestRewardItemFieldsNamesTitlesWithTheirRarity(t *testing.T) {
 		"bondshonors":  {"1212603": {"id": 1212603, "name": "ミクとKAITO", "honorRarity": "high"}},
 		"gachatickets": {"17": {"id": 17, "name": "Ticket", "assetbundleName": "mission_gacha_ticket"}},
 	}
+	// Live Master titles leave honorRarity empty and set it per level.
+	records["honors"]["3009"+"0"] = map[string]any{
+		"id": 30090, "name": "Live Master", "honorRarity": "",
+		"levels": []any{
+			map[string]any{"level": 1, "honorRarity": "low"},
+			map[string]any{"level": 2, "honorRarity": "middle"},
+		},
+	}
 	lookup := func(_ context.Context, _ string, entity string, id string) (map[string]any, bool, error) {
 		record, ok := records[entity][id]
 		return record, ok, nil
@@ -33,6 +41,14 @@ func TestRewardItemFieldsNamesTitlesWithTheirRarity(t *testing.T) {
 		"gacha ticket": {
 			detail: map[string]any{"resourceType": "gacha_ticket", "resourceId": 17},
 			want:   map[string]any{"resourceName": "Ticket", "resourceAssetbundleName": "mission_gacha_ticket"},
+		},
+		"live master at its rewarded level": {
+			detail: map[string]any{"resourceType": "honor", "resourceId": 30090, "resourceLevel": 2},
+			want:   map[string]any{"resourceName": "Live Master", "resourceRarity": "middle"},
+		},
+		"live master without a matching level": {
+			detail: map[string]any{"resourceType": "honor", "resourceId": 30090, "resourceLevel": 9},
+			want:   map[string]any{"resourceName": "Live Master", "resourceRarity": "low"},
 		},
 		"currency": {
 			detail: map[string]any{"resourceType": "jewel", "resourceQuantity": 50},

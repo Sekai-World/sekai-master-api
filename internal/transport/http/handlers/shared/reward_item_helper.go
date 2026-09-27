@@ -27,6 +27,35 @@ func RewardItemCarriesAssetbundleName(resourceType string) bool {
 // RewardItemRecordLookup reads one master-data record by ID.
 type RewardItemRecordLookup func(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error)
 
+// RewardTitleRarity returns a title record's rarity. Live Master titles leave
+// the title's honorRarity empty and set it per level, so those fall back to the
+// rewarded level's rarity, then to the first level that has one.
+func RewardTitleRarity(record map[string]any, level any) string {
+	if rarity, ok := record["honorRarity"].(string); ok && strings.TrimSpace(rarity) != "" {
+		return rarity
+	}
+	levels, _ := record["levels"].([]any)
+	wanted := NormalizeAnyID(level)
+	first := ""
+	for _, item := range levels {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		rarity, _ := entry["honorRarity"].(string)
+		if strings.TrimSpace(rarity) == "" {
+			continue
+		}
+		if wanted != "" && NormalizeAnyID(entry["level"]) == wanted {
+			return rarity
+		}
+		if first == "" {
+			first = rarity
+		}
+	}
+	return first
+}
+
 // RewardItemFields returns the display fields of a reward detail's item:
 // `resourceName`, `resourceAssetbundleName` for gacha tickets (their icon path
 // uses it), and `resourceRarity` for titles. It returns nil when the item type
@@ -53,7 +82,7 @@ func RewardItemFields(ctx context.Context, lookup RewardItemRecordLookup, region
 	if bundle, ok := record["assetbundleName"].(string); ok && strings.TrimSpace(bundle) != "" && RewardItemCarriesAssetbundleName(resourceType) {
 		fields["resourceAssetbundleName"] = bundle
 	}
-	if rarity, ok := record["honorRarity"].(string); ok && strings.TrimSpace(rarity) != "" {
+	if rarity := RewardTitleRarity(record, detail["resourceLevel"]); rarity != "" {
 		fields["resourceRarity"] = rarity
 	}
 	if len(fields) == 0 {

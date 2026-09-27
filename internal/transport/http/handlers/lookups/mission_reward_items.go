@@ -10,7 +10,23 @@ import (
 type missionRewardItem struct {
 	name            *string
 	assetbundleName *string
-	rarity          *string
+	// record is kept for titles, whose rarity can depend on the rewarded level.
+	record map[string]any
+}
+
+func (item missionRewardItem) rarity(level *int64) *string {
+	if item.record == nil {
+		return nil
+	}
+	var rewardedLevel any
+	if level != nil {
+		rewardedLevel = *level
+	}
+	rarity := shared.RewardTitleRarity(item.record, rewardedLevel)
+	if rarity == "" {
+		return nil
+	}
+	return &rarity
 }
 
 // missionRewardItemIndex holds reward items by resource type, then by ID.
@@ -55,9 +71,9 @@ func (handler *LookupHandler) loadMissionRewardItemEntity(ctx context.Context, r
 			if !ok {
 				continue
 			}
-			item := missionRewardItem{
-				name:   lookupOptionalString(record["name"]),
-				rarity: lookupOptionalString(record["honorRarity"]),
+			item := missionRewardItem{name: lookupOptionalString(record["name"])}
+			if _, isTitle := record["honorRarity"]; isTitle || record["levels"] != nil {
+				item.record = map[string]any{"honorRarity": record["honorRarity"], "levels": record["levels"]}
 			}
 			if withAssetbundleName {
 				item.assetbundleName = lookupOptionalString(record["assetbundleName"])
