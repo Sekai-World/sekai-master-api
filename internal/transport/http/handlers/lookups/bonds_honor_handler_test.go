@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -191,11 +193,12 @@ func assertBondsHonorRelationships(t *testing.T, item map[string]any, groupID, u
 		t.Fatalf("expected bonds group matched by groupId and projected narrowly, got %#v", item["bondsGroup"])
 	}
 	unit1, ok := item["characterUnit1"].(map[string]any)
-	if !ok || len(unit1) != 3 || unit1["id"] != float64(unitID1) || unit1["gameCharacterId"] != float64(unitID1+1000) || unit1["unit"] != "unit-1" {
+	// colorCode tints the unit's half of the degree background.
+	if !ok || len(unit1) != 4 || unit1["id"] != float64(unitID1) || unit1["gameCharacterId"] != float64(unitID1+1000) || unit1["unit"] != "unit-1" || unit1["colorCode"] != "#33aaee" {
 		t.Fatalf("expected typed first character unit, got %#v", item["characterUnit1"])
 	}
 	unit2, ok := item["characterUnit2"].(map[string]any)
-	if !ok || len(unit2) != 3 || unit2["id"] != float64(unitID2) || unit2["gameCharacterId"] != float64(unitID2+1000) || unit2["unit"] != "unit-2" {
+	if !ok || len(unit2) != 4 || unit2["id"] != float64(unitID2) || unit2["gameCharacterId"] != float64(unitID2+1000) || unit2["unit"] != "unit-2" || unit2["colorCode"] != "#ffdd44" {
 		t.Fatalf("expected typed second character unit, got %#v", item["characterUnit2"])
 	}
 }
@@ -227,8 +230,8 @@ func TestBondsHonorsTypedEndpointsSupportFiveRegions(t *testing.T) {
 				"unknown":      "must not be exposed",
 			}},
 			bondsHonorGameCharacterUnitsEntity: {
-				{"id": unitID1, "gameCharacterId": unitID1 + 1000, "unit": "unit-1", "unknown": "hidden"},
-				{"id": unitID2, "gameCharacterId": unitID2 + 1000, "unit": "unit-2", "unknown": "hidden"},
+				{"id": unitID1, "gameCharacterId": unitID1 + 1000, "unit": "unit-1", "colorCode": "#33aaee", "unknown": "hidden"},
+				{"id": unitID2, "gameCharacterId": unitID2 + 1000, "unit": "unit-2", "colorCode": "#ffdd44", "unknown": "hidden"},
 			},
 		}
 	}
@@ -425,6 +428,47 @@ func TestBondsHonorsListAppliesExactNumericFilters(t *testing.T) {
 	items, pagination := decodeBondsHonorList(t, response.Body.Bytes())
 	if len(items) != 1 || items[0]["id"] != float64(1) || pagination["total"] != float64(1) {
 		t.Fatalf("expected all exact filters to match only record 1, got items=%#v pagination=%#v", items, pagination)
+	}
+}
+
+func TestBondsHonorsListFiltersByHonorOrWordName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {
+				bondsHonorsEntity: {
+					newBondsHonorRecord(1, 1, 10, 1, 2, "Miku and KAITO"),
+					newBondsHonorRecord(2, 2, 11, 1, 3, "Miku and Rin"),
+					newBondsHonorRecord(3, 3, 12, 4, 5, "Ichika and Saki"),
+				},
+				"bondshonorwords": {
+					newBondsHonorWordRecord(100, 1, 11, "Cool Singers"),
+					newBondsHonorWordRecord(101, 1, 12, "Leo/need Beginnings"),
+				},
+			},
+		},
+	}
+	router := newBondsHonorRouter(newReadyLookupHandler(cache))
+
+	for query, want := range map[string][]float64{
+		"kaito":        {1},    // honor name, case-insensitive
+		"cool singers": {2},    // a word of the bonds group
+		"miku":         {1, 2}, // several honors
+		"nobody":       {},     // no match
+		"LEO/NEED":     {3},    // word, case-insensitive
+	} {
+		response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/bondsHonors/jp/list?name="+url.QueryEscape(query))
+		if response.Code != http.StatusOK {
+			t.Fatalf("name=%q: expected 200, got %d: %s", query, response.Code, response.Body.String())
+		}
+		items, pagination := decodeBondsHonorList(t, response.Body.Bytes())
+		got := make([]float64, 0, len(items))
+		for _, item := range items {
+			got = append(got, item["id"].(float64))
+		}
+		if !reflect.DeepEqual(got, want) || pagination["total"] != float64(len(want)) {
+			t.Fatalf("name=%q: expected ids %v, got %v (pagination %#v)", query, want, got, pagination)
+		}
 	}
 }
 

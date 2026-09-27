@@ -41,6 +41,11 @@ definitions:
     type: object
   shared.BondsHonorCharacterUnitResponse:
     properties:
+      colorCode:
+        description: |-
+          ColorCode is the unit's color, such as "#33aaee"; it tints that
+          character's half of the degree background.
+        type: string
       gameCharacterId:
         type: integer
       id:
@@ -2719,6 +2724,11 @@ paths:
           (for example: 1,2)'
         in: query
         name: game_character_ids
+        type: string
+      - description: Case-insensitive substring of the honor name or of one of its
+          words
+        in: query
+        name: name
         type: string
       produces:
       - application/json

@@ -563,6 +563,12 @@ const docTemplate = `{
                         "description": "Exactly two distinct underlying game character IDs, comma-separated (for example: 1,2)",
                         "name": "game_character_ids",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the honor name or of one of its words",
+                        "name": "name",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5640,6 +5646,10 @@ const docTemplate = `{
         "shared.BondsHonorCharacterUnitResponse": {
             "type": "object",
             "properties": {
+                "colorCode": {
+                    "description": "ColorCode is the unit's color, such as \"#33aaee\"; it tints that\ncharacter's half of the degree background.",
+                    "type": "string"
+                },
                 "gameCharacterId": {
                     "type": "integer"
                 },
