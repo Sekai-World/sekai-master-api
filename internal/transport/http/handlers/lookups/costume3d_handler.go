@@ -180,8 +180,10 @@ func (handler *LookupHandler) loadNormalizedCostume3Ds(ctx context.Context, regi
 	if err != nil {
 		return nil, err
 	}
+	// Some regions (JP) have no costume groups, so an empty groups revision
+	// still keys the cache; syncing groups later changes the key.
 	revision := ""
-	if costumesRevision != "" && groupsRevision != "" {
+	if costumesRevision != "" {
 		revision = costumesRevision + "\x00" + groupsRevision
 	}
 

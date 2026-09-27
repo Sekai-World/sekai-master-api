@@ -299,4 +299,10 @@ func TestCostume3DListReusesNormalizedCostumesWhileRevisionsAreUnchanged(t *test
 	cache.revisions["jp"][costume3dGroupsEntity] = "g2"
 	ids("/api/v1/costume3ds/jp/list")
 	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{costume3dsEntity: 2, costume3dGroupsEntity: 2})
+
+	// A region without costume groups has no groups revision but still caches.
+	delete(cache.revisions["jp"], costume3dGroupsEntity)
+	ids("/api/v1/costume3ds/jp/list")
+	ids("/api/v1/costume3ds/jp/list")
+	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{costume3dsEntity: 3})
 }
