@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,7 +79,7 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	categories, err := handler.loadMusicCategoryRecords(c.Request.Context(), region)
+	categories, err := handler.loadMusicCategoryRecords(c.Request.Context(), region, []string{id})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
@@ -542,7 +543,7 @@ func (handler *MusicHandler) filterMusicRecords(ctx context.Context, region stri
 	var musicCategories map[string][]string
 	if len(options.Category) > 0 {
 		var err error
-		musicCategories, err = handler.loadMusicCategoryRecords(ctx, region)
+		musicCategories, err = handler.loadMusicCategoryRecords(ctx, region, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -800,15 +801,21 @@ func (handler *MusicHandler) ensureRegionReady(c *gin.Context, region string) bo
 }
 
 func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, records []map[string]any) ([]map[string]any, error) {
-	difficulties, err := handler.loadMusicDifficultyRecords(ctx, region)
+	musicIDs := make([]string, 0, len(records))
+	for _, record := range records {
+		if musicID := shared.NormalizeAnyID(record["id"]); musicID != "" {
+			musicIDs = append(musicIDs, musicID)
+		}
+	}
+	difficulties, err := handler.loadMusicDifficultyRecords(ctx, region, musicIDs)
 	if err != nil {
 		return nil, err
 	}
-	tags, err := handler.loadMusicTagRecords(ctx, region)
+	tags, err := handler.loadMusicTagRecords(ctx, region, musicIDs)
 	if err != nil {
 		return nil, err
 	}
-	categories, err := handler.loadMusicCategoryRecords(ctx, region)
+	categories, err := handler.loadMusicCategoryRecords(ctx, region, musicIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -833,12 +840,30 @@ func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, 
 	return items, nil
 }
 
-func (handler *MusicHandler) loadMusicDifficultyRecords(ctx context.Context, region string) (map[string][]map[string]any, error) {
+// musicRecordsByMusicID reads entity's records of musicIDs through the musicId
+// index, in stored order per music. A nil musicIDs reads every record, which
+// only list filters over all musics need.
+func (handler *MusicHandler) musicRecordsByMusicID(ctx context.Context, region string, entity string, musicIDs []string) ([]map[string]any, error) {
+	if musicIDs == nil {
+		return handler.masterDataSync.ListAll(ctx, region, entity)
+	}
+	lookups := make([][]any, 0, len(musicIDs))
+	for _, musicID := range musicIDs {
+		lookups = append(lookups, []any{musicID})
+	}
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, entity, "musicId", lookups)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Concat(matches...), nil
+}
+
+func (handler *MusicHandler) loadMusicDifficultyRecords(ctx context.Context, region string, musicIDs []string) (map[string][]map[string]any, error) {
 	if handler == nil || handler.masterDataSync == nil {
 		return map[string][]map[string]any{}, nil
 	}
 
-	difficultyRecords, err := handler.masterDataSync.ListAll(ctx, region, "musicdifficulties")
+	difficultyRecords, err := handler.musicRecordsByMusicID(ctx, region, "musicdifficulties", musicIDs)
 	if err != nil {
 		return nil, fmt.Errorf("list music difficulties: %w", err)
 	}
@@ -859,12 +884,12 @@ func (handler *MusicHandler) loadMusicDifficultyRecords(ctx context.Context, reg
 	return difficulties, nil
 }
 
-func (handler *MusicHandler) loadMusicTagRecords(ctx context.Context, region string) (map[string][]string, error) {
+func (handler *MusicHandler) loadMusicTagRecords(ctx context.Context, region string, musicIDs []string) (map[string][]string, error) {
 	if handler == nil || handler.masterDataSync == nil {
 		return map[string][]string{}, nil
 	}
 
-	tagRecords, err := handler.masterDataSync.ListAll(ctx, region, "musictags")
+	tagRecords, err := handler.musicRecordsByMusicID(ctx, region, "musictags", musicIDs)
 	if err != nil {
 		return nil, fmt.Errorf("list music tags: %w", err)
 	}
@@ -882,12 +907,12 @@ func (handler *MusicHandler) loadMusicTagRecords(ctx context.Context, region str
 	return tags, nil
 }
 
-func (handler *MusicHandler) loadMusicCategoryRecords(ctx context.Context, region string) (map[string][]string, error) {
+func (handler *MusicHandler) loadMusicCategoryRecords(ctx context.Context, region string, musicIDs []string) (map[string][]string, error) {
 	if handler == nil || handler.masterDataSync == nil {
 		return map[string][]string{}, nil
 	}
 
-	categoryRecords, err := handler.masterDataSync.ListAll(ctx, region, "musiccategories")
+	categoryRecords, err := handler.musicRecordsByMusicID(ctx, region, "musiccategories", musicIDs)
 	if err != nil {
 		return nil, fmt.Errorf("list musiccategories: %w", err)
 	}
@@ -985,7 +1010,7 @@ func musicStringSliceContainsAny(values []string, queries map[string]struct{}) b
 }
 
 func (handler *MusicHandler) loadMusicDifficultiesByMusicID(ctx context.Context, region string, musicID string, compact bool) ([]map[string]any, error) {
-	difficultyRecords, err := handler.masterDataSync.ListAll(ctx, region, "musicdifficulties")
+	difficultyRecords, err := handler.musicRecordsByMusicID(ctx, region, "musicdifficulties", []string{musicID})
 	if err != nil {
 		return nil, err
 	}
@@ -1178,7 +1203,7 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	categories, err := handler.loadMusicCategoryRecords(ctx, region)
+	categories, err := handler.loadMusicCategoryRecords(ctx, region, []string{id})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
@@ -1224,7 +1249,7 @@ func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, regi
 		return nil, nil
 	}
 
-	records, err := handler.masterDataSync.ListAll(ctx, region, "musicvocals")
+	records, err := handler.musicRecordsByMusicID(ctx, region, "musicvocals", []string{musicID})
 	if err != nil {
 		return nil, fmt.Errorf("list musicvocals: %w", err)
 	}
@@ -1246,7 +1271,7 @@ func (handler *MusicHandler) buildMusicTagsByMusicID(ctx context.Context, region
 		return nil, nil
 	}
 
-	tagRecords, err := handler.masterDataSync.ListAll(ctx, region, "musictags")
+	tagRecords, err := handler.musicRecordsByMusicID(ctx, region, "musictags", []string{musicID})
 	if err != nil {
 		return nil, fmt.Errorf("list musictags: %w", err)
 	}
