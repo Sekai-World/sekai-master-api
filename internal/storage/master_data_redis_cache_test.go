@@ -3480,3 +3480,33 @@ func TestRedisMasterDataCachePing(t *testing.T) {
 		t.Fatalf("expected ping error after redis closed")
 	}
 }
+
+func TestListAllKeepsStoredOrderAcrossConcurrentBatches(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+	ctx := context.Background()
+
+	// Enough records for several HMGET batches, stored in descending ID order so
+	// the result order must come from the order list, not from the IDs.
+	const count = 2345
+	records := make([]json.RawMessage, 0, count)
+	for id := count; id >= 1; id-- {
+		records = append(records, json.RawMessage(fmt.Sprintf(`{"id":%d}`, id)))
+	}
+	if err := cache.StoreRegion(ctx, "jp", map[string]any{"resourceBoxes.json": records}); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	items, err := cache.ListAll(ctx, "jp", "resourceboxes")
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(items) != count {
+		t.Fatalf("expected %d records, got %d", count, len(items))
+	}
+	for index, item := range items {
+		if want := float64(count - index); item["id"] != want {
+			t.Fatalf("record %d: expected id %v, got %v", index, want, item["id"])
+		}
+	}
+}
