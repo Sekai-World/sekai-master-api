@@ -244,3 +244,59 @@ func TestCostume3DByIDNotFoundAndInvalidIDResponses(t *testing.T) {
 		}
 	}
 }
+
+func TestCostume3DListReusesNormalizedCostumesWhileRevisionsAreUnchanged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &revisionTrackingMissionCache{
+		missionTrackingCache: &missionTrackingCache{fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"jp": {
+					costume3dsEntity: {
+						{"id": 101, "groupId": 11, "name": "B"},
+						{"id": 102, "groupId": 11, "name": "A"},
+					},
+					costume3dGroupsEntity: {{"groupId": 11, "characterId": 13}},
+				},
+			},
+		}},
+		revisions: map[string]map[string]string{"jp": {costume3dsEntity: "c1", costume3dGroupsEntity: "g1"}},
+	}
+	router := newCostume3DTestRouter(newMissionTestHandler(cache))
+
+	ids := func(path string) []int64 {
+		t.Helper()
+		resp := serveLookupRequest(t, router, http.MethodGet, path)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", path, resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Items []struct {
+				ID          int64 `json:"id"`
+				CharacterID int64 `json:"characterId"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		result := make([]int64, 0, len(body.Items))
+		for _, item := range body.Items {
+			if item.CharacterID != 13 {
+				t.Fatalf("expected the group's character on %d, got %d", item.ID, item.CharacterID)
+			}
+			result = append(result, item.ID)
+		}
+		return result
+	}
+
+	if got := ids("/api/v1/costume3ds/jp/list?sort_by=name&sort_order=asc"); len(got) != 2 || got[0] != 102 {
+		t.Fatalf("expected costumes sorted by name, got %v", got)
+	}
+	if got := ids("/api/v1/costume3ds/jp/list"); len(got) != 2 || got[0] != 101 {
+		t.Fatalf("expected the cached order to survive an earlier sort, got %v", got)
+	}
+	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{costume3dsEntity: 1, costume3dGroupsEntity: 1})
+
+	cache.revisions["jp"][costume3dGroupsEntity] = "g2"
+	ids("/api/v1/costume3ds/jp/list")
+	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{costume3dsEntity: 2, costume3dGroupsEntity: 2})
+}
