@@ -20,9 +20,6 @@ import (
 type CardHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 
-	// Summaries of the gachas that pick up each card, per region, reused while
-	// the gachas revision is unchanged; see loadCardPickupGachas.
-	pickupGachas shared.RevisionCache[map[string][]map[string]any]
 	// Every card's cardListFields, per region; see loadCardListRecords.
 	listRecords shared.RevisionCache[[]map[string]any]
 }
@@ -1554,64 +1551,22 @@ func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region st
 }
 
 // cardPickupGachas returns summaries of the gachas that pick up the card, in
-// gacha order.
+// gacha order, read through the gachas pickup-card index.
 func (handler *CardHandler) cardPickupGachas(ctx context.Context, region string, id string) ([]map[string]any, error) {
-	byCard, err := handler.loadCardPickupGachas(ctx, region)
-	if err != nil {
-		return nil, err
-	}
-	return append(make([]map[string]any, 0), byCard[shared.NormalizeAnyID(id)]...), nil
-}
-
-// loadCardPickupGachas indexes gacha summaries by picked-up card ID. Gachas
-// carry their full detail lists, so decoding them dominates card lookups; the
-// index is reused while the gachas revision is unchanged.
-func (handler *CardHandler) loadCardPickupGachas(ctx context.Context, region string) (map[string][]map[string]any, error) {
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "gachas")
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, "gachas", "gachaPickups.cardId", [][]any{{id}})
 	if err != nil {
 		return nil, err
 	}
 
-	return handler.pickupGachas.Load(ctx, region, revision, func(ctx context.Context) (map[string][]map[string]any, error) {
-		allGachas, err := handler.masterDataSync.ListAll(ctx, region, "gachas")
-		if err != nil {
-			return nil, err
-		}
-		return indexCardPickupGachas(allGachas), nil
-	})
-}
-
-func indexCardPickupGachas(allGachas []map[string]any) map[string][]map[string]any {
-	byCard := make(map[string][]map[string]any)
-	for _, gacha := range allGachas {
-		pickups, ok := gacha["gachaPickups"].([]any)
-		if !ok || len(pickups) == 0 {
-			continue
-		}
-
-		var summary map[string]any
-		seen := make(map[string]struct{}, len(pickups))
-		for _, pickupRaw := range pickups {
-			pickup, ok := pickupRaw.(map[string]any)
-			if !ok {
-				continue
+	gachas := make([]map[string]any, 0, len(matches[0]))
+	for _, gacha := range matches[0] {
+		summary := make(map[string]any, 4)
+		for _, key := range []string{"id", "name", "assetbundleName", "startAt"} {
+			if value, ok := gacha[key]; ok {
+				summary[key] = value
 			}
-			cardID := shared.NormalizeAnyID(pickup["cardId"])
-			if _, duplicate := seen[cardID]; duplicate {
-				continue
-			}
-			seen[cardID] = struct{}{}
-
-			if summary == nil {
-				summary = make(map[string]any, 4)
-				for _, key := range []string{"id", "name", "assetbundleName", "startAt"} {
-					if value, ok := gacha[key]; ok {
-						summary[key] = value
-					}
-				}
-			}
-			byCard[cardID] = append(byCard[cardID], summary)
 		}
+		gachas = append(gachas, summary)
 	}
-	return byCard
+	return gachas, nil
 }
