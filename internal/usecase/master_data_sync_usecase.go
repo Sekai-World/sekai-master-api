@@ -42,6 +42,18 @@ type MasterDataCache interface {
 	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
 
+// MasterDataCacheBatchReader reads several records in one round trip.
+// GetByIDs and GetByCompositeKeys return records aligned with their input, with
+// nil for a miss.
+type MasterDataCacheBatchReader interface {
+	GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error)
+	GetByCompositeKeys(ctx context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error)
+}
+
+// ErrCompositeReadUnsupported reports a cache that cannot read composite-key
+// records directly.
+var ErrCompositeReadUnsupported = errors.New("master data cache does not support composite-key reads")
+
 type MasterDataCacheSourceDigestStorer interface {
 	StoreRegionWithSourceDigests(ctx context.Context, region string, payload map[string]any, fileDigests map[string]string) error
 }
@@ -2201,6 +2213,63 @@ func (usecase *MasterDataSyncUsecase) GetByID(ctx context.Context, region string
 	record, found, err := usecase.cache.GetByID(ctx, region, entity, id)
 	span.SetAttributes(attribute.Bool("cache.hit", found))
 	return record, found, err
+}
+
+// GetByIDs returns the records stored under ids, aligned with ids, with nil for
+// a miss. A cache without batch reads is read one ID at a time.
+func (usecase *MasterDataSyncUsecase) GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.get_by_ids", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))), attribute.Int("request.count", len(ids)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	if usecase.cache == nil {
+		return make([]map[string]any, len(ids)), nil
+	}
+	if reader, ok := usecase.cache.(MasterDataCacheBatchReader); ok {
+		var records []map[string]any
+		records, err = reader.GetByIDs(ctx, region, entity, ids)
+		return records, err
+	}
+
+	records := make([]map[string]any, len(ids))
+	for index, id := range ids {
+		var record map[string]any
+		var found bool
+		record, found, err = usecase.cache.GetByID(ctx, region, entity, id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			records[index] = record
+		}
+	}
+	return records, nil
+}
+
+// GetByCompositeKeys returns the records of a composite-key entity (such as
+// resourceboxes keyed by id and resourceBoxPurpose) matching each key, aligned
+// with keys, with nil for a miss.
+func (usecase *MasterDataSyncUsecase) GetByCompositeKeys(ctx context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.get_by_composite_keys", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))), attribute.Int("request.count", len(keys)))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	if usecase.cache == nil {
+		return make([]map[string]any, len(keys)), nil
+	}
+	reader, ok := usecase.cache.(MasterDataCacheBatchReader)
+	if !ok {
+		err = ErrCompositeReadUnsupported
+		return nil, err
+	}
+
+	var records []map[string]any
+	records, err = reader.GetByCompositeKeys(ctx, region, entity, keys)
+	return records, err
 }
 
 func (usecase *MasterDataSyncUsecase) ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error) {
