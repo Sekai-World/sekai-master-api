@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"sort"
@@ -408,6 +409,99 @@ func TestStoreRegionPersistsCompactRawJSONRecords(t *testing.T) {
 	}
 	if cards[0]["id"] != float64(1) || cards[1]["id"] != float64(2) {
 		t.Fatalf("unexpected card order: %v %v", cards[0]["id"], cards[1]["id"])
+	}
+}
+
+// IDs of a million or more (bondsHonors, bondsHonorWords) used to be stored
+// under their float exponent form ("1.010201e+06"), so lookups by the decimal
+// ID found nothing.
+func TestStoreRegionKeysLargeIntegerIDsInDecimal(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+
+	ctx := context.Background()
+	payload := map[string]any{
+		"bondsHonors.json": []json.RawMessage{
+			json.RawMessage(`{"id":1010201,"name":"bonds low"}`),
+			json.RawMessage(`{"id":12122010,"name":"bonds high"}`),
+		},
+	}
+	if err := cache.StoreRegion(ctx, "jp", payload); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	fields, err := cache.client.HKeys(ctx, cache.redisEntityKey("jp", "bondsHonors")).Result()
+	if err != nil {
+		t.Fatalf("read persisted keys: %v", err)
+	}
+	sort.Strings(fields)
+	if strings.Join(fields, ",") != "1010201,12122010" {
+		t.Fatalf("expected decimal hash fields, got %v", fields)
+	}
+
+	for id, name := range map[string]string{"1010201": "bonds low", "12122010": "bonds high"} {
+		record, found, err := cache.GetByID(ctx, "jp", "bondsHonors", id)
+		if err != nil || !found || record["name"] != name {
+			t.Fatalf("expected id=%s name %q, got found=%v value=%v err=%v", id, name, found, record, err)
+		}
+	}
+
+	matches, err := cache.Search(ctx, "jp", "bondsHonors", "bonds high", []string{"name"}, 10)
+	if err != nil || len(matches) != 1 || matches[0].Item["id"] != float64(12122010) {
+		t.Fatalf("expected search to resolve id 12122010, got %v err=%v", matches, err)
+	}
+}
+
+// Redis written before decimal ids holds exponent keys under a source digest
+// that still matches, so the layout version must force one rewrite.
+func TestStoreRegionRewritesExponentKeysForUnchangedSources(t *testing.T) {
+	miniRedis := startTestMiniRedis(t)
+	cache := newStoreRegionTestCache(t, miniRedis)
+
+	ctx := context.Background()
+	body := `{"id":1010201,"name":"bonds low"}`
+	payload := map[string]any{"bondsHonors.json": []json.RawMessage{json.RawMessage(body)}}
+	fileDigests := map[string]string{"bondsHonors.json": "bonds-digest"}
+
+	if err := cache.StoreRegionWithSourceDigests(ctx, "jp", payload, fileDigests); err != nil {
+		t.Fatalf("seed payload: %v", err)
+	}
+	// Roll the stored state back to the old layout, keeping the search index.
+	entityKey := cache.redisEntityKey("jp", "bondsHonors")
+	orderKey := cache.redisEntityOrderKey("jp", "bondsHonors")
+	pipe := cache.client.TxPipeline()
+	pipe.Del(ctx, entityKey, orderKey)
+	pipe.HSet(ctx, entityKey, "1.010201e+06", body)
+	pipe.RPush(ctx, orderKey, "1.010201e+06")
+	pipe.Set(ctx, cache.redisEntityRevisionKey("jp", "bondsHonors"), "legacy-revision", 0)
+	pipe.Set(ctx, cache.redisEntitySourceDigestKey("jp", "bondsHonors"), "bonds-digest", 0)
+	if _, err := pipe.Exec(ctx); err != nil {
+		t.Fatalf("seed legacy layout: %v", err)
+	}
+
+	// An unchanged upstream commit skips the sync only if the index rebuild
+	// succeeds, so it must refuse exponent keys.
+	if rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, "jp"); rebuilt || !errors.Is(err, errExponentRecordIDs) {
+		t.Fatalf("expected rebuild to reject exponent keys, got rebuilt=%v err=%v", rebuilt, err)
+	}
+
+	if err := cache.StoreRegionWithSourceDigests(ctx, "jp", payload, fileDigests); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	fields, err := cache.client.HKeys(ctx, entityKey).Result()
+	if err != nil || strings.Join(fields, ",") != "1010201" {
+		t.Fatalf("expected only the decimal field, got %v err=%v", fields, err)
+	}
+	order, err := cache.client.LRange(ctx, orderKey, 0, -1).Result()
+	if err != nil || strings.Join(order, ",") != "1010201" {
+		t.Fatalf("expected decimal order, got %v err=%v", order, err)
+	}
+	if record, found, err := cache.GetByID(ctx, "jp", "bondsHonors", "1010201"); err != nil || !found || record["name"] != "bonds low" {
+		t.Fatalf("expected id=1010201 after rewrite, got found=%v value=%v err=%v", found, record, err)
+	}
+	if rebuilt, err := cache.RebuildRegionIndexFromRedis(ctx, "jp"); !rebuilt || err != nil {
+		t.Fatalf("expected rebuild after rewrite, got rebuilt=%v err=%v", rebuilt, err)
 	}
 }
 
