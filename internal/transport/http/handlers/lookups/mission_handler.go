@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -355,12 +356,17 @@ func (handler *LookupHandler) CharacterRanksList(c *gin.Context) {
 		return
 	}
 
-	ranks, err := handler.masterDataSync.ListAll(c.Request.Context(), region, characterRanksEntity)
+	rankMatches, err := handler.masterDataSync.ListByIndex(c.Request.Context(), region, characterRanksEntity, "characterId", [][]any{{characterID}})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to list character ranks")
 		return
 	}
-	catalog, err := handler.loadMissionRewardCatalog(c.Request.Context(), region)
+	ranks := rankMatches[0]
+	boxIDs := make([]int64, 0, len(ranks))
+	for _, rank := range ranks {
+		boxIDs = append(boxIDs, lookupPositiveInt64List(rank["rewardResourceBoxIds"])...)
+	}
+	catalog, err := handler.loadMissionRewardCatalog(c.Request.Context(), region, boxIDs)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CHARACTER_RANK_QUERY_ERROR", "failed to resolve character rank rewards")
 		return
@@ -1176,7 +1182,7 @@ func (handler *LookupHandler) resolveMissionRewards(ctx context.Context, request
 	catalog := missionRewardCatalog{}
 	if missionRewardCatalogRequired(request.items) {
 		var err error
-		catalog, err = handler.loadMissionRewardCatalog(ctx, request.region)
+		catalog, err = handler.loadMissionRewardCatalog(ctx, request.region, missionRewardBoxIDs(request.items))
 		if err != nil {
 			return err
 		}
@@ -1205,6 +1211,19 @@ func missionRewardCatalogRequired(items []missionItem) bool {
 	}
 
 	return false
+}
+
+// missionRewardBoxIDs returns the resource box IDs the items' rewards refer to.
+func missionRewardBoxIDs(items []missionItem) []int64 {
+	ids := make([]int64, 0)
+	for _, item := range items {
+		for _, reference := range item.rewardRefs {
+			if reference.response.ResourceBoxID != nil {
+				ids = append(ids, *reference.response.ResourceBoxID)
+			}
+		}
+	}
+	return ids
 }
 
 func missionRewardReferenceRequiresCatalog(reference missionRewardReference) bool {
@@ -1266,56 +1285,83 @@ func resolveCatalogMissionReward(reward *shared.MissionRewardResponse, catalog m
 	}
 }
 
-func (handler *LookupHandler) loadMissionRewardCatalog(ctx context.Context, region string) (missionRewardCatalog, error) {
-	boxesByID, err := handler.loadMissionResourceBoxIndex(ctx, region)
-	if err != nil {
-		return missionRewardCatalog{}, err
+// loadMissionRewardCatalog reads, through the relation indexes, every
+// resource box sharing one of boxIDs (IDs are not unique across purposes), the
+// details boxes do not embed (TW/KR/CN keep them in resourceboxdetails), and
+// the items those details reward.
+func (handler *LookupHandler) loadMissionRewardCatalog(ctx context.Context, region string, boxIDs []int64) (missionRewardCatalog, error) {
+	catalog := missionRewardCatalog{
+		boxesByID:    map[int64][]missionResourceBoxCandidate{},
+		detailsByBox: map[string][]map[string]any{},
+		items:        missionRewardItemIndex{},
 	}
-	detailsByBox, err := handler.loadMissionResourceBoxDetailIndex(ctx, region)
-	if err != nil {
-		return missionRewardCatalog{}, err
+	lookups := make([][]any, 0, len(boxIDs))
+	for _, id := range slices.Compact(slices.Sorted(slices.Values(boxIDs))) {
+		if id > 0 {
+			lookups = append(lookups, []any{id})
+		}
 	}
-	items, err := handler.loadMissionRewardItems(ctx, region)
-	if err != nil {
-		return missionRewardCatalog{}, err
+	if len(lookups) == 0 {
+		return catalog, nil
 	}
 
-	return missionRewardCatalog{boxesByID: boxesByID, detailsByBox: detailsByBox, items: items}, nil
+	boxMatches, err := handler.masterDataSync.ListByIndex(ctx, region, resourceBoxesEntity, "id", lookups)
+	if err != nil {
+		return missionRewardCatalog{}, err
+	}
+	catalog.boxesByID = indexMissionResourceBoxes(slices.Concat(boxMatches...))
+
+	detailLookups := make([][]any, 0)
+	for _, candidates := range catalog.boxesByID {
+		for _, candidate := range candidates {
+			if candidate.purpose != "" && !missionRecordHasField(candidate.record, "details") {
+				detailLookups = append(detailLookups, []any{candidate.id, candidate.purpose})
+			}
+		}
+	}
+	if len(detailLookups) > 0 {
+		detailMatches, err := handler.masterDataSync.ListByIndex(ctx, region, resourceBoxDetailsEntity, "resourceBoxId,resourceBoxPurpose", detailLookups)
+		if err != nil {
+			return missionRewardCatalog{}, err
+		}
+		catalog.detailsByBox = indexMissionResourceBoxDetails(slices.Concat(detailMatches...))
+		sortMissionResourceBoxDetails(catalog.detailsByBox)
+	}
+
+	catalog.items, err = handler.loadMissionRewardItems(ctx, region, catalog.rewardedItemIDs())
+	if err != nil {
+		return missionRewardCatalog{}, err
+	}
+	return catalog, nil
 }
 
-// loadMissionResourceBoxIndex returns resource boxes grouped by ID. Decoding
-// every resource box is the dominant cost of mission and character-rank reward
-// lookups, so the index is reused while the entity revision is unchanged.
-func (handler *LookupHandler) loadMissionResourceBoxIndex(ctx context.Context, region string) (map[int64][]missionResourceBoxCandidate, error) {
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, resourceBoxesEntity)
-	if err != nil {
-		return nil, err
-	}
-
-	return handler.resourceBoxIndexes.Load(ctx, region, revision, func(ctx context.Context) (map[int64][]missionResourceBoxCandidate, error) {
-		boxes, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxesEntity)
-		if err != nil {
-			return nil, err
+// rewardedItemIDs returns the item IDs, by resource type, that the catalog's
+// box details reward.
+func (catalog missionRewardCatalog) rewardedItemIDs() map[string][]int64 {
+	ids := make(map[string][]int64)
+	add := func(detail map[string]any) {
+		resourceType := strings.TrimSpace(lookupString(detail["resourceType"]))
+		if id, ok := lookupInt64(detail["resourceId"]); ok && resourceType != "" {
+			ids[resourceType] = append(ids[resourceType], id)
 		}
-		return indexMissionResourceBoxes(boxes), nil
-	})
-}
-
-func (handler *LookupHandler) loadMissionResourceBoxDetailIndex(ctx context.Context, region string) (map[string][]map[string]any, error) {
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, resourceBoxDetailsEntity)
-	if err != nil {
-		return nil, err
 	}
-
-	return handler.resourceBoxDetailIndexes.Load(ctx, region, revision, func(ctx context.Context) (map[string][]map[string]any, error) {
-		details, err := handler.masterDataSync.ListAll(ctx, region, resourceBoxDetailsEntity)
-		if err != nil {
-			return nil, err
+	for _, candidates := range catalog.boxesByID {
+		for _, candidate := range candidates {
+			if details, ok := candidate.record["details"].([]any); ok {
+				for _, entry := range details {
+					if detail, ok := lookupRecord(entry); ok {
+						add(detail)
+					}
+				}
+			}
 		}
-		detailsByBox := indexMissionResourceBoxDetails(details)
-		sortMissionResourceBoxDetails(detailsByBox)
-		return detailsByBox, nil
-	})
+	}
+	for _, details := range catalog.detailsByBox {
+		for _, detail := range details {
+			add(detail)
+		}
+	}
+	return ids
 }
 
 func indexMissionResourceBoxes(boxes []map[string]any) map[int64][]missionResourceBoxCandidate {
@@ -1482,30 +1528,21 @@ func missionRecordHasField(record map[string]any, field string) bool {
 }
 
 // loadCharacterRankTotalExps maps each character rank to the cumulative EXP it
-// needs, from the `levels` records with levelType "character". Every character
-// shares the table; it is decoded once per entity revision.
+// needs, from the `levels` records with levelType "character", read through
+// the levelType index. Every character shares the table.
 func (handler *LookupHandler) loadCharacterRankTotalExps(ctx context.Context, region string) (map[int64]int64, error) {
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, levelsEntity)
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, levelsEntity, "levelType", [][]any{{"character"}})
 	if err != nil {
 		return nil, err
 	}
 
-	return handler.characterRankTotalExps.Load(ctx, region, revision, func(ctx context.Context) (map[int64]int64, error) {
-		levels, err := handler.masterDataSync.ListAll(ctx, region, levelsEntity)
-		if err != nil {
-			return nil, err
+	totalExps := make(map[int64]int64, len(matches[0]))
+	for _, record := range matches[0] {
+		level, levelOK := lookupInt64(record["level"])
+		totalExp, expOK := lookupInt64(record["totalExp"])
+		if levelOK && expOK {
+			totalExps[level] = totalExp
 		}
-		totalExps := make(map[int64]int64)
-		for _, record := range levels {
-			if !strings.EqualFold(strings.TrimSpace(lookupString(record["levelType"])), "character") {
-				continue
-			}
-			level, levelOK := lookupInt64(record["level"])
-			totalExp, expOK := lookupInt64(record["totalExp"])
-			if levelOK && expOK {
-				totalExps[level] = totalExp
-			}
-		}
-		return totalExps, nil
-	})
+	}
+	return totalExps, nil
 }

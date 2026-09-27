@@ -18,14 +18,6 @@ import (
 type LookupHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
 
-	// Process-local reward lookups shared by mission and character-rank
-	// endpoints, revalidated against each entity's persisted revision.
-	resourceBoxIndexes       shared.RevisionCache[map[int64][]missionResourceBoxCandidate]
-	resourceBoxDetailIndexes shared.RevisionCache[map[string][]map[string]any]
-	// Keyed by region and item entity; see shared.RewardItemEntities.
-	rewardItemIndexes shared.RevisionCache[map[int64]missionRewardItem]
-	// Cumulative EXP per character rank, keyed by region.
-	characterRankTotalExps shared.RevisionCache[map[int64]int64]
 	// Normalized 3D costumes and their groups, keyed by region.
 	costume3DRecords shared.RevisionCache[[]map[string]any]
 	costume3DGroups  shared.RevisionCache[map[string]map[string]any]

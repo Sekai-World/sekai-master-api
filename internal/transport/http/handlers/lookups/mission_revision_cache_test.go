@@ -3,6 +3,7 @@ package lookups
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -17,73 +18,44 @@ func (cache *revisionTrackingMissionCache) EntityRevision(_ context.Context, reg
 	return cache.revisions[region][entity], nil
 }
 
-func TestMissionRewardLookupsReuseResourceBoxesWhileRevisionIsUnchanged(t *testing.T) {
+func TestCharacterRanksReadRanksRewardsAndEXPThroughIndexes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cache := &revisionTrackingMissionCache{
-		missionTrackingCache: &missionTrackingCache{
-			fakeLookupCache: &fakeLookupCache{
-				listByEntity: map[string]map[string][]map[string]any{
-					"jp": {
-						storyMissionsEntity: {
-							{"id": 5, "seq": 1, "requirement": 50, "resourceBoxId": 50},
-						},
-						characterRanksEntity: {
-							{"id": 1, "characterId": 1, "characterRank": 1, "rewardResourceBoxIds": []any{1001}},
-						},
-						resourceBoxesEntity: {
-							{"id": 50, "resourceBoxPurpose": "story_mission"},
-							{"id": 1001, "resourceBoxPurpose": "character_rank_reward", "details": []any{map[string]any{"resourceType": "material", "resourceQuantity": 1}}},
-						},
-						resourceBoxDetailsEntity: {
-							{"resourceBoxId": 50, "resourceBoxPurpose": "story_mission", "seq": 1, "resourceType": "jewel"},
-						},
-					},
-				},
+	cache := &missionTrackingCache{fakeLookupCache: &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{"jp": {
+			characterRanksEntity: {
+				{"id": 1, "characterId": 1, "characterRank": 1, "rewardResourceBoxIds": []any{1001}},
+				{"id": 2, "characterId": 2, "characterRank": 1, "rewardResourceBoxIds": []any{1002}},
 			},
-		},
-		revisions: map[string]map[string]string{
-			"jp": {resourceBoxesEntity: "boxes-1", resourceBoxDetailsEntity: "details-1"},
-		},
-	}
-	router := newMissionTestRouter(newMissionTestHandler(cache))
+			resourceBoxesEntity: {
+				{"id": 1001, "resourceBoxPurpose": "character_rank_reward", "details": []any{map[string]any{"resourceType": "jewel", "resourceQuantity": 10}}},
+				{"id": 1001, "resourceBoxPurpose": "mission_reward", "details": []any{map[string]any{"resourceType": "coin", "resourceQuantity": 1}}},
+			},
+			levelsEntity: {
+				{"levelType": "character", "level": 1, "totalExp": 0},
+				{"levelType": "card", "level": 1, "totalExp": 99},
+			},
+		}},
+	}}
+	router := gin.New()
+	router.GET("/api/v1/characterRanks/:region/list", newMissionTestHandler(cache).CharacterRanksList)
 
-	for range 2 {
-		assertStoryMissionRewardResolved(t, router)
-	}
-	characterRanks := serveLookupRequest(t, router, http.MethodGet, "/api/v1/characterRanks/jp/list?character_id=1")
-	if characterRanks.Code != http.StatusOK {
-		t.Fatalf("expected character ranks 200, got %d: %s", characterRanks.Code, characterRanks.Body.String())
-	}
-	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{
-		resourceBoxesEntity:      1,
-		resourceBoxDetailsEntity: 1,
-	})
-
-	cache.revisions["jp"][resourceBoxesEntity] = "boxes-2"
-	assertStoryMissionRewardResolved(t, router)
-	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{
-		resourceBoxesEntity:      2,
-		resourceBoxDetailsEntity: 1,
-	})
-}
-
-func assertStoryMissionRewardResolved(t *testing.T, router *gin.Engine) {
-	t.Helper()
-
-	response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/missions/jp/list?family=storyMissions")
+	response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/characterRanks/jp/list?character_id=1")
 	if response.Code != http.StatusOK {
-		t.Fatalf("expected missions 200, got %d: %s", response.Code, response.Body.String())
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}
-	items, _ := decodeMissionList(t, response.Body.Bytes())
-	if len(items) != 1 {
-		t.Fatalf("expected one story mission, got %#v", items)
+	body := response.Body.String()
+	for _, want := range []string{`"characterId":1`, `"totalExp":0`, `"resourceBoxPurpose":"character_rank_reward"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %s in %s", want, body)
+		}
 	}
-	rewards, ok := items[0]["rewards"].([]any)
-	if !ok || len(rewards) != 1 {
-		t.Fatalf("expected one story mission reward, got %#v", items[0]["rewards"])
+	for _, unwanted := range []string{`"characterId":2`, `"mission_reward"`} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("expected no %s in %s", unwanted, body)
+		}
 	}
-	if reward := rewards[0].(map[string]any); reward["status"] != missionRewardResolvedStatus {
-		t.Fatalf("expected resolved story mission reward, got %#v", reward)
+	if len(cache.listCalls) != 0 {
+		t.Fatalf("expected character ranks to read only through indexes, got ListAll calls %#v", cache.listCalls)
 	}
 }
 

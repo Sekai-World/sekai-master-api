@@ -18,6 +18,7 @@ const indexLayoutVersion = "1"
 // ","; a field path steps into objects with "." and indexes every element of
 // an array it reaches.
 var entityIndexes = map[string][]string{
+	"characterranks":     {"characterId"},
 	"gachas":             {"gachaPickups.cardId"},
 	"levels":             {"levelType"},
 	"resourceboxdetails": {"resourceBoxId,resourceBoxPurpose"},
