@@ -1411,6 +1411,11 @@ func (cache *RedisMasterDataCache) ListAll(ctx context.Context, region string, e
 	return items, err
 }
 
+// redisEntityReadConcurrency bounds the HMGET batches one entity read fetches
+// and decodes at once. Decoding dominates reads of large entities, so batches
+// run in parallel instead of one after another.
+const redisEntityReadConcurrency = 8
+
 func (cache *RedisMasterDataCache) getEntityRecordsByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
 	if len(ids) == 0 {
 		return []map[string]any{}, nil
@@ -1419,33 +1424,56 @@ func (cache *RedisMasterDataCache) getEntityRecordsByIDs(ctx context.Context, re
 	const hmgetBatchSize = 500
 
 	entityKey := cache.redisEntityKey(region, entity)
+	batchCount := (len(ids) + hmgetBatchSize - 1) / hmgetBatchSize
+	batches := make([][]map[string]any, batchCount)
+	errs := make([]error, batchCount)
+	slots := make(chan struct{}, redisEntityReadConcurrency)
+	var wait sync.WaitGroup
+	for batch := range batchCount {
+		start := batch * hmgetBatchSize
+		batchIDs := ids[start:min(start+hmgetBatchSize, len(ids))]
+		slots <- struct{}{}
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			defer func() { <-slots }()
+			batches[batch], errs[batch] = cache.getEntityRecordBatch(ctx, region, entity, entityKey, batchIDs)
+		}()
+	}
+	wait.Wait()
+
 	items := make([]map[string]any, 0, len(ids))
-	for start := 0; start < len(ids); start += hmgetBatchSize {
-		end := start + hmgetBatchSize
-		if end > len(ids) {
-			end = len(ids)
+	for batch, records := range batches {
+		if errs[batch] != nil {
+			return nil, errs[batch]
 		}
-
-		batchIDs := ids[start:end]
-		values, err := cache.client.HMGet(ctx, entityKey, batchIDs...).Result()
-		if err != nil {
-			return nil, fmt.Errorf("hmget region %s entity %s: %w", region, entity, err)
-		}
-
-		for index, raw := range values {
-			if raw == nil {
-				continue
-			}
-
-			record, err := unmarshalRedisEntityRecord(raw, region, entity, batchIDs[index])
-			if err != nil {
-				return nil, err
-			}
-			items = append(items, record)
-		}
+		items = append(items, records...)
 	}
 
 	return items, nil
+}
+
+// getEntityRecordBatch reads and decodes one HMGET batch, skipping missing IDs.
+func (cache *RedisMasterDataCache) getEntityRecordBatch(ctx context.Context, region string, entity string, entityKey string, batchIDs []string) ([]map[string]any, error) {
+	values, err := cache.client.HMGet(ctx, entityKey, batchIDs...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("hmget region %s entity %s: %w", region, entity, err)
+	}
+
+	records := make([]map[string]any, 0, len(values))
+	for index, raw := range values {
+		if raw == nil {
+			continue
+		}
+
+		record, err := unmarshalRedisEntityRecord(raw, region, entity, batchIDs[index])
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+
+	return records, nil
 }
 
 func (cache *RedisMasterDataCache) getEntityRecordsByIDsMapped(ctx context.Context, region string, entity string, ids []string) (map[string]map[string]any, error) {

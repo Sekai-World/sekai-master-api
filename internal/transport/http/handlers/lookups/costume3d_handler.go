@@ -137,18 +137,14 @@ func (handler *LookupHandler) Costume3DsList(c *gin.Context) {
 		return
 	}
 
-	records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, costume3dsEntity)
+	normalizedRecords, err := handler.loadNormalizedCostume3Ds(c.Request.Context(), region)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "COSTUME_3D_QUERY_ERROR", "failed to list 3D costumes")
 		return
 	}
-	groups, err := handler.loadCostume3DGroups(c.Request.Context(), region)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "COSTUME_3D_QUERY_ERROR", "failed to query 3D costume groups")
-		return
-	}
 
-	normalizedRecords := normalizeCostume3DRecords(records, groups)
+	// The cached slice is shared, so filter and sort a copy.
+	normalizedRecords = append([]map[string]any(nil), normalizedRecords...)
 	normalizedRecords = shared.FilterRecordsByNumbers(normalizedRecords, numericFilters)
 	normalizedRecords = filterCostume3DRecordsByName(normalizedRecords, nameFilter)
 
@@ -172,12 +168,56 @@ func (handler *LookupHandler) Costume3DsList(c *gin.Context) {
 	})
 }
 
+// loadNormalizedCostume3Ds returns every normalized, deduplicated costume.
+// Decoding and normalizing the full costume list dominates the request, so the
+// result is reused while both source revisions are unchanged.
+func (handler *LookupHandler) loadNormalizedCostume3Ds(ctx context.Context, region string) ([]map[string]any, error) {
+	costumesRevision, err := handler.masterDataSync.EntityRevision(ctx, region, costume3dsEntity)
+	if err != nil {
+		return nil, err
+	}
+	groupsRevision, err := handler.masterDataSync.EntityRevision(ctx, region, costume3dGroupsEntity)
+	if err != nil {
+		return nil, err
+	}
+	// Some regions (JP) have no costume groups, so an empty groups revision
+	// still keys the cache; syncing groups later changes the key.
+	revision := ""
+	if costumesRevision != "" {
+		revision = costumesRevision + "\x00" + groupsRevision
+	}
+
+	return handler.costume3DRecords.Load(ctx, region, revision, func(ctx context.Context) ([]map[string]any, error) {
+		records, err := handler.masterDataSync.ListAll(ctx, region, costume3dsEntity)
+		if err != nil {
+			return nil, err
+		}
+		groups, err := handler.loadCostume3DGroups(ctx, region)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeCostume3DRecords(records, groups), nil
+	})
+}
+
+// loadCostume3DGroups returns costume groups by group ID, reused while the
+// groups revision is unchanged.
 func (handler *LookupHandler) loadCostume3DGroups(ctx context.Context, region string) (map[string]map[string]any, error) {
-	records, err := handler.masterDataSync.ListAll(ctx, region, costume3dGroupsEntity)
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, costume3dGroupsEntity)
 	if err != nil {
 		return nil, err
 	}
 
+	return handler.costume3DGroups.Load(ctx, region, revision, func(ctx context.Context) (map[string]map[string]any, error) {
+		records, err := handler.masterDataSync.ListAll(ctx, region, costume3dGroupsEntity)
+		if err != nil {
+			return nil, err
+		}
+		return indexCostume3DGroups(records), nil
+	})
+}
+
+func indexCostume3DGroups(records []map[string]any) map[string]map[string]any {
 	groups := make(map[string]map[string]any, len(records))
 	for _, record := range records {
 		groupID, ok := lookupInt64(record["groupId"])
@@ -190,7 +230,7 @@ func (handler *LookupHandler) loadCostume3DGroups(ctx context.Context, region st
 		}
 	}
 
-	return groups, nil
+	return groups
 }
 
 func normalizeCostume3DRecords(records []map[string]any, groups map[string]map[string]any) []map[string]any {

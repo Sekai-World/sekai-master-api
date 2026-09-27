@@ -13,10 +13,9 @@ import (
 // resourceBox absent (nil).
 //
 // resourceboxes IDs are NOT unique across resourceBoxPurpose, so a GetByID
-// lookup can return an arbitrary colliding record. We therefore scan the
-// region's full resourceboxes list and select the record whose normalized id
-// equals resourceBoxId AND whose purpose is virtual_live_reward.
-func (handler *VirtualLiveHandler) resolveVirtualLiveRewardResourceBox(ctx context.Context, region string, reward map[string]any, resourceBoxes []map[string]any) map[string]any {
+// lookup can return an arbitrary colliding record. resourceBoxes is therefore
+// an index of the region's virtual_live_reward boxes built from the full list.
+func (handler *VirtualLiveHandler) resolveVirtualLiveRewardResourceBox(ctx context.Context, region string, reward map[string]any, resourceBoxes map[string]map[string]any) map[string]any {
 	if handler == nil || handler.masterDataSync == nil {
 		return nil
 	}
@@ -26,7 +25,7 @@ func (handler *VirtualLiveHandler) resolveVirtualLiveRewardResourceBox(ctx conte
 		return nil
 	}
 
-	resourceBox := findVirtualLiveRewardResourceBox(resourceBoxes, resourceBoxID)
+	resourceBox := resourceBoxes[resourceBoxID]
 	if resourceBox == nil || !isUsableVirtualLiveRewardResourceBox(resourceBox) {
 		return nil
 	}
@@ -37,23 +36,21 @@ func (handler *VirtualLiveHandler) resolveVirtualLiveRewardResourceBox(ctx conte
 	return result
 }
 
-// findVirtualLiveRewardResourceBox selects the resource box whose normalized id
-// matches and whose purpose is virtual_live_reward. It returns nil when no such
-// record exists, so a same-id record with a different purpose is ignored rather
+// indexVirtualLiveRewardResourceBoxes keeps the first virtual_live_reward box
+// for each ID, so a same-id record with a different purpose is ignored rather
 // than wrongly matched.
-func findVirtualLiveRewardResourceBox(resourceBoxes []map[string]any, resourceBoxID string) map[string]any {
+func indexVirtualLiveRewardResourceBoxes(resourceBoxes []map[string]any) map[string]map[string]any {
+	index := make(map[string]map[string]any)
 	for _, box := range resourceBoxes {
-		if box == nil {
+		if box == nil || shared.NormalizeComparableText(box["resourceBoxPurpose"]) != "virtual_live_reward" {
 			continue
 		}
-		if shared.NormalizeAnyID(box["id"]) != resourceBoxID {
-			continue
-		}
-		if shared.NormalizeComparableText(box["resourceBoxPurpose"]) == "virtual_live_reward" {
-			return box
+		id := shared.NormalizeAnyID(box["id"])
+		if _, seen := index[id]; id != "" && !seen {
+			index[id] = box
 		}
 	}
-	return nil
+	return index
 }
 
 func isUsableVirtualLiveRewardResourceBox(resourceBox map[string]any) bool {

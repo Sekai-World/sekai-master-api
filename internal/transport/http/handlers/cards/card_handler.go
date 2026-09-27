@@ -19,6 +19,12 @@ import (
 
 type CardHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
+
+	// Summaries of the gachas that pick up each card, per region, reused while
+	// the gachas revision is unchanged; see loadCardPickupGachas.
+	pickupGachas shared.RevisionCache[map[string][]map[string]any]
+	// Every card's cardListFields, per region; see loadCardListRecords.
+	listRecords shared.RevisionCache[[]map[string]any]
 }
 
 const maxBatchCardIDs = 100
@@ -34,6 +40,31 @@ var sortableCardFields = []string{
 	"gachaPhrase",
 	"flavorText",
 	"releaseAt",
+	"archivePublishedAt",
+	"initialSpecialTrainingStatus",
+}
+
+// cardListFields are the card fields the list reads: buildCardBase output and
+// lookup IDs, filter and sort fields, and the spoiler timestamps. Leaving out
+// cardParameters and other per-level data keeps the cached list small.
+var cardListFields = []string{
+	"id",
+	"seq",
+	"characterId",
+	"cardRarityType",
+	"attr",
+	"supportUnit",
+	"skillId",
+	"cardSkillName",
+	"cardSupplyId",
+	"prefix",
+	"assetbundleName",
+	"gachaPhrase",
+	"flavorText",
+	"releaseAt",
+	"releastAt",
+	"publishedAt",
+	"startAt",
 	"archivePublishedAt",
 	"initialSpecialTrainingStatus",
 }
@@ -445,50 +476,10 @@ func (handler *CardHandler) GachaByID(c *gin.Context) {
 		return
 	}
 
-	allGachas, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "gachas")
+	gachas, err := handler.cardPickupGachas(c.Request.Context(), region, id)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to query gachas")
 		return
-	}
-
-	targetCardID := shared.NormalizeAnyID(id)
-	gachas := make([]map[string]any, 0)
-
-	for _, gacha := range allGachas {
-		pickupsRaw, ok := gacha["gachaPickups"]
-		if !ok {
-			continue
-		}
-
-		pickups, ok := pickupsRaw.([]any)
-		if !ok || len(pickups) == 0 {
-			continue
-		}
-
-		for _, pickupRaw := range pickups {
-			pickup, ok := pickupRaw.(map[string]any)
-			if !ok {
-				continue
-			}
-
-			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
-				gachaSummary := make(map[string]any, 4)
-				if value, ok := gacha["id"]; ok {
-					gachaSummary["id"] = value
-				}
-				if value, ok := gacha["name"]; ok {
-					gachaSummary["name"] = value
-				}
-				if value, ok := gacha["assetbundleName"]; ok {
-					gachaSummary["assetbundleName"] = value
-				}
-				if value, ok := gacha["startAt"]; ok {
-					gachaSummary["startAt"] = value
-				}
-				gachas = append(gachas, gachaSummary)
-				break
-			}
-		}
 	}
 
 	response.JSON(c, http.StatusOK, gin.H{
@@ -833,11 +824,13 @@ func (handler *CardHandler) List(c *gin.Context) {
 	}
 
 	if !includeSpoilers || sortOptions.Enabled || filterOptions.Enabled() {
-		records, err := handler.masterDataSync.ListAll(c.Request.Context(), region, "cards")
+		records, err := handler.loadCardListRecords(c.Request.Context(), region)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to list cards")
 			return
 		}
+		// The cached slice is shared, so sort a copy.
+		records = append([]map[string]any(nil), records...)
 		if !includeSpoilers {
 			records = shared.FilterSpoilerItems(records, time.Now().UTC())
 		}
@@ -996,6 +989,34 @@ func parseCardListBool(c *gin.Context, key string) (bool, bool) {
 	}
 
 	return parsed, true
+}
+
+// loadCardListRecords returns every card reduced to cardListFields. Cards carry
+// their full parameter tables, so decoding them dominates the list; the
+// projection is reused while the cards revision is unchanged.
+func (handler *CardHandler) loadCardListRecords(ctx context.Context, region string) ([]map[string]any, error) {
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "cards")
+	if err != nil {
+		return nil, err
+	}
+
+	return handler.listRecords.Load(ctx, region, revision, func(ctx context.Context) ([]map[string]any, error) {
+		records, err := handler.masterDataSync.ListAll(ctx, region, "cards")
+		if err != nil {
+			return nil, err
+		}
+		items := make([]map[string]any, 0, len(records))
+		for _, record := range records {
+			item := make(map[string]any, len(cardListFields))
+			for _, key := range cardListFields {
+				if value, ok := record[key]; ok {
+					item[key] = value
+				}
+			}
+			items = append(items, item)
+		}
+		return items, nil
+	})
 }
 
 func (handler *CardHandler) filterCards(ctx context.Context, region string, records []map[string]any, options cardListFilterOptions) ([]map[string]any, error) {
@@ -1525,49 +1546,72 @@ func (handler *CardHandler) listRecordsByField(ctx context.Context, region strin
 }
 
 func (handler *CardHandler) buildCardDetailGachas(ctx context.Context, region string, id string) []map[string]any {
-	allGachas, err := handler.masterDataSync.ListAll(ctx, region, "gachas")
+	gachas, err := handler.cardPickupGachas(ctx, region, id)
 	if err != nil {
 		return nil
 	}
+	return gachas
+}
 
-	targetCardID := shared.NormalizeAnyID(id)
-	gachas := make([]map[string]any, 0)
+// cardPickupGachas returns summaries of the gachas that pick up the card, in
+// gacha order.
+func (handler *CardHandler) cardPickupGachas(ctx context.Context, region string, id string) ([]map[string]any, error) {
+	byCard, err := handler.loadCardPickupGachas(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	return append(make([]map[string]any, 0), byCard[shared.NormalizeAnyID(id)]...), nil
+}
 
-	for _, gacha := range allGachas {
-		pickupsRaw, ok := gacha["gachaPickups"]
-		if !ok {
-			continue
+// loadCardPickupGachas indexes gacha summaries by picked-up card ID. Gachas
+// carry their full detail lists, so decoding them dominates card lookups; the
+// index is reused while the gachas revision is unchanged.
+func (handler *CardHandler) loadCardPickupGachas(ctx context.Context, region string) (map[string][]map[string]any, error) {
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "gachas")
+	if err != nil {
+		return nil, err
+	}
+
+	return handler.pickupGachas.Load(ctx, region, revision, func(ctx context.Context) (map[string][]map[string]any, error) {
+		allGachas, err := handler.masterDataSync.ListAll(ctx, region, "gachas")
+		if err != nil {
+			return nil, err
 		}
+		return indexCardPickupGachas(allGachas), nil
+	})
+}
 
-		pickups, ok := pickupsRaw.([]any)
+func indexCardPickupGachas(allGachas []map[string]any) map[string][]map[string]any {
+	byCard := make(map[string][]map[string]any)
+	for _, gacha := range allGachas {
+		pickups, ok := gacha["gachaPickups"].([]any)
 		if !ok || len(pickups) == 0 {
 			continue
 		}
 
+		var summary map[string]any
+		seen := make(map[string]struct{}, len(pickups))
 		for _, pickupRaw := range pickups {
 			pickup, ok := pickupRaw.(map[string]any)
 			if !ok {
 				continue
 			}
-
-			if shared.NormalizeAnyID(pickup["cardId"]) == targetCardID {
-				gachaSummary := make(map[string]any, 4)
-				if value, ok := gacha["id"]; ok {
-					gachaSummary["id"] = value
-				}
-				if value, ok := gacha["name"]; ok {
-					gachaSummary["name"] = value
-				}
-				if value, ok := gacha["assetbundleName"]; ok {
-					gachaSummary["assetbundleName"] = value
-				}
-				if value, ok := gacha["startAt"]; ok {
-					gachaSummary["startAt"] = value
-				}
-				gachas = append(gachas, gachaSummary)
-				break
+			cardID := shared.NormalizeAnyID(pickup["cardId"])
+			if _, duplicate := seen[cardID]; duplicate {
+				continue
 			}
+			seen[cardID] = struct{}{}
+
+			if summary == nil {
+				summary = make(map[string]any, 4)
+				for _, key := range []string{"id", "name", "assetbundleName", "startAt"} {
+					if value, ok := gacha[key]; ok {
+						summary[key] = value
+					}
+				}
+			}
+			byCard[cardID] = append(byCard[cardID], summary)
 		}
 	}
-	return gachas
+	return byCard
 }

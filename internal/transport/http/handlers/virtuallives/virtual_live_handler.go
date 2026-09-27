@@ -16,6 +16,10 @@ import (
 
 type VirtualLiveHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
+
+	// virtual_live_reward resource boxes by ID, per region, reused while the
+	// resourceboxes revision is unchanged.
+	rewardResourceBoxes shared.RevisionCache[map[string]map[string]any]
 }
 
 type virtualLiveRelatedData struct {
@@ -485,7 +489,7 @@ func (handler *VirtualLiveHandler) buildVirtualLiveWithRelated(
 	return result
 }
 
-func (handler *VirtualLiveHandler) buildVirtualLiveRewards(ctx context.Context, region string, rawRewards any, resourceBoxes []map[string]any) []map[string]any {
+func (handler *VirtualLiveHandler) buildVirtualLiveRewards(ctx context.Context, region string, rawRewards any, resourceBoxes map[string]map[string]any) []map[string]any {
 	items, ok := rawRewards.([]any)
 	if !ok {
 		return []map[string]any{}
@@ -511,15 +515,26 @@ func (handler *VirtualLiveHandler) buildVirtualLiveRewards(ctx context.Context, 
 	return rewards
 }
 
-// loadResourceBoxes returns the region's full resourceboxes list. resourceboxes
-// IDs are not unique across resourceBoxPurpose, so callers must select by both
-// id and purpose rather than relying on GetByID.
-func (handler *VirtualLiveHandler) loadResourceBoxes(ctx context.Context, region string) []map[string]any {
+// loadResourceBoxes returns the region's virtual_live_reward resource boxes by
+// ID. resourceboxes IDs are not unique across resourceBoxPurpose, so the index
+// is built from the full list rather than GetByID. Decoding that list dominates
+// the request, so the index is reused while the entity revision is unchanged.
+func (handler *VirtualLiveHandler) loadResourceBoxes(ctx context.Context, region string) map[string]map[string]any {
 	if handler == nil || handler.masterDataSync == nil {
 		return nil
 	}
 
-	boxes, err := handler.masterDataSync.ListAll(ctx, region, "resourceboxes")
+	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "resourceboxes")
+	if err != nil {
+		return nil
+	}
+	boxes, err := handler.rewardResourceBoxes.Load(ctx, region, revision, func(ctx context.Context) (map[string]map[string]any, error) {
+		boxes, err := handler.masterDataSync.ListAll(ctx, region, "resourceboxes")
+		if err != nil {
+			return nil, err
+		}
+		return indexVirtualLiveRewardResourceBoxes(boxes), nil
+	})
 	if err != nil {
 		return nil
 	}
