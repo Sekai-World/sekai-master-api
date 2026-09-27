@@ -93,3 +93,57 @@ func TestMissionAndRankRewardDetailsNameTheirItems(t *testing.T) {
 		t.Fatalf("expected the skill practice ticket name on character rank rewards, got %#v", rankDetail)
 	}
 }
+
+func TestMissionRewardTitlesCarryTheirNameAndRarity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &missionTrackingCache{
+		fakeLookupCache: &fakeLookupCache{
+			listByEntity: map[string]map[string][]map[string]any{
+				"jp": {
+					storyMissionsEntity: {
+						{"id": 1, "requirement": 10, "resourceBoxId": 1},
+					},
+					resourceBoxesEntity: {
+						{
+							"id": 1, "resourceBoxPurpose": "story_mission", "resourceBoxType": "expand",
+							"details": []any{
+								map[string]any{
+									"resourceBoxPurpose": "story_mission", "resourceBoxId": 1, "seq": 1,
+									"resourceType": "honor", "resourceId": 3009, "resourceLevel": 1, "resourceQuantity": 1,
+								},
+								map[string]any{
+									"resourceBoxPurpose": "story_mission", "resourceBoxId": 1, "seq": 2,
+									"resourceType": "bonds_honor", "resourceId": 1212603, "resourceLevel": 1, "resourceQuantity": 1,
+								},
+							},
+						},
+					},
+					"honors": {
+						{"id": 3009, "name": "MASTER FULL COMBO", "honorRarity": "highest", "assetbundleName": "honor_0000"},
+					},
+					"bondshonors": {
+						{"id": 1212603, "name": "ミクとKAITO", "honorRarity": "high"},
+					},
+				},
+			},
+		},
+	}
+	router := newMissionTestRouter(newMissionTestHandler(cache))
+
+	response := serveLookupRequest(t, router, http.MethodGet, "/api/v1/missions/jp/list?family=storyMissions")
+	items, _ := decodeMissionList(t, response.Body.Bytes())
+	details := items[0]["rewards"].([]any)[0].(map[string]any)["resourceBox"].(map[string]any)["details"].([]any)
+
+	honor := details[0].(map[string]any)
+	if honor["resourceName"] != "MASTER FULL COMBO" || honor["resourceRarity"] != "highest" {
+		t.Fatalf("expected the title's name and rarity, got %#v", honor)
+	}
+	// Title icons come from the rarity; the honor's own asset bundle is not an icon path.
+	if _, ok := honor["resourceAssetbundleName"]; ok {
+		t.Fatalf("expected no asset bundle for a title, got %#v", honor)
+	}
+	kizuna := details[1].(map[string]any)
+	if kizuna["resourceName"] != "ミクとKAITO" || kizuna["resourceRarity"] != "high" {
+		t.Fatalf("expected the Kizuna title's name and rarity, got %#v", kizuna)
+	}
+}

@@ -169,11 +169,15 @@ type MissionResourceBoxDetailResponse struct {
 	ResourceLevel      *int64  `json:"resourceLevel,omitempty"`
 	ResourceQuantity   *int64  `json:"resourceQuantity,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
-	// materials, skill practice tickets, and boost items.
+	// materials, skill practice tickets, boost items, and titles (honors and
+	// Kizuna titles).
 	ResourceName *string `json:"resourceName,omitempty"`
 	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
 	// gacha tickets carry one, and their icon path depends on it.
 	ResourceAssetbundleName *string `json:"resourceAssetbundleName,omitempty"`
+	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
+	// it picks the title reward icon.
+	ResourceRarity *string `json:"resourceRarity,omitempty"`
 }
 
 type MissionParameterGroupLevelResponse struct {
@@ -880,11 +884,15 @@ type EventRewardResourceBoxDetail struct {
 	ResourceQuantity   int                       `json:"resourceQuantity,omitempty"`
 	Honor              *EventRewardHonorResponse `json:"honor,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
-	// materials, skill practice tickets, and boost items.
+	// materials, skill practice tickets, boost items, and titles (honors and
+	// Kizuna titles).
 	ResourceName string `json:"resourceName,omitempty"`
 	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
 	// gacha tickets carry one, and their icon path depends on it.
 	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
+	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
+	// it picks the title reward icon.
+	ResourceRarity string `json:"resourceRarity,omitempty"`
 }
 
 type EventRewardHonorResponse struct {
@@ -1082,11 +1090,15 @@ type VirtualLiveRewardResourceBoxDetail struct {
 	Seq              int                       `json:"seq,omitempty"`
 	Honor            *EventRewardHonorResponse `json:"honor,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
-	// materials, skill practice tickets, and boost items.
+	// materials, skill practice tickets, boost items, and titles (honors and
+	// Kizuna titles).
 	ResourceName string `json:"resourceName,omitempty"`
 	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
 	// gacha tickets carry one, and their icon path depends on it.
 	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
+	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
+	// it picks the title reward icon.
+	ResourceRarity string `json:"resourceRarity,omitempty"`
 }
 
 type VirtualLiveAppeal struct {

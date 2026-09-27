@@ -908,10 +908,16 @@ definitions:
       resourceName:
         description: |-
           ResourceName is the rewarded item's localized name for gacha tickets,
-          materials, skill practice tickets, and boost items.
+          materials, skill practice tickets, boost items, and titles (honors and
+          Kizuna titles).
         type: string
       resourceQuantity:
         type: integer
+      resourceRarity:
+        description: |-
+          ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
+          it picks the title reward icon.
+        type: string
       resourceType:
         type: string
       seq:
@@ -1472,10 +1478,16 @@ definitions:
       resourceName:
         description: |-
           ResourceName is the rewarded item's localized name for gacha tickets,
-          materials, skill practice tickets, and boost items.
+          materials, skill practice tickets, boost items, and titles (honors and
+          Kizuna titles).
         type: string
       resourceQuantity:
         type: integer
+      resourceRarity:
+        description: |-
+          ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
+          it picks the title reward icon.
+        type: string
       resourceType:
         type: string
       seq:
@@ -2196,10 +2208,16 @@ definitions:
       resourceName:
         description: |-
           ResourceName is the rewarded item's localized name for gacha tickets,
-          materials, skill practice tickets, and boost items.
+          materials, skill practice tickets, boost items, and titles (honors and
+          Kizuna titles).
         type: string
       resourceQuantity:
         type: integer
+      resourceRarity:
+        description: |-
+          ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
+          it picks the title reward icon.
+        type: string
       resourceType:
         type: string
       seq:

@@ -1411,6 +1411,7 @@ func (catalog missionRewardCatalog) projectCandidate(candidate missionResourceBo
 		if item, ok := catalog.items.lookup(detail.ResourceType, detail.ResourceID); ok {
 			detail.ResourceName = item.name
 			detail.ResourceAssetbundleName = item.assetbundleName
+			detail.ResourceRarity = item.rarity(detail.ResourceLevel)
 		}
 	}
 	return box
