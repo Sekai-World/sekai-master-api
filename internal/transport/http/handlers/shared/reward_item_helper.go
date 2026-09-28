@@ -90,3 +90,19 @@ func RewardItemFields(ctx context.Context, lookup RewardItemRecordLookup, region
 	}
 	return fields
 }
+
+// RewardItemIDsByEntity collects, by entity, the IDs RewardItemFields looks up
+// for details, so they can be prefetched in one read per entity.
+func RewardItemIDsByEntity(details []map[string]any) map[string][]string {
+	ids := make(map[string][]string)
+	for _, detail := range details {
+		entity, ok := RewardItemEntities[NormalizeComparableText(detail["resourceType"])]
+		if !ok {
+			continue
+		}
+		if id := NormalizeAnyID(detail["resourceId"]); id != "" {
+			ids[entity] = append(ids[entity], id)
+		}
+	}
+	return ids
+}

@@ -1193,7 +1193,7 @@ func TestEventRankingRewardResourceBoxPrefersRegionalRecord(t *testing.T) {
 	}}
 	handler := newReadyEventHandler(cache)
 
-	resolved := handler.resolveRewardResourceBox(context.Background(), "tw", map[string]any{"resourceBoxId": 9001})
+	resolved := handler.resolveRewardResourceBox(context.Background(), "tw", map[string]any{"resourceBoxId": 9001}, nil)
 	if resolved == nil || resolved["details"].([]any)[0].(map[string]any)["resourceQuantity"] != 300 {
 		t.Fatalf("expected regional resource box to win, got %v", resolved)
 	}
@@ -1212,7 +1212,7 @@ func TestEventRankingRewardResourceBoxSelectsPurposeForCollidingID(t *testing.T)
 	}
 	handler := newReadyEventHandler(cache)
 
-	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001})
+	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001}, nil)
 	if resourceBox == nil {
 		t.Fatal("expected event ranking resource box to resolve")
 	}
@@ -1238,7 +1238,7 @@ func TestEventRankingRewardJPFallbackEnrichesHonorFromJP(t *testing.T) {
 	}}
 	handler := newReadyEventHandler(cache)
 	rewards := []any{map[string]any{"resourceBoxId": 9001}}
-	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards)
+	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards, nil)
 	reward := result[0].(map[string]any)
 	detail := reward["resourceBox"].(map[string]any)["details"].([]any)[0].(map[string]any)
 	honor := detail["honor"].(map[string]any)
@@ -1261,7 +1261,7 @@ func TestEventRankingRewardDetailsNameTheirItems(t *testing.T) {
 		},
 	}}
 	handler := newReadyEventHandler(cache)
-	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001})
+	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001}, nil)
 	if resourceBox == nil {
 		t.Fatal("expected event ranking resource box to resolve")
 	}
@@ -1289,7 +1289,7 @@ func TestEventRankingRewardDetailsNameTheirItems(t *testing.T) {
 func TestEventRankingRewardMissingResourceBoxesRemainSparse(t *testing.T) {
 	handler := newReadyEventHandler(&fakeEventHandlerCache{})
 	rewards := []any{map[string]any{"id": 701, "resourceBoxId": 9001}}
-	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards)
+	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards, nil)
 	reward := result[0].(map[string]any)
 	if _, exists := reward["resourceBox"]; exists {
 		t.Fatalf("expected missing resource box to remain sparse, got %v", reward)

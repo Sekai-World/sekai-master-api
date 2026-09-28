@@ -27,6 +27,22 @@ func BuildRecordWithReleaseConditionResult(
 	region string,
 	record map[string]any,
 ) (map[string]any, error) {
+	var lookup RecordLookup
+	if masterDataSync != nil {
+		lookup = masterDataSync.GetByID
+	}
+	return BuildRecordWithReleaseConditionLookup(ctx, lookup, region, record)
+}
+
+// BuildRecordWithReleaseConditionLookup expands releaseConditionId like
+// BuildRecordWithReleaseConditionResult, reading the condition through lookup
+// (for example a PrefetchedRecords), or leaving it null when lookup is nil.
+func BuildRecordWithReleaseConditionLookup(
+	ctx context.Context,
+	lookup RecordLookup,
+	region string,
+	record map[string]any,
+) (map[string]any, error) {
 	ctx, span := tracing.StartSpan(ctx, "master_data.expand_release_condition", attribute.String("region", strings.ToLower(strings.TrimSpace(region))))
 	var spanErr error
 	defer func() {
@@ -52,12 +68,12 @@ func BuildRecordWithReleaseConditionResult(
 	span.SetAttributes(attribute.Bool("release_condition.present", true))
 
 	releaseConditionLookupID := NormalizeAnyID(rawReleaseConditionID)
-	if masterDataSync == nil || releaseConditionLookupID == "" {
+	if lookup == nil || releaseConditionLookupID == "" {
 		result["releaseCondition"] = nil
 		return result, nil
 	}
 
-	releaseCondition, found, err := masterDataSync.GetByID(ctx, region, "releaseconditions", releaseConditionLookupID)
+	releaseCondition, found, err := lookup(ctx, region, "releaseconditions", releaseConditionLookupID)
 	if err != nil {
 		spanErr = err
 		span.SetAttributes(attribute.Bool("release_condition.found", false))
