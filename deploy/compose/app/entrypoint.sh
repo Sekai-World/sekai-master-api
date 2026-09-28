@@ -68,9 +68,7 @@ mkdir -p /app/tmp
   printf 'APP_ENV=development\n'
   printf 'APP_PORT=8080\n'
   printf 'APP_ROLE=standalone\n'
-  printf 'DATABASE_DRIVER=pgx\n'
   printf 'DATABASE_URL=postgres://postgres:postgres@postgres:5432/sekai?sslmode=disable\n'
-  printf 'SQLITE_PATH=/app/tmp/dev.db\n'
   printf 'MASTER_DATA_AUTO_SYNC=%s\n' "${MASTER_DATA_AUTO_SYNC_OVERRIDE}"
   printf 'MASTER_DATA_RECOVER_INTERRUPTED_SYNC=%s\n' "${MASTER_DATA_RECOVER_INTERRUPTED_SYNC_OVERRIDE}"
   printf 'REDIS_ADDR=redis:6379\n'

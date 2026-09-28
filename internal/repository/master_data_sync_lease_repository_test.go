@@ -2,66 +2,16 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"sekai-master-api/internal/domain/masterdata"
 )
 
-// newSQLiteTestDB opens an in-memory SQLite database with the coordination
-// schema. The DDL mirrors the Goose migrations; production fencing runs on
-// PostgreSQL, but the SQLite path keeps development parity testable.
-func newSQLiteTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	_, err = db.Exec(`
-CREATE TABLE master_data_sync_leases (
-  name TEXT PRIMARY KEY,
-  holder TEXT NOT NULL,
-  fencing_token BIGINT NOT NULL,
-  acquired_at TIMESTAMP NOT NULL,
-  expires_at TIMESTAMP NOT NULL,
-  last_heartbeat_at TIMESTAMP NOT NULL
-)`)
-	if err != nil {
-		t.Fatalf("create leases table: %v", err)
-	}
-
-	_, err = db.Exec(`
-CREATE TABLE master_data_sync_status (
-  region TEXT NOT NULL,
-  status TEXT NOT NULL,
-  file_count INTEGER NOT NULL,
-  sync_duration_ms INTEGER NOT NULL DEFAULT 0,
-  last_synced_at TIMESTAMP NOT NULL,
-  source_commit TEXT,
-  error_message TEXT,
-  source_owner TEXT NOT NULL,
-  source_repo TEXT NOT NULL,
-  source_ref TEXT NOT NULL,
-  source_path TEXT,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  fencing_token BIGINT NOT NULL DEFAULT 0
-)`)
-	if err != nil {
-		t.Fatalf("create status table: %v", err)
-	}
-
-	return db
-}
-
 func TestLeaseAcquireIssuesFirstToken(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	repository := NewMasterDataSyncLeaseRepository(db, "sqlite")
+	db := newPostgresTestDB(t)
+	repository := NewMasterDataSyncLeaseRepository(db)
 
 	record, acquired, err := repository.Acquire(context.Background(), "master-data-sync", "holder-a", time.Minute)
 	if err != nil || !acquired {
@@ -76,8 +26,8 @@ func TestLeaseAcquireIssuesFirstToken(t *testing.T) {
 }
 
 func TestLeaseAcquireBusyWhileUnexpired(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	repository := NewMasterDataSyncLeaseRepository(db, "sqlite")
+	db := newPostgresTestDB(t)
+	repository := NewMasterDataSyncLeaseRepository(db)
 
 	if _, acquired, err := repository.Acquire(context.Background(), "master-data-sync", "holder-a", time.Minute); err != nil || !acquired {
 		t.Fatalf("seed acquire failed: acquired=%v err=%v", acquired, err)
@@ -93,8 +43,8 @@ func TestLeaseAcquireBusyWhileUnexpired(t *testing.T) {
 }
 
 func TestLeaseTakeoverAfterExpiryBumpsToken(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	repository := NewMasterDataSyncLeaseRepository(db, "sqlite")
+	db := newPostgresTestDB(t)
+	repository := NewMasterDataSyncLeaseRepository(db)
 
 	if _, acquired, err := repository.Acquire(context.Background(), "master-data-sync", "holder-a", time.Millisecond); err != nil || !acquired {
 		t.Fatalf("seed acquire failed: acquired=%v err=%v", acquired, err)
@@ -114,8 +64,8 @@ func TestLeaseTakeoverAfterExpiryBumpsToken(t *testing.T) {
 }
 
 func TestLeaseRenewKeepsHolderButFailsAfterTakeover(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	repository := NewMasterDataSyncLeaseRepository(db, "sqlite")
+	db := newPostgresTestDB(t)
+	repository := NewMasterDataSyncLeaseRepository(db)
 
 	if _, acquired, err := repository.Acquire(context.Background(), "master-data-sync", "holder-a", 100*time.Millisecond); err != nil || !acquired {
 		t.Fatalf("seed acquire failed: acquired=%v err=%v", acquired, err)
@@ -145,8 +95,8 @@ func TestLeaseRenewKeepsHolderButFailsAfterTakeover(t *testing.T) {
 }
 
 func TestLeaseReleaseEnablesImmediateAcquireWithNextToken(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	repository := NewMasterDataSyncLeaseRepository(db, "sqlite")
+	db := newPostgresTestDB(t)
+	repository := NewMasterDataSyncLeaseRepository(db)
 
 	if _, acquired, err := repository.Acquire(context.Background(), "master-data-sync", "holder-a", time.Minute); err != nil || !acquired {
 		t.Fatalf("seed acquire failed: acquired=%v err=%v", acquired, err)
@@ -165,8 +115,8 @@ func TestLeaseReleaseEnablesImmediateAcquireWithNextToken(t *testing.T) {
 }
 
 func TestLeaseCoordinatorMapsRepositoryOutcomes(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	repository := NewMasterDataSyncLeaseRepository(db, "sqlite")
+	db := newPostgresTestDB(t)
+	repository := NewMasterDataSyncLeaseRepository(db)
 
 	coordinatorA := NewMasterDataSyncLeaseCoordinator(repository, "master-data-sync", "holder-a", time.Minute)
 	claim, err := coordinatorA.Acquire(context.Background())
@@ -204,9 +154,9 @@ func TestLeaseCoordinatorMapsRepositoryOutcomes(t *testing.T) {
 }
 
 func TestFencedStatusSaveRejectsStaleToken(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	leaseRepository := NewMasterDataSyncLeaseRepository(db, "sqlite")
-	statusRepository := NewMasterDataSyncStatusRepository(db, "sqlite", "master-data-sync")
+	db := newPostgresTestDB(t)
+	leaseRepository := NewMasterDataSyncLeaseRepository(db)
+	statusRepository := NewMasterDataSyncStatusRepository(db, "master-data-sync")
 
 	if _, acquired, err := leaseRepository.Acquire(context.Background(), "master-data-sync", "holder-a", time.Millisecond); err != nil || !acquired {
 		t.Fatalf("seed acquire failed: acquired=%v err=%v", acquired, err)
@@ -253,7 +203,7 @@ func TestFencedStatusSaveRejectsStaleToken(t *testing.T) {
 		t.Fatalf("new-owner save failed: %v", err)
 	}
 	var persisted int64
-	if err := db.QueryRow(`SELECT fencing_token FROM master_data_sync_status WHERE region = 'jp' ORDER BY created_at DESC, rowid DESC LIMIT 1`).Scan(&persisted); err != nil {
+	if err := db.QueryRow(`SELECT fencing_token FROM master_data_sync_status WHERE region = 'jp' ORDER BY created_at DESC LIMIT 1`).Scan(&persisted); err != nil {
 		t.Fatalf("query persisted token: %v", err)
 	}
 	if persisted != 2 {

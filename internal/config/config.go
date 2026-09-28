@@ -99,7 +99,11 @@ type Config struct {
 	OTELMetricExportIntervalMS        int
 	DatabaseDriverName                string
 	DatabaseURL                       string
-	SQLitePath                        string
+	DatabaseMaxConns                  int
+	DatabaseMinConns                  int
+	DatabaseConnectTimeout            time.Duration
+	DatabaseMaxConnLifetime           time.Duration
+	DatabaseMaxConnIdleTime           time.Duration
 	MasterDataAutoSync                bool
 	MasterDataRecoverInterrupted      bool
 	MasterDataWarmSearchIndexes       bool
@@ -174,7 +178,11 @@ func Load() Config {
 		OTELMetricExportIntervalMS:        getEnvInt("OTEL_METRIC_EXPORT_INTERVAL", 10000),
 		DatabaseDriverName:                getEnv("DATABASE_DRIVER", ""),
 		DatabaseURL:                       getEnv("DATABASE_URL", "postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable"),
-		SQLitePath:                        getEnv("SQLITE_PATH", "./tmp/dev.db"),
+		DatabaseMaxConns:                  getEnvInt("DATABASE_MAX_CONNS", 0),
+		DatabaseMinConns:                  getEnvInt("DATABASE_MIN_CONNS", 0),
+		DatabaseConnectTimeout:            time.Duration(getEnvInt("DATABASE_CONNECT_TIMEOUT_SECONDS", 10)) * time.Second,
+		DatabaseMaxConnLifetime:           time.Duration(getEnvInt("DATABASE_MAX_CONN_LIFETIME_SECONDS", 0)) * time.Second,
+		DatabaseMaxConnIdleTime:           time.Duration(getEnvInt("DATABASE_MAX_CONN_IDLE_SECONDS", 0)) * time.Second,
 		MasterDataAutoSync:                getEnvBool("MASTER_DATA_AUTO_SYNC", true),
 		MasterDataRecoverInterrupted:      getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
 		MasterDataResumeBaseDir:           strings.TrimSpace(getEnv("MASTER_DATA_RESUME_BASE_DIR", "tmp/master-data-sync-resume")),
@@ -292,26 +300,17 @@ func (cfg Config) IsDevelopment() bool {
 	return isDevelopmentEnv(cfg.AppEnv)
 }
 
-func (cfg Config) DatabaseDriver() string {
-	driver := strings.ToLower(strings.TrimSpace(cfg.DatabaseDriverName))
-	switch driver {
-	case "sqlite":
-		return "sqlite"
-	case "pgx", "postgres", "postgresql":
-		return "pgx"
+// ValidateDatabaseDriver checks the optional DATABASE_DRIVER setting.
+// PostgreSQL is the only supported database; the setting is still accepted
+// for compatibility when it names PostgreSQL, and any other value (such as the
+// removed "sqlite") fails startup instead of silently changing the database.
+func (cfg Config) ValidateDatabaseDriver() error {
+	switch strings.ToLower(strings.TrimSpace(cfg.DatabaseDriverName)) {
+	case "", "pgx", "postgres", "postgresql":
+		return nil
+	default:
+		return fmt.Errorf("unsupported DATABASE_DRIVER %q: PostgreSQL is the only supported database (SQLite support was removed); unset DATABASE_DRIVER or set it to pgx", cfg.DatabaseDriverName)
 	}
-
-	if cfg.IsDevelopment() {
-		return "sqlite"
-	}
-	return "pgx"
-}
-
-func (cfg Config) EffectiveDatabaseDSN() string {
-	if cfg.DatabaseDriver() == "sqlite" {
-		return cfg.SQLitePath
-	}
-	return cfg.DatabaseURL
 }
 
 func (cfg Config) NormalizedOIDCIssuerURL() string {

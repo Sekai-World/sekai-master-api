@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"container/list"
 	"context"
 	"crypto/sha1"
@@ -145,8 +144,6 @@ var redisEntityDecoder = func() *zstd.Decoder {
 const redisEntityRecordZstdV1Prefix = "sekai-master-data:zstd:v1:"
 
 const maxRedisEntityRecordBodySize = 64 << 20
-
-const compositeStorageKeyPrefix = "composite:v1:"
 
 const attrCacheHitKey = "cache.hit"
 
@@ -421,7 +418,7 @@ func (task *entityStoreTask) storeEntityLocked(ctx context.Context) error {
 	revision := collector.revision()
 	revisionMatches := !forceFullStore && !revisionMissing && existingRevision == revision
 
-	fetchExistingState := usesCompositeStorageKey(task.entity) || (!forceFullStore && !revisionMatches)
+	fetchExistingState := masterdata.UsesCompositeKey(task.entity) || (!forceFullStore && !revisionMatches)
 	existingRecords, existingOrder, err := task.loadExistingState(ctx, keys, fetchExistingState)
 	if err != nil {
 		return err
@@ -517,7 +514,7 @@ func storedSourceDigest(digest string) string {
 // its stored source digest still matches and the persisted search index is
 // present.
 func (task *entityStoreTask) skipUnchangedBySourceDigest(ctx context.Context, keys entityRedisKeys, forceFullStore bool) (bool, error) {
-	if usesCompositeStorageKey(task.entity) {
+	if masterdata.UsesCompositeKey(task.entity) {
 		return false, nil
 	}
 	if !task.hasDigest || task.incomingDigest == "" || forceFullStore {
@@ -585,7 +582,7 @@ func (task *entityStoreTask) loadExistingState(ctx context.Context, keys entityR
 // falls back to rebuilding it when the persisted index went missing. It
 // reports whether the persisted index itself needs rewriting.
 func (task *entityStoreTask) resolveEntityIndex(ctx context.Context, entityChanged bool) (*entitySearchIndex, bool, error) {
-	if usesCompositeStorageKey(task.entity) {
+	if masterdata.UsesCompositeKey(task.entity) {
 		return nil, true, nil
 	}
 	if entityChanged {
@@ -623,7 +620,7 @@ func (task *entityStoreTask) buildRecordMapsIndex() (*entitySearchIndex, error) 
 // buildRawRecordsSearchIndex decodes and indexes raw JSON records one at a
 // time, so a large entity never holds every decoded record map at once.
 func buildRawRecordsSearchIndex(entity string, rawRecords []json.RawMessage) *entitySearchIndex {
-	if usesCompositeStorageKey(entity) {
+	if masterdata.UsesCompositeKey(entity) {
 		return nil
 	}
 
@@ -843,11 +840,11 @@ func (collector *entityRecordCollector) addRawRecords(rawRecords []json.RawMessa
 }
 
 func (collector *entityRecordCollector) storageID(record map[string]any, body []byte) string {
-	if !usesCompositeStorageKey(collector.entity) {
-		return recordStorageID(record, body)
+	if !masterdata.UsesCompositeKey(collector.entity) {
+		return masterdata.RecordKey(record, body)
 	}
 
-	if id, ok := compositeRecordStorageKey(collector.entity, record); ok {
+	if id, ok := masterdata.CompositeRecordKey(collector.entity, record); ok {
 		return id
 	}
 
@@ -855,11 +852,11 @@ func (collector *entityRecordCollector) storageID(record map[string]any, body []
 }
 
 func (collector *entityRecordCollector) storageIDFromRaw(body []byte) string {
-	if !usesCompositeStorageKey(collector.entity) {
-		return recordStorageIDFromRaw(body)
+	if !masterdata.UsesCompositeKey(collector.entity) {
+		return masterdata.RecordKeyFromRaw(body)
 	}
 
-	if id, ok := compositeRecordStorageKeyFromRaw(collector.entity, body); ok {
+	if id, ok := masterdata.CompositeRecordKeyFromRaw(collector.entity, body); ok {
 		return id
 	}
 
@@ -867,8 +864,7 @@ func (collector *entityRecordCollector) storageIDFromRaw(body []byte) string {
 }
 
 func (collector *entityRecordCollector) fallbackStorageID(body []byte) string {
-	sum := sha256.Sum256(body)
-	baseID := "auto:" + hex.EncodeToString(sum[:])
+	baseID := masterdata.AutoRecordKey(body)
 	occurrence := collector.fallbackOccurrences[baseID]
 	collector.fallbackOccurrences[baseID] = occurrence + 1
 	if occurrence == 0 {
@@ -935,7 +931,7 @@ func reportCacheWriteProgress(reporter masterdata.ProgressReporter, region strin
 }
 
 func buildEntitySearchIndex(entity string, records []map[string]any) *entitySearchIndex {
-	if usesCompositeStorageKey(entity) {
+	if masterdata.UsesCompositeKey(entity) {
 		return nil
 	}
 
@@ -970,13 +966,13 @@ func newEntitySearchIndexBuilder(capacity int) *entitySearchIndexBuilder {
 }
 
 func (builder *entitySearchIndexBuilder) add(entity string, recordMap map[string]any) {
-	id := recordID(recordMap)
+	id := masterdata.RecordID(recordMap)
 	if id == "" {
 		body, err := json.Marshal(recordMap)
 		if err != nil {
 			return
 		}
-		id = recordStorageID(recordMap, body)
+		id = masterdata.RecordKey(recordMap, body)
 		if id == "" {
 			return
 		}
@@ -1480,7 +1476,7 @@ func (cache *RedisMasterDataCache) GetByIDs(ctx context.Context, region string, 
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
 	records := make([]map[string]any, len(ids))
-	if regionName == "" || entityName == "" || len(ids) == 0 || usesCompositeStorageKey(entityName) {
+	if regionName == "" || entityName == "" || len(ids) == 0 || masterdata.UsesCompositeKey(entityName) {
 		return records, nil
 	}
 
@@ -1503,7 +1499,7 @@ func (cache *RedisMasterDataCache) GetByIDs(ctx context.Context, region string, 
 }
 
 // GetByCompositeKeys returns the records of a composite-key entity (see
-// compositeStorageKeyFields) whose key fields equal each key, aligned with
+// masterdata.CompositeKeyFields) whose key fields equal each key, aligned with
 // keys. A key missing any key field, or a key with no record, yields nil.
 func (cache *RedisMasterDataCache) GetByCompositeKeys(ctx context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error) {
 	ctx, span := tracing.StartSpan(ctx, "redis.master_data.get_by_composite_keys", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)), attribute.Int("request.count", len(keys)))
@@ -1515,14 +1511,14 @@ func (cache *RedisMasterDataCache) GetByCompositeKeys(ctx context.Context, regio
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
 	records := make([]map[string]any, len(keys))
-	if regionName == "" || entityName == "" || len(keys) == 0 || !usesCompositeStorageKey(entityName) {
+	if regionName == "" || entityName == "" || len(keys) == 0 || !masterdata.UsesCompositeKey(entityName) {
 		return records, nil
 	}
 
 	storageKeys := make([]string, 0, len(keys))
 	positions := make([]int, 0, len(keys))
 	for index, key := range keys {
-		if storageKey, ok := compositeRecordStorageKey(entityName, key); ok {
+		if storageKey, ok := masterdata.CompositeRecordKey(entityName, key); ok {
 			storageKeys = append(storageKeys, storageKey)
 			positions = append(positions, index)
 		}
@@ -1767,7 +1763,7 @@ func (cache *RedisMasterDataCache) GetByID(ctx context.Context, region string, e
 	if regionName == "" || entityName == "" || recordIDValue == "" {
 		return nil, false, nil
 	}
-	if usesCompositeStorageKey(entityName) {
+	if masterdata.UsesCompositeKey(entityName) {
 		// The legacy GetByID contract accepts a bare business ID and cannot
 		// disambiguate records stored with entity-specific composite keys.
 		span.SetAttributes(attribute.Bool(attrCacheHitKey, false))
@@ -1809,7 +1805,7 @@ func (cache *RedisMasterDataCache) Search(ctx context.Context, region string, en
 	if regionName == "" || entityName == "" || normalizedQuery == "" {
 		return []masterdata.SearchMatch{}, nil
 	}
-	if usesCompositeStorageKey(entityName) {
+	if masterdata.UsesCompositeKey(entityName) {
 		span.SetAttributes(attribute.Int("result.count", 0))
 		return []masterdata.SearchMatch{}, nil
 	}
@@ -1971,7 +1967,7 @@ func (cache *RedisMasterDataCache) rebuildEntityIndexFromRedis(
 	if regionName == "" || entityName == "" {
 		return nil, false, nil
 	}
-	if usesCompositeStorageKey(entityName) {
+	if masterdata.UsesCompositeKey(entityName) {
 		if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entityName); err != nil {
 			return nil, false, err
 		}
@@ -2022,7 +2018,7 @@ func (cache *RedisMasterDataCache) LoadRegionIndexFromRedis(ctx context.Context,
 	if regionName == "" {
 		return false, nil
 	}
-	for _, entity := range compositeStorageKeyEntities {
+	for _, entity := range masterdata.CompositeKeyEntities() {
 		if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entity); err != nil {
 			return false, err
 		}
@@ -2124,7 +2120,7 @@ func (cache *RedisMasterDataCache) RebuildRegionIndexFromRedis(ctx context.Conte
 		}
 
 		hasRecords = true
-		if usesCompositeStorageKey(entity) {
+		if masterdata.UsesCompositeKey(entity) {
 			if err := cache.removePersistedEntitySearchIndex(ctx, regionName, entity); err != nil {
 				return false, err
 			}
@@ -2389,7 +2385,7 @@ func (cache *RedisMasterDataCache) RegionIndexStats() []RegionIndexStats {
 }
 
 func (cache *RedisMasterDataCache) cachedEntityIndex(ctx context.Context, region string, entity string) (*entitySearchIndex, bool, error) {
-	if cache == nil || cache.searchIndexCacheEntries <= 0 || usesCompositeStorageKey(entity) {
+	if cache == nil || cache.searchIndexCacheEntries <= 0 || masterdata.UsesCompositeKey(entity) {
 		return nil, false, nil
 	}
 
@@ -2429,7 +2425,7 @@ func (cache *RedisMasterDataCache) setCachedEntityIndex(region string, entity st
 	}
 	regionName := normalizeKey(region)
 	entityName := normalizeKey(entity)
-	if regionName == "" || entityName == "" || version == "" || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 || usesCompositeStorageKey(entityName) {
+	if regionName == "" || entityName == "" || version == "" || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 || masterdata.UsesCompositeKey(entityName) {
 		cache.invalidateCachedEntityIndex(regionName, entityName)
 		return
 	}
@@ -2602,7 +2598,7 @@ func (cache *RedisMasterDataCache) persistEntitySearchIndex(ctx context.Context,
 	indexKey := cache.redisEntitySearchIndexKey(region, entityName)
 	versionKey := cache.redisEntitySearchIndexVersionKey(region, entityName)
 	entitiesKey := cache.redisRegionSearchIndexEntitiesKey(region)
-	if usesCompositeStorageKey(entityName) || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
+	if masterdata.UsesCompositeKey(entityName) || index == nil || len(index.IDs) == 0 || len(index.Fields) == 0 {
 		pipe.Del(ctx, indexKey)
 		pipe.Del(ctx, versionKey)
 		pipe.SRem(ctx, entitiesKey, entityName)
@@ -2660,7 +2656,7 @@ func (cache *RedisMasterDataCache) readEntityIndexFromRedis(ctx context.Context,
 	if regionName == "" || entityName == "" {
 		return nil, "", false, nil
 	}
-	if usesCompositeStorageKey(entityName) {
+	if masterdata.UsesCompositeKey(entityName) {
 		return nil, "", false, nil
 	}
 
@@ -2855,161 +2851,6 @@ func entityNameFromPath(filePath string) string {
 	return normalizeKey(name)
 }
 
-var compositeStorageKeyEntities = [...]string{
-	"resourceboxes",
-	"resourceboxdetails",
-	"charactermissionv2parametergroups",
-}
-
-func compositeStorageKeyFields(entity string) []string {
-	switch normalizeKey(entity) {
-	case "resourceboxes":
-		return []string{"id", "resourceBoxPurpose"}
-	case "resourceboxdetails":
-		return []string{"resourceBoxId", "resourceBoxPurpose", "seq"}
-	case "charactermissionv2parametergroups":
-		return []string{"id", "seq"}
-	default:
-		return nil
-	}
-}
-
-func usesCompositeStorageKey(entity string) bool {
-	return len(compositeStorageKeyFields(entity)) > 0
-}
-
-func compositeRecordStorageKey(entity string, record map[string]any) (string, bool) {
-	fields := compositeStorageKeyFields(entity)
-	if len(fields) == 0 || record == nil {
-		return "", false
-	}
-
-	values := make([]string, 0, len(fields))
-	for _, field := range fields {
-		value, exists := record[field]
-		if !exists {
-			return "", false
-		}
-		part, ok := compositeStorageKeyPart(value)
-		if !ok {
-			return "", false
-		}
-		values = append(values, part)
-	}
-
-	return encodeCompositeStorageKey(entity, fields, values), true
-}
-
-func compositeRecordStorageKeyFromRaw(entity string, body []byte) (string, bool) {
-	fields := compositeStorageKeyFields(entity)
-	if len(fields) == 0 || len(body) == 0 {
-		return "", false
-	}
-
-	var record map[string]json.RawMessage
-	if err := json.Unmarshal(body, &record); err != nil {
-		return "", false
-	}
-
-	values := make([]string, 0, len(fields))
-	for _, field := range fields {
-		rawValue, exists := record[field]
-		if !exists || len(rawValue) == 0 {
-			return "", false
-		}
-
-		decoder := json.NewDecoder(strings.NewReader(string(rawValue)))
-		decoder.UseNumber()
-		var value any
-		if err := decoder.Decode(&value); err != nil {
-			return "", false
-		}
-		part, ok := compositeStorageKeyPart(value)
-		if !ok {
-			return "", false
-		}
-		values = append(values, part)
-	}
-
-	return encodeCompositeStorageKey(entity, fields, values), true
-}
-
-// compositeStorageKeyPart renders one composite key component; relation index
-// keys use the same canonical form so lookups match stored keys.
-func compositeStorageKeyPart(value any) (string, bool) {
-	return masterdata.CanonicalKeyPart(value)
-}
-
-func encodeCompositeStorageKey(entity string, fields []string, values []string) string {
-	var builder strings.Builder
-	builder.WriteString(compositeStorageKeyPrefix)
-	appendCompositeStorageKeyPart(&builder, normalizeKey(entity))
-	for index, field := range fields {
-		appendCompositeStorageKeyPart(&builder, field)
-		appendCompositeStorageKeyPart(&builder, values[index])
-	}
-	return builder.String()
-}
-
-func appendCompositeStorageKeyPart(builder *strings.Builder, value string) {
-	builder.WriteString(strconv.Itoa(len(value)))
-	builder.WriteByte(':')
-	builder.WriteString(value)
-}
-
-func recordID(record map[string]any) string {
-	idValue, ok := record["id"]
-	if !ok || idValue == nil {
-		return ""
-	}
-
-	return formatRecordID(idValue)
-}
-
-// formatRecordID renders an id the way lookups spell it. Numbers are decimal:
-// "%v" on a decoded float64 gives "1.010201e+06" for ids of a million or more.
-func formatRecordID(value any) string {
-	if id, ok := compositeStorageKeyPart(value); ok {
-		return id
-	}
-	return strings.TrimSpace(fmt.Sprintf("%v", value))
-}
-
-func recordStorageID(record map[string]any, body []byte) string {
-	id := recordID(record)
-	if id != "" {
-		return id
-	}
-
-	if len(body) == 0 {
-		return ""
-	}
-
-	sum := sha256.Sum256(body)
-	return "auto:" + hex.EncodeToString(sum[:])
-}
-
-func recordStorageIDFromRaw(body []byte) string {
-	var fields struct {
-		ID json.RawMessage `json:"id"`
-	}
-	if err := json.Unmarshal(body, &fields); err == nil && len(fields.ID) > 0 && string(fields.ID) != "null" {
-		decoder := json.NewDecoder(bytes.NewReader(fields.ID))
-		decoder.UseNumber()
-		var value any
-		if decoder.Decode(&value) == nil {
-			if id := formatRecordID(value); id != "" {
-				return id
-			}
-		}
-	}
-	if len(body) == 0 {
-		return ""
-	}
-	sum := sha256.Sum256(body)
-	return "auto:" + hex.EncodeToString(sum[:])
-}
-
 func normalizeSearchText(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -3085,7 +2926,7 @@ func searchableFields(entity string, record map[string]any) map[string]string {
 
 func isSearchableField(entity string, field string) bool {
 	field = normalizeKey(field)
-	if field == "" || usesCompositeStorageKey(entity) {
+	if field == "" || masterdata.UsesCompositeKey(entity) {
 		return false
 	}
 

@@ -88,6 +88,53 @@ func TestLoadReadsRedisTimeoutConfig(t *testing.T) {
 	}
 }
 
+func TestLoadReadsDatabasePoolConfig(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "DATABASE_MAX_CONNS", "DATABASE_MIN_CONNS", "DATABASE_CONNECT_TIMEOUT_SECONDS", "DATABASE_MAX_CONN_LIFETIME_SECONDS", "DATABASE_MAX_CONN_IDLE_SECONDS")
+
+	tmpDir := t.TempDir()
+	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=production\n"+
+		"DATABASE_MAX_CONNS=40\n"+
+		"DATABASE_MIN_CONNS=2\n"+
+		"DATABASE_CONNECT_TIMEOUT_SECONDS=5\n"+
+		"DATABASE_MAX_CONN_LIFETIME_SECONDS=600\n"+
+		"DATABASE_MAX_CONN_IDLE_SECONDS=120\n")
+	chdir(t, tmpDir)
+
+	cfg := Load()
+	if cfg.DatabaseMaxConns != 40 || cfg.DatabaseMinConns != 2 {
+		t.Fatalf("unexpected pool size: max=%d min=%d", cfg.DatabaseMaxConns, cfg.DatabaseMinConns)
+	}
+	if cfg.DatabaseConnectTimeout != 5*time.Second || cfg.DatabaseMaxConnLifetime != 10*time.Minute || cfg.DatabaseMaxConnIdleTime != 2*time.Minute {
+		t.Fatalf("unexpected pool timeouts: connect=%s lifetime=%s idle=%s", cfg.DatabaseConnectTimeout, cfg.DatabaseMaxConnLifetime, cfg.DatabaseMaxConnIdleTime)
+	}
+}
+
+func TestLoadDefaultsDatabasePoolConfig(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "DATABASE_MAX_CONNS", "DATABASE_MIN_CONNS", "DATABASE_CONNECT_TIMEOUT_SECONDS", "DATABASE_MAX_CONN_LIFETIME_SECONDS", "DATABASE_MAX_CONN_IDLE_SECONDS")
+	chdir(t, t.TempDir())
+
+	cfg := Load()
+	if cfg.DatabaseMaxConns != 0 || cfg.DatabaseMinConns != 0 || cfg.DatabaseMaxConnLifetime != 0 || cfg.DatabaseMaxConnIdleTime != 0 {
+		t.Fatalf("pool limits should defer to DATABASE_URL and pgx defaults, got %+v", cfg)
+	}
+	if cfg.DatabaseConnectTimeout != 10*time.Second {
+		t.Fatalf("connect timeout = %s, want 10s", cfg.DatabaseConnectTimeout)
+	}
+}
+
+func TestValidateDatabaseDriverAcceptsOnlyPostgres(t *testing.T) {
+	for _, driver := range []string{"", "pgx", "PGX", " postgres ", "postgresql"} {
+		if err := (Config{DatabaseDriverName: driver}).ValidateDatabaseDriver(); err != nil {
+			t.Fatalf("driver %q rejected: %v", driver, err)
+		}
+	}
+	for _, driver := range []string{"sqlite", "mysql"} {
+		if err := (Config{DatabaseDriverName: driver}).ValidateDatabaseDriver(); err == nil {
+			t.Fatalf("driver %q accepted, want an error", driver)
+		}
+	}
+}
+
 func TestLoadMasterDataTimeoutOverrides(t *testing.T) {
 	restoreEnv(t, "APP_ENV", "MASTER_DATA_SYNC_TIMEOUT_SECONDS", "MASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS")
 	tmpDir := t.TempDir()

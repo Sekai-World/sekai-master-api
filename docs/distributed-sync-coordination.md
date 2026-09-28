@@ -77,9 +77,8 @@ e.g. `sekai-master-api-control-7d9f…/2026-09-08T12:00:00Z`.
 ### Operations
 
 All three are single-statement compare-and-swaps (Postgres via
-`INSERT ... ON CONFLICT ... WHERE` / `UPDATE ... RETURNING`; the repository
-keeps the existing SQLite/Postgres driver split so development mode works
-unchanged):
+`INSERT ... ON CONFLICT ... WHERE` / `UPDATE ... RETURNING`; PostgreSQL is
+the only supported database):
 
 - **Acquire(name, holder, ttl) → (token, ok)**: succeeds when the row is
   absent or `expires_at <= now()`. On success the row is (re)written with a
@@ -199,9 +198,9 @@ at derived stores) and it is what the acceptance tests will demonstrate.
 
 ## Testing plan
 
-- Repository integration tests against real PostgreSQL (and SQLite for dev
-  parity): acquire/expire/takeover monotonic tokens, renew-after-takeover
-  failure, fenced status-write rejection.
+- Repository integration tests against real PostgreSQL (the `pgtest`
+  testcontainers harness): acquire/expire/takeover monotonic tokens,
+  renew-after-takeover failure, fenced status-write rejection.
 - Usecase tests with two instances sharing one PG: concurrent `sync()` →
   exactly one admitted; kill-the-holder simulation (stop heartbeating) →
   takeover completes regions the dead owner left `running`.

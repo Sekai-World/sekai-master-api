@@ -7,14 +7,15 @@
 #     -f values-development.yaml \
 #     -f values-dev.local.yaml
 #
-# Single serve replica, no public exposure, SQLite storage, no migration
-# hook, and no cross-pod sync coordination — the same shape as the
-# host-based development workflow (docs/development.md).
+# Single serve replica, no public exposure, no migration hook, and no
+# cross-pod sync coordination — the same shape as the host-based development
+# workflow (docs/development.md). PostgreSQL is the only supported database:
+# supply DATABASE_URL in values-dev.local.yaml (common.env, or a Secret through
+# common.envFrom.secrets).
 
 common:
   env:
     APP_ENV: development
-    DATABASE_DRIVER: sqlite
     # Development runs a single control pod, so the PostgreSQL sync lease has
     # no one to coordinate with; the admin dashboard lease card then renders
     # the explicit uncoordinated (single-instance) state.

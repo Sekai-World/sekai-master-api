@@ -50,6 +50,9 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@v4
 
+      # PostgreSQL-backed tests start a postgres:18 container through
+      # testcontainers-go on the runner's Docker. GitHub sets CI=true, so the
+      # harness fails instead of skipping when Docker is unavailable.
       - name: Run tests
         run: mise run test
 

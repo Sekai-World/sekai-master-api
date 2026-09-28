@@ -5,27 +5,29 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 
 	"github.com/pressly/goose/v3"
-
-	"sekai-master-api/internal/config"
 )
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-func RunMigrations(ctx context.Context, db *sql.DB, cfg config.Config) error {
-	dialect := "postgres"
-	if cfg.DatabaseDriver() == "sqlite" {
-		dialect = "sqlite3"
+// RunMigrations applies every pending Goose migration. It uses a Goose
+// provider rather than the package-level Goose state, so concurrent callers
+// (such as parallel tests on separate databases) do not share configuration.
+func RunMigrations(ctx context.Context, db *sql.DB) error {
+	migrations, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		return fmt.Errorf("open embedded migrations: %w", err)
 	}
 
-	goose.SetBaseFS(migrationFS)
-	if err := goose.SetDialect(dialect); err != nil {
-		return fmt.Errorf("set migration dialect: %w", err)
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations)
+	if err != nil {
+		return fmt.Errorf("create migration provider: %w", err)
 	}
 
-	if err := goose.UpContext(ctx, db, "migrations"); err != nil {
+	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 

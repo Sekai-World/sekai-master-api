@@ -5,9 +5,7 @@
 - Language: Go
 - HTTP Framework: Gin
 - Auth: Keycloak (OIDC/JWT validation)
-- Databases:
-  - Default: development uses SQLite, test/production use PostgreSQL
-  - Optional override: `DATABASE_DRIVER=sqlite|pgx`
+- Database: PostgreSQL in every environment (one `pgxpool` pool, bridged to `database/sql`); SQLite support was removed
 - Schema migration: Goose SQL migrations (`internal/storage/migrations`), run automatically on startup
 - Master data cache/query:
   - Redis hash for by-id lookups

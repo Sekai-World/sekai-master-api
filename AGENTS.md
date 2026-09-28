@@ -25,8 +25,9 @@ ownership is unclear.
   - Read-only status and available-region paths, including admin dashboard and metrics callbacks, must not load, rebuild, rewrite, or otherwise repair Redis search indexes. Use explicit sync, warmup, ensure, or search-miss flows for repair.
   - If a response has a top-level `releaseConditionId`, look up `releaseConditions` and expand it as `releaseCondition`; do not expose `releaseConditionId` directly.
 - Database strategy:
-  - Default: development uses SQLite; test and production use PostgreSQL.
-  - Optional override: `DATABASE_DRIVER` can override the default with `sqlite` or `pgx`.
+  - PostgreSQL in every environment; SQLite support was removed. `DATABASE_DRIVER` is optional and accepts only `pgx`.
+  - One `pgxpool` pool per process (`storage.OpenDB`); `database/sql` callers use its `stdlib.OpenDBFromPool` bridge (`DB.SQL`).
+  - PostgreSQL-backed tests use the `internal/storage/pgtest` testcontainers harness (PostgreSQL 18 on the host Docker API); they skip locally without Docker and fail when `CI` is set.
 - Migration strategy: use Goose SQL migrations; run automatic migrations on startup.
 - Remote-cluster dev (STANDARD): gitignored `dev-cluster-*` mise tasks build a ko image and run it in the remote k3s test cluster next to the dev dependencies. This is the only sanctioned way to serve and test changes: `mise run dev-cluster-rebuild` to build and deploy, then `mise run dev-cluster-forward` to expose the single public-API + admin port on `http://localhost:18080`. Do NOT serve or test changes through local Docker/OrbStack app containers (`mise run dev`, `dev-split`, `dev-full`); that path is deprecated. See `.mise/lib/dev-cluster.sh` and the workspace `docs/cross-repository/remote-cluster-dev-workflow.md`. Chart `image.command` (>= 0.0.5) supports ko images (`/ko-app/api`); leaving it unset keeps production behavior unchanged.
 - Local container dev stack: removed. `deploy/compose/app/` only holds the Dockerfile/entrypoint used by CI image builds; `test-docker` runs Go tests through `scripts/docker-go.sh` without compose. Do not reintroduce local app containers for serving or testing changes — use the remote-cluster workflow above.
@@ -63,8 +64,8 @@ Responsible for database connections, dialect compatibility, and the data access
 
 - Change scope: `internal/config`, `internal/storage`, repository layer.
 - Must preserve:
-  - Default rule: `APP_ENV=development` uses SQLite; `APP_ENV in {test, production}` uses PostgreSQL.
-  - If `DATABASE_DRIVER` is explicitly set to `sqlite` or `pgx`, that value takes precedence.
+  - PostgreSQL is the only database; do not reintroduce SQLite or dialect branches in repositories or migrations.
+  - Record keys, composite keys, and the block sort key are defined in `internal/domain/masterdata` (`record_key.go`); storage code must not redefine them.
   - Do not break existing configuration names.
   - Store by-id data and order indexes in Redis; pagination order comes from the order index.
   - Keep Redis search-index repair side-effectful only in sync/ensure/search-miss flows; `DashboardStatus`, `RuntimeSearchIndexReadyRegions`, admin dashboard reads, available-region helper reads, and observability callbacks must remain read-only.

@@ -539,23 +539,23 @@ func TestStoreRegionUsesCompositeKeysForCharacterMissionV2ParameterGroups(t *tes
 	first := json.RawMessage(`{"id":42,"seq":1,"requirement":1000}`)
 	second := json.RawMessage(`{"id":42,"seq":2,"requirement":2000}`)
 
-	if !usesCompositeStorageKey("characterMissionV2ParameterGroups") {
+	if !masterdata.UsesCompositeKey("characterMissionV2ParameterGroups") {
 		t.Fatal("expected character mission V2 parameter groups to use composite storage keys")
 	}
-	fields := compositeStorageKeyFields("characterMissionV2ParameterGroups")
+	fields := masterdata.CompositeKeyFields("characterMissionV2ParameterGroups")
 	if len(fields) != 2 || fields[0] != "id" || fields[1] != "seq" {
 		t.Fatalf("expected character mission V2 parameter group key fields [id seq], got %v", fields)
 	}
 
-	firstKey, ok := compositeRecordStorageKeyFromRaw("characterMissionV2ParameterGroups", first)
+	firstKey, ok := masterdata.CompositeRecordKeyFromRaw("characterMissionV2ParameterGroups", first)
 	if !ok {
 		t.Fatal("expected first character mission V2 parameter group to have a composite storage key")
 	}
-	secondKey, ok := compositeRecordStorageKeyFromRaw("characterMissionV2ParameterGroups", second)
+	secondKey, ok := masterdata.CompositeRecordKeyFromRaw("characterMissionV2ParameterGroups", second)
 	if !ok {
 		t.Fatal("expected second character mission V2 parameter group to have a composite storage key")
 	}
-	expectedFirstKey := encodeCompositeStorageKey(entity, []string{"id", "seq"}, []string{"42", "1"})
+	expectedFirstKey := masterdata.EncodeCompositeKey(entity, []string{"id", "seq"}, []string{"42", "1"})
 	if firstKey != expectedFirstKey {
 		t.Fatalf("expected composite key %q, got %q", expectedFirstKey, firstKey)
 	}
@@ -619,11 +619,11 @@ func assertCompositeResourceBoxStorage(
 ) {
 	t.Helper()
 
-	boxKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxes", boxes[0])
+	boxKeyOne, ok := masterdata.CompositeRecordKeyFromRaw("resourceboxes", boxes[0])
 	if !ok {
 		t.Fatal("expected first resourcebox to have a composite storage key")
 	}
-	boxKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxes", boxes[1])
+	boxKeyTwo, ok := masterdata.CompositeRecordKeyFromRaw("resourceboxes", boxes[1])
 	if !ok {
 		t.Fatal("expected second resourcebox to have a composite storage key")
 	}
@@ -666,11 +666,11 @@ func assertCompositeResourceBoxDetailStorage(
 ) {
 	t.Helper()
 
-	detailKeyOne, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", details[0])
+	detailKeyOne, ok := masterdata.CompositeRecordKeyFromRaw("resourceboxdetails", details[0])
 	if !ok {
 		t.Fatal("expected first detail to have a composite storage key")
 	}
-	detailKeyTwo, ok := compositeRecordStorageKeyFromRaw("resourceboxdetails", details[1])
+	detailKeyTwo, ok := masterdata.CompositeRecordKeyFromRaw("resourceboxdetails", details[1])
 	if !ok {
 		t.Fatal("expected second detail to have a composite storage key")
 	}

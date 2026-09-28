@@ -3,7 +3,7 @@
 [![CI](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml)
 [![Swagger Check](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml)
 
-Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token validation, Goose migrations, Redis cache, and environment-based database selection.
+Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token validation, Goose migrations, PostgreSQL, and a Redis cache.
 
 ## Features
 
@@ -12,7 +12,7 @@ Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token vali
 - Public lookup endpoints: `GET /api/v1/unitProfiles/:region/:unit`, `GET /api/v1/unitProfiles/:region/:unit/members`, `GET /api/v1/gameCharacterUnits/:region/:id`, and `GET /api/v1/gameCharacters/:region/:id`
 - Public card metadata batch endpoint: `GET /api/v1/cards/:region/batch?ids=1,2,3`
 - OIDC-protected admin APIs and dashboard
-- SQLite for development; PostgreSQL for test and production
+- PostgreSQL in every environment
 - Redis-backed master-data cache with specialized card/music/event/virtual-live queries
 - Multi-region GitHub master-data sync
 - Swagger UI in development and test environments
@@ -27,7 +27,8 @@ mise run tidy
 mise run run
 ```
 
-Host-mode runs default to SQLite. The standard development/testing path for
+Host-mode runs need a reachable PostgreSQL through `DATABASE_URL` and Redis
+through `REDIS_ADDR`. The standard development/testing path for
 this repository is the remote-cluster workflow: `mise run dev-cluster-rebuild`
 builds a ko image and deploys it to the remote test cluster, and
 `mise run dev-cluster-forward` forwards the public API + admin port to
@@ -37,7 +38,7 @@ private environment details; see `AGENTS.md` for the workflow.
 ## Common Commands
 
 - `mise run run`: run the API on the host
-- `mise run test`: run tests
+- `mise run test`: run tests (PostgreSQL tests start a PostgreSQL 18 container through the host Docker API and skip without Docker)
 - `mise run lint`: run formatting check and `go vet`
 - `mise run format`: format Go files
 - `mise run swagger`: regenerate Swagger docs
