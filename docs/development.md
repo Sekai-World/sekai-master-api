@@ -13,11 +13,22 @@ Dotenv load precedence is:
 5. `.env`
 6. Built-in defaults
 
-Development defaults to SQLite unless `DATABASE_DRIVER=pgx` is set. Test and production default to PostgreSQL.
+PostgreSQL is the only supported database in every environment: set
+`DATABASE_URL`. SQLite support was removed; `DATABASE_DRIVER` is optional and
+accepts only `pgx`, so a leftover `DATABASE_DRIVER=sqlite` fails startup
+instead of silently switching databases.
+
+The process opens one `pgxpool` pool; the `database/sql` repositories (sync
+status and lease), health checks, and migrations share it through a bridge.
+Size and timeouts come from `DATABASE_MAX_CONNS`, `DATABASE_MIN_CONNS`,
+`DATABASE_CONNECT_TIMEOUT_SECONDS`, `DATABASE_MAX_CONN_LIFETIME_SECONDS`, and
+`DATABASE_MAX_CONN_IDLE_SECONDS`; `0` keeps the `pool_*`/`connect_timeout`
+parameters of `DATABASE_URL` or the pgx defaults.
 
 ## Local Development
 
-For host-mode API development (defaults to SQLite):
+For host-mode API development (needs PostgreSQL and Redis through
+`DATABASE_URL` / `REDIS_ADDR`):
 
 ```sh
 mise run run
@@ -50,6 +61,25 @@ to `mise run test-docker`, which runs `go test ./...` in a container via
 `scripts/docker-go.sh` with cached module/build volumes. That fallback requires
 a host Docker engine.
 
+## PostgreSQL Tests
+
+Storage and repository tests run against real PostgreSQL through the
+`internal/storage/pgtest` harness: the first test that needs a database starts
+one `postgres:18` container per test binary with `testcontainers-go` on the
+host Docker API, and every test gets its own fresh database. A package that
+uses the harness calls `pgtest.Main` from its `TestMain`.
+
+- Without Docker these tests skip with a message, unless `CI` is set: CI
+  (GitHub Actions sets `CI=true`) fails instead, so they always run there.
+- `PGTEST_DATABASE_URL` points the tests at an existing server instead of a
+  container; the user needs permission to create databases.
+- Registry mirrors work through the standard testcontainers settings, for
+  example `TESTCONTAINERS_HUB_IMAGE_NAME_PREFIX=mirror.gcr.io/`.
+- The image is Debian-based on purpose: its default collation is not byte
+  order, so tests notice a missing `COLLATE "C"`.
+- `mise run test-docker` runs Go inside a container without the Docker socket,
+  so the PostgreSQL tests skip there.
+
 ## Migrations
 
 Migrations run automatically on API startup through Goose.
@@ -61,7 +91,8 @@ mise run migrate-up
 mise run migrate-down
 ```
 
-`mise run migrate-*` resolves the database from `APP_ENV`, dotenv files, and `DATABASE_DRIVER`.
+`mise run migrate-*` reads `DATABASE_URL` from the dotenv files of `APP_ENV`.
+All migrations are PostgreSQL-only.
 
 Example:
 

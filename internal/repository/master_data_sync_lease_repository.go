@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"sekai-master-api/internal/domain/masterdata"
@@ -17,15 +16,11 @@ import (
 // caller and passed as parameters so expiry comparisons never mix database
 // and application clocks.
 type MasterDataSyncLeaseRepository struct {
-	db     *sql.DB
-	driver string
+	db *sql.DB
 }
 
-func NewMasterDataSyncLeaseRepository(db *sql.DB, driver string) *MasterDataSyncLeaseRepository {
-	return &MasterDataSyncLeaseRepository{
-		db:     db,
-		driver: strings.ToLower(strings.TrimSpace(driver)),
-	}
+func NewMasterDataSyncLeaseRepository(db *sql.DB) *MasterDataSyncLeaseRepository {
+	return &MasterDataSyncLeaseRepository{db: db}
 }
 
 // MasterDataSyncLeaseRecord is one row of master_data_sync_leases.
@@ -52,19 +47,6 @@ func (repository *MasterDataSyncLeaseRepository) Acquire(ctx context.Context, na
 	query := `
 INSERT INTO master_data_sync_leases (
 	name, holder, fencing_token, acquired_at, expires_at, last_heartbeat_at
-) VALUES (?, ?, 1, ?, ?, ?)
-ON CONFLICT (name) DO UPDATE SET
-	holder = EXCLUDED.holder,
-	fencing_token = master_data_sync_leases.fencing_token + 1,
-	acquired_at = EXCLUDED.acquired_at,
-	expires_at = EXCLUDED.expires_at,
-	last_heartbeat_at = EXCLUDED.last_heartbeat_at
-WHERE master_data_sync_leases.expires_at <= EXCLUDED.last_heartbeat_at
-RETURNING fencing_token, acquired_at, expires_at, last_heartbeat_at`
-	if repository.isPostgres() {
-		query = `
-INSERT INTO master_data_sync_leases (
-	name, holder, fencing_token, acquired_at, expires_at, last_heartbeat_at
 ) VALUES ($1, $2, 1, $3, $4, $5)
 ON CONFLICT (name) DO UPDATE SET
 	holder = EXCLUDED.holder,
@@ -74,7 +56,6 @@ ON CONFLICT (name) DO UPDATE SET
 	last_heartbeat_at = EXCLUDED.last_heartbeat_at
 WHERE master_data_sync_leases.expires_at <= EXCLUDED.last_heartbeat_at
 RETURNING fencing_token, acquired_at, expires_at, last_heartbeat_at`
-	}
 
 	record := &MasterDataSyncLeaseRecord{Name: name, Holder: holder}
 	err := repository.db.QueryRowContext(ctx, query, name, holder, now, expiresAt, now).Scan(
@@ -103,21 +84,11 @@ func (repository *MasterDataSyncLeaseRepository) Renew(ctx context.Context, name
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
 
-	var result sql.Result
-	var err error
-	if repository.isPostgres() {
-		result, err = repository.db.ExecContext(
-			ctx,
-			`UPDATE master_data_sync_leases SET expires_at = $3, last_heartbeat_at = $4 WHERE name = $1 AND holder = $2`,
-			name, holder, expiresAt, now,
-		)
-	} else {
-		result, err = repository.db.ExecContext(
-			ctx,
-			`UPDATE master_data_sync_leases SET expires_at = ?, last_heartbeat_at = ? WHERE name = ? AND holder = ?`,
-			expiresAt, now, name, holder,
-		)
-	}
+	result, err := repository.db.ExecContext(
+		ctx,
+		`UPDATE master_data_sync_leases SET expires_at = $3, last_heartbeat_at = $4 WHERE name = $1 AND holder = $2`,
+		name, holder, expiresAt, now,
+	)
 	if err != nil {
 		return false, fmt.Errorf("renew sync lease: %w", err)
 	}
@@ -138,14 +109,11 @@ func (repository *MasterDataSyncLeaseRepository) Release(ctx context.Context, na
 	}
 
 	now := time.Now().UTC()
-	query := `UPDATE master_data_sync_leases SET expires_at = ?, last_heartbeat_at = ? WHERE name = ? AND holder = ?`
-	args := []any{now, now, name, holder}
-	if repository.isPostgres() {
-		query = `UPDATE master_data_sync_leases SET expires_at = $3, last_heartbeat_at = $4 WHERE name = $1 AND holder = $2`
-		args = []any{name, holder, now, now}
-	}
-
-	if _, err := repository.db.ExecContext(ctx, query, args...); err != nil {
+	if _, err := repository.db.ExecContext(
+		ctx,
+		`UPDATE master_data_sync_leases SET expires_at = $3, last_heartbeat_at = $4 WHERE name = $1 AND holder = $2`,
+		name, holder, now, now,
+	); err != nil {
 		return fmt.Errorf("release sync lease: %w", err)
 	}
 	return nil
@@ -157,13 +125,12 @@ func (repository *MasterDataSyncLeaseRepository) Get(ctx context.Context, name s
 		return nil, false, nil
 	}
 
-	query := `SELECT holder, fencing_token, acquired_at, expires_at, last_heartbeat_at FROM master_data_sync_leases WHERE name = ?`
-	if repository.isPostgres() {
-		query = `SELECT holder, fencing_token, acquired_at, expires_at, last_heartbeat_at FROM master_data_sync_leases WHERE name = $1`
-	}
-
 	record := &MasterDataSyncLeaseRecord{Name: name}
-	err := repository.db.QueryRowContext(ctx, query, name).Scan(
+	err := repository.db.QueryRowContext(
+		ctx,
+		`SELECT holder, fencing_token, acquired_at, expires_at, last_heartbeat_at FROM master_data_sync_leases WHERE name = $1`,
+		name,
+	).Scan(
 		&record.Holder,
 		&record.FencingToken,
 		&record.AcquiredAt,
@@ -177,10 +144,6 @@ func (repository *MasterDataSyncLeaseRepository) Get(ctx context.Context, name s
 		return nil, false, fmt.Errorf("get sync lease: %w", err)
 	}
 	return record, true, nil
-}
-
-func (repository *MasterDataSyncLeaseRepository) isPostgres() bool {
-	return repository.driver == "pgx" || repository.driver == "postgres" || repository.driver == "postgresql"
 }
 
 // MasterDataSyncLeaseCoordinator binds the lease repository to one lease

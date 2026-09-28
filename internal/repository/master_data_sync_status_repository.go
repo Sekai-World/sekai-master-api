@@ -13,17 +13,15 @@ import (
 
 type MasterDataSyncStatusRepository struct {
 	db        *sql.DB
-	driver    string
 	leaseName string
 }
 
 // NewMasterDataSyncStatusRepository builds the status store. leaseName names
 // the master_data_sync_leases row whose fencing token guards writes; an empty
 // leaseName disables the fence (no lease row is ever consulted).
-func NewMasterDataSyncStatusRepository(db *sql.DB, driver string, leaseName string) *MasterDataSyncStatusRepository {
+func NewMasterDataSyncStatusRepository(db *sql.DB, leaseName string) *MasterDataSyncStatusRepository {
 	return &MasterDataSyncStatusRepository{
 		db:        db,
-		driver:    strings.ToLower(strings.TrimSpace(driver)),
 		leaseName: strings.TrimSpace(leaseName),
 	}
 }
@@ -48,12 +46,7 @@ func (repository *MasterDataSyncStatusRepository) Save(ctx context.Context, stat
 		return err
 	}
 
-	if repository.isPostgres() {
-		err = insertSyncStatusPostgres(ctx, tx, status)
-	} else {
-		err = insertSyncStatusSQLite(ctx, tx, status)
-	}
-	if err != nil {
+	if err := insertSyncStatus(ctx, tx, status); err != nil {
 		return err
 	}
 
@@ -64,22 +57,19 @@ func (repository *MasterDataSyncStatusRepository) Save(ctx context.Context, stat
 	return nil
 }
 
-// assertLeaseFencing locks the lease row (FOR UPDATE on PostgreSQL) and
-// rejects the caller's write when its token is stale. On SQLite the
-// transaction serializes with other writers; production fencing runs on
-// PostgreSQL.
+// assertLeaseFencing locks the lease row (FOR UPDATE) and rejects the
+// caller's write when its token is stale.
 func (repository *MasterDataSyncStatusRepository) assertLeaseFencing(ctx context.Context, tx *sql.Tx, writerToken int64) error {
 	if repository.leaseName == "" {
 		return nil
 	}
 
-	query := `SELECT fencing_token FROM master_data_sync_leases WHERE name = ?`
-	if repository.isPostgres() {
-		query = `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR UPDATE`
-	}
-
 	var leaseToken int64
-	err := tx.QueryRowContext(ctx, query, repository.leaseName).Scan(&leaseToken)
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR UPDATE`,
+		repository.leaseName,
+	).Scan(&leaseToken)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -92,37 +82,8 @@ func (repository *MasterDataSyncStatusRepository) assertLeaseFencing(ctx context
 	return nil
 }
 
-func insertSyncStatusSQLite(ctx context.Context, tx *sql.Tx, status masterdata.SyncStatus) error {
+func insertSyncStatus(ctx context.Context, tx *sql.Tx, status masterdata.SyncStatus) error {
 	insertQuery := `
-INSERT INTO master_data_sync_status (
-	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
-	source_owner, source_repo, source_ref, source_path, fencing_token
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-	if _, err := tx.ExecContext(
-		ctx,
-		insertQuery,
-		status.Region,
-		status.Status,
-		status.FileCount,
-		status.SyncDurationMS,
-		status.LastSyncedAt,
-		nullableText(status.SourceCommit),
-		nullableText(status.ErrorMessage),
-		status.Source.Owner,
-		status.Source.Repo,
-		status.Source.Ref,
-		nullableText(status.Source.Path),
-		status.FencingToken,
-	); err != nil {
-		return fmt.Errorf("insert sync status: %w", err)
-	}
-
-	return nil
-}
-
-func insertSyncStatusPostgres(ctx context.Context, tx *sql.Tx, status masterdata.SyncStatus) error {
-	insertPostgres := `
 INSERT INTO master_data_sync_status (
 	region, status, file_count, sync_duration_ms, last_synced_at, source_commit, error_message,
 	source_owner, source_repo, source_ref, source_path, fencing_token
@@ -130,7 +91,7 @@ INSERT INTO master_data_sync_status (
 
 	if _, err := tx.ExecContext(
 		ctx,
-		insertPostgres,
+		insertQuery,
 		status.Region,
 		status.Status,
 		status.FileCount,
@@ -366,10 +327,6 @@ func nullableText(value string) any {
 	}
 
 	return value
-}
-
-func (repository *MasterDataSyncStatusRepository) isPostgres() bool {
-	return repository.driver == "pgx" || repository.driver == "postgres" || repository.driver == "postgresql"
 }
 
 func (repository *MasterDataSyncStatusRepository) SeedPending(ctx context.Context, sources []masterdata.Source) error {

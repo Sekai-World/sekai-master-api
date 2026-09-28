@@ -76,7 +76,7 @@ func main() {
 		logger.Fatalf("failed to register runtime metrics: %v", err)
 	}
 
-	db, err := storage.OpenDB(cfg)
+	db, err := storage.OpenDB(context.Background(), cfg)
 	if err != nil {
 		logger.Fatalf("failed to initialize database: %v", err)
 	}
@@ -96,7 +96,7 @@ func main() {
 	if cfg.MasterDataSyncLeaseEnabled {
 		syncLeaseName = cfg.MasterDataSyncLeaseName
 	}
-	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db, cfg.DatabaseDriver(), syncLeaseName)
+	masterDataStatusRepository := repository.NewMasterDataSyncStatusRepository(db.SQL, syncLeaseName)
 	masterDataLoader := repository.NewGitHubMasterDataRepository(
 		time.Duration(cfg.MasterDataHTTPTimeout)*time.Second,
 		cfg.MasterDataGitHubToken,
@@ -132,7 +132,7 @@ func main() {
 		}
 		holder := fmt.Sprintf("%s/%s", hostname, processBootTime.Format(time.RFC3339))
 		syncLeaseCoordinator := repository.NewMasterDataSyncLeaseCoordinator(
-			repository.NewMasterDataSyncLeaseRepository(db, cfg.DatabaseDriver()),
+			repository.NewMasterDataSyncLeaseRepository(db.SQL),
 			cfg.MasterDataSyncLeaseName,
 			holder,
 			leaseTTL,
@@ -153,7 +153,7 @@ func main() {
 		logger.Fatalf("failed to register master data metrics: %v", err)
 	}
 	startupState := startup.NewState()
-	router, gitHubWebhookHandler, err := transport.NewRouter(cfg, db, tokenVerifier, masterDataSyncUsecase, masterDataEventHub, startupState, appCtx)
+	router, gitHubWebhookHandler, err := transport.NewRouter(cfg, db.SQL, tokenVerifier, masterDataSyncUsecase, masterDataEventHub, startupState, appCtx)
 	if err != nil {
 		logger.Fatalf("failed to initialize router: %v", err)
 	}
@@ -199,7 +199,7 @@ func main() {
 		go func() {
 			defer lifecycleWG.Done()
 
-			if err := storage.RunMigrations(appCtx, db, cfg); err != nil {
+			if err := storage.RunMigrations(appCtx, db.SQL); err != nil {
 				if errors.Is(err, context.Canceled) {
 					logger.Infow("startup migrations cancelled by shutdown")
 					return
@@ -567,7 +567,7 @@ func runMigrationCommand(args []string) (err error) {
 	}
 	defer cleanupLogger()
 
-	db, err := storage.OpenDB(cfg)
+	db, err := storage.OpenDB(context.Background(), cfg)
 	if err != nil {
 		return fmt.Errorf("initialize database for migrations: %w", err)
 	}
@@ -581,7 +581,7 @@ func runMigrationCommand(args []string) (err error) {
 		}
 	}()
 
-	if err := storage.RunMigrations(context.Background(), db, cfg); err != nil {
+	if err := storage.RunMigrations(context.Background(), db.SQL); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
 

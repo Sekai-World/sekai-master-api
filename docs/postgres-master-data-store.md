@@ -448,12 +448,18 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
 
 1. **Infra.** Add the read-only `serve` role and secret, and set the interim
    `noeviction`.
-2. **Groundwork.**
-   - Drop SQLite.
-   - Add one `pgxpool`, with `database/sql` bridged to it.
-   - Add the testcontainers harness and run it in CI.
+2. **Groundwork.** Done:
+   - Drop SQLite. `DATABASE_DRIVER` stays optional but accepts only `pgx`;
+     any other value fails startup.
+   - Add one `pgxpool`, with `database/sql` bridged to it
+     (`storage.OpenDB` returns both). Pool size and timeouts are the
+     `DATABASE_*_CONNS` and `DATABASE_*_SECONDS` settings.
+   - Add the testcontainers harness (`internal/storage/pgtest`) and run it in
+     CI. It uses the Debian `postgres:18` image, whose default collation is
+     not byte order, so a missing `COLLATE "C"` fails the tests.
    - Add the PostgreSQL-only migrations for the new tables.
-   - Move composite keys and the block sort key into `masterdata`.
+   - Move composite keys and the block sort key into `masterdata`
+     (`record_key.go`).
 3. **New store.** Add `PostgresMasterDataStore` (read and write, block codec)
    behind `MASTER_DATA_STORE=redis|postgres`, defaulting to `redis`. Run the
    contract suite against both stores.
