@@ -357,7 +357,10 @@ requires.
 
 - **Data readiness for a region** is the latest persisted sync status
   `success` plus a `master_entities` row with `record_count > 0` for the
-  entity. That is one or two indexed queries with no process state.
+  entity. That is one or two indexed queries with no process state. An
+  entity the region's source does not have (CN has no `gameNews`) is ready
+  once the region holds any records, so its lists read as empty instead of
+  `503`; a region with no records at all stays not ready.
 - **Removed with the search index:**
   - `HasRegionIndex`, `RuntimeSearchIndexReadyRegions`, the search-index LRU,
     the persisted search index, `Search` (no HTTP caller), startup warm-up and

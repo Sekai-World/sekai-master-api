@@ -18,7 +18,7 @@ ownership is unclear.
 - Authentication boundary: only admin APIs require authentication; other GET APIs are public by default.
 - Query strategy:
   - Master data lives in PostgreSQL (`storage.PostgresMasterDataStore`, `docs/postgres-master-data-store.md`): compressed key-sorted record blocks, order keys, relation index postings, and list projections, all written by sync. Redis holds no master data and is not a readiness input.
-  - Data endpoints treat a region as ready for an entity when its current persisted sync status is `success` and the store holds records of that entity (`shared.EnsureRegionReadyForEntityRecords`).
+  - Data endpoints treat a region as ready for an entity when its current persisted sync status is `success` and the store holds records of that entity, or of the region when its source lacks the entity (`shared.RegionReadyForEntity`).
   - `cards` list pagination: paginate by real data order, using array index; do not rely on contiguous IDs.
   - Read paths never write: status, available-region, admin dashboard, readiness, and metrics reads, and every public read, only read the store. Only sync writes master data.
   - If a response has a top-level `releaseConditionId`, look up `releaseConditions` and expand it as `releaseCondition`; do not expose `releaseConditionId` directly.

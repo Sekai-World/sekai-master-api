@@ -1532,6 +1532,25 @@ func (usecase *MasterDataSyncUsecase) HasEntityRecords(ctx context.Context, regi
 	return false, nil
 }
 
+// HasRegionData reports whether the store holds any records for region. A
+// store that cannot tell reports false.
+func (usecase *MasterDataSyncUsecase) HasRegionData(ctx context.Context, region string) (bool, error) {
+	if usecase == nil || usecase.cache == nil {
+		return false, nil
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		return false, nil
+	}
+
+	if inspector, ok := usecase.cache.(MasterDataCacheRegionDataInspector); ok {
+		return inspector.HasRegionData(ctx, region)
+	}
+
+	return false, nil
+}
+
 func (usecase *MasterDataSyncUsecase) HasSuccessfulSync(ctx context.Context, region string) (bool, error) {
 	if usecase == nil || usecase.statusStore == nil {
 		return false, nil

@@ -11,10 +11,12 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-// RegionHasSyncedEntityRecords reports whether region's data is ready for an
-// entity: the region's latest sync status is success and the store holds
-// records of the entity.
-func RegionHasSyncedEntityRecords(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) (bool, error) {
+// RegionReadyForEntity reports whether region's data is ready for an entity:
+// the region's latest sync status is success, and the store holds records of
+// the entity or, for an entity the region's source does not have, any records
+// of the region. A region whose store is empty stays not ready, so reads never
+// answer from a store that sync has not filled yet.
+func RegionReadyForEntity(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) (bool, error) {
 	if masterDataSync == nil {
 		return true, nil
 	}
@@ -26,8 +28,14 @@ func RegionHasSyncedEntityRecords(ctx context.Context, masterDataSync *usecase.M
 	}
 
 	hasRecords, err := masterDataSync.HasEntityRecords(ctx, normalizedRegion, normalizedEntity)
-	if err != nil || !hasRecords {
+	if err != nil {
 		return false, err
+	}
+	if !hasRecords {
+		hasRecords, err = masterDataSync.HasRegionData(ctx, normalizedRegion)
+		if err != nil || !hasRecords {
+			return false, err
+		}
 	}
 	return masterDataSync.HasSuccessfulSync(ctx, normalizedRegion)
 }
@@ -37,7 +45,7 @@ func EnsureRegionReadyForEntityRecords(c *gin.Context, masterDataSync *usecase.M
 		return true
 	}
 
-	ready, err := RegionHasSyncedEntityRecords(c.Request.Context(), masterDataSync, region, entity)
+	ready, err := RegionReadyForEntity(c.Request.Context(), masterDataSync, region, entity)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false
