@@ -4,5 +4,5 @@ Public API:  {{ if .Values.ingress.public.enabled }}{{ ternary "https" "http" .V
 Control UI: {{ if .Values.ingress.control.enabled }}{{ ternary "https" "http" .Values.ingress.control.tls.enabled }}://{{ .Values.ingress.control.host }}/admin{{ else }}Ingress disabled{{ end }}
 
 The health endpoint checks the process and database only. It does not confirm
-that Redis contains region data. Populate persistent Redis from the control
-role before routing production traffic to serve.
+that PostgreSQL holds region data; serve's /readyz does. Let the control role
+sync before routing production traffic to serve.

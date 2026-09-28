@@ -6,14 +6,14 @@ This chart deploys one application image in two runtime roles:
 - `control`: single-replica admin, webhook, migration, and master-data sync workload.
 
 It targets the official F5 NGINX Ingress Controller using standard
-`networking.k8s.io/v1` Ingress resources. It does not install PostgreSQL, Redis,
-an ingress controller, or TLS certificates.
+`networking.k8s.io/v1` Ingress resources. It does not install PostgreSQL, an
+ingress controller, or TLS certificates.
 
 ## Prerequisites
 
 - Kubernetes 1.24 or newer.
 - Helm 3 or 4.
-- External PostgreSQL and persistent or managed Redis.
+- External PostgreSQL, which holds master data and sync state.
 - An installed F5 NGINX Ingress Controller and matching `IngressClass` (the
   default class name is `nginx`).
 - A published application image containing `/usr/local/bin/sekai-master-api`.
@@ -31,7 +31,6 @@ metadata:
 type: Opaque
 stringData:
   DATABASE_URL: postgres://...
-  REDIS_PASSWORD: ...
 ---
 apiVersion: v1
 kind: Secret
@@ -48,7 +47,7 @@ stringData:
 ```
 
 Only include keys required by your configuration. Keep non-secret settings such
-as `REDIS_ADDR`, region/source configuration, and observability endpoints in an
+as region/source configuration and observability endpoints in an
 existing ConfigMap or under `common.env`.
 
 Example production values:
@@ -62,7 +61,6 @@ common:
   env:
     APP_ENV: production
     DATABASE_DRIVER: pgx
-    REDIS_ADDR: redis.example.internal:6379
   envFrom:
     configMaps: [sekai-master-api-config]
     secrets: [sekai-master-api-runtime]
@@ -124,35 +122,19 @@ and [basic Ingress configuration](https://docs.nginx.com/nginx-ingress-controlle
 
 ## Data and rollout behavior
 
-Redis is the shared data plane. Use persistent or managed Redis with backups.
-`serve` cannot repair an empty Redis; after Redis loss, trigger force sync on
-`control` to rebuild records and persisted search indexes.
+PostgreSQL is the shared data plane: it holds master data, its relation
+indexes and list projections, and sync status and leases
+(`docs/postgres-master-data-store.md`). `serve` only reads and cannot repair a
+missing region; trigger a force sync on `control` to rewrite it. The source
+repositories on GitHub are the canonical copy of every record, so master data
+itself needs no separate backup; the database's own backups cover sync history.
 
-### Redis durability and recovery
-
-Production Redis must be managed/highly available or use durable storage with
-both RDB snapshots and AOF persistence. For AOF, use `appendfsync everysec` or a
-provider-equivalent policy; this deployment's recovery objective is **RPO ≤ 60
-seconds** and **RTO ≤ 30 minutes** for the Redis master-data data plane. Keep
-encrypted backups outside the Redis node/PVC, retain daily backups for at least
-30 days, and test a restore at least quarterly.
-
-Before re-enabling public traffic after a Redis replacement or restore:
-
-1. Verify PostgreSQL and Redis connectivity, capacity/saturation, and error-rate
-   alerts are healthy in the managed-dependency dashboards.
-2. Verify the restored Redis keyspace/version state against the expected release
-   and configured `MASTER_DATA_REDIS_KEY_PREFIX`.
-3. Run force sync through `control` when the cache is absent, stale, or cannot
-   be verified; wait for `serve /readyz` and a representative public read to
-   return `200`.
-4. Record the recovery duration and data/version outcome in the drill record.
-
-Alert on Redis/PostgreSQL connectivity failures, connection saturation, memory
-or storage saturation, dependency error rates, and `serve` readiness failures.
-The application exposes Redis usage metrics; managed-service metrics should be
-scraped from the selected provider or exporter. This chart deliberately does not
-embed provider-specific credentials or monitoring resources.
+`serve` issues no writes, so it can run with a read-only database role. Put the
+owner `DATABASE_URL` in a Secret listed under `control.envFrom` and
+`migration.envFrom`, and a read-only one under `serve.envFrom`, instead of one
+Secret under `common.envFrom`. The read-only role needs `CONNECT` and `SELECT`
+on the application's tables, including tables later migrations create
+(`ALTER DEFAULT PRIVILEGES`).
 
 ### Schema migration hook
 
@@ -205,7 +187,7 @@ podDisruptionBudget:
 ```
 
 `networkPolicy` is also opt-in because each cluster has different ingress,
-PostgreSQL, Redis, OIDC, GitHub, DNS, telemetry, and backup destinations. When
+PostgreSQL, OIDC, GitHub, DNS, and telemetry destinations. When
 enabled, it selects both application roles and applies the explicitly supplied
 native Kubernetes ingress/egress rules. Verify all required dependency traffic
 before enabling it in production.
@@ -222,8 +204,8 @@ coordinate sync ownership across pods (see
 `docs/distributed-sync-coordination.md`). Both tracked value sets keep
 coordination off and run one `Recreate`-upgraded control pod; the
 coordinated render is exercised by `scripts/helm-verify.sh` through `--set`
-overrides. Deploy `control`, populate Redis, and only then route traffic to
-`serve`.
+overrides. Deploy `control`, let it sync into PostgreSQL, and only then route
+traffic to `serve`.
 
 ### Production safety profile
 
@@ -311,13 +293,6 @@ them. `additionalMetrics` accepts complete `autoscaling/v2` metric entries and
 `behavior` accepts the native HPA scaling behavior object. `control` remains
 fixed at one replica and never receives an HPA.
 
-The control process writes local payload snapshots. The chart mounts an
-ephemeral writable directory at `/app/tmp/master-data-backup` by default so the
-read-only root filesystem remains usable. Set
-`control.backupVolume.persistentVolumeClaim` to an existing PVC if those
-snapshots must survive a control pod replacement; the default `emptyDir` is not
-a disaster-recovery backup.
-
 The image entrypoint used for local Compose writes development overrides and
 does not forward arguments. Kubernetes therefore invokes the binary directly
 with `command: /usr/local/bin/sekai-master-api` and role arguments; this is
@@ -332,14 +307,13 @@ to have persisted cards records; a failed or in-progress control sync no longer
 blocks readiness once records exist (`regions_pending_sync` in the response is
 diagnostic only). Readiness probes are enabled by default.
 
-The `serve` `/readyz` is a bounded, read-only check: it verifies Redis
-connectivity once, then requires every configured region to have persisted card
-records AND version metadata before reporting the pod ready. If Redis is
-unreachable the response reason is `redis` and every configured region is listed
-as affected (`unready_regions`); if a region lacks data or version metadata the
-reason is `master_data` and only the affected regions are listed. The response
-never includes secrets such as database URLs, Redis credentials, or source
-repository references.
+The `serve` `/readyz` is a bounded, read-only check: it requires every
+configured region to have persisted card records AND version metadata before
+reporting the pod ready. If PostgreSQL is unreachable or a store read fails the
+response reason is `database` and every configured region is listed as affected
+(`unready_regions`); if a region lacks data or version metadata the reason is
+`master_data` and only the affected regions are listed. The response never
+includes secrets such as database URLs or source repository references.
 
 Startup probes only gate process boot and database migrations via `/startupz`;
 they do not wait for master-data sync. The `control` role marks startup complete
@@ -367,11 +341,9 @@ per-role equivalents (`serve.extraVolumes`, `control.extraVolumes`, etc.).
 Role-level entries are appended after common-level entries using the same
 `mergeOverwrite`-style append as `podAnnotations`.
 
-The `control` role mounts two built-in writable volumes by default so the
+The `control` role mounts one built-in writable volume by default so the
 read-only root filesystem remains usable:
 
-- `/app/tmp/master-data-backup` — local payload snapshots. Override via
-  `control.backupVolume.persistentVolumeClaim`.
 - `/app/tmp/master-data-sync-resume` — master-data sync resume state. Disable
   with `control.resumeVolume.enabled: false` or switch to a PVC via
   `control.resumeVolume.persistentVolumeClaim`.
@@ -404,7 +376,7 @@ On `SIGTERM`/`SIGINT` the process:
 3. Waits for the lifecycle goroutines and any in-flight sync to finish, bounded
    by the shutdown timeout.
 4. Closes dependencies in order — first the OTel periodic callbacks/flush, then
-   Redis cache, then the database — and finally flushes the log buffers.
+   the database — and finally flushes the log buffers.
 
 The bounded shutdown window is controlled by `SHUTDOWN_TIMEOUT_SECONDS` (sourced
 from `common.shutdownTimeoutSeconds`, default `25`). It must stay **smaller** than
