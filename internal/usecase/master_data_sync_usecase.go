@@ -695,7 +695,7 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 		regions = append(regions, source.Region)
 	}
 
-	previousStatuses := usecase.loadStatusMap(ctx)
+	previousStatuses, latestStatuses := usecase.loadStatusMap(ctx)
 
 	var (
 		resultMu      sync.Mutex
@@ -741,6 +741,7 @@ func (usecase *MasterDataSyncUsecase) syncClaimed(ctx context.Context, force boo
 				recordFailure: recordFailure,
 			}
 			task.previous, task.hasPreviousStatus = previousStatuses[source.Region]
+			task.latestStatus = strings.ToLower(strings.TrimSpace(latestStatuses[source.Region].Status))
 			task.syncRegion(ctx, regionCtx)
 		})
 	}
@@ -759,14 +760,17 @@ type regionSyncTask struct {
 	source            masterdata.Source
 	previous          masterdata.SyncStatus
 	hasPreviousStatus bool
-	force             bool
-	step              int
-	totalSteps        int
-	now               time.Time
-	startedAt         time.Time
-	resolvedCommit    string
-	cacheReady        bool
-	recordFailure     func(region string, err error)
+	// latestStatus is the region's latest status before this run, while
+	// previous is its latest successful status.
+	latestStatus   string
+	force          bool
+	step           int
+	totalSteps     int
+	now            time.Time
+	startedAt      time.Time
+	resolvedCommit string
+	cacheReady     bool
+	recordFailure  func(region string, err error)
 }
 
 // syncRegion runs one region through the shortcut checks and the full sync
@@ -1094,7 +1098,11 @@ func (task *regionSyncTask) failRegionLoad(ctx context.Context, loadErr error) {
 	}
 
 	duration := time.Since(task.startedAt).Milliseconds()
-	if isRateLimitError(loadErr) {
+	// The rate-limit fallback keeps the stored data as the previous success,
+	// so it applies only while the store holds the region and the last run
+	// succeeded: after a failed or interrupted run the store may hold a mix
+	// of two commits.
+	if isRateLimitError(loadErr) && task.cacheReady && task.latestStatus == "success" {
 		fallbackErr := task.usecase.fallbackToPreviousAvailableState(ctx, task.source, task.previous, task.now)
 		if fallbackErr == nil {
 			task.usecase.logf("sync rate limit fallback applied region=%s duration_ms=%d", task.source.Region, duration)
@@ -1346,11 +1354,22 @@ type manifestSkipProgress struct {
 
 // trySkipRegionWithUnchangedManifest keeps the stored data when the commit
 // changed but the source's versions manifest equals the stored version
-// payload, so the new commit changed nothing the store holds. It reports
-// whether the region was skipped.
+// payload, so the new commit changed nothing the store holds. Relation
+// indexes and list projections whose definitions changed are rebuilt from the
+// stored records first. It reports whether the region was skipped.
 func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, resolvedCommit string, cacheReady bool, progress manifestSkipProgress) (bool, error) {
 	if !cacheReady || !usecase.versionManifestsMatchForSkip(ctx, source, resolvedCommit) {
 		return false, nil
+	}
+	if ensurer, ok := usecase.cache.(MasterDataCacheDerivedDataEnsurer); ok {
+		built, err := ensurer.EnsureDerivedEntityData(ctx, source.Region)
+		if err != nil {
+			usecase.logf("sync compare region=%s commit=%s derived_data_ensure=failed error=%v fallback=full_sync", source.Region, resolvedCommit, err)
+			return false, nil
+		}
+		if len(built) > 0 {
+			usecase.logf("sync compare region=%s commit=%s derived_data_built=%v", source.Region, resolvedCommit, built)
+		}
 	}
 
 	skippedAt := time.Now().UTC()
@@ -1436,16 +1455,20 @@ func (usecase *MasterDataSyncUsecase) versionPayloadStored(ctx context.Context, 
 	return loadErr == nil && found
 }
 
-func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[string]masterdata.SyncStatus {
+// loadStatusMap returns each region's latest successful status, falling back
+// to its latest status when it has never succeeded, and each region's latest
+// status.
+func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) (map[string]masterdata.SyncStatus, map[string]masterdata.SyncStatus) {
 	statusMap := make(map[string]masterdata.SyncStatus)
+	latestMap := make(map[string]masterdata.SyncStatus)
 	if usecase.statusStore == nil {
-		return statusMap
+		return statusMap, latestMap
 	}
 
 	statuses, err := usecase.statusStore.List(ctx)
 	if err != nil {
 		usecase.logf("load previous statuses failed error=%v", err)
-		return statusMap
+		return statusMap, latestMap
 	}
 
 	for _, status := range statuses {
@@ -1453,13 +1476,14 @@ func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[str
 			continue
 		}
 		statusMap[status.Region] = status
+		latestMap[status.Region] = status
 	}
 
 	if successStore, ok := usecase.statusStore.(MasterDataSyncLatestSuccessStore); ok {
 		successStatuses, successErr := successStore.ListLatestSuccess(ctx)
 		if successErr != nil {
 			usecase.logf("load latest successful statuses failed error=%v", successErr)
-			return statusMap
+			return statusMap, latestMap
 		}
 
 		for _, status := range successStatuses {
@@ -1470,7 +1494,7 @@ func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[str
 		}
 	}
 
-	return statusMap
+	return statusMap, latestMap
 }
 
 func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.SyncStatus, error) {

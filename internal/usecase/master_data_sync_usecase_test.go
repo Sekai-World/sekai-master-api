@@ -876,6 +876,58 @@ func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) 
 	}
 }
 
+// derivedDataVersionSyncCache adds the derived-data rebuild to the version
+// cache fake.
+type derivedDataVersionSyncCache struct {
+	*fakeVersionSyncCache
+	ensureCalls int
+	ensureErr   error
+}
+
+func (cache *derivedDataVersionSyncCache) EnsureDerivedEntityData(_ context.Context, _ string) ([]string, error) {
+	cache.ensureCalls++
+	return []string{"events"}, cache.ensureErr
+}
+
+func TestSyncAllManifestSkipRebuildsDerivedData(t *testing.T) {
+	manifest := map[string]any{"dataVersion": "20260802"}
+	for _, tt := range []struct {
+		name      string
+		ensureErr error
+		wantLoads int
+	}{
+		{name: "rebuilt", wantLoads: 0},
+		{name: "rebuild fails", ensureErr: errors.New("ensure failed"), wantLoads: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newManifestSyncTestFixture(t, manifestSyncTestOptions{
+				previousCommit:    "old-commit",
+				previousFileCount: 99,
+				resolvedCommit:    "new-commit",
+				remoteManifest:    manifest,
+				archivePayload:    manifestPayload(manifest, "from-archive"),
+				storedManifest:    manifest,
+				cacheReady:        true,
+			})
+			cache := &derivedDataVersionSyncCache{fakeVersionSyncCache: fixture.cache, ensureErr: tt.ensureErr}
+			usecase := NewMasterDataSyncUsecase([]masterdata.Source{fixture.source}, fixture.loader, cache, fixture.statusStore, nil, 1)
+
+			if err := usecase.SyncAll(context.Background()); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if cache.ensureCalls != 1 {
+				t.Fatalf("expected one derived-data rebuild, got %d", cache.ensureCalls)
+			}
+			if fixture.loader.loadCalls != tt.wantLoads {
+				t.Fatalf("expected %d archive loads, got %d", tt.wantLoads, fixture.loader.loadCalls)
+			}
+			if latest, _ := fixture.statusStore.latest("jp"); latest.Status != "success" || latest.SourceCommit != "new-commit" {
+				t.Fatalf("expected success at new-commit, got %#v", latest)
+			}
+		})
+	}
+}
+
 func TestSyncAllLoadsRegionWhenManifestMatchesButStoreIsEmpty(t *testing.T) {
 	manifest := map[string]any{"dataVersion": "20260802"}
 	fixture := newManifestSyncTestFixture(t, manifestSyncTestOptions{
@@ -1415,44 +1467,51 @@ func TestStartSyncReleasesRunningStateAfterFailure(t *testing.T) {
 	}
 }
 
-func TestSyncAllFallsBackToPreviousStateOnRateLimit(t *testing.T) {
+// The rate-limit fallback re-saves the previous success over the stored data,
+// so it must not apply when the store is empty (for example before the first
+// sync into a new store) or when the last run failed and may have left a mix
+// of two commits.
+func TestSyncAllRateLimitFailsWhenStoredDataIsNotThePreviousSuccess(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
+	previousSuccess := masterdata.SyncStatus{
 		Region:       "jp",
 		Status:       "success",
 		FileCount:    8,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		LastSyncedAt: time.Now().UTC().Add(-2 * time.Hour),
 		SourceCommit: "prev-commit",
 		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
+		UpdatedAt:    time.Now().UTC().Add(-2 * time.Hour),
 	}
+	lastFailed := previousSuccess
+	lastFailed.Status = "failed"
+	lastFailed.SourceCommit = "failed-commit"
+	lastFailed.UpdatedAt = time.Now().UTC().Add(-time.Hour)
 
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "next-commit"},
-		loadErrByZone:  map[string]error{"jp": errors.New("api rate limit exceeded")},
-	}
-	cache := &fakeSyncCache{}
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
+	for _, tt := range []struct {
+		name          string
+		hasRegionData bool
+		latest        masterdata.SyncStatus
+	}{
+		{name: "empty store", hasRegionData: false, latest: previousSuccess},
+		{name: "last run failed", hasRegionData: true, latest: lastFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := &fakeSyncLoader{
+				resolvedByZone: map[string]string{"jp": "next-commit"},
+				loadErrByZone:  map[string]error{"jp": errors.New("api rate limit exceeded")},
+			}
+			statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{tt.latest})
+			statusStore.successByZone["jp"] = previousSuccess
+			usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, &fakeSyncCache{hasRegionData: tt.hasRegionData}, statusStore, nil, 1)
 
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error on rate limit fallback, got %v", err)
-	}
-
-	if loader.loadCalls != 1 {
-		t.Fatalf("expected one load attempt, got %d", loader.loadCalls)
-	}
-
-	latest, exists := statusStore.latest("jp")
-	if !exists {
-		t.Fatalf("expected fallback status for jp")
-	}
-	if !strings.EqualFold(latest.Status, "success") {
-		t.Fatalf("expected fallback status success, got %s", latest.Status)
-	}
-	if latest.SourceCommit != "prev-commit" {
-		t.Fatalf("expected fallback commit prev-commit, got %s", latest.SourceCommit)
+			if err := usecase.SyncAll(context.Background()); err == nil {
+				t.Fatal("expected the rate limit to fail the region")
+			}
+			latest, exists := statusStore.latest("jp")
+			if !exists || !strings.EqualFold(latest.Status, "failed") {
+				t.Fatalf("expected failed status, got %#v", latest)
+			}
+		})
 	}
 }
 

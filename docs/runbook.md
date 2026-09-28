@@ -108,6 +108,10 @@ and is not a readiness input. Flushing or losing Redis needs no action.
   summary (see `docs/release.md`).
 - Verify: `scripts/smoke.sh <public-url>` passes and the admin dashboard
   reports the expected version.
+- Images from before the Redis store was removed default to
+  `MASTER_DATA_STORE=redis`. When rolling back to one that already has the
+  PostgreSQL store, set `MASTER_DATA_STORE=postgres`, or it serves whatever
+  Redis still holds.
 
 ## Drill cadence
 

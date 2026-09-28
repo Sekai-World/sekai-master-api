@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -258,7 +259,7 @@ func TestVersionsByRegionReturnsNotFoundWhenVersionMissing(t *testing.T) {
 	}
 }
 
-func TestVersionsEndpointsReturnQueryErrorWhenVersionLoadFails(t *testing.T) {
+func TestVersionsEndpointsHandleVersionLoadErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	syncUsecase := usecase.NewMasterDataSyncUsecase([]masterdata.Source{
@@ -270,22 +271,28 @@ func TestVersionsEndpointsReturnQueryErrorWhenVersionLoadFails(t *testing.T) {
 	router.GET("/api/v1/versions", handler.AllRegions)
 	router.GET("/api/v1/versions/:region", handler.ByRegion)
 
-	for _, path := range []string{"/api/v1/versions", "/api/v1/versions/jp"} {
-		resp := httptest.NewRecorder()
-		router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, path, nil))
-		if resp.Code != http.StatusInternalServerError {
-			t.Fatalf("expected 500 for %s, got %d: %s", path, resp.Code, resp.Body.String())
-		}
-		var body struct {
-			Error struct {
-				Code string `json:"code"`
-			} `json:"error"`
-		}
-		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		if body.Error.Code != "VERSION_QUERY_ERROR" {
-			t.Fatalf("expected VERSION_QUERY_ERROR for %s, got %q", path, body.Error.Code)
-		}
+	// All regions leaves the failing region out.
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/versions", nil))
+	if resp.Code != http.StatusOK || strings.TrimSpace(resp.Body.String()) != "{}" {
+		t.Fatalf("expected 200 without the failing region, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// One region reports the error.
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/versions/jp", nil))
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "VERSION_QUERY_ERROR" {
+		t.Fatalf("expected VERSION_QUERY_ERROR, got %q", body.Error.Code)
 	}
 }
