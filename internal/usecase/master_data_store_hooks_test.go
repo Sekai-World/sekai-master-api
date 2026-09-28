@@ -151,6 +151,8 @@ func TestUnchangedCommitSkipsWhenStoreHasRegionData(t *testing.T) {
 		}})
 		cache := &systemOfRecordCache{hasRegionData: hasData}
 		usecase := newSystemOfRecordUsecase(t, loader, statusStore, cache)
+		publisher := &fakeSyncEventPublisher{}
+		usecase.publisher = publisher
 
 		if err := usecase.SyncAll(context.Background()); err != nil {
 			t.Fatalf("SyncAll (region data %t): %v", hasData, err)
@@ -164,6 +166,14 @@ func TestUnchangedCommitSkipsWhenStoreHasRegionData(t *testing.T) {
 		}
 		if latest, _ := statusStore.latest("jp"); latest.Status != "success" || latest.SourceCommit != "commit-1" {
 			t.Fatalf("region data %t: status = %+v", hasData, latest)
+		}
+		// Progress names the check this store ran, not a Redis index rebuild.
+		wantStatus, wantMessage := "running", "commit unchanged but the store has no data for the region, fallback to full sync"
+		if hasData {
+			wantStatus, wantMessage = "success", "commit unchanged, stored region data present and skipped sync"
+		}
+		if !containsSyncProgressEvent(publisher.listEvents(), "jp", wantStatus, "compare", wantMessage) {
+			t.Fatalf("region data %t: missing %s compare progress %q", hasData, wantStatus, wantMessage)
 		}
 	}
 }
