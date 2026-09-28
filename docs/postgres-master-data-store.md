@@ -616,8 +616,17 @@ Each of these reads related records one at a time:
 - the music list reads a music's artist and stage per music;
 - event rewards read each reward's box, item and title per detail.
 
-A single read costs about 1 ms on Redis and about 3 ms on Postgres, so these
-routes are batched into one `GetByIDs` per entity before step 5.
+A single read costs about 1 ms on Redis and about 3 ms on Postgres. These
+routes now read related records with one `GetByIDs` per entity
+(`shared.PrefetchRecords`). On `dev-0ee3225`, the median of five warm requests:
+
+| Route | Before | After |
+|---|---|---|
+| card list, 100 per page | 782 ms | 164 ms |
+| music list, 100 per page | 814 ms | 186 ms |
+| event rewards (events 1, 100, 201, 211) | 340–537 ms | 125–130 ms |
+
+All 2,026 URLs returned the same bytes as before the change.
 
 ## Decisions
 
