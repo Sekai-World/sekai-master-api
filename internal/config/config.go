@@ -104,6 +104,7 @@ type Config struct {
 	DatabaseConnectTimeout            time.Duration
 	DatabaseMaxConnLifetime           time.Duration
 	DatabaseMaxConnIdleTime           time.Duration
+	MasterDataStore                   string
 	MasterDataAutoSync                bool
 	MasterDataRecoverInterrupted      bool
 	MasterDataWarmSearchIndexes       bool
@@ -183,6 +184,7 @@ func Load() Config {
 		DatabaseConnectTimeout:            time.Duration(getEnvInt("DATABASE_CONNECT_TIMEOUT_SECONDS", 10)) * time.Second,
 		DatabaseMaxConnLifetime:           time.Duration(getEnvInt("DATABASE_MAX_CONN_LIFETIME_SECONDS", 0)) * time.Second,
 		DatabaseMaxConnIdleTime:           time.Duration(getEnvInt("DATABASE_MAX_CONN_IDLE_SECONDS", 0)) * time.Second,
+		MasterDataStore:                   strings.ToLower(strings.TrimSpace(getEnv("MASTER_DATA_STORE", MasterDataStoreRedis))),
 		MasterDataAutoSync:                getEnvBool("MASTER_DATA_AUTO_SYNC", true),
 		MasterDataRecoverInterrupted:      getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
 		MasterDataResumeBaseDir:           strings.TrimSpace(getEnv("MASTER_DATA_RESUME_BASE_DIR", "tmp/master-data-sync-resume")),
@@ -298,6 +300,25 @@ func dotenvLoadOrder(appEnv string) []string {
 
 func (cfg Config) IsDevelopment() bool {
 	return isDevelopmentEnv(cfg.AppEnv)
+}
+
+// Master-data stores selectable with MASTER_DATA_STORE.
+const (
+	// MasterDataStoreRedis keeps master data in Redis (the default).
+	MasterDataStoreRedis = "redis"
+	// MasterDataStorePostgres keeps master data in PostgreSQL
+	// (docs/postgres-master-data-store.md); Redis is then not used.
+	MasterDataStorePostgres = "postgres"
+)
+
+// ValidateMasterDataStore checks MASTER_DATA_STORE.
+func (cfg Config) ValidateMasterDataStore() error {
+	switch cfg.MasterDataStore {
+	case MasterDataStoreRedis, MasterDataStorePostgres:
+		return nil
+	default:
+		return fmt.Errorf("unsupported MASTER_DATA_STORE %q: use %q or %q", cfg.MasterDataStore, MasterDataStoreRedis, MasterDataStorePostgres)
+	}
 }
 
 // ValidateDatabaseDriver checks the optional DATABASE_DRIVER setting.

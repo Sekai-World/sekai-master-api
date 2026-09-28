@@ -59,6 +59,46 @@ Temporary sync workspace:
 - `tmp/master-data-sync-resume/` (overridable via `MASTER_DATA_RESUME_BASE_DIR`)
 - `tmp/master-data-backup/<region>/latest/`
 
+## PostgreSQL Store
+
+`MASTER_DATA_STORE=postgres` keeps master data in PostgreSQL instead of Redis
+(`storage.PostgresMasterDataStore`; design in
+[postgres-master-data-store.md](postgres-master-data-store.md)). The default is
+`redis`. With `postgres`, the process does not connect to Redis at all.
+
+- **Tables.** `master_entities` (one row per region and entity: revision,
+  tagged source digest, record count, zstd order keys, index and projection
+  versions), `master_blocks`, `master_record_index`, `master_projections`, and
+  `master_versions`.
+- **Blocks.** Records are sorted by `masterdata.BlockSortKey` and stored in
+  blocks that close at 32 record keys or on the record that brings them to
+  64 kB of JSON. A block is a zstd JSON array of
+  `[record_key, [position, ...], record]`: a key the source repeats keeps
+  every position and reads the record stored last under it, as in Redis.
+- **Writes.** Each entity is one transaction: it rewrites the blocks and order
+  keys when the revision changes, the postings and projection when the records
+  or their definitions change, and then the entity row. An entity whose source
+  digest, index version, and projection version all match is skipped without
+  parsing. A write that carries the sync lease's token (sync jobs do) first
+  locks the lease row `FOR SHARE` and fails with `ErrFencedOut` unless the
+  token is still current; unleased writes (the current-event cache, lease
+  disabled) pass. After a full region load, entities the source no longer has
+  are deleted.
+- **Reads.** Every read that must see one version of an entity is one
+  statement: `GetByID`, `GetByIDs`, and `GetByCompositeKeys` probe the block
+  with the greatest `first_key` at or below each key; `ListAll` reads all
+  blocks; `ListByIndex` reads the index version, the postings, and their
+  blocks together, using the SQL `master_block_sort_key()` function.
+  `ListByPage` reads the order keys and then the page. `Search` is not
+  supported; it has no HTTP caller.
+- **Readiness.** The store has no search index. A region counts as populated
+  when an entity has records (`HasRegionData`), which the commit-unchanged
+  shortcut and the cache-ready check use.
+- **Parity.** The storage contract suite runs every scenario against both
+  stores and compares their answers. `MASTER_DATA_PARITY_DIR=<checkout of a
+  master data repository> go test ./internal/storage -run
+  StoreParityOnSourceDirectory` compares both stores on real data.
+
 ## Cache Strategy
 
 Redis settings:

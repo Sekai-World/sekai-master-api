@@ -106,12 +106,26 @@ func main() {
 		cfg.MasterDataResumeBaseDir,
 	)
 	masterDataEventHub := usecase.NewMasterDataEventHub()
-	masterDataCache, err := storage.NewRedisMasterDataCache(cfg)
-	if err != nil {
-		logger.Fatalf("failed to initialize redis master data cache: %v", err)
+	if err := cfg.ValidateMasterDataStore(); err != nil {
+		logger.Fatalf("invalid master data store: %v", err)
 	}
-
-	masterDataCacheCloser := masterDataCache.Close
+	// MASTER_DATA_STORE picks where master data lives. The PostgreSQL store
+	// (docs/postgres-master-data-store.md) shares the database pool, fences
+	// its writes by the same sync lease as status writes, and needs no Redis.
+	var masterDataCache usecase.MasterDataCache
+	var redisMasterDataCache *storage.RedisMasterDataCache
+	var masterDataCacheCloser func() error
+	if cfg.MasterDataStore == config.MasterDataStorePostgres {
+		masterDataCache = storage.NewPostgresMasterDataStore(db.Pool, cfg.MasterDataFileConcurrency, syncLeaseName)
+		logger.Infow("master data store selected", "store", cfg.MasterDataStore)
+	} else {
+		redisMasterDataCache, err = storage.NewRedisMasterDataCache(cfg)
+		if err != nil {
+			logger.Fatalf("failed to initialize redis master data cache: %v", err)
+		}
+		masterDataCache = redisMasterDataCache
+		masterDataCacheCloser = redisMasterDataCache.Close
+	}
 
 	masterDataSyncUsecase := usecase.NewMasterDataSyncUsecase(
 		masterDataSources,
@@ -149,7 +163,7 @@ func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 	masterDataSyncUsecase.SetLifecycleContext(appCtx)
-	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase, masterDataCache); err != nil {
+	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase, redisMasterDataCache); err != nil {
 		logger.Fatalf("failed to register master data metrics: %v", err)
 	}
 	startupState := startup.NewState()
