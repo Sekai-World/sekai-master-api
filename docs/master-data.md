@@ -81,9 +81,8 @@ Temporary sync workspace:
   digest, index version, and projection version all match is skipped without
   parsing. A write that carries the sync lease's token (sync jobs do) first
   locks the lease row `FOR SHARE` and fails with `ErrFencedOut` unless the
-  token is still current; unleased writes (the current-event cache, lease
-  disabled) pass. After a full region load, entities the source no longer has
-  are deleted.
+  token is still current; writes without a token (lease disabled) pass.
+  After a full region load, entities the source no longer has are deleted.
 - **Reads.** Every read that must see one version of an entity is one
   statement: `GetByID`, `GetByIDs`, and `GetByCompositeKeys` probe the block
   with the greatest `first_key` at or below each key; `ListAll` reads all
