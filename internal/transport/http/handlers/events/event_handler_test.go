@@ -2316,7 +2316,7 @@ func TestEventBonusesByIDEndpointReturnsBonusDatasets(t *testing.T) {
 	}
 }
 
-func TestCurrentEventEndpointWritesCacheOnMiss(t *testing.T) {
+func TestCurrentEventEndpointReturnsBaseFieldsWithoutWriting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	nowMillis := time.Now().UTC().UnixMilli()
@@ -2359,7 +2359,6 @@ func TestCurrentEventEndpointWritesCacheOnMiss(t *testing.T) {
 						},
 					},
 				},
-				"currentevents": {},
 			},
 		},
 	}
@@ -2405,12 +2404,14 @@ func TestCurrentEventEndpointWritesCacheOnMiss(t *testing.T) {
 	if _, exists := body["virtualLiveId"]; exists {
 		t.Fatalf("expected virtualLiveId to be omitted from current response")
 	}
-	if cache.storeCallCount == 0 {
-		t.Fatalf("expected current event lookup to write cache on miss")
+	if cache.storeCallCount != 0 {
+		t.Fatalf("expected current event lookup not to write, got %d writes", cache.storeCallCount)
 	}
 }
 
-func TestCurrentEventEndpointRefreshesExpiredCache(t *testing.T) {
+// Older builds cached the current event as a currentevents entity; a store
+// may still hold one, and it must not win over the events data.
+func TestCurrentEventEndpointIgnoresStaleCurrentEventsEntity(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	nowMillis := time.Now().UTC().UnixMilli()
@@ -2475,18 +2476,10 @@ func TestCurrentEventEndpointRefreshesExpiredCache(t *testing.T) {
 	}
 
 	if body["id"] != float64(301) {
-		t.Fatalf("expected id=301 after refresh, got %v", body["id"])
+		t.Fatalf("expected id=301 from events, got %v", body["id"])
 	}
-	if cache.storeCallCount == 0 {
-		t.Fatalf("expected expired cache to trigger cache rewrite")
-	}
-
-	currentCached := cache.listByEntity["jp"]["currentevents"]
-	if len(currentCached) != 1 {
-		t.Fatalf("expected refreshed currentevents len=1, got %d", len(currentCached))
-	}
-	if currentCached[0]["id"] != 301 {
-		t.Fatalf("expected refreshed currentevents id=301, got %v", currentCached[0]["id"])
+	if cache.storeCallCount != 0 {
+		t.Fatalf("expected current event lookup not to write, got %d writes", cache.storeCallCount)
 	}
 }
 

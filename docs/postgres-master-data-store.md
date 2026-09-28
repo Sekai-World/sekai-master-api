@@ -301,8 +301,7 @@ Per entity file, on `control` and `standalone`:
       [distributed-sync-coordination](distributed-sync-coordination.md#fencing-model).
       Sync jobs carry their token in the context
       (`masterdata.WithFencingToken`). Writes without a token pass, as they
-      do for sync status: the lease is disabled, or the write is the
-      `currentevents` cache that step 5 removes.
+      do for sync status, when the lease is disabled.
    2. **Records.** If the revision differs, `DELETE` the entity's blocks,
       `COPY` the new key-sorted blocks, and write `order_keys`. Whole-entity
       rewrites are cheap: all of JP's blocks total about 25 MB, and the
@@ -486,8 +485,8 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
    - Sync passes the lease token to data writes, prunes dropped entities after
      a full load, and uses `HasRegionData` where the Redis store rebuilt its
      search index.
-   - Until step 5, `CurrentEvent` still writes its `currentevents` cache, so
-     `serve` on the PostgreSQL store needs write access.
+   - `CurrentEvent` wrote a `currentevents` cache until step 5, so `serve`
+     on the PostgreSQL store needed write access.
 4. **Dev cut-over.** Done on 2026-09-28; dev now runs on `postgres` (see
    [Dev cut-over results](#dev-cut-over-results)).
    - Set `postgres` on dev and run a full sync.
@@ -497,7 +496,10 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
 5. **Make Postgres the default.**
    - Remove the Redis store, the search index, the LRU, the local backups and
      Redis readiness.
-   - Make `CurrentEvent` read-only through the events projection.
+   - Make `CurrentEvent` read-only through the events projection. Done: the
+     `events` projection keeps `id`, `startAt` and `closedAt`, and
+     `CurrentEvent` reads only the chosen record. A `currentevents` entity
+     left by older builds is ignored; a full sync prunes it from Postgres.
    - Add the `dump` subcommand.
    - Update the docs, the runbook and `AGENTS.md`.
 6. **Production cut-over.** Deploy `control` first, run a full sync and

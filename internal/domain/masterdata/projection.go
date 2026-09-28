@@ -35,6 +35,8 @@ var entityProjections = map[string][]string{
 		"costume3dPartType", "seq", "name", "designer", "characterId", "rarity",
 		"costume3dRarity", "type", "costume3dType", "assetbundleName", "publishedAt",
 	},
+	// The event window CurrentEvent compares; the events list does not use it yet.
+	"events": {"id", "startAt", "closedAt"},
 	"gachas": {"id", "gachaType", "name", "assetbundleName", "startAt", "endAt"},
 }
 

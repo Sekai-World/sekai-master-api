@@ -149,42 +149,30 @@ type fakeSyncCache struct {
 type fakeCurrentEventCache struct {
 	mu sync.Mutex
 
-	events        []map[string]any
-	currentEvents []map[string]any
-	storeCalls    int
+	events     []map[string]any
+	storeCalls int
 }
 
-func (cache *fakeCurrentEventCache) StoreRegion(_ context.Context, _ string, payload map[string]any) error {
+func (cache *fakeCurrentEventCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
 	cache.storeCalls++
-	currentPayload, ok := payload["currentEvents.json"]
-	if !ok {
-		cache.currentEvents = []map[string]any{}
-		return nil
-	}
-
-	items, ok := currentPayload.([]any)
-	if !ok {
-		cache.currentEvents = []map[string]any{}
-		return nil
-	}
-
-	next := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		record, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		next = append(next, record)
-	}
-
-	cache.currentEvents = next
 	return nil
 }
 
-func (cache *fakeCurrentEventCache) GetByID(_ context.Context, _, _, _ string) (map[string]any, bool, error) {
+func (cache *fakeCurrentEventCache) GetByID(_ context.Context, _, entity, id string) (map[string]any, bool, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if strings.ToLower(strings.TrimSpace(entity)) != "events" {
+		return nil, false, nil
+	}
+	for _, record := range cache.events {
+		if key, _ := masterdata.CanonicalKeyPart(record["id"]); key == id {
+			return record, true, nil
+		}
+	}
 	return nil, false, nil
 }
 
@@ -196,8 +184,6 @@ func (cache *fakeCurrentEventCache) ListAll(_ context.Context, _, entity string)
 	switch strings.ToLower(strings.TrimSpace(entity)) {
 	case "events":
 		source = cache.events
-	case "currentevents":
-		source = cache.currentEvents
 	default:
 		return []map[string]any{}, nil
 	}
@@ -229,8 +215,6 @@ func (cache *fakeCurrentEventCache) ListByPage(_ context.Context, _, entity stri
 	switch strings.ToLower(strings.TrimSpace(entity)) {
 	case "events":
 		source = cache.events
-	case "currentevents":
-		source = cache.currentEvents
 	default:
 		return []map[string]any{}, 0, nil
 	}
@@ -2138,7 +2122,7 @@ func TestVersionByRegionReadsVersionPayloadWithoutLoadingWholeBackup(t *testing.
 	}
 }
 
-func TestCurrentEventConcurrentRequestsOnlyStoreCacheOnce(t *testing.T) {
+func TestCurrentEventConcurrentRequestsNeverWrite(t *testing.T) {
 	now := time.UnixMilli(1_700_000_000_000).UTC()
 	nowMillis := now.UnixMilli()
 
@@ -2151,7 +2135,6 @@ func TestCurrentEventConcurrentRequestsOnlyStoreCacheOnce(t *testing.T) {
 				"closedAt": nowMillis + 60_000,
 			},
 		},
-		currentEvents: []map[string]any{},
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -2193,8 +2176,8 @@ func TestCurrentEventConcurrentRequestsOnlyStoreCacheOnce(t *testing.T) {
 		}
 	}
 
-	if cache.StoreCallCount() != 1 {
-		t.Fatalf("expected current event cache to be stored once, got %d", cache.StoreCallCount())
+	if cache.StoreCallCount() != 0 {
+		t.Fatalf("expected current event reads not to write, got %d writes", cache.StoreCallCount())
 	}
 }
 
@@ -2211,7 +2194,6 @@ func TestCurrentEventSupportsSecondBasedTimestamps(t *testing.T) {
 				"closedAt": nowSeconds + 120,
 			},
 		},
-		currentEvents: []map[string]any{},
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -2242,7 +2224,6 @@ func TestCurrentEventRequiresClosedAt(t *testing.T) {
 				"aggregateAt": nowMillis + 60_000,
 			},
 		},
-		currentEvents: []map[string]any{},
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -2273,7 +2254,6 @@ func TestCurrentEventSupportsRFC3339Timestamps(t *testing.T) {
 				"closedAt": end,
 			},
 		},
-		currentEvents: []map[string]any{},
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -2303,7 +2283,6 @@ func TestCurrentEventSupportsMicrosecondEpoch(t *testing.T) {
 				"closedAt": nowMicros + 120_000_000,
 			},
 		},
-		currentEvents: []map[string]any{},
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -2333,7 +2312,6 @@ func TestCurrentEventSupportsDecimalNumericStringTimestamp(t *testing.T) {
 				"closedAt": fmt.Sprintf("%d.0", nowMillis+120_000),
 			},
 		},
-		currentEvents: []map[string]any{},
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -2347,6 +2325,32 @@ func TestCurrentEventSupportsDecimalNumericStringTimestamp(t *testing.T) {
 	}
 	if fmt.Sprintf("%v", record["id"]) != "891" {
 		t.Fatalf("expected id=891, got %v", record["id"])
+	}
+}
+
+func TestCurrentEventPrefersLatestStartAndReturnsFullRecord(t *testing.T) {
+	now := time.UnixMilli(1_772_438_533_000).UTC()
+	nowMillis := now.UnixMilli()
+
+	cache := &fakeCurrentEventCache{
+		events: []map[string]any{
+			{"id": 10, "name": "older-overlap", "startAt": nowMillis - 120_000, "closedAt": nowMillis + 120_000},
+			{"id": 11, "name": "newer-overlap", "startAt": nowMillis - 60_000, "closedAt": nowMillis + 60_000, "eventType": "cheerful_carnival"},
+			{"id": 12, "name": "upcoming", "startAt": nowMillis + 60_000, "closedAt": nowMillis + 120_000},
+		},
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
+
+	record, found, err := usecase.CurrentEvent(context.Background(), "jp", now)
+	if err != nil || !found {
+		t.Fatalf("expected current event, got found=%t err=%v", found, err)
+	}
+	if fmt.Sprintf("%v", record["id"]) != "11" || record["eventType"] != "cheerful_carnival" {
+		t.Fatalf("expected the full record of event 11, got %v", record)
+	}
+	if cache.StoreCallCount() != 0 {
+		t.Fatalf("expected no writes, got %d", cache.StoreCallCount())
 	}
 }
 
@@ -2371,8 +2375,7 @@ func TestCurrentEventScansBeyondFirstHundredRecords(t *testing.T) {
 	})
 
 	cache := &fakeCurrentEventCache{
-		events:        events,
-		currentEvents: []map[string]any{},
+		events: events,
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
@@ -2406,7 +2409,6 @@ func TestCurrentEventDoesNotExtendWindowWithDisplayOrDistributionTimes(t *testin
 				"eventOnlyComponentDisplayEndAt":   float64(1_776_481_199_000),
 			},
 		},
-		currentEvents: []map[string]any{},
 	}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, nil, nil, 1)
