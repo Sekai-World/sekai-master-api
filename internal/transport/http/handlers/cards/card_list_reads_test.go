@@ -14,53 +14,60 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-type revisionTrackingCardCache struct {
-	*fakeCardHandlerCache
-	revisions map[string]string
-}
-
-func (cache *revisionTrackingCardCache) EntityRevision(_ context.Context, _ string, entity string) (string, error) {
-	return cache.revisions[entity], nil
-}
-
-func TestCardListFieldsCoverSortAndBaseFields(t *testing.T) {
-	fields := make(map[string]struct{}, len(cardListFields))
-	for _, field := range cardListFields {
+func TestCardProjectionCoversListSortAndBaseFields(t *testing.T) {
+	fields := make(map[string]struct{})
+	for _, field := range masterdata.ProjectionFields("cards") {
 		fields[field] = struct{}{}
 	}
-	for _, field := range append(append([]string{}, sortableCardFields...), "characterId", "cardRarityType", "skillId", "cardSupplyId") {
+	baseFields := []string{"id", "seq", "attr", "supportUnit", "cardSkillName", "prefix", "assetbundleName", "gachaPhrase", "flavorText", "releaseAt", "archivePublishedAt", "initialSpecialTrainingStatus"}
+	lookupAndFilterFields := []string{"characterId", "cardRarityType", "skillId", "cardSupplyId", "releastAt", "publishedAt", "startAt"}
+	for _, field := range slices.Concat(sortableCardFields, baseFields, lookupAndFilterFields) {
 		if _, ok := fields[field]; !ok {
-			t.Errorf("cardListFields is missing %q", field)
+			t.Errorf("the cards projection is missing %q", field)
 		}
 	}
 }
 
-func TestCardListDecodesCardsOncePerRevision(t *testing.T) {
+// projectionCardCache answers projection reads from the fake's lists without
+// counting them as full-entity reads.
+type projectionCardCache struct {
+	*fakeCardHandlerCache
+	projectionCalls []string
+}
+
+func (cache *projectionCardCache) LoadProjection(_ context.Context, _ string, entity string) (*masterdata.Projection, error) {
+	cache.projectionCalls = append(cache.projectionCalls, entity)
+	records := cache.listByEntity[entity]
+	keys := make([]string, len(records))
+	for position, record := range records {
+		keys[position], _ = masterdata.CanonicalKeyPart(record["id"])
+	}
+	return masterdata.BuildProjection(entity, keys, records), nil
+}
+
+func TestCardListReadsTheCardProjection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &revisionTrackingCardCache{
-		fakeCardHandlerCache: &fakeCardHandlerCache{
-			listByEntity: map[string][]map[string]any{
-				"cards":        {{"id": 1001, "prefix": "Card", "cardParameters": []any{map[string]any{"power": 1}}}},
-				"cardrarities": {},
-			},
+	cache := &projectionCardCache{fakeCardHandlerCache: &fakeCardHandlerCache{
+		listByEntity: map[string][]map[string]any{
+			"cards":        {{"id": 1001, "prefix": "Card", "cardParameters": []any{map[string]any{"power": 1}}}},
+			"cardrarities": {},
 		},
-		revisions: map[string]string{"cards": "c1"},
-	}
+	}}
 	statusStore := &fakeCardHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
-	handler := NewCardHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1))
 	router := gin.New()
-	router.GET("/api/v1/cards/:region/list", handler.List)
+	router.GET("/api/v1/cards/:region/list", NewCardHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)).List)
 
-	for range 2 {
-		resp := httptest.NewRecorder()
-		router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list", nil))
-		if resp.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
-		}
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if cache.listAllCalls["cards"] != 1 {
-		t.Fatalf("expected cards decoded once for an unchanged revision, got %v", cache.listAllCalls)
+	if !strings.Contains(resp.Body.String(), `"prefix":"Card"`) || strings.Contains(resp.Body.String(), "cardParameters") {
+		t.Fatalf("expected the card's list fields only, got %s", resp.Body.String())
+	}
+	if cache.listAllCalls["cards"] != 0 || !slices.Equal(cache.projectionCalls, []string{"cards"}) {
+		t.Fatalf("expected one projection read and no full cards read, got projection=%v list=%v", cache.projectionCalls, cache.listAllCalls)
 	}
 }
 

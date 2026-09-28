@@ -21,11 +21,6 @@ import (
 
 type GachaHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
-
-	// List items of every gacha, per region. Gachas carry their full detail and
-	// behavior lists, so decoding them dominates the list; the projection is
-	// reused while the entity revision is unchanged.
-	listItems shared.RevisionCache[[]map[string]any]
 }
 
 var sortableGachaFields = []string{
@@ -243,8 +238,6 @@ func (handler *GachaHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "GACHA_QUERY_ERROR", "failed to list gachas")
 			return
 		}
-		// The cached slice is shared, so sort a copy.
-		records = append([]map[string]any(nil), records...)
 
 		now := time.Now().UTC()
 		if !includeSpoilers {
@@ -290,25 +283,15 @@ func (handler *GachaHandler) List(c *gin.Context) {
 	})
 }
 
-// loadGachaListItems returns every gacha's list fields, which include the
-// fields that spoiler filtering, the ongoing filter, and sorting read.
+// loadGachaListItems returns every gacha's list fields from the gachas list
+// projection. They include the fields spoiler filtering, the ongoing filter,
+// and sorting read, so the list never decodes gachas' detail lists.
 func (handler *GachaHandler) loadGachaListItems(ctx context.Context, region string) ([]map[string]any, error) {
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "gachas")
+	projection, err := handler.masterDataSync.LoadProjection(ctx, region, "gachas")
 	if err != nil {
 		return nil, err
 	}
-
-	return handler.listItems.Load(ctx, region, revision, func(ctx context.Context) ([]map[string]any, error) {
-		records, err := handler.masterDataSync.ListAll(ctx, region, "gachas")
-		if err != nil {
-			return nil, err
-		}
-		items := make([]map[string]any, 0, len(records))
-		for _, record := range records {
-			items = append(items, handler.buildGachaListItem(region, record))
-		}
-		return items, nil
-	})
+	return projection.Rows(), nil
 }
 
 func (handler *GachaHandler) buildGachaList(ctx context.Context, region string, records []map[string]any) []map[string]any {
