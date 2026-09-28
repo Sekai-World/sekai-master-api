@@ -22,6 +22,7 @@ import (
 	"sekai-master-api/internal/startup"
 	"sekai-master-api/internal/storage"
 	transport "sekai-master-api/internal/transport/http"
+	"sekai-master-api/internal/transport/http/responsecache"
 	"sekai-master-api/internal/transport/http/swaggerdocs"
 	"sekai-master-api/internal/usecase"
 	"sekai-master-api/internal/version"
@@ -160,7 +161,22 @@ func main() {
 		logger.Fatalf("failed to register master data metrics: %v", err)
 	}
 	startupState := startup.NewState()
-	router, gitHubWebhookHandler, err := transport.NewRouter(cfg, db.SQL, tokenVerifier, masterDataSyncUsecase, masterDataEventHub, startupState, appCtx)
+	// The response cache (docs/postgres-master-data-store.md, "Caching") is on
+	// when CACHE_REDIS_ADDR is set. Redis holds no master data; an unreachable
+	// Redis only bypasses the cache.
+	var cacheStore responsecache.Store
+	var responseCacheStore *responsecache.RedisStore
+	if cfg.CacheRedisAddr != "" {
+		responseCacheStore = responsecache.NewRedisStore(responsecache.RedisOptions{
+			Addr:     cfg.CacheRedisAddr,
+			Password: cfg.CacheRedisPassword,
+			DB:       cfg.CacheRedisDB,
+			Timeout:  cfg.CacheRedisTimeout,
+		})
+		cacheStore = responseCacheStore
+		logger.Infow("response cache enabled", "ttl", cfg.CacheTTL.String(), "max_entry_bytes", cfg.CacheMaxEntryBytes)
+	}
+	router, gitHubWebhookHandler, err := transport.NewRouter(cfg, db.SQL, tokenVerifier, masterDataSyncUsecase, masterDataEventHub, startupState, appCtx, cacheStore)
 	if err != nil {
 		logger.Fatalf("failed to initialize router: %v", err)
 	}
@@ -325,9 +341,14 @@ func main() {
 	logger.Infow("shutting down dependencies")
 
 	// Ordered teardown: stop OTel periodic callbacks/flush first (so no metrics
-	// push races with closed dependencies), then database, then logger flush.
-	// Cleanup runs exactly once.
+	// push races with closed dependencies), then the response cache, then
+	// database, then logger flush. Cleanup runs exactly once.
 	cleanupObservability()
+	if responseCacheStore != nil {
+		if closeErr := responseCacheStore.Close(); closeErr != nil {
+			logger.Warnw("response cache close error", "error", closeErr)
+		}
+	}
 	if closeErr := db.Close(); closeErr != nil {
 		logger.Warnw("database close error", "error", closeErr)
 	}

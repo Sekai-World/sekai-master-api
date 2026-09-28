@@ -98,6 +98,29 @@ store was removed: the process does not connect to Redis, and
   `sekai-master-api dump` (see
   [Inspecting records](postgres-master-data-store.md#inspecting-records)).
 
+## Response Cache
+
+With `CACHE_REDIS_ADDR` set, `serve` and `standalone` cache the responses of
+the slowest computed read routes in Redis (`cachedRoutes` in
+`internal/transport/http/public_routes.go`; design in
+[postgres-master-data-store.md](postgres-master-data-store.md#caching)).
+
+- The key covers the build, the region's latest sync status (commit and
+  update time), the route, the path, and the query with keys sorted. A sync
+  or a deploy therefore retires every entry of the region; nothing is
+  invalidated by hand.
+- While the region's latest status is not `success` (a sync is running or
+  failed), requests bypass the cache.
+- Only `200` responses up to `CACHE_MAX_ENTRY_BYTES` are stored, for
+  `CACHE_TTL_SECONDS` or until the moment the handler reported through
+  `cachehint.ValidUntil` (the next spoiler reveal, or the next change of the
+  current event), whichever comes first.
+- Redis errors and timeouts (`CACHE_REDIS_TIMEOUT_MS`) only bypass the cache;
+  Redis is never a readiness input. Concurrent misses for one key share one
+  handler run.
+- Responses carry `X-Cache: hit`, `miss`, or `bypass`, and
+  `sekai_http_cache_requests_total{route,result}` counts lookups.
+
 ## Keys, Indexes, and Projections
 
 `resourceboxes`, `resourceboxdetails`, and `charactermissionv2parametergroups` are keyed by composite keys (`masterdata.CompositeKeyFields`) instead of bare business IDs: resource boxes key on `(id, resourceBoxPurpose)`, details key on `(resourceBoxId, resourceBoxPurpose, seq)`, and parameter groups key on `(id, seq)`. The original record body and business fields are unchanged. Records missing any required key component receive deterministic `auto:` keys, with an occurrence suffix for identical incomplete records so they remain independently listable. Read a record whose full key is known with `GetByCompositeKeys` (any number of keys in one read, for example `{id, resourceBoxPurpose: "event_ranking_reward"}`); `GetByID` and `GetByIDs` intentionally report no match for these entities because a bare ID cannot disambiguate them.

@@ -249,7 +249,7 @@ func (handler *MusicHandler) List(c *gin.Context) {
 			return
 		}
 		if !includeSpoilers {
-			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+			records = shared.FilterSpoilerItemsContext(c.Request.Context(), records, time.Now().UTC())
 		}
 		if filterOptions.Enabled() {
 			records, err = handler.filterMusicRecords(c.Request.Context(), region, records, filterOptions)

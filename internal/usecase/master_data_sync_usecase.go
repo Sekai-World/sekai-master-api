@@ -1600,6 +1600,37 @@ func (usecase *MasterDataSyncUsecase) HasSuccessfulSync(ctx context.Context, reg
 	return false, nil
 }
 
+// RegionCacheRevision identifies the stored data of a region for the response
+// cache: the latest sync status's commit and update time, which every
+// completed sync changes. It reports false while the latest status is not
+// success (a sync is running or failed), so nothing is cached or served from
+// the cache then.
+func (usecase *MasterDataSyncUsecase) RegionCacheRevision(ctx context.Context, region string) (string, bool, error) {
+	if usecase == nil || usecase.statusStore == nil {
+		return "", false, nil
+	}
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		return "", false, nil
+	}
+
+	statuses, err := usecase.statusStore.List(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("list master data sync statuses: %w", err)
+	}
+	for _, status := range statuses {
+		if !strings.EqualFold(strings.TrimSpace(status.Region), region) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(status.Status), "success") {
+			return "", false, nil
+		}
+		return strings.TrimSpace(status.SourceCommit) + "@" + status.UpdatedAt.UTC().Format(time.RFC3339Nano), true, nil
+	}
+	return "", false, nil
+}
+
 func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]masterdata.SyncStatus, error) {
 	statuses, err := usecase.Status(ctx)
 	if err != nil {
@@ -1999,13 +2030,21 @@ func (usecase *MasterDataSyncUsecase) ListAll(ctx context.Context, region string
 // preferring the latest start. It picks the event from the events list
 // projection and reads only that record, so it never writes.
 func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region string, now time.Time) (map[string]any, bool, error) {
+	record, found, _, err := usecase.CurrentEventUntil(ctx, region, now)
+	return record, found, err
+}
+
+// CurrentEventUntil returns what CurrentEvent returns, and the next moment
+// the answer can change: the earliest future event start, or the moment an
+// event now in its window closes. It is zero when no such moment exists.
+func (usecase *MasterDataSyncUsecase) CurrentEventUntil(ctx context.Context, region string, now time.Time) (map[string]any, bool, time.Time, error) {
 	if usecase.cache == nil {
-		return nil, false, nil
+		return nil, false, time.Time{}, nil
 	}
 
 	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
 	if normalizedRegion == "" {
-		return nil, false, nil
+		return nil, false, time.Time{}, nil
 	}
 
 	if now.IsZero() {
@@ -2015,35 +2054,53 @@ func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region s
 
 	projection, err := usecase.LoadProjection(ctx, normalizedRegion, "events")
 	if err != nil {
-		return nil, false, fmt.Errorf("load events projection region %s: %w", normalizedRegion, err)
+		return nil, false, time.Time{}, fmt.Errorf("load events projection region %s: %w", normalizedRegion, err)
 	}
 
 	selectedRow := -1
 	selectedStartAt := int64(0)
+	nextChange := int64(0)
+	earlier := func(candidate int64) {
+		if nextChange == 0 || candidate < nextChange {
+			nextChange = candidate
+		}
+	}
 	for row := 0; row < projection.Len(); row++ {
 		startAt, endAt, ok := resolveEventTimeRange(projection.Row(row))
-		if !ok || nowMillis < startAt || nowMillis > endAt {
+		if !ok {
 			continue
 		}
+		if nowMillis < startAt {
+			earlier(startAt)
+			continue
+		}
+		if nowMillis > endAt {
+			continue
+		}
+		earlier(endAt + 1)
 		if selectedRow < 0 || startAt > selectedStartAt {
 			selectedRow = row
 			selectedStartAt = startAt
 		}
 	}
+	until := time.Time{}
+	if nextChange > 0 {
+		until = time.UnixMilli(nextChange).UTC()
+	}
 	if selectedRow < 0 {
-		return nil, false, nil
+		return nil, false, until, nil
 	}
 
 	key := projection.Keys[selectedRow]
 	record, found, err := usecase.GetByID(ctx, normalizedRegion, "events", key)
 	if err != nil {
-		return nil, false, fmt.Errorf("get current event region %s id %s: %w", normalizedRegion, key, err)
+		return nil, false, time.Time{}, fmt.Errorf("get current event region %s id %s: %w", normalizedRegion, key, err)
 	}
 	if !found {
 		usecase.logf("current_event record_missing region=%s id=%s start=%s", normalizedRegion, key, formatCurrentEventTimestamp(selectedStartAt))
-		return nil, false, nil
+		return nil, false, until, nil
 	}
-	return record, true, nil
+	return record, true, until, nil
 }
 
 func jsonValuesEqual(left any, right any) (bool, error) {

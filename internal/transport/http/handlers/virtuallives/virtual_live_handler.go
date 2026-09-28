@@ -263,7 +263,7 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 	}
 
 	if !includeSpoilers {
-		records = shared.FilterSpoilerItems(records, time.Now().UTC())
+		records = shared.FilterSpoilerItemsContext(c.Request.Context(), records, time.Now().UTC())
 	}
 
 	records = applyVirtualLiveListFilters(records, filters)

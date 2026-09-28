@@ -17,7 +17,8 @@ ownership is unclear.
 - Authentication: OIDC Bearer Token validation.
 - Authentication boundary: only admin APIs require authentication; other GET APIs are public by default.
 - Query strategy:
-  - Master data lives in PostgreSQL (`storage.PostgresMasterDataStore`, `docs/postgres-master-data-store.md`): compressed key-sorted record blocks, order keys, relation index postings, and list projections, all written by sync. Redis holds no master data and is not a readiness input.
+  - Master data lives in PostgreSQL (`storage.PostgresMasterDataStore`, `docs/postgres-master-data-store.md`): compressed key-sorted record blocks, order keys, relation index postings, and list projections, all written by sync. Redis holds no master data and is not a readiness input; it may hold the optional response cache (`internal/transport/http/responsecache`, on when `CACHE_REDIS_ADDR` is set).
+  - A route joins the response cache allowlist (`cachedRoutes` in `internal/transport/http/public_routes.go`) only if its response depends on nothing but its path, query, the region's stored data, the build, and time reported through `cachehint.ValidUntil`; a handler that reads the clock must report when its answer changes, with a test.
   - Data endpoints treat a region as ready for an entity when its current persisted sync status is `success` and the store holds records of that entity, or of the region when its source lacks the entity (`shared.RegionReadyForEntity`).
   - `cards` list pagination: paginate by real data order, using array index; do not rely on contiguous IDs.
   - Read paths never write: status, available-region, admin dashboard, readiness, and metrics reads, and every public read, only read the store. Only sync writes master data.

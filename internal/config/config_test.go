@@ -126,6 +126,26 @@ func TestValidateMasterDataStoreAcceptsOnlyPostgres(t *testing.T) {
 	}
 }
 
+func TestLoadResponseCacheSettings(t *testing.T) {
+	for _, key := range []string{"CACHE_REDIS_ADDR", "CACHE_REDIS_PASSWORD", "CACHE_REDIS_DB", "CACHE_REDIS_TIMEOUT_MS", "CACHE_TTL_SECONDS", "CACHE_MAX_ENTRY_BYTES"} {
+		t.Setenv(key, "")
+	}
+	cfg := Load()
+	if cfg.CacheRedisAddr != "" || cfg.CacheRedisTimeout != 50*time.Millisecond || cfg.CacheTTL != 6*time.Hour || cfg.CacheMaxEntryBytes != 1<<20 {
+		t.Fatalf("defaults = addr %q timeout %s ttl %s max %d", cfg.CacheRedisAddr, cfg.CacheRedisTimeout, cfg.CacheTTL, cfg.CacheMaxEntryBytes)
+	}
+
+	t.Setenv("CACHE_REDIS_ADDR", " redis:6379 ")
+	t.Setenv("CACHE_REDIS_DB", "2")
+	t.Setenv("CACHE_REDIS_TIMEOUT_MS", "80")
+	t.Setenv("CACHE_TTL_SECONDS", "600")
+	t.Setenv("CACHE_MAX_ENTRY_BYTES", "4096")
+	cfg = Load()
+	if cfg.CacheRedisAddr != "redis:6379" || cfg.CacheRedisDB != 2 || cfg.CacheRedisTimeout != 80*time.Millisecond || cfg.CacheTTL != 10*time.Minute || cfg.CacheMaxEntryBytes != 4096 {
+		t.Fatalf("overrides = addr %q db %d timeout %s ttl %s max %d", cfg.CacheRedisAddr, cfg.CacheRedisDB, cfg.CacheRedisTimeout, cfg.CacheTTL, cfg.CacheMaxEntryBytes)
+	}
+}
+
 func TestValidateDatabaseDriverAcceptsOnlyPostgres(t *testing.T) {
 	for _, driver := range []string{"", "pgx", "PGX", " postgres ", "postgresql"} {
 		if err := (Config{DatabaseDriverName: driver}).ValidateDatabaseDriver(); err != nil {

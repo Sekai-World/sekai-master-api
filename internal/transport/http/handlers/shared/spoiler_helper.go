@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/transport/http/cachehint"
 	"sekai-master-api/internal/transport/http/response"
 )
 
@@ -44,12 +46,56 @@ func FilterSpoilerItems(items []map[string]any, now time.Time) []map[string]any 
 	return filtered
 }
 
+// FilterSpoilerItemsContext filters like FilterSpoilerItems and reports to
+// the response cache when the first dropped item stops being a spoiler, since
+// the filtered list changes then.
+func FilterSpoilerItemsContext(ctx context.Context, items []map[string]any, now time.Time) []map[string]any {
+	filtered := FilterSpoilerItems(items, now)
+	if len(filtered) == len(items) {
+		return filtered
+	}
+	nowMillis := now.UTC().UnixMilli()
+	earliest := int64(0)
+	for _, item := range items {
+		revealAt, ok := spoilerRevealAt(item, nowMillis)
+		if ok && (earliest == 0 || revealAt < earliest) {
+			earliest = revealAt
+		}
+	}
+	if earliest > 0 {
+		cachehint.ValidUntil(ctx, time.UnixMilli(earliest))
+	}
+	return filtered
+}
+
+// spoilerRevealAt returns when a spoiler item stops being one: the latest of
+// its future timestamps, since IsSpoilerItem holds while any is ahead.
+func spoilerRevealAt(item map[string]any, nowMillis int64) (int64, bool) {
+	if !IsSpoilerItem(item, nowMillis) {
+		return 0, false
+	}
+	latest := int64(0)
+	for _, key := range spoilerTimestampKeys {
+		value, exists := item[key]
+		if !exists {
+			continue
+		}
+		if timestamp, ok := ParseTimestampMillis(value); ok && timestamp > nowMillis && timestamp > latest {
+			latest = timestamp
+		}
+	}
+	return latest, latest > 0
+}
+
+// spoilerTimestampKeys are the fields IsSpoilerItem compares with now.
+var spoilerTimestampKeys = []string{"releaseAt", "releastAt", "publishedAt", "startAt"}
+
 func IsSpoilerItem(item map[string]any, nowMillis int64) bool {
 	if item == nil {
 		return false
 	}
 
-	for _, key := range []string{"releaseAt", "releastAt", "publishedAt", "startAt"} {
+	for _, key := range spoilerTimestampKeys {
 		value, exists := item[key]
 		if !exists {
 			continue

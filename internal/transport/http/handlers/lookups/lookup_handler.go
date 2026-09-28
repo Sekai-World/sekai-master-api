@@ -804,7 +804,7 @@ func (handler *LookupHandler) list(c *gin.Context, config lookupResourceConfig) 
 			return
 		}
 		if !includeSpoilers {
-			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+			records = shared.FilterSpoilerItemsContext(c.Request.Context(), records, time.Now().UTC())
 		}
 		if sortOptions.Enabled {
 			if !shared.ValidateSortField(c, sortOptions.Field, records, config.sortableFields) {

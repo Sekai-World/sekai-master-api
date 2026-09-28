@@ -669,7 +669,10 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
 7. **Cache, only if measurements require it:** a revision-keyed Redis
    read-through cache. Measured and designed on 2026-09-28; see
    [Caching](#caching). The existing master-data Redis instances are kept
-   for it.
+   for it. Implemented as `internal/transport/http/responsecache` with the
+   allowlist in `cachedRoutes`. It is off until `CACHE_REDIS_ADDR` is set.
+   The gacha list is not on the allowlist: its `ongoing` filter does not
+   report a boundary yet.
 
 The remaining list projections (events, musics and virtual lives, with their
 cross-entity filters) continue after step 5, on Postgres.
