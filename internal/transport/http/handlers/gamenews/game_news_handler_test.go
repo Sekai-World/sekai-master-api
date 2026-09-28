@@ -79,19 +79,11 @@ func (cache *fakeGameNewsCache) ListByPage(_ context.Context, _ string, _ string
 	return cache.records, len(cache.records), cache.listErr
 }
 
-func (cache *fakeGameNewsCache) Search(_ context.Context, _ string, _ string, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	return nil, nil
-}
-
 func (cache *fakeGameNewsCache) HasEntityRecords(_ context.Context, _ string, _ string) (bool, error) {
 	if cache.hasRecordsErr != nil {
 		return false, cache.hasRecordsErr
 	}
 	return cache.hasRecords, nil
-}
-
-func (cache *fakeGameNewsCache) HasRegionIndex(_ string) bool {
-	return cache.hasRecords
 }
 
 func serveGameNewsRequest(t *testing.T, handler *GameNewsHandler, target string) *httptest.ResponseRecorder {

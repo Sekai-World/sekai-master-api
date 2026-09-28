@@ -365,7 +365,7 @@ func ensureGachaRegionReady(c *gin.Context, masterDataSync *usecase.MasterDataSy
 		return true
 	}
 
-	ready, err := shared.RegionHasEntityRecordsOrReady(c.Request.Context(), masterDataSync, region, "gachas")
+	ready, err := shared.RegionReadyForEntity(c.Request.Context(), masterDataSync, region, "gachas")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false

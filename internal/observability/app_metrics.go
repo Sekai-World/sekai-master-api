@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	apimetric "go.opentelemetry.io/otel/metric"
 
-	"sekai-master-api/internal/storage"
 	"sekai-master-api/internal/usecase"
 )
 
@@ -77,7 +76,7 @@ func RegisterRuntimeMetrics() error {
 	return err
 }
 
-func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache *storage.RedisMasterDataCache) error {
+func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase) error {
 	meter := otel.Meter("sekai-master-api/master-data")
 
 	syncRunning, err := meter.Int64ObservableGauge(
@@ -130,94 +129,9 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 		return err
 	}
 
-	indexLoaded, err := meter.Int64ObservableGauge(
-		"sekai_master_data_region_index_loaded",
-		apimetric.WithDescription("Whether RegionIndexStats currently reports a retained in-process decoded search index for a region."),
-	)
-	if err != nil {
-		return err
-	}
-
-	indexEntities, err := meter.Int64ObservableGauge(
-		"sekai_master_data_region_index_entities",
-		apimetric.WithDescription("Number of indexed entities in the retained in-process decoded search index for a region."),
-	)
-	if err != nil {
-		return err
-	}
-
-	indexRecords, err := meter.Int64ObservableGauge(
-		"sekai_master_data_region_index_records",
-		apimetric.WithDescription("Number of indexed records in the retained in-process decoded search index for a region."),
-	)
-	if err != nil {
-		return err
-	}
-
-	indexFields, err := meter.Int64ObservableGauge(
-		"sekai_master_data_region_index_fields",
-		apimetric.WithDescription("Number of indexed searchable fields in the retained in-process decoded search index for a region."),
-	)
-	if err != nil {
-		return err
-	}
-
-	indexEntries, err := meter.Int64ObservableGauge(
-		"sekai_master_data_region_index_entries",
-		apimetric.WithDescription("Number of search index entries in the retained in-process decoded search index for a region."),
-	)
-	if err != nil {
-		return err
-	}
-
-	indexTextBlobBytes, err := meter.Int64ObservableGauge(
-		"sekai_master_data_region_index_text_blob_bytes",
-		apimetric.WithDescription("Bytes used by the retained in-process decoded search text blob for a region."),
-		apimetric.WithUnit("By"),
-	)
-	if err != nil {
-		return err
-	}
-
-	indexApproxBytes, err := meter.Int64ObservableGauge(
-		"sekai_master_data_region_index_approx_size_bytes",
-		apimetric.WithDescription("Approximate bytes used by the retained in-process decoded search index for a region."),
-		apimetric.WithUnit("By"),
-	)
-	if err != nil {
-		return err
-	}
-
-	redisUsedMemory, err := meter.Int64ObservableGauge(
-		"sekai_redis_used_memory_bytes",
-		apimetric.WithDescription("Redis used memory in bytes."),
-		apimetric.WithUnit("By"),
-	)
-	if err != nil {
-		return err
-	}
-
-	redisUsedMemoryRSS, err := meter.Int64ObservableGauge(
-		"sekai_redis_used_memory_rss_bytes",
-		apimetric.WithDescription("Redis resident set size memory in bytes."),
-		apimetric.WithUnit("By"),
-	)
-	if err != nil {
-		return err
-	}
-
-	redisPeakMemory, err := meter.Int64ObservableGauge(
-		"sekai_redis_peak_memory_bytes",
-		apimetric.WithDescription("Redis peak memory in bytes."),
-		apimetric.WithUnit("By"),
-	)
-	if err != nil {
-		return err
-	}
-
-	redisKeys, err := meter.Int64ObservableGauge(
-		"sekai_redis_keys",
-		apimetric.WithDescription("Approximate number of keys in the configured Redis database."),
+	regionRecords, err := meter.Int64ObservableGauge(
+		"sekai_master_data_region_records",
+		apimetric.WithDescription("Number of master data records stored for a region; 0 means the store holds no data for it."),
 	)
 	if err != nil {
 		return err
@@ -264,6 +178,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 		fileCountByRegion := make(map[string]int64)
 		durationByRegion := make(map[string]int64)
 		lastSyncedByRegion := make(map[string]int64)
+		var recordsByRegion map[string]int64
 
 		if syncUsecase != nil {
 			configured := syncUsecase.ConfiguredRegions()
@@ -320,23 +235,10 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 			observer.ObserveInt64(configuredRegions, 0)
 		}
 
-		// RegionIndexStats reports retained in-process decoded index state only.
-		// Redis-backed persisted index footprint is exposed separately through
-		// RedisUsageStats so this callback stays cheap and never scans or decodes
-		// persisted search index payloads just to populate observability metrics.
-		indexStatsByRegion := make(map[string]storage.RegionIndexStats)
-		if cache != nil {
-			for _, stat := range cache.RegionIndexStats() {
-				indexStatsByRegion[stat.Region] = stat
-				regionNames = append(regionNames, stat.Region)
-			}
-
-			redisStats, err := cache.RedisUsageStats(ctx)
+		if syncUsecase != nil {
+			counts, err := syncUsecase.RegionRecordCounts(ctx)
 			if err == nil {
-				observer.ObserveInt64(redisUsedMemory, redisStats.UsedMemoryBytes)
-				observer.ObserveInt64(redisUsedMemoryRSS, redisStats.UsedMemoryRSSBytes)
-				observer.ObserveInt64(redisPeakMemory, redisStats.PeakMemoryBytes)
-				observer.ObserveInt64(redisKeys, redisStats.KeyCount)
+				recordsByRegion = counts
 			}
 		}
 
@@ -356,25 +258,9 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 			observer.ObserveInt64(regionSyncDuration, durationByRegion[region], attrs)
 			observer.ObserveInt64(regionLastSynced, lastSyncedByRegion[region], attrs)
 
-			indexStat, ok := indexStatsByRegion[region]
-			if ok && indexStat.Loaded {
-				observer.ObserveInt64(indexLoaded, 1, attrs)
-				observer.ObserveInt64(indexEntities, int64(indexStat.EntityCount), attrs)
-				observer.ObserveInt64(indexRecords, int64(indexStat.RecordCount), attrs)
-				observer.ObserveInt64(indexFields, int64(indexStat.FieldCount), attrs)
-				observer.ObserveInt64(indexEntries, int64(indexStat.EntryCount), attrs)
-				observer.ObserveInt64(indexTextBlobBytes, int64(indexStat.TextBlobBytes), attrs)
-				observer.ObserveInt64(indexApproxBytes, int64(indexStat.ApproxSizeBytes), attrs)
-				continue
+			if recordsByRegion != nil {
+				observer.ObserveInt64(regionRecords, recordsByRegion[region], attrs)
 			}
-
-			observer.ObserveInt64(indexLoaded, 0, attrs)
-			observer.ObserveInt64(indexEntities, 0, attrs)
-			observer.ObserveInt64(indexRecords, 0, attrs)
-			observer.ObserveInt64(indexFields, 0, attrs)
-			observer.ObserveInt64(indexEntries, 0, attrs)
-			observer.ObserveInt64(indexTextBlobBytes, 0, attrs)
-			observer.ObserveInt64(indexApproxBytes, 0, attrs)
 		}
 
 		return nil
@@ -385,17 +271,7 @@ func RegisterMasterDataMetrics(syncUsecase *usecase.MasterDataSyncUsecase, cache
 		regionFileCount,
 		regionSyncDuration,
 		regionLastSynced,
-		indexLoaded,
-		indexEntities,
-		indexRecords,
-		indexFields,
-		indexEntries,
-		indexTextBlobBytes,
-		indexApproxBytes,
-		redisUsedMemory,
-		redisUsedMemoryRSS,
-		redisPeakMemory,
-		redisKeys,
+		regionRecords,
 		leaseHeld,
 		leaseToken,
 		leaseExpiry,

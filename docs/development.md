@@ -27,15 +27,14 @@ parameters of `DATABASE_URL` or the pgx defaults.
 
 ## Local Development
 
-For host-mode API development (needs PostgreSQL and Redis through
-`DATABASE_URL` / `REDIS_ADDR`):
+For host-mode API development (needs PostgreSQL through `DATABASE_URL`):
 
 ```sh
 mise run run
 ```
 
-To run the roles individually on the host (they need reachable PostgreSQL/Redis
-through `DATABASE_URL` / `REDIS_ADDR`):
+To run the roles individually on the host (they need a reachable PostgreSQL
+through `DATABASE_URL`):
 
 ```sh
 mise run run-serve          # public read/query, APP_PORT_SERVE (default 18080)
@@ -44,7 +43,7 @@ mise run run-control        # admin UI/API + lifecycle ownership, APP_PORT_CONTR
 
 The standard development/testing path is the **remote-cluster workflow**:
 `mise run dev-cluster-rebuild` builds a ko image and deploys it to the remote
-k3s test cluster next to the dev PostgreSQL/Redis, and
+k3s test cluster next to the dev PostgreSQL, and
 `mise run dev-cluster-forward` forwards the single public-API + admin port to
 `http://localhost:18080`. These tasks are gitignored because they encode
 private environment details (see `.mise/lib/dev-cluster.sh` and `AGENTS.md`).
@@ -139,8 +138,7 @@ The smoke check uses `CURL_CONNECT_TIMEOUT_SECONDS` (default `5`) and
 value must be a positive whole-second number from `1` through `60`; the script
 rejects invalid or larger values.
 
-For the Redis-loss recovery drill (`mise run redis-recovery-drill`), see
-[Runbook](runbook.md).
+For recovery paths and drills, see [Runbook](runbook.md).
 
 ## Runtime Roles
 
@@ -169,21 +167,14 @@ previous monolithic behavior.
 | Health check (`/api/v1/health`) | ✅ | ✅ | ✅ |
 | Swagger UI (`/docs`, dev/test only) | ✅ | ✅ | ✅ |
 | Migrations on startup | ✅ | ❌ | ✅ |
-| Search-index warmup (local decoded-index load) | ✅ | ❌ | ❌ (persisted built during sync) |
 | Master-data auto-sync / interrupted-sync recovery | ✅ | ❌ | ✅ |
 | Startup readiness | After migrations | Immediate | After migrations |
-
-> `control` skips the startup decoded-index warmup (`EnsureConfiguredRegionIndexes`):
-> it never serves public read/search traffic, so decoding persisted Redis indexes
-> into control process memory is wasted work. Persisted Redis search indexes are
-> (re)built by sync / force-sync in `control` and by warmup in `standalone`, so
-> skipping it for `control` does not remove any persisted-index repair behavior.
 
 ### Split host runs
 
 `run-serve` and `run-control` start **two separate host processes** on distinct
 ports (`APP_PORT_SERVE`, default 18080, and `APP_PORT_CONTROL`, default 18081)
-sharing the same PostgreSQL/Redis backend; this mirrors the production split
+sharing the same PostgreSQL; this mirrors the production split
 deployment without containers.
 
 ### OIDC redirect consideration
@@ -194,44 +185,29 @@ the control role's port in a split deployment. When splitting, set
 `http://localhost:18081/api/v1/admin/login/callback`). The `serve` role never
 mounts the admin login callback, so it must not receive the OIDC redirect.
 
-### Redis as a shared data plane
+### PostgreSQL as the shared data plane
 
-Redis is the shared data plane for both persisted master-data records and
-persisted search indexes. The behaviors by role:
+PostgreSQL holds the master data, its relation indexes and list projections,
+and sync status and leases (see
+[the store design](postgres-master-data-store.md)). The behaviors by role:
 
-- `serve` only reads from Redis. It never syncs or repairs an empty Redis. In a
-  split deployment, `serve` must not receive traffic until `control` has
-  populated Redis (via sync/auto-sync), otherwise public endpoints return
-  `503`/`404` data errors.
-- `control` owns writes: master-data sync, force-sync, migrations, and
-  search-index (re)build persist into the shared Redis.
-- Production deployments must use a persistent/managed Redis (or enable AOF/RDB
-  persistence and backups). A `serve` replica with an empty Redis cannot recover
-  it on its own; a lost Redis is recovered by running **force sync from
-  `control`** (`POST /api/v1/admin/master-data/sync/force`), which rebuilds the
-  persisted indexes and records.
-
-### Role-specific decoded-index LRU cache
-
-The in-process decoded search-index LRU (bounded by
-`MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES`) is a local read cache used only by
-read/search traffic:
-
-- `serve` and `standalone` keep the configured capacity.
-- `control` disables it (capacity `0`) because it never serves public read
-  traffic; this avoids needlessly decoding persisted Redis indexes into the
-  control process. The disablement is centralized in
-  `Config.EffectiveSearchIndexCacheEntries()` and applied when the Redis cache is
-  constructed at startup.
+- `serve` only reads. It never syncs or repairs missing data. In a split
+  deployment, `serve` must not receive traffic until `control` has written the
+  data (via sync/auto-sync), otherwise public endpoints return `503` data
+  errors.
+- `control` owns writes: master-data sync, force-sync, and migrations.
+- A region missing from the store is recovered by running **force sync from
+  `control`** (`POST /api/v1/admin/master-data/sync/force`); the source
+  repositories on GitHub are the canonical copy of every record.
 
 ### Startup order and readiness limitation
 
 `/api/v1/health` checks process liveness and database connectivity only; it does
-**not** verify that region master-data / Redis indexes are ready. In a split
+**not** verify that region master data is ready. In a split
 deployment, `control` must populate data (sync or auto-sync) before `serve`
 receives traffic. Although `serve` completes its process startup immediately,
 its `/readyz` probe remains `503` until every configured region has a successful
-persisted sync and Redis-backed card records. Coordinate rollout around
+persisted sync and stored card records. Coordinate rollout around
 `/startupz` followed by `/readyz`, not `/api/v1/health`.
 
 ### `control` must remain a single replica
@@ -266,5 +242,4 @@ The container entrypoint defaults to `standalone`, preserving the existing
 single-process deployment (the entrypoint explicitly sets `APP_ROLE=standalone`).
 A split deployment runs `serve` behind the public ingress and `control` behind a
 restricted admin ingress (the same host the OIDC provider is allowed to redirect
-to). Only `standalone` and `control` own migrations, search-index build, and
-sync; `serve` is stateless with respect to those lifecycle jobs.
+to). Only `standalone` and `control` own migrations and sync; `serve` is stateless with respect to those lifecycle jobs.

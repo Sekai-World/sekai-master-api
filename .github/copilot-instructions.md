@@ -7,10 +7,10 @@
 - Auth: Keycloak (OIDC/JWT validation)
 - Database: PostgreSQL in every environment (one `pgxpool` pool, bridged to `database/sql`); SQLite support was removed
 - Schema migration: Goose SQL migrations (`internal/storage/migrations`), run automatically on startup
-- Master data cache/query:
-  - Redis hash for by-id lookups
-  - In-memory text index for fuzzy search (current card field: `prefix`)
-  - Redis order list for index-based pagination
+- Master data store/query: PostgreSQL (`storage.PostgresMasterDataStore`, `docs/postgres-master-data-store.md`)
+  - Compressed key-sorted record blocks for by-id and batched lookups
+  - Stored order keys for index-based pagination
+  - Relation index postings and list projections built at sync time
 - Local infra: dev/test runs against the remote k3s test cluster (ko-built dev image, gitignored `dev-cluster-*` mise tasks); no local container dev stack
 
 ## Repository Conventions
@@ -36,7 +36,6 @@
 Current API shape should be preserved unless task explicitly requests change:
 
 - `GET /api/v1/cards/:region/list`
-- `GET /api/v1/cards/:region/search`
 - `GET /api/v1/cards/:region/:id`
 - `GET /api/v1/cards/:region/:id/params`
 - `GET /api/v1/master-data/status`

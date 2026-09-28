@@ -778,28 +778,6 @@ func musicValueContains(value any, query string) bool {
 	}
 }
 
-func (handler *MusicHandler) ensureRegionReady(c *gin.Context, region string) bool {
-	if handler == nil || handler.masterDataSync == nil {
-		return true
-	}
-
-	readyRegions, err := shared.RuntimeSearchIndexReadyRegions(c.Request.Context(), handler.masterDataSync)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
-		return false
-	}
-
-	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
-	for _, readyRegion := range readyRegions {
-		if readyRegion == normalizedRegion {
-			return true
-		}
-	}
-
-	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
-	return false
-}
-
 func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, records []map[string]any) ([]map[string]any, error) {
 	musicIDs := make([]string, 0, len(records))
 	for _, record := range records {

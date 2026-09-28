@@ -22,11 +22,8 @@ type fakeGachaHandlerCache struct {
 	byID             map[string]map[string]map[string]map[string]any
 	listByEntity     map[string]map[string][]map[string]any
 	hasRecords       map[string]map[string]bool
-	hasIndex         bool
-	hasIndexSet      bool
 	listAllCalls     []string
 	listByPageCalls  int
-	searchCalls      int
 	getByIDCalls     []gachaGetByIDCall
 	listAllErr       error
 	getByIDErr       error
@@ -195,23 +192,11 @@ func (cache *fakeGachaHandlerCache) ListByPage(ctx context.Context, region strin
 	return records[start:end], len(records), nil
 }
 
-func (cache *fakeGachaHandlerCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	cache.searchCalls++
-	return []masterdata.SearchMatch{}, nil
-}
-
 func (cache *fakeGachaHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
 	if cache.hasRecords == nil {
 		return false, nil
 	}
 	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
-}
-
-func (cache *fakeGachaHandlerCache) HasRegionIndex(_ string) bool {
-	if !cache.hasIndexSet {
-		return true
-	}
-	return cache.hasIndex
 }
 
 func copyGachaTestItems(source []map[string]any) []map[string]any {
@@ -226,7 +211,7 @@ func copyGachaTestItems(source []map[string]any) []map[string]any {
 	return items
 }
 
-func TestGachaRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t *testing.T) {
+func TestGachaRecordEndpointsUsePersistedEntityRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeGachaHandlerCache{
@@ -247,8 +232,6 @@ func TestGachaRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t 
 		hasRecords: map[string]map[string]bool{
 			"jp": {"gachas": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyGachaHandler(cache)
@@ -411,9 +394,6 @@ func TestGachaDetailEnrichesTicketBehaviorsAndDeduplicatesLookups(t *testing.T) 
 	if len(ticketLookups) != 1 || ticketLookups[0].id != "7" {
 		t.Fatalf("expected one normalized ticket lookup for id 7, got %+v", ticketLookups)
 	}
-	if cache.searchCalls != 0 {
-		t.Fatalf("expected no search calls, got %d", cache.searchCalls)
-	}
 }
 
 func TestNormalizeGachaTicketID(t *testing.T) {
@@ -522,7 +502,7 @@ func TestGachaDetailOnlyCopiesNonEmptyStringTicketAssetbundleName(t *testing.T) 
 }
 
 func TestGachaDetailPropagatesTicketLookupError(t *testing.T) {
-	cache := &fakeGachaHandlerCache{getByIDErr: errors.New("redis unavailable")}
+	cache := &fakeGachaHandlerCache{getByIDErr: errors.New("store unavailable")}
 	handler := newReadyGachaHandler(cache)
 	record := map[string]any{
 		"gachaBehaviors": []any{
@@ -553,7 +533,7 @@ func TestGachaDetailEndpointReturnsQueryErrorWhenTicketLookupFails(t *testing.T)
 		hasRecords: map[string]map[string]bool{
 			"jp": {"gachas": true},
 		},
-		getByIDErr:       errors.New("redis unavailable"),
+		getByIDErr:       errors.New("store unavailable"),
 		getByIDErrEntity: "gachatickets",
 	}
 
@@ -587,8 +567,6 @@ func TestGachaRecordEndpointsPreserveNotReadyResponseContract(t *testing.T) {
 		hasRecords: map[string]map[string]bool{
 			"jp": {"gachas": false},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 	statusStore := &fakeGachaHandlerStatusStore{
 		statuses: []masterdata.SyncStatus{},
@@ -621,7 +599,7 @@ func TestGachaRecordEndpointsPreserveNotReadyResponseContract(t *testing.T) {
 	}
 }
 
-func TestGachaAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
+func TestGachaAvailabilityEndpointUsesPersistedEntityRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeGachaHandlerCache{
@@ -635,8 +613,6 @@ func TestGachaAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(
 		hasRecords: map[string]map[string]bool{
 			"jp": {"gachas": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyGachaHandler(cache)
@@ -680,8 +656,6 @@ func TestRateChoiceWishesEndpointFiltersProjectsAndSortsPersistedRecords(t *test
 		hasRecords: map[string]map[string]bool{
 			"jp": {"gachas": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyGachaHandler(cache)
@@ -725,9 +699,6 @@ func TestRateChoiceWishesEndpointFiltersProjectsAndSortsPersistedRecords(t *test
 	}
 	if body.Items[0]["lotteryType"] != "two" || body.Items[1]["lotteryType"] != "three" || body.Items[2]["lotteryType"] != "ten" {
 		t.Fatalf("unexpected item order: %v", body.Items)
-	}
-	if cache.searchCalls != 0 {
-		t.Fatalf("expected no search calls, got %d", cache.searchCalls)
 	}
 }
 
@@ -835,7 +806,7 @@ func TestRateChoiceWishesEndpointReturnsQueryErrorWhenListAllFails(t *testing.T)
 		hasRecords: map[string]map[string]bool{
 			"jp": {"gachas": true},
 		},
-		listAllErr: errors.New("redis unavailable"),
+		listAllErr: errors.New("store unavailable"),
 	}
 
 	handler := newReadyGachaHandler(cache)

@@ -25,9 +25,8 @@ import (
 // PostgresMasterDataStore keeps master data in PostgreSQL
 // (docs/postgres-master-data-store.md): records in compressed, key-sorted
 // blocks, with order keys, relation index postings, list projections and
-// version payloads next to them. It answers the same storage contract as
-// RedisMasterDataCache, and every write of one entity is one transaction,
-// fenced by the sync lease when the write carries a lease token.
+// version payloads next to them. Every write of one entity is one
+// transaction, fenced by the sync lease when the write carries a lease token.
 type PostgresMasterDataStore struct {
 	pool            *pgxpool.Pool
 	fileConcurrency int
@@ -35,10 +34,6 @@ type PostgresMasterDataStore struct {
 	// writes; empty disables fencing.
 	leaseName string
 }
-
-// ErrSearchUnsupported reports a Search call on a store without a search
-// index. Search has no HTTP caller.
-var ErrSearchUnsupported = errors.New("master data search is not supported by this store")
 
 // postgresStoreLayoutVersion tags stored source digests. Bump it when the way
 // records are keyed or encoded changes, so the next sync rewrites entities
@@ -191,9 +186,9 @@ type collectedEntity struct {
 	projection *masterdata.ProjectionBuilder
 }
 
-// collectEntity keys the records and builds their derived data the way the
-// Redis store does: every occurrence of a key feeds the indexes and the
-// projection with its own record.
+// collectEntity keys the records and builds their derived data: every
+// occurrence of a key feeds the indexes and the projection with its own
+// record.
 func collectEntity(entity string, rawRecords []json.RawMessage, legacyRecords []any) (*collectedEntity, error) {
 	keyer := newRecordKeyer(entity)
 	collected := &collectedEntity{
@@ -598,6 +593,31 @@ SELECT EXISTS (SELECT 1 FROM master_entities WHERE region = $1 AND record_count 
 	return hasData, nil
 }
 
+// RegionRecordCounts returns the number of stored records per region, for
+// regions with at least one entity row. It is one aggregate over
+// master_entities, cheap enough for a metrics callback.
+func (store *PostgresMasterDataStore) RegionRecordCounts(ctx context.Context) (map[string]int64, error) {
+	rows, err := store.pool.Query(ctx, `
+SELECT region, COALESCE(SUM(record_count), 0)::bigint FROM master_entities GROUP BY region`)
+	if err != nil {
+		return nil, fmt.Errorf("count region records: %w", err)
+	}
+	defer rows.Close()
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var region string
+		var count int64
+		if err := rows.Scan(&region, &count); err != nil {
+			return nil, fmt.Errorf("count region records: %w", err)
+		}
+		counts[region] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("count region records: %w", err)
+	}
+	return counts, nil
+}
+
 func (store *PostgresMasterDataStore) GetByID(ctx context.Context, region string, entity string, id string) (_ map[string]any, _ bool, err error) {
 	ctx, span := tracing.StartSpan(ctx, "postgres.master_data.get_by_id", attribute.String("region", normalizeKey(region)), attribute.String("entity", normalizeKey(entity)))
 	defer func() { tracing.EndSpan(span, err) }()
@@ -942,11 +962,6 @@ WHERE e.region = $1 AND e.entity = $2`, regionName, entityName).Scan(&recordCoun
 		return nil, fmt.Errorf("projection region %s entity %s: %w", regionName, entityName, err)
 	}
 	return projection, nil
-}
-
-// Search is not supported: the PostgreSQL store keeps no search index.
-func (store *PostgresMasterDataStore) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	return nil, ErrSearchUnsupported
 }
 
 // fetchRecords reads the records stored under keys in one statement and

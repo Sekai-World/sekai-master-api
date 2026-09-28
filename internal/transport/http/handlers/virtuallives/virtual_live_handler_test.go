@@ -17,23 +17,12 @@ import (
 )
 
 type fakeVirtualLiveHandlerCache struct {
-	byID                  map[string]map[string]map[string]map[string]any
-	listByEntity          map[string][]map[string]any
-	listItems             []map[string]any
-	listTotal             int
-	listAllCalls          []string
-	hasRecords            map[string]map[string]bool
-	hasIndex              bool
-	hasIndexSet           bool
-	searchMatches         []masterdata.SearchMatch
-	searchMatchesByEntity map[string][]masterdata.SearchMatch
-	searchCalls           []struct {
-		region string
-		entity string
-		query  string
-		fields []string
-		limit  int
-	}
+	byID         map[string]map[string]map[string]map[string]any
+	listByEntity map[string][]map[string]any
+	listItems    []map[string]any
+	listTotal    int
+	listAllCalls []string
+	hasRecords   map[string]map[string]bool
 }
 
 type fakeVirtualLiveHandlerStatusStore struct {
@@ -127,40 +116,19 @@ func (cache *fakeVirtualLiveHandlerCache) ListByPage(_ context.Context, _, _ str
 	return cache.listItems, cache.listTotal, nil
 }
 
-func (cache *fakeVirtualLiveHandlerCache) Search(_ context.Context, region, entity, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	cache.searchCalls = append(cache.searchCalls, struct {
-		region string
-		entity string
-		query  string
-		fields []string
-		limit  int
-	}{
-		region: region,
-		entity: entity,
-		query:  query,
-		fields: append([]string{}, fields...),
-		limit:  limit,
-	})
-	if cache.searchMatchesByEntity != nil {
-		if matches, ok := cache.searchMatchesByEntity[entity]; ok {
-			return matches, nil
-		}
-	}
-	return cache.searchMatches, nil
-}
-
 func (cache *fakeVirtualLiveHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
 	if cache.hasRecords == nil {
-		return false, nil
+		if regionData, ok := cache.byID[region]; ok && len(regionData[entity]) > 0 {
+			return true, nil
+		}
+		if len(cache.listByEntity[entity]) > 0 {
+			return true, nil
+		}
+		return len(cache.listItems) > 0, nil
 	}
-	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
-}
-
-func (cache *fakeVirtualLiveHandlerCache) HasRegionIndex(_ string) bool {
-	if !cache.hasIndexSet {
-		return true
-	}
-	return cache.hasIndex
+	return cache.hasRecords[region][entity], nil
 }
 
 func TestVirtualLiveByIDEndpointReturnsVirtualLive(t *testing.T) {
@@ -998,7 +966,7 @@ func TestVirtualLiveAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(
 	}
 }
 
-func TestVirtualLiveAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
+func TestVirtualLiveAvailabilityEndpointUsesPersistedEntityRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeVirtualLiveHandlerCache{
@@ -1012,8 +980,6 @@ func TestVirtualLiveAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntime
 		hasRecords: map[string]map[string]bool{
 			"jp": {"virtuallives": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyVirtualLiveHandler(cache)
@@ -1218,8 +1184,6 @@ func TestVirtualLivePersistedRecordsReturnDataWhenIndexMissing(t *testing.T) {
 		hasRecords: map[string]map[string]bool{
 			"jp": {"virtuallives": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyVirtualLiveHandler(cache)

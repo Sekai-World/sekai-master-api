@@ -12,10 +12,9 @@ import (
 	"sekai-master-api/internal/domain/masterdata"
 )
 
-// The master-data store contract: every store (Redis today, PostgreSQL
-// during the migration in docs/postgres-master-data-store.md) must answer
-// these reads identically. Each scenario runs against every store, and
-// TestStoreContractParity compares the stores' answers directly.
+// The master-data store contract (docs/postgres-master-data-store.md): the
+// reads handlers and sync rely on, pinned per scenario. Each scenario runs
+// against every store in contractBackends.
 
 // contractStore is the storage surface handlers and sync use.
 type contractStore interface {
@@ -35,7 +34,6 @@ type contractStore interface {
 }
 
 var (
-	_ contractStore = (*RedisMasterDataCache)(nil)
 	_ contractStore = (*PostgresMasterDataStore)(nil)
 )
 
@@ -49,21 +47,6 @@ type contractBackend struct {
 
 func contractBackends() []contractBackend {
 	return []contractBackend{
-		{
-			name: "redis",
-			open: func(t *testing.T) contractStore {
-				return newStoreRegionTestCache(t, startTestMiniRedis(t))
-			},
-			markDerivedDataStale: func(t *testing.T, store contractStore, region, entity string) {
-				cache := store.(*RedisMasterDataCache)
-				ctx := context.Background()
-				for _, key := range []string{cache.redisEntityIndexVersionKey(region, entity), cache.redisEntityProjectionVersionKey(region, entity)} {
-					if err := cache.client.Set(ctx, key, "stale", 0).Err(); err != nil {
-						t.Fatalf("mark stale: %v", err)
-					}
-				}
-			},
-		},
 		{
 			name: "postgres",
 			open: func(t *testing.T) contractStore {
@@ -165,90 +148,6 @@ func contractPayload(t *testing.T) map[string]any {
 	}
 }
 
-var contractEntities = []string{"cards", "cardepisodes", "resourceboxes", "resourceboxdetails", "gachas", "musicvocals", "musiccategories", "versions"}
-
-// contractReads performs every read of the contract on store and returns the
-// answers keyed by a description, for comparison between stores.
-func contractReads(t *testing.T, store contractStore) map[string]any {
-	t.Helper()
-	ctx := context.Background()
-	answers := map[string]any{}
-	record := func(name string, value any, err error) {
-		if err != nil {
-			answers[name] = "error: " + err.Error()
-			return
-		}
-		answers[name] = value
-	}
-
-	for _, entity := range contractEntities {
-		all, err := store.ListAll(ctx, "jp", entity)
-		record("ListAll "+entity, all, err)
-		has, err := store.HasEntityRecords(ctx, "jp", entity)
-		record("HasEntityRecords "+entity, has, err)
-		for _, pageSize := range []int{-1, 0, 1, 7, 20, 100, 101} {
-			for page := -1; page <= 16; page++ {
-				items, total, err := store.ListByPage(ctx, "jp", entity, page, pageSize)
-				record(fmt.Sprintf("ListByPage %s page=%d size=%d", entity, page, pageSize), []any{items, total}, err)
-			}
-		}
-	}
-
-	ids := []string{"1", " 2 ", "3", "4", "1010201", "1.010201e+06", "5", "", "007", "abc", "100000000000000000000", "90", "10", "50", "1", "missing"}
-	for _, entity := range []string{"cards", "musicvocals", "resourceboxes", "musiccategories"} {
-		for _, id := range ids {
-			value, found, err := store.GetByID(ctx, "jp", entity, id)
-			record(fmt.Sprintf("GetByID %s %q", entity, id), []any{value, found}, err)
-		}
-		values, err := store.GetByIDs(ctx, "jp", entity, ids)
-		record("GetByIDs "+entity, values, err)
-	}
-	autoKey := masterdata.AutoRecordKey([]byte(`{"prefix":"no id","characterId":4}`))
-	values, err := store.GetByIDs(ctx, "jp", "cards", []string{autoKey})
-	record("GetByIDs cards auto key", values, err)
-
-	compositeKeys := []map[string]any{
-		{"id": 5, "resourceBoxPurpose": "mission_reward"},
-		{"id": float64(5), "resourceBoxPurpose": "event_ranking_reward"},
-		{"id": "6", "resourceBoxPurpose": "mission_reward"},
-		{"id": 5},
-		{"id": 7, "resourceBoxPurpose": "mission_reward"},
-		{"resourceBoxId": 5, "resourceBoxPurpose": "mission_reward", "seq": 2},
-		{"resourceBoxId": json.Number("5"), "resourceBoxPurpose": "event_ranking_reward", "seq": 1},
-		nil,
-	}
-	for _, entity := range []string{"resourceboxes", "resourceboxdetails", "cards"} {
-		values, err := store.GetByCompositeKeys(ctx, "jp", entity, compositeKeys)
-		record("GetByCompositeKeys "+entity, values, err)
-	}
-
-	indexReads := []struct {
-		entity, index string
-		lookups       [][]any
-	}{
-		{"cardepisodes", "cardId", [][]any{{1}, {"2"}, {1010201}, {99}, {nil}, {1}, {json.Number("1")}}},
-		{"resourceboxdetails", "resourceBoxId,resourceBoxPurpose", [][]any{{5, "mission_reward"}, {6, "mission_reward"}, {5, "event_ranking_reward"}, {5}, {7, "none"}}},
-		{"resourceboxes", "id", [][]any{{5}, {6}, {8}}},
-		{"gachas", "gachaPickups.cardId", [][]any{{1}, {2}, {3}, {4}}},
-		{"musicvocals", "musicId", [][]any{{0}, {1}, {2}, {3}, {4}, {5}, {6}}},
-		{"musiccategories", "musicId", [][]any{{1}, {nil}}},
-		{"cards", "characterId", [][]any{{1}}},
-	}
-	for _, read := range indexReads {
-		values, err := store.ListByIndex(ctx, "jp", read.entity, read.index, read.lookups)
-		record("ListByIndex "+read.entity+" "+read.index, values, err)
-	}
-
-	for _, entity := range []string{"cards", "gachas", "costume3ds", "musicvocals"} {
-		projection, err := store.LoadProjection(ctx, "jp", entity)
-		record("LoadProjection "+entity, projection, err)
-	}
-
-	version, found, err := store.LoadRegionVersionPayload(ctx, "jp")
-	record("LoadRegionVersionPayload", []any{version, found}, err)
-	return answers
-}
-
 func storeContractPayload(t *testing.T, store contractStore) {
 	t.Helper()
 	ctx := context.Background()
@@ -259,47 +158,6 @@ func storeContractPayload(t *testing.T, store contractStore) {
 	if err := store.StoreRegionVersionPayload(ctx, "jp", payload["versions.json"]); err != nil {
 		t.Fatalf("store version payload: %v", err)
 	}
-}
-
-// TestStoreContractParity stores the same payload in every store and requires
-// identical answers to every read, which is what keeps response bodies
-// byte-for-byte identical across stores.
-func TestStoreContractParity(t *testing.T) {
-	backends := contractBackends()
-	answers := make([]map[string]any, len(backends))
-	for index, backend := range backends {
-		store := backend.open(t)
-		storeContractPayload(t, store)
-		answers[index] = contractReads(t, store)
-	}
-
-	reference := answers[0]
-	if len(reference) < 900 {
-		t.Fatalf("parity compared only %d reads", len(reference))
-	}
-	for index := 1; index < len(answers); index++ {
-		for name, want := range reference {
-			got, ok := answers[index][name]
-			if !ok {
-				t.Errorf("%s: %s has no answer", name, backends[index].name)
-				continue
-			}
-			if !reflect.DeepEqual(got, want) {
-				t.Errorf("%s differs:\n%s: %s\n%s: %s", name, backends[0].name, describe(want), backends[index].name, describe(got))
-			}
-		}
-	}
-}
-
-func describe(value any) string {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%#v", value)
-	}
-	if len(body) > 600 {
-		return string(body[:600]) + "…"
-	}
-	return string(body)
 }
 
 // TestStoreContractReads pins the answers themselves, so the stores cannot

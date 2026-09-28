@@ -823,8 +823,8 @@ func TestBondsHonorsListLoadsEachRelationOnceAndOnlyEnrichesCurrentPage(t *testi
 	if counts[bondsHonorsEntity] != 1 || counts[bondsHonorBondsEntity] != 1 || counts[bondsHonorWordsEntity] != 1 || counts[bondsHonorGameCharacterUnitsEntity] != 1 {
 		t.Fatalf("each entity must be loaded once, got counts=%v calls=%+v", counts, cache.listAllCalls)
 	}
-	if len(cache.byIDCalls) != 0 || cache.searchCalls != 0 {
-		t.Fatalf("list enrichment must not use per-item GetByID or Search, byID=%+v searchCalls=%d", cache.byIDCalls, cache.searchCalls)
+	if len(cache.byIDCalls) != 0 {
+		t.Fatalf("list enrichment must not use per-item GetByID, byID=%+v", cache.byIDCalls)
 	}
 }
 
@@ -833,7 +833,7 @@ func TestBondsHonorsStorageErrorsUseQueryErrorCode(t *testing.T) {
 	baseRecord := newBondsHonorRecord(7, 1, 77, 17, 18, "Storage failure")
 
 	baseListCache := &bondsHonorTrackingCache{
-		fakeLookupCache: &fakeLookupCache{},
+		fakeLookupCache: &fakeLookupCache{hasRecords: map[string]map[string]bool{"jp": {bondsHonorsEntity: true}}},
 		listAllErrors:   map[string]error{bondsHonorsEntity: errors.New("base list unavailable")},
 	}
 	baseListResponse := serveLookupRequest(t, newBondsHonorRouter(newReadyBondsHonorTrackingHandler(baseListCache)), http.MethodGet, "/api/v1/bondsHonors/jp/list")
@@ -841,7 +841,10 @@ func TestBondsHonorsStorageErrorsUseQueryErrorCode(t *testing.T) {
 		t.Fatalf("expected list storage error code %s, got %d: %s", bondsHonorQueryErrorCode, baseListResponse.Code, baseListResponse.Body.String())
 	}
 
-	baseByIDCache := &fakeLookupCache{byIDErr: errors.New("base record unavailable")}
+	baseByIDCache := &fakeLookupCache{
+		hasRecords: map[string]map[string]bool{"jp": {bondsHonorsEntity: true}},
+		byIDErr:    errors.New("base record unavailable"),
+	}
 	baseByIDResponse := serveLookupRequest(t, newBondsHonorRouter(newReadyLookupHandler(baseByIDCache)), http.MethodGet, "/api/v1/bondsHonors/jp/7")
 	if baseByIDResponse.Code != http.StatusInternalServerError || bondsHonorErrorCode(t, baseByIDResponse.Body.Bytes()) != bondsHonorQueryErrorCode {
 		t.Fatalf("expected by-id storage error code %s, got %d: %s", bondsHonorQueryErrorCode, baseByIDResponse.Code, baseByIDResponse.Body.String())
@@ -903,7 +906,7 @@ func TestBondsHonorsWordsStorageErrorsUseQueryErrorCode(t *testing.T) {
 
 func TestBondsHonorsReadinessUsesBondsHonorsEntity(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cache := &fakeLookupCache{hasIndexSet: true, hasIndex: false}
+	cache := &fakeLookupCache{}
 	router := newBondsHonorRouter(newReadyLookupHandler(cache))
 	for _, path := range []string{
 		"/api/v1/bondsHonors/jp/list",

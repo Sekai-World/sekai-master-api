@@ -71,7 +71,6 @@ mkdir -p /app/tmp
   printf 'DATABASE_URL=postgres://postgres:postgres@postgres:5432/sekai?sslmode=disable\n'
   printf 'MASTER_DATA_AUTO_SYNC=%s\n' "${MASTER_DATA_AUTO_SYNC_OVERRIDE}"
   printf 'MASTER_DATA_RECOVER_INTERRUPTED_SYNC=%s\n' "${MASTER_DATA_RECOVER_INTERRUPTED_SYNC_OVERRIDE}"
-  printf 'REDIS_ADDR=redis:6379\n'
   case "${OBSERVABILITY_MODE}" in
     metrics)
       printf 'OTEL_ENABLED=true\n'

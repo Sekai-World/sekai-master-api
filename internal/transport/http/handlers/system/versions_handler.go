@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/logging"
 	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
@@ -38,8 +39,10 @@ func (handler *VersionsHandler) AllRegions(c *gin.Context) {
 	for _, region := range handler.masterDataSync.ConfiguredRegions() {
 		version, found, err := handler.masterDataSync.VersionByRegion(c.Request.Context(), region)
 		if err != nil {
-			response.Error(c, http.StatusInternalServerError, "VERSION_QUERY_ERROR", "failed to load region version")
-			return
+			// One region's read error leaves that region out instead of
+			// failing every region.
+			logging.FromContext(c.Request.Context()).Warnw("region version skipped", "component", "versions-handler", "region", region, "error", err)
+			continue
 		}
 		if !found {
 			continue

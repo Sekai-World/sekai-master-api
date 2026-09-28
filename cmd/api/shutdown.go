@@ -160,7 +160,7 @@ func waitForBackgroundWorkers(
 		webhook.RejectNewSubmissions()
 	}
 
-	// 1) Startup lifecycle workers (migration/warmup/auto-sync/recovery).
+	// 1) Startup lifecycle workers (migration/auto-sync/recovery).
 	done := make(chan struct{})
 	go func() {
 		lifecycleWG.Wait()

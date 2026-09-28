@@ -23,8 +23,7 @@ import (
 //
 // positions are the key's positions in the entity's source order (a key the
 // source repeats has several, and every one reads the record stored last
-// under it, as the Redis store does), and record is the stored JSON, byte for
-// byte.
+// under it), and record is the stored JSON, byte for byte.
 
 const (
 	// masterBlockMaxRecords closes a block at this many record keys.
@@ -143,8 +142,8 @@ func decodeBlocks(bodies [][]byte) ([][]decodedEntry, error) {
 	return decoded, err
 }
 
-// decodeRecords unmarshals raw records into maps on every available core,
-// the way the Redis store decodes them. A nil raw record stays nil.
+// decodeRecords unmarshals raw records into maps on every available core. A
+// nil raw record stays nil.
 func decodeRecords(raws []json.RawMessage) ([]map[string]any, error) {
 	records := make([]map[string]any, len(raws))
 	err := parallelEach(len(raws), func(index int) error {
@@ -210,13 +209,13 @@ func decodeOrderKeys(body []byte) ([]string, error) {
 }
 
 func compressBlob(plain []byte) []byte {
-	encoder := redisEntityEncoderPool.Get().(*zstd.Encoder)
-	defer redisEntityEncoderPool.Put(encoder)
+	encoder := zstdEncoderPool.Get().(*zstd.Encoder)
+	defer zstdEncoderPool.Put(encoder)
 	return encoder.EncodeAll(plain, nil)
 }
 
 func decompressBlob(body []byte) ([]byte, error) {
-	return redisEntityDecoder.DecodeAll(body, nil)
+	return zstdDecoder.DecodeAll(body, nil)
 }
 
 // blockEntries groups an entity's records, in source order, by record key.

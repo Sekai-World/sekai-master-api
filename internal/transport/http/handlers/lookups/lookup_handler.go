@@ -279,7 +279,7 @@ func (handler *LookupHandler) UnitProfilesAvailableRegionsByUnit(c *gin.Context)
 		return
 	}
 
-	readyRegions, err := shared.RuntimeSearchIndexReadyRegions(c.Request.Context(), handler.masterDataSync)
+	readyRegions, err := handler.masterDataSync.SuccessfulSyncRegions(c.Request.Context())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, unitProfilesConfig.queryErrorCode, "failed to query "+unitProfilesConfig.resourceLabel+" available regions")
 		return
@@ -859,28 +859,6 @@ func (handler *LookupHandler) expandRecords(ctx context.Context, region string, 
 		expanded = append(expanded, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record))
 	}
 	return expanded
-}
-
-func (handler *LookupHandler) ensureRegionReady(c *gin.Context, region string) bool {
-	if handler == nil || handler.masterDataSync == nil {
-		return true
-	}
-
-	readyRegions, err := shared.RuntimeSearchIndexReadyRegions(c.Request.Context(), handler.masterDataSync)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
-		return false
-	}
-
-	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
-	for _, readyRegion := range readyRegions {
-		if readyRegion == normalizedRegion {
-			return true
-		}
-	}
-
-	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
-	return false
 }
 
 func (handler *LookupHandler) findUnitProfileByUnit(ctx context.Context, region string, unit string) (map[string]any, bool, error) {

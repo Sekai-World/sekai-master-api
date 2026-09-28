@@ -15,15 +15,14 @@ import (
 //
 //   - AppRoleStandalone is the monolithic default: it exposes both the public
 //     read/query API and the operational/admin surface, and owns migrations,
-//     search-index warmup, master-data auto-sync, and interrupted-sync recovery.
+//     master-data auto-sync, and interrupted-sync recovery.
 //   - AppRoleServe is the public read/query workload. It must not expose admin
 //     API/UI routes, the internal sync-triggering webhook, or any write surface,
-//     and it must not run migrations, warmup, auto-sync, or recovery.
+//     and it must not run migrations, auto-sync, or recovery.
 //   - AppRoleControl is the operational/admin workload. It hosts the admin UI,
 //     the OIDC-protected admin API (including sync endpoints), health/status,
 //     and docs, and owns migrations, auto-sync, and interrupted-sync recovery.
-//     It builds persisted search indexes during sync but does not warm a local
-//     decoded-index cache or expose public data query endpoints.
+//     It does not expose public data query endpoints.
 type AppRole string
 
 const (
@@ -55,24 +54,10 @@ func ResolveAppRole(raw string) AppRole {
 	return AppRoleStandalone
 }
 
-// EffectiveSearchIndexCacheEntries returns the in-process decoded search-index
-// LRU capacity for the configured runtime role. The pure `control` role hosts
-// the admin/operational surface and owns sync, but it never serves public
-// read/search traffic, so its local decoded-index LRU is disabled (0): those
-// decoded indexes are only a bounded local read cache for `serve`/`standalone`.
-// Disabling it avoids needlessly decoding persisted Redis indexes into the
-// control process memory. `serve` and `standalone` keep the configured capacity.
-func (cfg Config) EffectiveSearchIndexCacheEntries() int {
-	if cfg.Role == AppRoleControl {
-		return 0
-	}
-	return cfg.MasterDataSearchIndexCacheEntries
-}
-
 // OwnsSyncLifecycle reports whether the role owns migrations, master-data
 // auto-sync, and interrupted-sync recovery. Only `standalone` and `control` own
 // these lifecycle jobs; `serve` is a pure public read workload and must not run
-// them. Standalone additionally warms its local decoded search-index cache.
+// them.
 func (cfg Config) OwnsSyncLifecycle() bool {
 	return cfg.Role == AppRoleStandalone || cfg.Role == AppRoleControl
 }
@@ -85,68 +70,58 @@ func (cfg Config) NeedsAdminSurface() bool {
 }
 
 type Config struct {
-	Port                              string
-	Role                              AppRole
-	AppEnv                            string
-	LogLevel                          string
-	LokiPushURL                       string
-	OTELEnabled                       bool
-	OTELTracingEnabled                bool
-	OTELServiceName                   string
-	OTELServiceVersion                string
-	OTELExporterOTLPEndpoint          string
-	OTELExporterOTLPInsecure          bool
-	OTELMetricExportIntervalMS        int
-	DatabaseDriverName                string
-	DatabaseURL                       string
-	DatabaseMaxConns                  int
-	DatabaseMinConns                  int
-	DatabaseConnectTimeout            time.Duration
-	DatabaseMaxConnLifetime           time.Duration
-	DatabaseMaxConnIdleTime           time.Duration
-	MasterDataStore                   string
-	MasterDataAutoSync                bool
-	MasterDataRecoverInterrupted      bool
-	MasterDataWarmSearchIndexes       bool
-	MasterDataSearchIndexCacheEntries int
-	MasterDataSyncTimeout             int
-	MasterDataSyncJobTimeout          int
-	MasterDataSyncLeaseEnabled        bool
-	MasterDataSyncLeaseTTLSeconds     int
-	MasterDataSyncLeaseName           string
-	ShutdownTimeoutSeconds            int
-	MasterDataSyncConcurrency         int
-	MasterDataFileConcurrency         int
-	MasterDataResumeBaseDir           string
-	MasterDataGitHubToken             string
-	MasterDataHTTPTimeout             int
-	MasterDataHTTPRetryCount          int
-	MasterDataHTTPRetryBackoffMS      int
-	MasterDataGitHubWebhookSecret     string
-	MasterDataRegions                 []string
-	MasterDataSources                 map[string]MasterDataSource
-	RedisAddr                         string
-	RedisPassword                     string
-	RedisDB                           int
-	RedisDialTimeout                  time.Duration
-	RedisReadTimeout                  time.Duration
-	RedisWriteTimeout                 time.Duration
-	RedisPoolTimeout                  time.Duration
-	MasterDataRedisKeyPrefix          string
-	OIDCIssuerURL                     string
-	OIDCInternalURL                   string
-	OIDCAudience                      string
-	OIDCSkipIssuer                    bool
-	OIDCSkipAudCheck                  bool
-	OIDCClientID                      string
-	OIDCAuthURL                       string
-	OIDCTokenURL                      string
-	OIDCRedirectURL                   string
-	OIDCScopes                        []string
-	OIDCPrivateKeyPath                string
-	OIDCPrivateKeyID                  string
-	OIDCAdminClaim                    string
-	OIDCAdminClaimValues              []string
+	Port                          string
+	Role                          AppRole
+	AppEnv                        string
+	LogLevel                      string
+	LokiPushURL                   string
+	OTELEnabled                   bool
+	OTELTracingEnabled            bool
+	OTELServiceName               string
+	OTELServiceVersion            string
+	OTELExporterOTLPEndpoint      string
+	OTELExporterOTLPInsecure      bool
+	OTELMetricExportIntervalMS    int
+	DatabaseDriverName            string
+	DatabaseURL                   string
+	DatabaseMaxConns              int
+	DatabaseMinConns              int
+	DatabaseConnectTimeout        time.Duration
+	DatabaseMaxConnLifetime       time.Duration
+	DatabaseMaxConnIdleTime       time.Duration
+	MasterDataStore               string
+	MasterDataAutoSync            bool
+	MasterDataRecoverInterrupted  bool
+	MasterDataSyncTimeout         int
+	MasterDataSyncJobTimeout      int
+	MasterDataSyncLeaseEnabled    bool
+	MasterDataSyncLeaseTTLSeconds int
+	MasterDataSyncLeaseName       string
+	ShutdownTimeoutSeconds        int
+	MasterDataSyncConcurrency     int
+	MasterDataFileConcurrency     int
+	MasterDataResumeBaseDir       string
+	MasterDataGitHubToken         string
+	MasterDataHTTPTimeout         int
+	MasterDataHTTPRetryCount      int
+	MasterDataHTTPRetryBackoffMS  int
+	MasterDataGitHubWebhookSecret string
+	MasterDataRegions             []string
+	MasterDataSources             map[string]MasterDataSource
+	OIDCIssuerURL                 string
+	OIDCInternalURL               string
+	OIDCAudience                  string
+	OIDCSkipIssuer                bool
+	OIDCSkipAudCheck              bool
+	OIDCClientID                  string
+	OIDCAuthURL                   string
+	OIDCTokenURL                  string
+	OIDCRedirectURL               string
+	OIDCScopes                    []string
+	OIDCPrivateKeyPath            string
+	OIDCPrivateKeyID              string
+	OIDCAdminClaim                string
+	OIDCAdminClaimValues          []string
 }
 
 type MasterDataSource struct {
@@ -165,68 +140,58 @@ func Load() Config {
 	otelEnabled := getEnvBool("OTEL_ENABLED", false)
 
 	return Config{
-		Port:                              port,
-		Role:                              resolveAppRole(getEnv("APP_ROLE", "")),
-		AppEnv:                            appEnv,
-		LogLevel:                          logLevel,
-		LokiPushURL:                       strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
-		OTELEnabled:                       otelEnabled,
-		OTELTracingEnabled:                getEnvBool("OTEL_TRACING_ENABLED", otelEnabled),
-		OTELServiceName:                   strings.TrimSpace(getEnv("OTEL_SERVICE_NAME", "sekai-master-api")),
-		OTELServiceVersion:                strings.TrimSpace(getEnv("OTEL_SERVICE_VERSION", "")),
-		OTELExporterOTLPEndpoint:          strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
-		OTELExporterOTLPInsecure:          getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
-		OTELMetricExportIntervalMS:        getEnvInt("OTEL_METRIC_EXPORT_INTERVAL", 10000),
-		DatabaseDriverName:                getEnv("DATABASE_DRIVER", ""),
-		DatabaseURL:                       getEnv("DATABASE_URL", "postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable"),
-		DatabaseMaxConns:                  getEnvInt("DATABASE_MAX_CONNS", 0),
-		DatabaseMinConns:                  getEnvInt("DATABASE_MIN_CONNS", 0),
-		DatabaseConnectTimeout:            time.Duration(getEnvInt("DATABASE_CONNECT_TIMEOUT_SECONDS", 10)) * time.Second,
-		DatabaseMaxConnLifetime:           time.Duration(getEnvInt("DATABASE_MAX_CONN_LIFETIME_SECONDS", 0)) * time.Second,
-		DatabaseMaxConnIdleTime:           time.Duration(getEnvInt("DATABASE_MAX_CONN_IDLE_SECONDS", 0)) * time.Second,
-		MasterDataStore:                   strings.ToLower(strings.TrimSpace(getEnv("MASTER_DATA_STORE", MasterDataStoreRedis))),
-		MasterDataAutoSync:                getEnvBool("MASTER_DATA_AUTO_SYNC", true),
-		MasterDataRecoverInterrupted:      getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
-		MasterDataResumeBaseDir:           strings.TrimSpace(getEnv("MASTER_DATA_RESUME_BASE_DIR", "tmp/master-data-sync-resume")),
-		MasterDataWarmSearchIndexes:       getEnvBool("MASTER_DATA_WARM_SEARCH_INDEXES", !isDevelopmentEnv(appEnv)),
-		MasterDataSearchIndexCacheEntries: getEnvInt("MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES", 32),
-		MasterDataSyncTimeout:             getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 0),
-		MasterDataSyncJobTimeout:          getEnvInt("MASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS", 1800),
-		MasterDataSyncLeaseEnabled:        getEnvBool("MASTER_DATA_SYNC_LEASE_ENABLED", true),
-		MasterDataSyncLeaseTTLSeconds:     getEnvInt("MASTER_DATA_SYNC_LEASE_TTL_SECONDS", 60),
-		MasterDataSyncLeaseName:           strings.TrimSpace(getEnv("MASTER_DATA_SYNC_LEASE_NAME", "master-data-sync")),
-		ShutdownTimeoutSeconds:            getEnvInt("SHUTDOWN_TIMEOUT_SECONDS", 25),
-		MasterDataSyncConcurrency:         getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", defaultMasterDataSyncConcurrency(appEnv)),
-		MasterDataFileConcurrency:         getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", defaultMasterDataFileConcurrency(appEnv)),
-		MasterDataGitHubToken:             strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_TOKEN", "")),
-		MasterDataHTTPTimeout:             getEnvInt("MASTER_DATA_HTTP_TIMEOUT_SECONDS", 20),
-		MasterDataHTTPRetryCount:          getEnvInt("MASTER_DATA_HTTP_RETRY_COUNT", 3),
-		MasterDataHTTPRetryBackoffMS:      getEnvInt("MASTER_DATA_HTTP_RETRY_BACKOFF_MS", 300),
-		MasterDataGitHubWebhookSecret:     strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_WEBHOOK_SECRET", "")),
-		MasterDataRegions:                 getEnvList("MASTER_DATA_REGIONS"),
-		MasterDataSources:                 loadMasterDataSources(getEnvList("MASTER_DATA_REGIONS")),
-		RedisAddr:                         getEnv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword:                     getEnv("REDIS_PASSWORD", ""),
-		RedisDB:                           getEnvInt("REDIS_DB", 0),
-		RedisDialTimeout:                  time.Duration(getEnvInt("REDIS_DIAL_TIMEOUT_SECONDS", 0)) * time.Second,
-		RedisReadTimeout:                  time.Duration(getEnvInt("REDIS_READ_TIMEOUT_SECONDS", 0)) * time.Second,
-		RedisWriteTimeout:                 time.Duration(getEnvInt("REDIS_WRITE_TIMEOUT_SECONDS", 0)) * time.Second,
-		RedisPoolTimeout:                  time.Duration(getEnvInt("REDIS_POOL_TIMEOUT_SECONDS", 0)) * time.Second,
-		MasterDataRedisKeyPrefix:          getEnv("MASTER_DATA_REDIS_KEY_PREFIX", "sekai:master-data:"),
-		OIDCIssuerURL:                     strings.TrimSpace(getEnv("OIDC_ISSUER_URL", "")),
-		OIDCInternalURL:                   strings.TrimSpace(getEnv("OIDC_INTERNAL_URL", "")),
-		OIDCAudience:                      strings.TrimSpace(getEnv("OIDC_AUDIENCE", "")),
-		OIDCSkipIssuer:                    strings.EqualFold(getEnv("OIDC_SKIP_ISSUER_CHECK", "false"), "true"),
-		OIDCSkipAudCheck:                  strings.EqualFold(getEnv("OIDC_SKIP_AUDIENCE_CHECK", "false"), "true"),
-		OIDCClientID:                      strings.TrimSpace(getEnv("OIDC_CLIENT_ID", "")),
-		OIDCAuthURL:                       strings.TrimSpace(getEnv("OIDC_AUTH_URL", "")),
-		OIDCTokenURL:                      strings.TrimSpace(getEnv("OIDC_TOKEN_URL", "")),
-		OIDCRedirectURL:                   strings.TrimSpace(getEnv("OIDC_REDIRECT_URL", "http://localhost:"+port+"/api/v1/admin/login/callback")),
-		OIDCScopes:                        getEnvListWithFallback("OIDC_SCOPES", []string{"openid", "profile", "email"}),
-		OIDCPrivateKeyPath:                strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_PATH", "")),
-		OIDCPrivateKeyID:                  strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_ID", "")),
-		OIDCAdminClaim:                    strings.TrimSpace(getEnv("OIDC_ADMIN_CLAIM", "")),
-		OIDCAdminClaimValues:              getEnvList("OIDC_ADMIN_CLAIM_VALUES"),
+		Port:                          port,
+		Role:                          resolveAppRole(getEnv("APP_ROLE", "")),
+		AppEnv:                        appEnv,
+		LogLevel:                      logLevel,
+		LokiPushURL:                   strings.TrimSpace(getEnv("LOKI_PUSH_URL", "")),
+		OTELEnabled:                   otelEnabled,
+		OTELTracingEnabled:            getEnvBool("OTEL_TRACING_ENABLED", otelEnabled),
+		OTELServiceName:               strings.TrimSpace(getEnv("OTEL_SERVICE_NAME", "sekai-master-api")),
+		OTELServiceVersion:            strings.TrimSpace(getEnv("OTEL_SERVICE_VERSION", "")),
+		OTELExporterOTLPEndpoint:      strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
+		OTELExporterOTLPInsecure:      getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", false),
+		OTELMetricExportIntervalMS:    getEnvInt("OTEL_METRIC_EXPORT_INTERVAL", 10000),
+		DatabaseDriverName:            getEnv("DATABASE_DRIVER", ""),
+		DatabaseURL:                   getEnv("DATABASE_URL", "postgres://sekai:sekai@localhost:5432/sekai?sslmode=disable"),
+		DatabaseMaxConns:              getEnvInt("DATABASE_MAX_CONNS", 0),
+		DatabaseMinConns:              getEnvInt("DATABASE_MIN_CONNS", 0),
+		DatabaseConnectTimeout:        time.Duration(getEnvInt("DATABASE_CONNECT_TIMEOUT_SECONDS", 10)) * time.Second,
+		DatabaseMaxConnLifetime:       time.Duration(getEnvInt("DATABASE_MAX_CONN_LIFETIME_SECONDS", 0)) * time.Second,
+		DatabaseMaxConnIdleTime:       time.Duration(getEnvInt("DATABASE_MAX_CONN_IDLE_SECONDS", 0)) * time.Second,
+		MasterDataStore:               strings.ToLower(strings.TrimSpace(getEnv("MASTER_DATA_STORE", ""))),
+		MasterDataAutoSync:            getEnvBool("MASTER_DATA_AUTO_SYNC", true),
+		MasterDataRecoverInterrupted:  getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
+		MasterDataResumeBaseDir:       strings.TrimSpace(getEnv("MASTER_DATA_RESUME_BASE_DIR", "tmp/master-data-sync-resume")),
+		MasterDataSyncTimeout:         getEnvInt("MASTER_DATA_SYNC_TIMEOUT_SECONDS", 0),
+		MasterDataSyncJobTimeout:      getEnvInt("MASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS", 1800),
+		MasterDataSyncLeaseEnabled:    getEnvBool("MASTER_DATA_SYNC_LEASE_ENABLED", true),
+		MasterDataSyncLeaseTTLSeconds: getEnvInt("MASTER_DATA_SYNC_LEASE_TTL_SECONDS", 60),
+		MasterDataSyncLeaseName:       strings.TrimSpace(getEnv("MASTER_DATA_SYNC_LEASE_NAME", "master-data-sync")),
+		ShutdownTimeoutSeconds:        getEnvInt("SHUTDOWN_TIMEOUT_SECONDS", 25),
+		MasterDataSyncConcurrency:     getEnvInt("MASTER_DATA_SYNC_CONCURRENCY", defaultMasterDataSyncConcurrency(appEnv)),
+		MasterDataFileConcurrency:     getEnvInt("MASTER_DATA_REGION_FILE_CONCURRENCY", defaultMasterDataFileConcurrency(appEnv)),
+		MasterDataGitHubToken:         strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_TOKEN", "")),
+		MasterDataHTTPTimeout:         getEnvInt("MASTER_DATA_HTTP_TIMEOUT_SECONDS", 20),
+		MasterDataHTTPRetryCount:      getEnvInt("MASTER_DATA_HTTP_RETRY_COUNT", 3),
+		MasterDataHTTPRetryBackoffMS:  getEnvInt("MASTER_DATA_HTTP_RETRY_BACKOFF_MS", 300),
+		MasterDataGitHubWebhookSecret: strings.TrimSpace(getEnv("MASTER_DATA_GITHUB_WEBHOOK_SECRET", "")),
+		MasterDataRegions:             getEnvList("MASTER_DATA_REGIONS"),
+		MasterDataSources:             loadMasterDataSources(getEnvList("MASTER_DATA_REGIONS")),
+		OIDCIssuerURL:                 strings.TrimSpace(getEnv("OIDC_ISSUER_URL", "")),
+		OIDCInternalURL:               strings.TrimSpace(getEnv("OIDC_INTERNAL_URL", "")),
+		OIDCAudience:                  strings.TrimSpace(getEnv("OIDC_AUDIENCE", "")),
+		OIDCSkipIssuer:                strings.EqualFold(getEnv("OIDC_SKIP_ISSUER_CHECK", "false"), "true"),
+		OIDCSkipAudCheck:              strings.EqualFold(getEnv("OIDC_SKIP_AUDIENCE_CHECK", "false"), "true"),
+		OIDCClientID:                  strings.TrimSpace(getEnv("OIDC_CLIENT_ID", "")),
+		OIDCAuthURL:                   strings.TrimSpace(getEnv("OIDC_AUTH_URL", "")),
+		OIDCTokenURL:                  strings.TrimSpace(getEnv("OIDC_TOKEN_URL", "")),
+		OIDCRedirectURL:               strings.TrimSpace(getEnv("OIDC_REDIRECT_URL", "http://localhost:"+port+"/api/v1/admin/login/callback")),
+		OIDCScopes:                    getEnvListWithFallback("OIDC_SCOPES", []string{"openid", "profile", "email"}),
+		OIDCPrivateKeyPath:            strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_PATH", "")),
+		OIDCPrivateKeyID:              strings.TrimSpace(getEnv("OIDC_PRIVATE_KEY_ID", "")),
+		OIDCAdminClaim:                strings.TrimSpace(getEnv("OIDC_ADMIN_CLAIM", "")),
+		OIDCAdminClaimValues:          getEnvList("OIDC_ADMIN_CLAIM_VALUES"),
 	}
 }
 
@@ -302,22 +267,16 @@ func (cfg Config) IsDevelopment() bool {
 	return isDevelopmentEnv(cfg.AppEnv)
 }
 
-// Master-data stores selectable with MASTER_DATA_STORE.
-const (
-	// MasterDataStoreRedis keeps master data in Redis (the default).
-	MasterDataStoreRedis = "redis"
-	// MasterDataStorePostgres keeps master data in PostgreSQL
-	// (docs/postgres-master-data-store.md); Redis is then not used.
-	MasterDataStorePostgres = "postgres"
-)
-
-// ValidateMasterDataStore checks MASTER_DATA_STORE.
+// ValidateMasterDataStore checks the optional MASTER_DATA_STORE setting.
+// Master data lives in PostgreSQL (docs/postgres-master-data-store.md); the
+// setting is still accepted so existing deployments keep starting, but any
+// value other than postgres fails.
 func (cfg Config) ValidateMasterDataStore() error {
 	switch cfg.MasterDataStore {
-	case MasterDataStoreRedis, MasterDataStorePostgres:
+	case "", "postgres":
 		return nil
 	default:
-		return fmt.Errorf("unsupported MASTER_DATA_STORE %q: use %q or %q", cfg.MasterDataStore, MasterDataStoreRedis, MasterDataStorePostgres)
+		return fmt.Errorf("unsupported MASTER_DATA_STORE %q: master data is stored in PostgreSQL (the Redis master-data store was removed); unset MASTER_DATA_STORE or set it to postgres", cfg.MasterDataStore)
 	}
 }
 

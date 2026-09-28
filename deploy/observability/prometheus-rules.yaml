@@ -13,8 +13,7 @@
 #   sekai_master_data_region_last_synced_unix{region}
 #   sekai_master_data_region_status{region,status}
 #   sekai_master_data_sync_running
-#   sekai_master_data_region_index_loaded{region}
-#   sekai_redis_keys
+#   sekai_master_data_region_records{region}
 #   sekai_http_server_request_duration_ms (histogram)
 #   up{job="..."} (scrape target; adjust the job label to your config)
 
@@ -31,9 +30,10 @@ groups:
           summary: "Master data for region {{ $labels.region }} is stale (>48h since last sync)"
           runbook: docs/runbook.md#master-data-freshness
 
-      # Sync job reported an error status for a region.
+      # Sync job reported a failed status for a region, including failed
+      # PostgreSQL writes.
       - alert: SekaiMasterDataSyncFailed
-        expr: sekai_master_data_region_status{status="error"} == 1
+        expr: sekai_master_data_region_status{status="failed"} == 1
         for: 10m
         labels:
           severity: warning
@@ -70,23 +70,13 @@ groups:
           summary: "p95 HTTP latency above 1s for 15 minutes"
           runbook: docs/runbook.md#public-read-endpoint-down
 
-      # Redis data plane emptied out (keys dropped to zero) — data-loss guard;
-      # the app intentionally never rebuilds an empty Redis on its own.
-      - alert: SekaiRedisDataPlaneEmpty
-        expr: sekai_redis_keys == 0
-        for: 5m
+      # The store holds no master data for a configured region; public reads
+      # for it return 503 until a sync writes it.
+      - alert: SekaiMasterDataRegionEmpty
+        expr: sekai_master_data_region_records == 0
+        for: 10m
         labels:
           severity: critical
         annotations:
-          summary: "Redis master-data data plane has no keys"
-          runbook: docs/runbook.md#redis-loss-rebuild
-
-      # Fewer decoded search indexes retained than regions with synced data.
-      - alert: SekaiSearchIndexNotReady
-        expr: count(sekai_master_data_region_index_loaded == 1) < count(sekai_master_data_region_last_synced_unix)
-        for: 30m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Some regions have synced data but no retained decoded search index"
-          runbook: docs/runbook.md#search-index-not-ready
+          summary: "PostgreSQL holds no master data records for region {{ $labels.region }}"
+          runbook: docs/runbook.md#postgresql-restore

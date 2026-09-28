@@ -23,12 +23,11 @@ investigate and fix before adding features; no formal budget accounting.
 | Alert | Meaning | Runbook |
 | --- | --- | --- |
 | `SekaiMasterDataRegionStale` | a region has not synced successfully in 48h | [Master data freshness](#master-data-freshness) |
-| `SekaiMasterDataSyncFailed` | sync status is `error` for a region | [Sync failed or stuck](#sync-failed-or-stuck) |
+| `SekaiMasterDataSyncFailed` | sync status is `failed` for a region, including failed PostgreSQL writes | [Sync failed or stuck](#sync-failed-or-stuck) |
 | `SekaiMasterDataSyncStuck` | sync running > 6h | [Sync failed or stuck](#sync-failed-or-stuck) |
 | `SekaiPublicReadDown` | scrape target down 5m | [Public read endpoint down](#public-read-endpoint-down) |
 | `SekaiPublicReadLatencyHigh` | p95 latency > 1s for 15m | [Public read endpoint down](#public-read-endpoint-down) |
-| `SekaiRedisDataPlaneEmpty` | Redis has no keys | [Redis loss rebuild](#redis-loss-rebuild) |
-| `SekaiSearchIndexNotReady` | fewer loaded indexes than synced regions | [Search index not ready](#search-index-not-ready) |
+| `SekaiMasterDataRegionEmpty` | PostgreSQL holds no master data records for a region | [PostgreSQL restore](#postgresql-restore) |
 
 ## Recovery paths
 
@@ -71,26 +70,17 @@ repository has no new commits (benign) or the sync is failing.
 
 1. Check pod state: `kubectl get pods -l app.kubernetes.io/name=sekai-master-api`.
 2. Check readiness: `kubectl describe pod <pod>` — `/readyz` fails when
-   PostgreSQL/Redis are unreachable or a region has no persisted records.
-3. Fix the dependency first (see Redis loss rebuild / PostgreSQL restore), then
-   the pods recover on their own.
+   PostgreSQL is unreachable or a region has no persisted records.
+3. Fix the dependency first (see PostgreSQL restore), then the pods recover
+   on their own.
 4. Rollback if a recent rollout broke it (see Rollback).
 5. Verify: `scripts/smoke.sh <public-url>` passes.
 
-### Redis loss rebuild
+### Cache flush
 
-Redis is the persisted data plane; the app never silently rebuilds an empty
-Redis from PostgreSQL.
-
-- Recovery objective: **RPO ≤ 60s, RTO ≤ 30min** (documented in the
-  [chart README](../deploy/helm/sekai-master-api/README.md)).
-- Command: `scripts/redis-recovery-drill.sh` with the environment variables it
-  requires (`REDIS_ADDR`, `MASTER_DATA_REDIS_KEY_PREFIX`,
-  `REDIS_RECOVERY_{REGION,PUBLIC_URL,SERVE_URL,CONTROL_URL}`,
-  `ADMIN_BEARER_TOKEN`, and
-  `REDIS_RECOVERY_DRILL_CONFIRM=DELETE_PREFIXED_REDIS_DATA`).
-- Verify: the script itself validates region data on the public URL, readiness
-  on serve/control, and reports the elapsed time.
+Master data lives in PostgreSQL (see
+[the store design](postgres-master-data-store.md)); Redis holds no master data
+and is not a readiness input. Flushing or losing Redis needs no action.
 
 ### PostgreSQL restore
 
@@ -105,6 +95,10 @@ Redis from PostgreSQL.
   3. Restart control: `kubectl scale deploy/sekai-master-api-control --replicas=1`.
 - Verify: `GET /api/v1/master-data/status` returns the pre-incident region
   statuses; serve pods turn ready; `scripts/smoke.sh` passes.
+- Master data alone does not need a restore: the source repositories on GitHub
+  are its canonical copy, so a forced full sync
+  (`POST /api/v1/admin/master-data/sync/force`) rewrites every region.
+  Use it when `SekaiMasterDataRegionEmpty` fires but the database is healthy.
 
 ### Rollback
 
@@ -114,20 +108,14 @@ Redis from PostgreSQL.
   summary (see `docs/release.md`).
 - Verify: `scripts/smoke.sh <public-url>` passes and the admin dashboard
   reports the expected version.
-
-### Search index not ready
-
-Read-only status paths never repair Redis search indexes, so a missing index
-is fixed only through explicit flows:
-
-1. Trigger an ensure/warmup sync for the affected region via the admin
-   dashboard, or run a full sync (`POST /api/v1/admin/master-data/sync`).
-2. Verify: `sekai_master_data_region_index_loaded{region="<r>"} == 1` resumes.
+- Images from before the Redis store was removed default to
+  `MASTER_DATA_STORE=redis`. When rolling back to one that already has the
+  PostgreSQL store, set `MASTER_DATA_STORE=postgres`, or it serves whatever
+  Redis still holds.
 
 ## Drill cadence
 
-- Run the Redis recovery drill after major data-plane changes and at least
-  quarterly; record the measured RTO in this file or the release notes.
 - Run a PostgreSQL restore drill (dump → restore into a scratch database)
-  at least quarterly.
+  after major data-plane changes and at least quarterly; record the measured
+  RTO in this file or the release notes.
 - Exercise a rollback whenever the release pipeline changes.

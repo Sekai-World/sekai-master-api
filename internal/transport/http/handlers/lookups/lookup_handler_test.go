@@ -23,13 +23,10 @@ type fakeLookupCache struct {
 	byID         map[string]map[string]map[string]map[string]any
 	listByEntity map[string]map[string][]map[string]any
 	hasRecords   map[string]map[string]bool
-	hasIndex     bool
-	hasIndexSet  bool
 	byIDErr      error
 	byIDCalls    []lookupCacheGetByIDCall
 	indexCalls   []lookupCacheIndexCall
 	projections  []string
-	searchCalls  int
 }
 
 type lookupCacheGetByIDCall struct {
@@ -108,7 +105,7 @@ type lookupCacheIndexCall struct {
 	index  string
 }
 
-// GetByIDs reads records like the batched Redis read: without recording
+// GetByIDs reads records like the batched store read: without recording
 // per-item GetByID calls.
 func (cache *fakeLookupCache) GetByIDs(_ context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
 	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
@@ -209,23 +206,13 @@ func (cache *fakeLookupCache) ListByPage(_ context.Context, region string, entit
 	return items[start:end], len(items), nil
 }
 
-func (cache *fakeLookupCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	cache.searchCalls++
-	return []masterdata.SearchMatch{}, nil
-}
-
 func (cache *fakeLookupCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
 	if cache.hasRecords == nil {
-		return false, nil
+		return len(cache.byID[region][entity]) > 0 || len(cache.listByEntity[region][entity]) > 0, nil
 	}
-	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
-}
-
-func (cache *fakeLookupCache) HasRegionIndex(_ string) bool {
-	if !cache.hasIndexSet {
-		return true
-	}
-	return cache.hasIndex
+	return cache.hasRecords[region][entity], nil
 }
 
 func TestUnitProfilesByUnitEndpointReturnsRecord(t *testing.T) {
@@ -858,7 +845,7 @@ func TestGameCharactersListInvalidSortByReturnsBadRequest(t *testing.T) {
 	}
 }
 
-func TestLookupRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t *testing.T) {
+func TestLookupRecordEndpointsUsePersistedEntityRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeLookupCache{
@@ -885,8 +872,6 @@ func TestLookupRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t
 				"gamecharacters": true,
 			},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyLookupHandler(cache)
@@ -917,7 +902,7 @@ func TestLookupRecordEndpointsUsePersistedEntityRecordsWhenRuntimeIndexMissing(t
 	}
 }
 
-func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *testing.T) {
+func TestLookupAvailabilityEndpointsListSyncedRegionsWithPersistedRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeLookupCache{
@@ -941,8 +926,6 @@ func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *te
 				"gamecharacters": true,
 			},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyLookupHandler(cache)
@@ -951,11 +934,14 @@ func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *te
 	router.GET("/api/v1/gameCharacters/regions/:id/availability", handler.GameCharactersAvailableRegionsByID)
 
 	testCases := []struct {
-		name string
-		path string
+		name        string
+		path        string
+		wantRegions []string
 	}{
-		{name: "unit profile availability", path: "/api/v1/unitProfiles/regions/idol/availability"},
-		{name: "generic by-id availability", path: "/api/v1/gameCharacters/regions/6/availability"},
+		{name: "unit profile availability", path: "/api/v1/unitProfiles/regions/idol/availability", wantRegions: []string{"jp"}},
+		{name: "unit profile availability for missing unit", path: "/api/v1/unitProfiles/regions/street/availability", wantRegions: []string{}},
+		{name: "generic by-id availability", path: "/api/v1/gameCharacters/regions/6/availability", wantRegions: []string{"jp"}},
+		{name: "generic by-id availability for missing record", path: "/api/v1/gameCharacters/regions/999/availability", wantRegions: []string{}},
 	}
 
 	for _, testCase := range testCases {
@@ -974,12 +960,8 @@ func TestLookupAvailabilityEndpointsUsePersistedRecordsWithoutRuntimeIndex(t *te
 			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 				t.Fatalf("unmarshal response: %v", err)
 			}
-			if testCase.name == "generic by-id availability" {
-				if !reflect.DeepEqual(body.Regions, []string{"jp"}) {
-					t.Fatalf("expected persisted record region jp without runtime index, got %v", body.Regions)
-				}
-			} else if len(body.Regions) != 0 {
-				t.Fatalf("expected no available regions without a matching persisted record, got %v", body.Regions)
+			if !reflect.DeepEqual(body.Regions, testCase.wantRegions) {
+				t.Fatalf("expected available regions %v, got %v", testCase.wantRegions, body.Regions)
 			}
 		})
 	}
