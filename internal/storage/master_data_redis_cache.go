@@ -743,14 +743,14 @@ func (task *entityStoreTask) execEntityPipeline(ctx context.Context, keys entity
 // entityRecordCollector accumulates the normalized records for one entity and
 // derives the content revision from the stored bodies and order.
 type entityRecordCollector struct {
-	cache               *RedisMasterDataCache
-	regionName          string
-	entity              string
-	records             map[string]string
-	order               []string
-	recordMaps          []map[string]any
-	fallbackOccurrences map[string]int
-	digest              hash.Hash
+	cache      *RedisMasterDataCache
+	regionName string
+	entity     string
+	records    map[string]string
+	order      []string
+	recordMaps []map[string]any
+	keyer      *recordKeyer
+	digest     hash.Hash
 	// indexes holds the entity's relation indexes: index name -> key -> the
 	// storage keys of the records carrying it, in stored order.
 	indexes map[string]map[string][]string
@@ -760,16 +760,16 @@ type entityRecordCollector struct {
 
 func newEntityRecordCollector(cache *RedisMasterDataCache, regionName, entity string, rawRecords []json.RawMessage, legacyRecords []any) *entityRecordCollector {
 	return &entityRecordCollector{
-		cache:               cache,
-		regionName:          regionName,
-		entity:              entity,
-		records:             make(map[string]string, len(rawRecords)+len(legacyRecords)),
-		order:               make([]string, 0, len(rawRecords)+len(legacyRecords)),
-		recordMaps:          make([]map[string]any, 0, len(legacyRecords)),
-		fallbackOccurrences: make(map[string]int),
-		digest:              sha256.New(),
-		indexes:             newEntityIndexes(entity),
-		projection:          masterdata.NewProjectionBuilder(entity),
+		cache:      cache,
+		regionName: regionName,
+		entity:     entity,
+		records:    make(map[string]string, len(rawRecords)+len(legacyRecords)),
+		order:      make([]string, 0, len(rawRecords)+len(legacyRecords)),
+		recordMaps: make([]map[string]any, 0, len(legacyRecords)),
+		keyer:      newRecordKeyer(entity),
+		digest:     sha256.New(),
+		indexes:    newEntityIndexes(entity),
+		projection: masterdata.NewProjectionBuilder(entity),
 	}
 }
 
@@ -809,7 +809,7 @@ func (collector *entityRecordCollector) addLegacyRecords(legacyRecords []any) er
 			return fmt.Errorf("marshal record region %s entity %s: %w", collector.regionName, collector.entity, err)
 		}
 
-		id := collector.storageID(recordMap, body)
+		id := collector.keyer.key(recordMap, body)
 		if id == "" {
 			continue
 		}
@@ -827,7 +827,7 @@ func (collector *entityRecordCollector) addRawRecords(rawRecords []json.RawMessa
 			continue
 		}
 
-		id := collector.storageIDFromRaw(rawRecord)
+		id := collector.keyer.keyFromRaw(rawRecord)
 		if id == "" {
 			continue
 		}
@@ -839,42 +839,6 @@ func (collector *entityRecordCollector) addRawRecords(rawRecords []json.RawMessa
 	return nil
 }
 
-func (collector *entityRecordCollector) storageID(record map[string]any, body []byte) string {
-	if !masterdata.UsesCompositeKey(collector.entity) {
-		return masterdata.RecordKey(record, body)
-	}
-
-	if id, ok := masterdata.CompositeRecordKey(collector.entity, record); ok {
-		return id
-	}
-
-	return collector.fallbackStorageID(body)
-}
-
-func (collector *entityRecordCollector) storageIDFromRaw(body []byte) string {
-	if !masterdata.UsesCompositeKey(collector.entity) {
-		return masterdata.RecordKeyFromRaw(body)
-	}
-
-	if id, ok := masterdata.CompositeRecordKeyFromRaw(collector.entity, body); ok {
-		return id
-	}
-
-	return collector.fallbackStorageID(body)
-}
-
-func (collector *entityRecordCollector) fallbackStorageID(body []byte) string {
-	baseID := masterdata.AutoRecordKey(body)
-	occurrence := collector.fallbackOccurrences[baseID]
-	collector.fallbackOccurrences[baseID] = occurrence + 1
-	if occurrence == 0 {
-		return baseID
-	}
-
-	return baseID + ":" + strconv.Itoa(occurrence)
-}
-
-// revision finalizes the content digest and returns the hex revision.
 func (collector *entityRecordCollector) revision() string {
 	_, _ = collector.digest.Write([]byte("|order:"))
 	for _, id := range collector.order {

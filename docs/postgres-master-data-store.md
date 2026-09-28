@@ -167,7 +167,7 @@ CREATE TABLE master_blocks (
     region    text    NOT NULL,
     entity    text    NOT NULL,
     first_key text    COLLATE "C" NOT NULL,  -- block sort key of the first record
-    body      bytea   NOT NULL,              -- zstd JSON array of [record_key, position, record]
+    body      bytea   NOT NULL,              -- zstd JSON array of [record_key, [position, ...], record]
     PRIMARY KEY (region, entity, first_key)
 );
 
@@ -212,12 +212,15 @@ CREATE TABLE master_versions (
 
   The column uses `COLLATE "C"`, so Postgres compares bytes exactly as Go
   does. A unit test pins the encoding.
-- **Block boundaries.** A block closes at 32 records or 64 kB of JSON,
-  whichever comes first. Large records such as gachas (about 27 kB each) then
-  share only small blocks.
-- **Block body.** A zstd frame of a JSON array of `[record_key, position,
-  record]`. `record` is the compact source JSON, byte for byte, so even key
-  order and number formatting survive.
+- **Block boundaries.** A block closes at 32 record keys, or on the record
+  that brings it to 64 kB of JSON, whichever comes first. Large records such
+  as gachas (about 27 kB each) then share only small blocks.
+- **Block body.** A zstd frame of a JSON array of `[record_key, [position,
+  ...], record]`. `record` is the compact source JSON, byte for byte, so even
+  key order and number formatting survive. A key the source repeats (records
+  with the same id, or identical records without one) is one entry with
+  every position, and each position reads the record stored last under the
+  key, exactly as the Redis store answers.
 - **Why sort by key.** Source files are mostly sorted by `id`, so key order
   keeps source neighbors together. It compresses like source order: 24.9 MB
   versus 24.5 MB for JP. It also gives every block a key range, so a key is
@@ -245,7 +248,7 @@ the index or order of one sync with the blocks of another.
 | `GetByID`, `GetByIDs`, `GetByCompositeKeys` | For each requested sort key, a `LATERAL` probe returns the block with the greatest `first_key <= key`. Blocks are deduplicated. Go decodes them in parallel, picks the requested records and aligns them to the input. |
 | `ListAll` | All blocks of the entity. Go decodes them in parallel and orders the records by `position`. |
 | `ListByPage` | First `record_count` and `order_keys`; Go slices the page's keys. Then the `GetByIDs` statement. Across a concurrent sync, a key removed between the two statements is skipped, which matches today's Redis behavior. |
-| `ListByIndex` | The postings for the lookup values joined with a `LATERAL` block probe for every posted key. Go returns records in posting order. |
+| `ListByIndex` | The entity's index version, the postings for the lookup values, and a block probe for every posted key, in one statement. The probe computes sort keys with the SQL function `master_block_sort_key()`, which a test pins to the Go function. Go returns records in posting order. |
 | `LoadProjection` | `SELECT version, body FROM master_projections WHERE region = $1 AND entity = $2` |
 | `HasEntityRecords` | `SELECT record_count > 0 FROM master_entities WHERE ...` |
 | version payload | `SELECT payload FROM master_versions WHERE region = $1` |
@@ -294,6 +297,10 @@ Per entity file, on `control` and `standalone`:
       Abort with `ErrFencedOut` unless the token matches the one this sync
       holds. This closes the data-write gap in
       [distributed-sync-coordination](distributed-sync-coordination.md#fencing-model).
+      Sync jobs carry their token in the context
+      (`masterdata.WithFencingToken`). Writes without a token pass, as they
+      do for sync status: the lease is disabled, or the write is the
+      `currentevents` cache that step 5 removes.
    2. **Records.** If the revision differs, `DELETE` the entity's blocks,
       `COPY` the new key-sorted blocks, and write `order_keys`. Whole-entity
       rewrites are cheap: all of JP's blocks total about 25 MB, and the
@@ -462,7 +469,18 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
      (`record_key.go`).
 3. **New store.** Add `PostgresMasterDataStore` (read and write, block codec)
    behind `MASTER_DATA_STORE=redis|postgres`, defaulting to `redis`. Run the
-   contract suite against both stores.
+   contract suite against both stores. Done:
+   - The contract suite (`master_data_store_contract_test.go`) runs every
+     scenario against both stores, and a parity test compares about 1,000
+     reads between them.
+   - `TestStoreParityOnSourceDirectory` compares both stores on a real
+     checkout. On TW (455 files) all 4,121 reads matched; the store wrote the
+     region in 5.4 s and used 87.8 MB on disk in 37,247 blocks.
+   - Sync passes the lease token to data writes, prunes dropped entities after
+     a full load, and uses `HasRegionData` where the Redis store rebuilt its
+     search index.
+   - Until step 5, `CurrentEvent` still writes its `currentevents` cache, so
+     `serve` on the PostgreSQL store needs write access.
 4. **Dev cut-over.**
    - Set `postgres` on dev and run a full sync.
    - Compare every public route byte for byte against a Redis-backed build of

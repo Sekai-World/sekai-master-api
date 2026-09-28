@@ -93,6 +93,22 @@ type MasterDataCacheEntityInspector interface {
 	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
 }
 
+// MasterDataCacheRegionDataInspector reports whether a store holds any
+// records for a region. Stores without a Redis search index (the PostgreSQL
+// store) use it to confirm the region is populated before a sync shortcut
+// skips loading the source.
+type MasterDataCacheRegionDataInspector interface {
+	HasRegionData(ctx context.Context, region string) (bool, error)
+}
+
+// MasterDataCacheEntityPruner deletes the entities of a region that keep does
+// not name; keep holds payload file paths or entity names, and returns the
+// deleted entities. Sync calls it after a successful full region load with
+// that load's file paths, so entity kinds the source dropped do not linger.
+type MasterDataCacheEntityPruner interface {
+	PruneRegionEntities(ctx context.Context, region string, keep []string) ([]string, error)
+}
+
 type MasterDataCacheVersionStorer interface {
 	StoreRegionVersionPayload(ctx context.Context, region string, version any) error
 }
@@ -638,7 +654,9 @@ func (usecase *MasterDataSyncUsecase) syncLeased(ctx context.Context, force bool
 	usecase.currentLeaseToken.Store(claim.Token)
 	usecase.logf("sync lease acquired holder=%s token=%d", claim.Holder, claim.Token)
 
-	jobCtx, cancelJob := context.WithCancel(ctx)
+	// Data writes carry the claim's token too, so a store that fences them
+	// rejects this job's writes once a newer owner has taken over.
+	jobCtx, cancelJob := context.WithCancel(masterdata.WithFencingToken(ctx, claim.Token))
 	heartbeatDone := usecase.startLeaseHeartbeat(jobCtx, cancelJob, claim)
 
 	err = usecase.syncClaimed(jobCtx, force, sources)
@@ -921,12 +939,17 @@ func (task *regionSyncTask) trySkipUnchangedCommit(ctx, regionCtx context.Contex
 // and skips the sync when the version cache can be confirmed. It reports
 // whether the region was skipped.
 func (task *regionSyncTask) trySkipViaRedisIndexRebuild(ctx, regionCtx context.Context) bool {
-	rebuilder, ok := task.usecase.cache.(MasterDataCacheIndexRebuilder)
-	if !ok {
+	var rebuilt bool
+	var rebuildErr error
+	if rebuilder, ok := task.usecase.cache.(MasterDataCacheIndexRebuilder); ok {
+		rebuilt, rebuildErr = rebuilder.RebuildRegionIndexFromRedis(regionCtx, task.source.Region)
+	} else if inspector, ok := task.usecase.cache.(MasterDataCacheRegionDataInspector); ok {
+		// A store without a search index has nothing to rebuild; the
+		// shortcut only needs the region to be populated.
+		rebuilt, rebuildErr = inspector.HasRegionData(regionCtx, task.source.Region)
+	} else {
 		return false
 	}
-
-	rebuilt, rebuildErr := rebuilder.RebuildRegionIndexFromRedis(regionCtx, task.source.Region)
 	if rebuildErr != nil {
 		task.usecase.logf("sync compare region=%s commit=%s redis_index_rebuild=failed error=%v", task.source.Region, task.resolvedCommit, rebuildErr)
 		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but redis index rebuild failed, fallback to full sync", task.now)
@@ -1128,6 +1151,9 @@ func (task *regionSyncTask) runRegionFullSync(ctx, regionCtx context.Context) {
 	if task.storeRegionPayload(ctx, collectorCtx, payload) {
 		return
 	}
+	if task.pruneRemovedEntities(ctx, regionCtx, payload) {
+		return
+	}
 	if task.storeRegionVersionPayload(ctx, regionCtx, payload) {
 		return
 	}
@@ -1275,6 +1301,46 @@ func (task *regionSyncTask) storeRegionPayload(ctx, storeCtx context.Context, pa
 	})
 	task.recordFailure(task.source.Region, storeErr)
 	task.persistFailedStatus(ctx, len(payload), duration, storeErr.Error())
+	return true
+}
+
+// pruneRemovedEntities deletes the region's stored entities that the full
+// payload no longer has, when the store supports it. It reports whether the
+// region failed.
+func (task *regionSyncTask) pruneRemovedEntities(ctx, regionCtx context.Context, payload map[string]any) bool {
+	pruner, ok := task.usecase.cache.(MasterDataCacheEntityPruner)
+	if !ok || len(payload) == 0 {
+		return false
+	}
+
+	keep := make([]string, 0, len(payload))
+	for filePath := range payload {
+		keep = append(keep, filePath)
+	}
+	removed, err := pruner.PruneRegionEntities(regionCtx, task.source.Region, keep)
+	if err == nil {
+		if len(removed) > 0 {
+			task.usecase.logf("sync pruned entities region=%s entities=%v", task.source.Region, removed)
+		}
+		return false
+	}
+
+	duration := time.Since(task.startedAt).Milliseconds()
+	task.usecase.logf("sync failed region=%s phase=prune duration_ms=%d error=%v", task.source.Region, duration, err)
+	task.usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
+		Event:       "master_data_sync_progress",
+		Status:      "failed",
+		Region:      task.source.Region,
+		Phase:       "cache",
+		Message:     err.Error(),
+		CurrentStep: task.step,
+		TotalSteps:  task.totalSteps,
+		FileCount:   len(payload),
+		DurationMS:  duration,
+		UpdatedAt:   time.Now().UTC(),
+	})
+	task.recordFailure(task.source.Region, err)
+	task.persistFailedStatus(ctx, len(payload), duration, err.Error())
 	return true
 }
 
@@ -1939,6 +2005,13 @@ func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, regi
 	if !canLoad && !canRebuild {
 		if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok {
 			return inspector.HasRegionIndex(region), nil
+		}
+		if inspector, ok := usecase.cache.(MasterDataCacheRegionDataInspector); ok {
+			hasData, err := inspector.HasRegionData(ctx, region)
+			if err != nil {
+				return false, fmt.Errorf("check region data %s: %w", region, err)
+			}
+			return hasData, nil
 		}
 	}
 	if !canLoad && !canRebuild {

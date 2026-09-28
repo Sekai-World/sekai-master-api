@@ -122,6 +122,25 @@ func TestLoadDefaultsDatabasePoolConfig(t *testing.T) {
 	}
 }
 
+func TestLoadMasterDataStore(t *testing.T) {
+	restoreEnv(t, "APP_ENV", "MASTER_DATA_STORE")
+	chdir(t, t.TempDir())
+
+	if cfg := Load(); cfg.MasterDataStore != MasterDataStoreRedis || cfg.ValidateMasterDataStore() != nil {
+		t.Fatalf("default store = %q, want redis", cfg.MasterDataStore)
+	}
+
+	t.Setenv("MASTER_DATA_STORE", " Postgres ")
+	if cfg := Load(); cfg.MasterDataStore != MasterDataStorePostgres || cfg.ValidateMasterDataStore() != nil {
+		t.Fatalf("store = %q, want postgres", cfg.MasterDataStore)
+	}
+
+	t.Setenv("MASTER_DATA_STORE", "sqlite")
+	if err := Load().ValidateMasterDataStore(); err == nil {
+		t.Fatal("unknown store accepted")
+	}
+}
+
 func TestValidateDatabaseDriverAcceptsOnlyPostgres(t *testing.T) {
 	for _, driver := range []string{"", "pgx", "PGX", " postgres ", "postgresql"} {
 		if err := (Config{DatabaseDriverName: driver}).ValidateDatabaseDriver(); err != nil {

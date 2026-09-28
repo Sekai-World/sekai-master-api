@@ -65,6 +65,7 @@ Responsible for database connections, dialect compatibility, and the data access
 - Change scope: `internal/config`, `internal/storage`, repository layer.
 - Must preserve:
   - PostgreSQL is the only database; do not reintroduce SQLite or dialect branches in repositories or migrations.
+  - `MASTER_DATA_STORE` selects the master-data store: `redis` (default) or `postgres` (`storage.PostgresMasterDataStore`). Keep both stores answering the storage contract identically; extend `internal/storage/master_data_store_contract_test.go` when the contract changes.
   - Record keys, composite keys, and the block sort key are defined in `internal/domain/masterdata` (`record_key.go`); storage code must not redefine them.
   - Do not break existing configuration names.
   - Store by-id data and order indexes in Redis; pagination order comes from the order index.
