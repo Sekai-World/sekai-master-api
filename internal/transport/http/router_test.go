@@ -71,7 +71,7 @@ func setupRouterWithRoleAndStartupReady(t *testing.T, appEnv string, role config
 		startupState.MarkReady()
 	}
 
-	router, _, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil, startupState, context.Background())
+	router, _, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil, startupState, context.Background(), nil)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func setupRouterWithEnvAndAdminClaim(t *testing.T, appEnv string, claim string, 
 	startupState := startup.NewState()
 	startupState.MarkReady()
 
-	router, _, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil, startupState, context.Background())
+	router, _, err := NewRouter(cfg, nil, mockVerifier{}, nil, nil, startupState, context.Background(), nil)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v", err)
 	}

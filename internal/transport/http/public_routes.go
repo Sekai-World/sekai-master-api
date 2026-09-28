@@ -13,6 +13,21 @@ import (
 	virtuallivehandlers "sekai-master-api/internal/transport/http/handlers/virtuallives"
 )
 
+// cachedRoutes are the public routes whose responses the response cache keeps
+// (docs/postgres-master-data-store.md, "Caching"): the routes measured slowest
+// because they compute their answer. A route may be added only if its
+// response depends on nothing but its path, query, the region's stored data,
+// the build, and time reported through cachehint.ValidUntil.
+var cachedRoutes = []string{
+	"/api/v1/costume3ds/:region/list",
+	"/api/v1/events/:region/list",
+	"/api/v1/events/:region/:id/detail",
+	"/api/v1/virtualLives/:region/list",
+	"/api/v1/cardEpisodes/:region/list",
+	"/api/v1/actionSets/:region/list",
+	"/api/v1/honorGroups/:region/list",
+}
+
 func registerPublicRoutes(
 	v1 *gin.RouterGroup,
 	healthHandler *systemhandlers.HealthHandler,

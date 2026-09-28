@@ -90,6 +90,12 @@ type Config struct {
 	DatabaseMaxConnLifetime       time.Duration
 	DatabaseMaxConnIdleTime       time.Duration
 	MasterDataStore               string
+	CacheRedisAddr                string
+	CacheRedisPassword            string
+	CacheRedisDB                  int
+	CacheRedisTimeout             time.Duration
+	CacheTTL                      time.Duration
+	CacheMaxEntryBytes            int
 	MasterDataAutoSync            bool
 	MasterDataRecoverInterrupted  bool
 	MasterDataSyncTimeout         int
@@ -160,6 +166,12 @@ func Load() Config {
 		DatabaseMaxConnLifetime:       time.Duration(getEnvInt("DATABASE_MAX_CONN_LIFETIME_SECONDS", 0)) * time.Second,
 		DatabaseMaxConnIdleTime:       time.Duration(getEnvInt("DATABASE_MAX_CONN_IDLE_SECONDS", 0)) * time.Second,
 		MasterDataStore:               strings.ToLower(strings.TrimSpace(getEnv("MASTER_DATA_STORE", ""))),
+		CacheRedisAddr:                strings.TrimSpace(getEnv("CACHE_REDIS_ADDR", "")),
+		CacheRedisPassword:            getEnv("CACHE_REDIS_PASSWORD", ""),
+		CacheRedisDB:                  getEnvInt("CACHE_REDIS_DB", 0),
+		CacheRedisTimeout:             time.Duration(getEnvInt("CACHE_REDIS_TIMEOUT_MS", 50)) * time.Millisecond,
+		CacheTTL:                      time.Duration(getEnvInt("CACHE_TTL_SECONDS", 21600)) * time.Second,
+		CacheMaxEntryBytes:            getEnvInt("CACHE_MAX_ENTRY_BYTES", 1<<20),
 		MasterDataAutoSync:            getEnvBool("MASTER_DATA_AUTO_SYNC", true),
 		MasterDataRecoverInterrupted:  getEnvBool("MASTER_DATA_RECOVER_INTERRUPTED_SYNC", true),
 		MasterDataResumeBaseDir:       strings.TrimSpace(getEnv("MASTER_DATA_RESUME_BASE_DIR", "tmp/master-data-sync-resume")),

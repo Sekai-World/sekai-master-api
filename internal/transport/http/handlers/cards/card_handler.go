@@ -809,7 +809,7 @@ func (handler *CardHandler) List(c *gin.Context) {
 			return
 		}
 		if !includeSpoilers {
-			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+			records = shared.FilterSpoilerItemsContext(c.Request.Context(), records, time.Now().UTC())
 		}
 		if filterOptions.Enabled() {
 			records, err = handler.filterCards(c.Request.Context(), region, records, filterOptions)

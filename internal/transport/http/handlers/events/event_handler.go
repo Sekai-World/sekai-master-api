@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/transport/http/cachehint"
 	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
@@ -326,7 +327,7 @@ func (handler *EventHandler) List(c *gin.Context) {
 		}
 		records = handler.filterEvents(records, filterOptions, lookup)
 		if !includeSpoilers {
-			records = shared.FilterSpoilerItems(records, time.Now().UTC())
+			records = shared.FilterSpoilerItemsContext(c.Request.Context(), records, time.Now().UTC())
 		}
 		if sortOptions.Enabled {
 			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableEventFields) {
@@ -930,9 +931,15 @@ func (handler *EventHandler) buildEnrichedEventMusics(ctx context.Context, regio
 	return items, nil
 }
 
+// isCurrentEvent reports whether eventID is the current event, and tells the
+// response cache when that can next change.
 func (handler *EventHandler) isCurrentEvent(ctx context.Context, region string, eventID string) bool {
-	currentEvent, found, err := handler.masterDataSync.CurrentEvent(ctx, region, time.Now().UTC())
-	if err != nil || !found {
+	currentEvent, found, until, err := handler.masterDataSync.CurrentEventUntil(ctx, region, time.Now().UTC())
+	if err != nil {
+		return false
+	}
+	cachehint.ValidUntil(ctx, until)
+	if !found {
 		return false
 	}
 	return shared.NormalizeAnyID(currentEvent["id"]) == shared.NormalizeAnyID(eventID)

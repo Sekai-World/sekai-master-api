@@ -27,10 +27,14 @@ import (
 	systemhandlers "sekai-master-api/internal/transport/http/handlers/system"
 	virtuallivehandlers "sekai-master-api/internal/transport/http/handlers/virtuallives"
 	"sekai-master-api/internal/transport/http/middleware"
+	"sekai-master-api/internal/transport/http/responsecache"
 	"sekai-master-api/internal/usecase"
+	"sekai-master-api/internal/version"
 )
 
-func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub, startupState *startup.State, lifecycleCtx context.Context) (*gin.Engine, *systemhandlers.GitHubWebhookHandler, error) {
+// NewRouter builds the HTTP router. cacheStore enables the response cache for
+// the cachedRoutes; nil disables it.
+func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, masterDataSync *usecase.MasterDataSyncUsecase, masterDataEvents *usecase.MasterDataEventHub, startupState *startup.State, lifecycleCtx context.Context, cacheStore responsecache.Store) (*gin.Engine, *systemhandlers.GitHubWebhookHandler, error) {
 	router := gin.New()
 
 	httpMetrics, err := middleware.HTTPMetrics()
@@ -85,6 +89,20 @@ func NewRouter(cfg config.Config, db *sql.DB, tokenVerifier auth.TokenVerifier, 
 	router.GET("/readyz", healthHandler.Ready)
 
 	v1 := router.Group("/api/v1")
+	if cacheStore != nil && masterDataSync != nil {
+		cache, err := responsecache.New(responsecache.Options{
+			Store:         cacheStore,
+			Revisions:     masterDataSync,
+			Routes:        cachedRoutes,
+			Build:         version.Version + "+" + version.Commit,
+			TTL:           cfg.CacheTTL,
+			MaxEntryBytes: cfg.CacheMaxEntryBytes,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		v1.Use(cache.Middleware())
+	}
 
 	registerRoleRoutes(&routeDeps{
 		router:                 router,
