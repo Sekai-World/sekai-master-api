@@ -57,10 +57,16 @@ type MasterDataCacheIndexReader interface {
 	ListByIndex(ctx context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error)
 }
 
-// MasterDataCacheEntityIndexEnsurer builds relation indexes that are missing
-// or out of date for data already in the cache.
-type MasterDataCacheEntityIndexEnsurer interface {
-	EnsureEntityIndexes(ctx context.Context, region string) ([]string, error)
+// MasterDataCacheProjectionReader reads the list projections built at sync
+// time (see masterdata.ProjectionFields).
+type MasterDataCacheProjectionReader interface {
+	LoadProjection(ctx context.Context, region string, entity string) (*masterdata.Projection, error)
+}
+
+// MasterDataCacheDerivedDataEnsurer builds relation indexes and list
+// projections that are missing or out of date for data already in the cache.
+type MasterDataCacheDerivedDataEnsurer interface {
+	EnsureDerivedEntityData(ctx context.Context, region string) ([]string, error)
 }
 
 // ErrCompositeReadUnsupported reports a cache that cannot read composite-key
@@ -85,10 +91,6 @@ type MasterDataCacheIndexInspector interface {
 
 type MasterDataCacheEntityInspector interface {
 	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
-}
-
-type MasterDataCacheEntityRevisionLoader interface {
-	EntityRevision(ctx context.Context, region string, entity string) (string, error)
 }
 
 type MasterDataCacheVersionStorer interface {
@@ -935,15 +937,15 @@ func (task *regionSyncTask) trySkipViaRedisIndexRebuild(ctx, regionCtx context.C
 		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but redis cache missing, fallback to full sync", task.now)
 		return false
 	}
-	if ensurer, ok := task.usecase.cache.(MasterDataCacheEntityIndexEnsurer); ok {
-		indexed, ensureErr := ensurer.EnsureEntityIndexes(regionCtx, task.source.Region)
+	if ensurer, ok := task.usecase.cache.(MasterDataCacheDerivedDataEnsurer); ok {
+		indexed, ensureErr := ensurer.EnsureDerivedEntityData(regionCtx, task.source.Region)
 		if ensureErr != nil {
-			task.usecase.logf("sync compare region=%s commit=%s relation_index_ensure=failed error=%v fallback=full_sync", task.source.Region, task.resolvedCommit, ensureErr)
-			task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but relation index build failed, fallback to full sync", task.now)
+			task.usecase.logf("sync compare region=%s commit=%s derived_data_ensure=failed error=%v fallback=full_sync", task.source.Region, task.resolvedCommit, ensureErr)
+			task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but derived data build failed, fallback to full sync", task.now)
 			return false
 		}
 		if len(indexed) > 0 {
-			task.usecase.logf("sync compare region=%s commit=%s relation_indexes_built=%v", task.source.Region, task.resolvedCommit, indexed)
+			task.usecase.logf("sync compare region=%s commit=%s derived_data_built=%v", task.source.Region, task.resolvedCommit, indexed)
 		}
 	}
 	if !task.usecase.ensureVersionCachePopulated(regionCtx, task.source, task.resolvedCommit, nil) {
@@ -1803,27 +1805,6 @@ func (usecase *MasterDataSyncUsecase) HasEntityRecords(ctx context.Context, regi
 	return false, nil
 }
 
-// EntityRevision returns the persisted content revision of an entity. An empty
-// revision means the cache cannot report one, so callers must not reuse
-// process-local data derived from that entity.
-func (usecase *MasterDataSyncUsecase) EntityRevision(ctx context.Context, region string, entity string) (string, error) {
-	if usecase == nil || usecase.cache == nil {
-		return "", nil
-	}
-
-	region = strings.ToLower(strings.TrimSpace(region))
-	entity = strings.ToLower(strings.TrimSpace(entity))
-	if region == "" || entity == "" {
-		return "", nil
-	}
-
-	if loader, ok := usecase.cache.(MasterDataCacheEntityRevisionLoader); ok {
-		return loader.EntityRevision(ctx, region, entity)
-	}
-
-	return "", nil
-}
-
 func (usecase *MasterDataSyncUsecase) HasSuccessfulSync(ctx context.Context, region string) (bool, error) {
 	if usecase == nil || usecase.statusStore == nil {
 		return false, nil
@@ -2309,6 +2290,37 @@ func (usecase *MasterDataSyncUsecase) ListByIndex(ctx context.Context, region st
 		}
 	}
 	return results, nil
+}
+
+// LoadProjection returns entity's list projection: the fields list endpoints
+// filter, sort, and return, for every record, by column. A cache without
+// projections has one built from its records, which only test doubles rely on.
+func (usecase *MasterDataSyncUsecase) LoadProjection(ctx context.Context, region string, entity string) (*masterdata.Projection, error) {
+	ctx, span := tracing.StartSpan(ctx, "master_data.load_projection", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))))
+	var err error
+	defer func() {
+		tracing.EndSpan(span, err)
+	}()
+
+	if usecase.cache == nil {
+		return masterdata.BuildProjection(entity, nil, nil), nil
+	}
+	if reader, ok := usecase.cache.(MasterDataCacheProjectionReader); ok {
+		var projection *masterdata.Projection
+		projection, err = reader.LoadProjection(ctx, region, entity)
+		return projection, err
+	}
+
+	var records []map[string]any
+	records, err = usecase.cache.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, len(records))
+	for position, record := range records {
+		keys[position], _ = masterdata.CanonicalKeyPart(record["id"])
+	}
+	return masterdata.BuildProjection(entity, keys, records), nil
 }
 
 // GetByCompositeKeys returns the records of a composite-key entity (such as

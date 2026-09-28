@@ -1,22 +1,12 @@
 package lookups
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 )
-
-type revisionTrackingMissionCache struct {
-	*missionTrackingCache
-	revisions map[string]map[string]string
-}
-
-func (cache *revisionTrackingMissionCache) EntityRevision(_ context.Context, region string, entity string) (string, error) {
-	return cache.revisions[region][entity], nil
-}
 
 func TestCharacterRanksReadRanksRewardsAndEXPThroughIndexes(t *testing.T) {
 	gin.SetMode(gin.TestMode)

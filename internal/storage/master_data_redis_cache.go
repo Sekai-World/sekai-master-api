@@ -339,11 +339,12 @@ func entityContentChanged(forceFullStore, revisionMatches, contentDiffers bool) 
 
 // entityRedisKeys groups the Redis keys used for one region/entity pair.
 type entityRedisKeys struct {
-	entity       string
-	order        string
-	revision     string
-	sourceDigest string
-	indexVersion string
+	entity            string
+	order             string
+	revision          string
+	sourceDigest      string
+	indexVersion      string
+	projectionVersion string
 }
 
 // entityStoreTask carries one payload file's entity store work for
@@ -442,6 +443,11 @@ func (task *entityStoreTask) storeEntityLocked(ctx context.Context) error {
 		return err
 	}
 	rebuildIndexes := entityChanged || storedIndexVersion != masterdata.IndexVersion(task.entity)
+	storedProjectionVersion, err := task.cache.storedEntityIndexVersion(ctx, keys.projectionVersion)
+	if err != nil {
+		return err
+	}
+	rebuildProjection := entityChanged || storedProjectionVersion != masterdata.ProjectionVersion(task.entity)
 
 	updatedIndexVersion, err := task.execEntityPipeline(ctx, keys, entityWritePlan{
 		toUpsert:            toUpsert,
@@ -455,6 +461,8 @@ func (task *entityStoreTask) storeEntityLocked(ctx context.Context) error {
 		rebuildIndexes:      rebuildIndexes,
 		staleIndexVersion:   storedIndexVersion,
 		indexes:             collector.indexes,
+		rebuildProjection:   rebuildProjection,
+		projection:          collector.projection,
 	})
 	if err != nil {
 		return err
@@ -473,11 +481,12 @@ func (task *entityStoreTask) storeEntityLocked(ctx context.Context) error {
 // redisKeys builds the Redis keys for the task's region/entity pair.
 func (task *entityStoreTask) redisKeys() entityRedisKeys {
 	return entityRedisKeys{
-		entity:       task.cache.redisEntityKey(task.regionName, task.entity),
-		order:        task.cache.redisEntityOrderKey(task.regionName, task.entity),
-		revision:     task.cache.redisEntityRevisionKey(task.regionName, task.entity),
-		sourceDigest: task.cache.redisEntitySourceDigestKey(task.regionName, task.entity),
-		indexVersion: task.cache.redisEntityIndexVersionKey(task.regionName, task.entity),
+		entity:            task.cache.redisEntityKey(task.regionName, task.entity),
+		order:             task.cache.redisEntityOrderKey(task.regionName, task.entity),
+		revision:          task.cache.redisEntityRevisionKey(task.regionName, task.entity),
+		sourceDigest:      task.cache.redisEntitySourceDigestKey(task.regionName, task.entity),
+		indexVersion:      task.cache.redisEntityIndexVersionKey(task.regionName, task.entity),
+		projectionVersion: task.cache.redisEntityProjectionVersionKey(task.regionName, task.entity),
 	}
 }
 
@@ -526,6 +535,10 @@ func (task *entityStoreTask) skipUnchangedBySourceDigest(ctx context.Context, ke
 
 	storedIndexVersion, err := task.cache.storedEntityIndexVersion(ctx, keys.indexVersion)
 	if err != nil || storedIndexVersion != masterdata.IndexVersion(task.entity) {
+		return false, err
+	}
+	storedProjectionVersion, err := task.cache.storedEntityIndexVersion(ctx, keys.projectionVersion)
+	if err != nil || storedProjectionVersion != masterdata.ProjectionVersion(task.entity) {
 		return false, err
 	}
 
@@ -678,6 +691,9 @@ type entityWritePlan struct {
 	rebuildIndexes    bool
 	staleIndexVersion string
 	indexes           map[string]map[string][]string
+	// rebuildProjection rewrites the list projection from projection.
+	rebuildProjection bool
+	projection        *masterdata.ProjectionBuilder
 }
 
 // execEntityPipeline writes the entity diff to Redis in one MULTI/EXEC
@@ -710,6 +726,11 @@ func (task *entityStoreTask) execEntityPipeline(ctx context.Context, keys entity
 			return "", err
 		}
 	}
+	if plan.rebuildProjection {
+		if err := task.cache.writeEntityProjection(ctx, pipe, task.regionName, task.entity, plan.projection); err != nil {
+			return "", err
+		}
+	}
 	if !plan.revisionMatches {
 		pipe.Set(ctx, keys.revision, plan.revision, 0)
 	}
@@ -736,6 +757,8 @@ type entityRecordCollector struct {
 	// indexes holds the entity's relation indexes: index name -> key -> the
 	// storage keys of the records carrying it, in stored order.
 	indexes map[string]map[string][]string
+	// projection collects the entity's list projection, when it has one.
+	projection *masterdata.ProjectionBuilder
 }
 
 func newEntityRecordCollector(cache *RedisMasterDataCache, regionName, entity string, rawRecords []json.RawMessage, legacyRecords []any) *entityRecordCollector {
@@ -749,6 +772,7 @@ func newEntityRecordCollector(cache *RedisMasterDataCache, regionName, entity st
 		fallbackOccurrences: make(map[string]int),
 		digest:              sha256.New(),
 		indexes:             newEntityIndexes(entity),
+		projection:          masterdata.NewProjectionBuilder(entity),
 	}
 }
 
@@ -763,11 +787,14 @@ func (collector *entityRecordCollector) appendStoredRecord(id string, body []byt
 	if recordMap != nil {
 		collector.recordMaps = append(collector.recordMaps, recordMap)
 	}
-	if len(collector.indexes) > 0 {
+	if len(collector.indexes) > 0 || collector.projection != nil {
 		if recordMap == nil {
 			recordMap = rawRecordMap(body)
 		}
 		addToEntityIndexes(collector.indexes, id, recordMap)
+		if collector.projection != nil && recordMap != nil {
+			collector.projection.Add(id, recordMap)
+		}
 	}
 	_, _ = collector.digest.Write([]byte(strconv.Itoa(len(id)) + ":" + id + ":" + strconv.Itoa(len(storedBody)) + ":" + storedBody + ";"))
 	return nil

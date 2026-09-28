@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
@@ -96,20 +97,26 @@ func (cache *RedisMasterDataCache) writeEntityIndexes(ctx context.Context, pipe 
 	return nil
 }
 
-// EnsureEntityIndexes builds the relation indexes of region's entities whose
-// stored index version is out of date, reading their records from Redis. Sync
-// calls it when it skips an unchanged commit, so new index definitions reach
-// data that no store will rewrite. It returns the rebuilt entities.
-func (cache *RedisMasterDataCache) EnsureEntityIndexes(ctx context.Context, region string) ([]string, error) {
+// EnsureDerivedEntityData builds the relation indexes and list projections of
+// region's entities whose stored version is out of date, reading their records
+// from Redis. Sync calls it when it skips an unchanged commit, so new
+// definitions reach data that no store will rewrite. It returns the entities
+// it rebuilt anything for.
+func (cache *RedisMasterDataCache) EnsureDerivedEntityData(ctx context.Context, region string) ([]string, error) {
 	regionName := normalizeKey(region)
 	rebuilt := make([]string, 0)
-	for _, entity := range masterdata.IndexedEntities() {
-		versionKey := cache.redisEntityIndexVersionKey(regionName, entity)
-		storedVersion, err := cache.storedEntityIndexVersion(ctx, versionKey)
+	for _, entity := range derivedDataEntities() {
+		indexVersion, err := cache.storedEntityIndexVersion(ctx, cache.redisEntityIndexVersionKey(regionName, entity))
 		if err != nil {
 			return rebuilt, err
 		}
-		if storedVersion == masterdata.IndexVersion(entity) {
+		projectionVersion, err := cache.storedEntityIndexVersion(ctx, cache.redisEntityProjectionVersionKey(regionName, entity))
+		if err != nil {
+			return rebuilt, err
+		}
+		indexesStale := indexVersion != masterdata.IndexVersion(entity)
+		projectionStale := projectionVersion != masterdata.ProjectionVersion(entity)
+		if !indexesStale && !projectionStale {
 			continue
 		}
 		stored, err := cache.client.Exists(ctx, cache.redisEntityKey(regionName, entity)).Result()
@@ -128,21 +135,44 @@ func (cache *RedisMasterDataCache) EnsureEntityIndexes(ctx context.Context, regi
 		if err != nil {
 			return rebuilt, err
 		}
-		indexes := newEntityIndexes(entity)
-		for position, record := range records {
-			addToEntityIndexes(indexes, order[position], record)
-		}
 
 		pipe := cache.client.TxPipeline()
-		if err := cache.writeEntityIndexes(ctx, pipe, regionName, entity, storedVersion, indexes); err != nil {
-			return rebuilt, err
+		if indexesStale {
+			indexes := newEntityIndexes(entity)
+			for position, record := range records {
+				addToEntityIndexes(indexes, order[position], record)
+			}
+			if err := cache.writeEntityIndexes(ctx, pipe, regionName, entity, indexVersion, indexes); err != nil {
+				return rebuilt, err
+			}
+		}
+		if projectionStale {
+			builder := masterdata.NewProjectionBuilder(entity)
+			if builder != nil {
+				for position, record := range records {
+					if record != nil {
+						builder.Add(order[position], record)
+					}
+				}
+			}
+			if err := cache.writeEntityProjection(ctx, pipe, regionName, entity, builder); err != nil {
+				return rebuilt, err
+			}
 		}
 		if _, err := pipe.Exec(ctx); err != nil {
-			return rebuilt, fmt.Errorf("write indexes region %s entity %s: %w", regionName, entity, err)
+			return rebuilt, fmt.Errorf("write derived data region %s entity %s: %w", regionName, entity, err)
 		}
 		rebuilt = append(rebuilt, entity)
 	}
 	return rebuilt, nil
+}
+
+// derivedDataEntities returns the entities with relation indexes or a list
+// projection.
+func derivedDataEntities() []string {
+	entities := append(masterdata.IndexedEntities(), masterdata.ProjectedEntities()...)
+	slices.Sort(entities)
+	return slices.Compact(entities)
 }
 
 // ListByIndex returns, for each lookup, the records whose index fields equal

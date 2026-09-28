@@ -21,6 +21,7 @@ var entityIndexes = map[string][]string{
 	"cardepisodes":                      {"cardId"},
 	"charactermissionv2parametergroups": {"id"},
 	"characterranks":                    {"characterId"},
+	"costume3dgroups":                   {"groupId"},
 	"eventcardbonuslimits":              {"eventId"},
 	"eventcards":                        {"cardId", "eventId"},
 	"eventdeckbonuses":                  {"eventId"},

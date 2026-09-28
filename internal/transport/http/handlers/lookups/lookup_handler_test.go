@@ -28,6 +28,7 @@ type fakeLookupCache struct {
 	byIDErr      error
 	byIDCalls    []lookupCacheGetByIDCall
 	indexCalls   []lookupCacheIndexCall
+	projections  []string
 	searchCalls  int
 }
 
@@ -131,6 +132,20 @@ func (cache *fakeLookupCache) GetByIDs(_ context.Context, region string, entity 
 func (cache *fakeLookupCache) GetByCompositeKeys(_ context.Context, region string, entity string, keys []map[string]any) ([]map[string]any, error) {
 	records := cache.listByEntity[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))]
 	return testutil.MatchCompositeKeys(records, keys), nil
+}
+
+// LoadProjection builds projections from listByEntity and records the read,
+// without counting it as a full-entity ListAll.
+func (cache *fakeLookupCache) LoadProjection(_ context.Context, region string, entity string) (*masterdata.Projection, error) {
+	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
+	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
+	cache.projections = append(cache.projections, normalizedRegion+"/"+normalizedEntity)
+	records := cache.listByEntity[normalizedRegion][normalizedEntity]
+	keys := make([]string, len(records))
+	for position, record := range records {
+		keys[position], _ = masterdata.CanonicalKeyPart(record["id"])
+	}
+	return masterdata.BuildProjection(normalizedEntity, keys, records), nil
 }
 
 // ListByIndex answers relation index reads from listByEntity and records them,

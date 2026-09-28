@@ -20,9 +20,6 @@ import (
 
 type CardHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
-
-	// Every card's cardListFields, per region; see loadCardListRecords.
-	listRecords shared.RevisionCache[[]map[string]any]
 }
 
 const maxBatchCardIDs = 100
@@ -38,31 +35,6 @@ var sortableCardFields = []string{
 	"gachaPhrase",
 	"flavorText",
 	"releaseAt",
-	"archivePublishedAt",
-	"initialSpecialTrainingStatus",
-}
-
-// cardListFields are the card fields the list reads: buildCardBase output and
-// lookup IDs, filter and sort fields, and the spoiler timestamps. Leaving out
-// cardParameters and other per-level data keeps the cached list small.
-var cardListFields = []string{
-	"id",
-	"seq",
-	"characterId",
-	"cardRarityType",
-	"attr",
-	"supportUnit",
-	"skillId",
-	"cardSkillName",
-	"cardSupplyId",
-	"prefix",
-	"assetbundleName",
-	"gachaPhrase",
-	"flavorText",
-	"releaseAt",
-	"releastAt",
-	"publishedAt",
-	"startAt",
 	"archivePublishedAt",
 	"initialSpecialTrainingStatus",
 }
@@ -836,8 +808,6 @@ func (handler *CardHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to list cards")
 			return
 		}
-		// The cached slice is shared, so sort a copy.
-		records = append([]map[string]any(nil), records...)
 		if !includeSpoilers {
 			records = shared.FilterSpoilerItems(records, time.Now().UTC())
 		}
@@ -998,32 +968,16 @@ func parseCardListBool(c *gin.Context, key string) (bool, bool) {
 	return parsed, true
 }
 
-// loadCardListRecords returns every card reduced to cardListFields. Cards carry
-// their full parameter tables, so decoding them dominates the list; the
-// projection is reused while the cards revision is unchanged.
+// loadCardListRecords returns every card's list fields from the cards list
+// projection (see masterdata.ProjectionFields): buildCardBase output and
+// lookup IDs, filter and sort fields, and the spoiler timestamps. Cards carry
+// their full parameter tables, which the list never decodes.
 func (handler *CardHandler) loadCardListRecords(ctx context.Context, region string) ([]map[string]any, error) {
-	revision, err := handler.masterDataSync.EntityRevision(ctx, region, "cards")
+	projection, err := handler.masterDataSync.LoadProjection(ctx, region, "cards")
 	if err != nil {
 		return nil, err
 	}
-
-	return handler.listRecords.Load(ctx, region, revision, func(ctx context.Context) ([]map[string]any, error) {
-		records, err := handler.masterDataSync.ListAll(ctx, region, "cards")
-		if err != nil {
-			return nil, err
-		}
-		items := make([]map[string]any, 0, len(records))
-		for _, record := range records {
-			item := make(map[string]any, len(cardListFields))
-			for _, key := range cardListFields {
-				if value, ok := record[key]; ok {
-					item[key] = value
-				}
-			}
-			items = append(items, item)
-		}
-		return items, nil
-	})
+	return projection.Rows(), nil
 }
 
 func (handler *CardHandler) filterCards(ctx context.Context, region string, records []map[string]any, options cardListFilterOptions) ([]map[string]any, error) {

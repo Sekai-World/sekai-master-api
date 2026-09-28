@@ -114,14 +114,14 @@ func TestListByIndexScansUntilIndexIsBuiltAndEnsureBuildsIt(t *testing.T) {
 		t.Fatalf("expected a scan to answer before the index exists, got %v, %v", pickups, err)
 	}
 
-	rebuilt, err := cache.EnsureEntityIndexes(ctx, "jp")
+	rebuilt, err := cache.EnsureDerivedEntityData(ctx, "jp")
 	if err != nil || !reflect.DeepEqual(rebuilt, []string{"gachas"}) {
 		t.Fatalf("expected only gachas rebuilt, got %v, %v", rebuilt, err)
 	}
 	if exists, _ := cache.client.Exists(ctx, indexKey).Result(); exists != 1 {
 		t.Fatal("expected ensure to write the gacha index")
 	}
-	if rebuilt, _ := cache.EnsureEntityIndexes(ctx, "jp"); len(rebuilt) != 0 {
+	if rebuilt, _ := cache.EnsureDerivedEntityData(ctx, "jp"); len(rebuilt) != 0 {
 		t.Fatalf("expected up-to-date indexes to be left alone, got %v", rebuilt)
 	}
 }

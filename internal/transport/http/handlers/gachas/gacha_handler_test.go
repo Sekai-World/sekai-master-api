@@ -921,28 +921,30 @@ func TestRateChoiceWishesEndpointSkipsMalformedProjectedValues(t *testing.T) {
 	}
 }
 
-type revisionTrackingGachaCache struct {
+// projectionGachaCache answers projection reads from the fake's lists without
+// counting them as full-entity reads.
+type projectionGachaCache struct {
 	*fakeGachaHandlerCache
-	revision string
+	projectionCalls []string
 }
 
-func (cache *revisionTrackingGachaCache) EntityRevision(_ context.Context, _ string, entity string) (string, error) {
-	if entity == "gachas" {
-		return cache.revision, nil
+func (cache *projectionGachaCache) LoadProjection(_ context.Context, region string, entity string) (*masterdata.Projection, error) {
+	cache.projectionCalls = append(cache.projectionCalls, entity)
+	records := cache.listByEntity[region][entity]
+	keys := make([]string, len(records))
+	for position, record := range records {
+		keys[position], _ = masterdata.CanonicalKeyPart(record["id"])
 	}
-	return "", nil
+	return masterdata.BuildProjection(entity, keys, records), nil
 }
 
-func TestGachaListDecodesGachasOncePerRevisionAndSortsCopies(t *testing.T) {
+func TestGachaListReadsTheGachaProjection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &revisionTrackingGachaCache{
-		fakeGachaHandlerCache: newGachaListTestCache([]map[string]any{
-			{"id": 1, "name": "first", "startAt": 1000, "gachaDetails": []any{map[string]any{"cardId": 1}}},
-			{"id": 2, "name": "second", "startAt": 2000},
-		}),
-		revision: "r1",
-	}
+	cache := &projectionGachaCache{fakeGachaHandlerCache: newGachaListTestCache([]map[string]any{
+		{"id": 1, "name": "first", "startAt": 1000, "gachaDetails": []any{map[string]any{"cardId": 1}}},
+		{"id": 2, "name": "second", "startAt": 2000},
+	})}
 	statusStore := &fakeGachaHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
 	router := newGachaTestRouter(NewGachaHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)))
 
@@ -965,14 +967,9 @@ func TestGachaListDecodesGachasOncePerRevisionAndSortsCopies(t *testing.T) {
 		t.Fatalf("expected descending ids, got %v", got)
 	}
 	if got := ids("/api/v1/gachas/jp/list"); !reflect.DeepEqual(got, []any{1.0, 2.0}) {
-		t.Fatalf("expected the cached order to survive an earlier sort, got %v", got)
+		t.Fatalf("expected stored order, got %v", got)
 	}
-	if len(cache.listAllCalls) != 1 {
-		t.Fatalf("expected gachas decoded once for an unchanged revision, got %v", cache.listAllCalls)
-	}
-	cache.revision = "r2"
-	ids("/api/v1/gachas/jp/list")
-	if len(cache.listAllCalls) != 2 {
-		t.Fatalf("expected a new revision to rebuild the list, got %v", cache.listAllCalls)
+	if len(cache.listAllCalls) != 0 || !reflect.DeepEqual(cache.projectionCalls, []string{"gachas", "gachas"}) {
+		t.Fatalf("expected projection reads and no full gachas read, got projection=%v list=%v", cache.projectionCalls, cache.listAllCalls)
 	}
 }

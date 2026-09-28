@@ -3136,7 +3136,7 @@ type indexEnsuringSyncCache struct {
 	ensureCalls int
 }
 
-func (cache *indexEnsuringSyncCache) EnsureEntityIndexes(_ context.Context, _ string) ([]string, error) {
+func (cache *indexEnsuringSyncCache) EnsureDerivedEntityData(_ context.Context, _ string) ([]string, error) {
 	cache.ensureCalls++
 	return []string{"gachas"}, cache.ensureErr
 }
