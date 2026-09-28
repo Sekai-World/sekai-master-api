@@ -551,8 +551,18 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
    - The first measurements were slow, because the scheduler had placed the
      pods on a node in another data center than PostgreSQL. A required pod
      affinity now keeps them next to the database (sekai-k3s-infra#359).
+     `control` then stayed `Pending`, because its `local-path` backup PVC was
+     bound to the old node. The backup volume was dropped
+     (sekai-k3s-infra#360). The PVC itself is annotated `Prune=false` and is
+     deleted by hand.
+   - `serve` connects as the read-only `sekai_master_api_reader` through
+     `sekai-master-api-serve-secrets`, and `control` and the migration Job
+     keep the owner credential (sekai-k3s-infra#361). `pg_stat_activity`
+     shows `serve` connected as the reader.
    - The chart drops the backup volume, the Redis egress port and the Redis
      documentation.
+   - Step 6 is done. The master-data Redis instances no longer have a
+     reader. Removing them is a separate infra change.
 7. **Cache, only if measurements require it:** a revision-keyed Redis
    read-through cache.
 
