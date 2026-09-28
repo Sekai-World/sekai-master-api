@@ -3583,5 +3583,7 @@ var _ usecase.MasterDataCacheBatchReader = (*RedisMasterDataCache)(nil)
 
 var (
 	_ usecase.MasterDataCacheIndexReader        = (*RedisMasterDataCache)(nil)
-	_ usecase.MasterDataCacheEntityIndexEnsurer = (*RedisMasterDataCache)(nil)
+	_ usecase.MasterDataCacheDerivedDataEnsurer = (*RedisMasterDataCache)(nil)
 )
+
+var _ usecase.MasterDataCacheProjectionReader = (*RedisMasterDataCache)(nil)
