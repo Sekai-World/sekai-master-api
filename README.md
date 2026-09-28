@@ -48,6 +48,7 @@ private environment details; see `AGENTS.md` for the workflow.
 - `mise run redis-recovery-drill`: verify prefix-scoped Redis loss and control force-sync recovery (destructive; see Development)
 - `mise run admin-open`: open the admin login page of a locally forwarded dev server
 - `sekai-master-api migrate`: run embedded Goose migrations without starting an API role
+- `sekai-master-api dump --region jp --entity cards [--key 1 | --key field=value,... | --index field=value,...]`: print stored master-data records as JSON from the PostgreSQL store (reads `DATABASE_URL`; see [Inspecting records](docs/postgres-master-data-store.md#inspecting-records))
 
 ## Releasing
 

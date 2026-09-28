@@ -49,6 +49,10 @@ repository has no new commits (benign) or the sync is failing.
    required), or restart the control pod to trigger the startup sync.
 4. Verify: status turns `success` and the region's `last_synced` timestamp is
    current.
+5. To check what a record holds on the PostgreSQL store, run
+   `sekai-master-api dump --region <region> --entity <entity> --key <id>` with
+   the pod's `DATABASE_URL`; see
+   [Inspecting records](postgres-master-data-store.md#inspecting-records).
 
 ### Sync failed or stuck
 

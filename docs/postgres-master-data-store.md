@@ -380,15 +380,24 @@ requires.
 
 ## Inspecting records
 
-Record blocks are opaque to SQL. Operators inspect data with a new
-subcommand:
+Record blocks are opaque to SQL. Operators inspect data with the `dump`
+subcommand (`cmd/api/dump.go`), which reads `DATABASE_URL` like the API:
 
 ```
 sekai-master-api dump --region jp --entity cards [--key 1 | --index eventId=150]
 ```
 
-It reads through the same store code and prints the source JSON. The source
-repositories on GitHub remain the canonical copy of every record.
+- `--key 1` prints one record by ID.
+- `--key resourceBoxId=5,resourceBoxPurpose=mission_reward,seq=1` prints one
+  record of a composite-key entity, with its key fields.
+- `--index eventId=150` prints the records a relation index matches. The
+  index is named by its fields in order, for example
+  `--index resourceBoxId=5,resourceBoxPurpose=mission_reward`.
+- Without either flag, it prints every record of the entity in stored order.
+
+It reads through the same store code and prints the decoded records as JSON,
+with object keys sorted. It exits non-zero when a key has no record. The
+source repositories on GitHub remain the canonical copy of every record.
 
 ## Local backups
 
@@ -506,7 +515,7 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
      `events` projection keeps `id`, `startAt` and `closedAt`, and
      `CurrentEvent` reads only the chosen record. A `currentevents` entity
      left by older builds is ignored; a full sync prunes it from Postgres.
-   - Add the `dump` subcommand.
+   - Add the `dump` subcommand. Done; see [Inspecting records](#inspecting-records).
    - Update the docs, the runbook and `AGENTS.md`.
 6. **Production cut-over.** Deploy `control` first, run a full sync and
    verify, then deploy `serve`. Redis becomes optional.
