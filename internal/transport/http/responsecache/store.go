@@ -21,7 +21,10 @@ type Store interface {
 }
 
 // RedisStore is a Store in Redis. Every call is bounded by timeout, so a slow
-// Redis delays a request by at most that much.
+// Redis delays a request by at most that much. Connections are dialed with a
+// longer timeout and kept warm in the background, so requests do not pay
+// for dialing: a dial within the request budget would fail every time on a
+// link whose handshake alone takes longer.
 type RedisStore struct {
 	client  *redis.Client
 	timeout time.Duration
@@ -35,8 +38,16 @@ type RedisOptions struct {
 	Timeout  time.Duration
 }
 
-// NewRedisStore connects lazily; it does not ping, so an unreachable Redis
-// only turns requests into bypasses.
+const (
+	// dialTimeout bounds connection setup, which happens off the request
+	// path once the pool is warm.
+	dialTimeout = time.Second
+	// minIdleConns keeps connections ready for requests.
+	minIdleConns = 2
+)
+
+// NewRedisStore does not ping; the pool dials in the background, and an
+// unreachable Redis only turns requests into bypasses.
 func NewRedisStore(options RedisOptions) *RedisStore {
 	timeout := options.Timeout
 	if timeout <= 0 {
@@ -46,10 +57,11 @@ func NewRedisStore(options RedisOptions) *RedisStore {
 		Addr:         options.Addr,
 		Password:     options.Password,
 		DB:           options.DB,
-		DialTimeout:  timeout,
+		DialTimeout:  dialTimeout,
 		ReadTimeout:  timeout,
 		WriteTimeout: timeout,
 		PoolTimeout:  timeout,
+		MinIdleConns: minIdleConns,
 		MaxRetries:   -1,
 	})
 	return &RedisStore{client: client, timeout: timeout}
