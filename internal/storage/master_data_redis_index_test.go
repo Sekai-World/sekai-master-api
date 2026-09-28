@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func indexTestPayload(gachas ...string) map[string]any {
@@ -141,5 +144,27 @@ func TestStoreRegionBuildsMissingIndexesForUnchangedSources(t *testing.T) {
 	}
 	if exists, _ := cache.client.Exists(ctx, indexKey).Result(); exists != 1 {
 		t.Fatal("expected an unchanged source to still get its missing index")
+	}
+}
+
+func TestListByIndexAnswersEmptyForAnEntityTheRegionLacks(t *testing.T) {
+	cache := newStoreRegionTestCache(t, startTestMiniRedis(t))
+	ctx := context.Background()
+	if err := cache.StoreRegion(ctx, "tw", indexTestPayload()); err != nil {
+		t.Fatalf("store payload: %v", err)
+	}
+
+	core, warnings := observer.New(zap.WarnLevel)
+	defer zap.ReplaceGlobals(zap.New(core))()
+
+	matches, err := cache.ListByIndex(ctx, "tw", "musiccategories", "musicId", [][]any{{1}, {2}})
+	if err != nil {
+		t.Fatalf("list by index: %v", err)
+	}
+	if len(matches) != 2 || matches[0] == nil || len(matches[0]) != 0 || len(matches[1]) != 0 {
+		t.Fatalf("expected empty results for every lookup, got %#v", matches)
+	}
+	if warnings.Len() != 0 {
+		t.Fatalf("expected no scan warning for an entity the region lacks, got %v", warnings.All())
 	}
 }
