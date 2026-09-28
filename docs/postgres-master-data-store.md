@@ -347,6 +347,12 @@ Unchanged:
 
 `serve` becomes truly read-only.
 
+A store synced by an older build has no stored `events` projection yet. Until
+the next sync stores it, `LoadProjection` builds it from every event record on
+each call, which is correct but slow. So `control` must run a sync before
+`serve` takes traffic on the new build, as the rollout order in step 6 already
+requires.
+
 ## Readiness
 
 - **Data readiness for a region** is the latest persisted sync status
