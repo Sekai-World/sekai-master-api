@@ -740,6 +740,83 @@ func TestMusicListEndpointReturnsItems(t *testing.T) {
 	assertMusicHasTags(t, firstItem, []string{"vocaloid", "street"})
 }
 
+// batchingMusicHandlerCache adds batch reads to the fake, like the stores in
+// production, so tests can check which reads a handler issues.
+type batchingMusicHandlerCache struct {
+	*fakeMusicHandlerCache
+	getByIDsCalls []string
+}
+
+func (cache *batchingMusicHandlerCache) GetByIDs(_ context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	cache.getByIDsCalls = append(cache.getByIDsCalls, entity+":"+strings.Join(ids, ","))
+	records := make([]map[string]any, len(ids))
+	for position, id := range ids {
+		records[position] = cache.byID[region][entity][id]
+	}
+	return records, nil
+}
+
+func (cache *batchingMusicHandlerCache) GetByCompositeKeys(_ context.Context, _ string, _ string, keys []map[string]any) ([]map[string]any, error) {
+	return make([]map[string]any, len(keys)), nil
+}
+
+func TestMusicListEndpointBatchesRelatedLookups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &batchingMusicHandlerCache{fakeMusicHandlerCache: &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"musicartists":      {"77": {"id": 77, "name": "Artist A"}, "78": {"id": 78, "name": "Artist B"}},
+				"livestages":        {"66": {"id": 66, "name": "Stage 66"}},
+				"releaseconditions": {"5": {"id": 5, "sentence": "clear"}},
+			},
+		},
+		listItems: []map[string]any{
+			{"id": 1001, "title": "A", "creatorArtistId": 77, "liveStageId": 66, "releaseConditionId": 5},
+			{"id": 1002, "title": "B", "creatorArtistId": 78, "liveStageId": 66, "releaseConditionId": 5},
+			{"id": 1003, "title": "C", "creatorArtistId": 77, "liveStageId": 66, "releaseConditionId": 5},
+		},
+		listTotal: 3,
+	}}
+
+	statusStore := &fakeMusicHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/list", NewMusicHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)).List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/musics/jp/list?page=1&page_size=20", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(body.Items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(body.Items))
+	}
+	assertMusicHasMappedCreatorArtist(t, body.Items[1], 78)
+	assertMusicHasMappedLiveStage(t, body.Items[1], 66)
+	if condition, ok := body.Items[0]["releaseCondition"].(map[string]any); !ok || condition["sentence"] != "clear" {
+		t.Fatalf("expected the release condition to be expanded, got %v", body.Items[0]["releaseCondition"])
+	}
+
+	for _, call := range cache.getByIDCalls {
+		switch call.entity {
+		case "musicartists", "livestages", "releaseconditions":
+			t.Fatalf("expected related records to be batched, got GetByID %+v", call)
+		}
+	}
+	want := []string{"livestages:66", "musicartists:77,78", "releaseconditions:5"}
+	if !reflect.DeepEqual(cache.getByIDsCalls, want) {
+		t.Fatalf("expected one batch per related entity %v, got %v", want, cache.getByIDsCalls)
+	}
+}
+
 func TestMusicDifficultiesByIDEndpointReturnsFullDifficulties(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -1048,8 +1048,6 @@ func (handler *MusicHandler) buildMusicDifficulty(ctx context.Context, region st
 	return result, nil
 }
 
-// buildMusic builds a music's fields, reading its release condition, creator
-// artist, and live stage through lookup.
 // prefetchMusicRelations reads the release conditions, creator artists, and
 // live stages of records with one batched read per entity.
 func (handler *MusicHandler) prefetchMusicRelations(ctx context.Context, region string, records []map[string]any) (*shared.PrefetchedRecords, error) {
@@ -1062,6 +1060,8 @@ func (handler *MusicHandler) prefetchMusicRelations(ctx context.Context, region 
 	return shared.PrefetchRecords(ctx, handler.masterDataSync, region, ids)
 }
 
+// buildMusic builds a music's fields, reading its release condition, creator
+// artist, and live stage through lookup.
 func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any, aggregatedCategories map[string][]string, lookup shared.RecordLookup) (map[string]any, error) {
 	if handler == nil || handler.masterDataSync == nil {
 		lookup = nil
