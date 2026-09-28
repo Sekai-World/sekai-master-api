@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -50,10 +51,10 @@ func OpenDB(ctx context.Context, cfg config.Config) (*DB, error) {
 // positive value.
 func applyPoolSettings(poolConfig *pgxpool.Config, cfg config.Config) {
 	if cfg.DatabaseMaxConns > 0 {
-		poolConfig.MaxConns = int32(cfg.DatabaseMaxConns)
+		poolConfig.MaxConns = poolConnCount(cfg.DatabaseMaxConns)
 	}
 	if cfg.DatabaseMinConns > 0 {
-		poolConfig.MinConns = int32(min(cfg.DatabaseMinConns, int(poolConfig.MaxConns)))
+		poolConfig.MinConns = min(poolConnCount(cfg.DatabaseMinConns), poolConfig.MaxConns)
 	}
 	if cfg.DatabaseConnectTimeout > 0 {
 		poolConfig.ConnConfig.ConnectTimeout = cfg.DatabaseConnectTimeout
@@ -64,6 +65,15 @@ func applyPoolSettings(poolConfig *pgxpool.Config, cfg config.Config) {
 	if cfg.DatabaseMaxConnIdleTime > 0 {
 		poolConfig.MaxConnIdleTime = cfg.DatabaseMaxConnIdleTime
 	}
+}
+
+// poolConnCount converts a positive configured connection count to the int32
+// pgxpool takes, capping values beyond its range.
+func poolConnCount(value int) int32 {
+	if value > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(value)
 }
 
 // Close closes the database/sql bridge and then the pool. It is safe on a nil

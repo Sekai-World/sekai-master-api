@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"io/fs"
+	"math"
 	"sort"
 	"strings"
 	"testing"
@@ -69,6 +70,11 @@ func TestApplyPoolSettingsOverridesOnlyPositiveValues(t *testing.T) {
 	}
 	if poolConfig.ConnConfig.ConnectTimeout != 5*time.Second || poolConfig.MaxConnLifetime != 10*time.Minute || poolConfig.MaxConnIdleTime != 2*time.Minute {
 		t.Fatalf("pool timeouts = connect %s lifetime %s idle %s", poolConfig.ConnConfig.ConnectTimeout, poolConfig.MaxConnLifetime, poolConfig.MaxConnIdleTime)
+	}
+
+	applyPoolSettings(poolConfig, config.Config{DatabaseMaxConns: math.MaxInt32 + 1, DatabaseMinConns: math.MaxInt32 + 1})
+	if poolConfig.MaxConns != math.MaxInt32 || poolConfig.MinConns != math.MaxInt32 {
+		t.Fatalf("out-of-range pool size = max %d min %d, want both capped at MaxInt32", poolConfig.MaxConns, poolConfig.MinConns)
 	}
 }
 
