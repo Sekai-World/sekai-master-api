@@ -17,12 +17,10 @@ ownership is unclear.
 - Authentication: OIDC Bearer Token validation.
 - Authentication boundary: only admin APIs require authentication; other GET APIs are public by default.
 - Query strategy:
-  - `cards` by-id: Redis hash cache.
-  - Relaxed single-entity data endpoints may treat persisted by-id records as sufficient read-only data readiness only when the region's current persisted sync status is `success`; do not require decoded search-index LRU state for those reads after restart.
-  - Search uses Redis-persisted indexes scoped to API search fields. Decoded Go search indexes are only a bounded in-process LRU cache.
-  - `cards` fuzzy name search includes the current `prefix` field.
+  - Master data lives in PostgreSQL (`storage.PostgresMasterDataStore`, `docs/postgres-master-data-store.md`): compressed key-sorted record blocks, order keys, relation index postings, and list projections, all written by sync. Redis holds no master data and is not a readiness input.
+  - Data endpoints treat a region as ready for an entity when its current persisted sync status is `success` and the store holds records of that entity (`shared.EnsureRegionReadyForEntityRecords`).
   - `cards` list pagination: paginate by real data order, using array index; do not rely on contiguous IDs.
-  - Read-only status and available-region paths, including admin dashboard and metrics callbacks, must not load, rebuild, rewrite, or otherwise repair Redis search indexes. Use explicit sync, warmup, ensure, or search-miss flows for repair.
+  - Read paths never write: status, available-region, admin dashboard, readiness, and metrics reads, and every public read, only read the store. Only sync writes master data.
   - If a response has a top-level `releaseConditionId`, look up `releaseConditions` and expand it as `releaseCondition`; do not expose `releaseConditionId` directly.
 - Database strategy:
   - PostgreSQL in every environment; SQLite support was removed. `DATABASE_DRIVER` is optional and accepts only `pgx`.
@@ -65,14 +63,12 @@ Responsible for database connections, dialect compatibility, and the data access
 - Change scope: `internal/config`, `internal/storage`, repository layer.
 - Must preserve:
   - PostgreSQL is the only database; do not reintroduce SQLite or dialect branches in repositories or migrations.
-  - `MASTER_DATA_STORE` selects the master-data store: `redis` (default) or `postgres` (`storage.PostgresMasterDataStore`). Keep both stores answering the storage contract identically; extend `internal/storage/master_data_store_contract_test.go` when the contract changes.
+  - PostgreSQL is the only master-data store. `MASTER_DATA_STORE` is optional and accepts only `postgres`. Extend `internal/storage/master_data_store_contract_test.go` when the storage contract changes.
   - Record keys, composite keys, and the block sort key are defined in `internal/domain/masterdata` (`record_key.go`); storage code must not redefine them.
   - Do not break existing configuration names.
-  - Store by-id data and order indexes in Redis; pagination order comes from the order index.
-  - Keep Redis search-index repair side-effectful only in sync/ensure/search-miss flows; `DashboardStatus`, `RuntimeSearchIndexReadyRegions`, admin dashboard reads, available-region helper reads, and observability callbacks must remain read-only.
-  - When rebuilding Redis search indexes, remove stale `:search-index-version` keys together with stale `:search-index` keys and clear persisted search-index artifacts when a region no longer has records.
+  - Pagination order comes from the stored order keys.
   - Keep field constraints stable for the separate `cards` basic-info and params endpoints.
-  - Relaxed persisted-record reads must not call `Search` for enrichment because search misses may repair Redis indexes. Use direct persisted-record reads and return the endpoint query error when required enrichment storage reads fail.
+  - Enrich records with direct store reads, batched per entity where a response enriches many items (`shared.PrefetchRecords`), and return the endpoint query error when required enrichment reads fail.
 
 ### 4) Environment Agent
 

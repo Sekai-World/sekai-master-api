@@ -510,15 +510,31 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
    - Time every route cold and warm, and time the sync.
 5. **Make Postgres the default.**
    - Remove the Redis store, the search index, the LRU, the local backups and
-     Redis readiness.
+     Redis readiness. Done: `MASTER_DATA_STORE` stays optional but accepts
+     only `postgres`, and the `REDIS_*` and search-index settings are gone.
+     The manifest skip compares against the stored version payload, and the
+     rate-limit fallback keeps the stored data. `serve /readyz` reports a
+     store read error as `database`.
+     The `sekai_master_data_region_index_*` and `sekai_redis_*` metrics are
+     replaced by `sekai_master_data_region_records{region}`.
+     The alerts are now `SekaiMasterDataRegionEmpty` (a region with no
+     records) and `SekaiMasterDataSyncFailed`, which now matches the `failed`
+     status that sync writes.
    - Make `CurrentEvent` read-only through the events projection. Done: the
      `events` projection keeps `id`, `startAt` and `closedAt`, and
      `CurrentEvent` reads only the chosen record. A `currentevents` entity
      left by older builds is ignored; a full sync prunes it from Postgres.
    - Add the `dump` subcommand. Done; see [Inspecting records](#inspecting-records).
-   - Update the docs, the runbook and `AGENTS.md`.
+   - Update the docs, the runbook and `AGENTS.md`. Done.
+   - The Helm chart is unchanged in this step. The test cluster's Argo CD
+     application renders the chart from `main` with a pinned image, so chart
+     changes would reach the running release before its image does. The
+     chart's backup volume, Redis egress rule, Redis readiness notes and
+     README move to step 6.
 6. **Production cut-over.** Deploy `control` first, run a full sync and
-   verify, then deploy `serve`. Redis becomes optional.
+   verify, then deploy `serve`. Redis becomes optional. Update the chart in
+   the same change: drop the backup volume and the Redis settings and
+   egress, and switch `serve` to the read-only `sekai-master-api-serve-secrets`.
 7. **Cache, only if measurements require it:** a revision-keyed Redis
    read-through cache.
 

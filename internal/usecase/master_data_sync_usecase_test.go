@@ -5,18 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-
-	"sekai-master-api/internal/config"
 	"sekai-master-api/internal/domain/masterdata"
-	"sekai-master-api/internal/storage"
 )
 
 type fakeSyncLoader struct {
@@ -135,15 +129,13 @@ func (loader *timedSyncLoader) CanceledLoads() int {
 	return loader.canceledLoads
 }
 
+// fakeSyncCache is a minimal store: hasRegionData answers the region data
+// check that sync readiness and the unchanged-commit shortcut ask.
 type fakeSyncCache struct {
-	mu                 sync.Mutex
-	storeCalls         int
-	rebuildCalls       int
-	loadCalls          int
-	rebuildFromRedisOK bool
-	loadFromRedisOK    bool
-	hasRegionIndex     bool
-	hasRegionIndexSet  bool
+	mu              sync.Mutex
+	storeCalls      int
+	regionDataCalls int
+	hasRegionData   bool
 }
 
 type fakeCurrentEventCache struct {
@@ -245,10 +237,6 @@ func (cache *fakeCurrentEventCache) ListByPage(_ context.Context, _, entity stri
 	return items, total, nil
 }
 
-func (cache *fakeCurrentEventCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	return nil, nil
-}
-
 func (cache *fakeCurrentEventCache) StoreCallCount() int {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -276,43 +264,12 @@ func (cache *fakeSyncCache) ListByPage(_ context.Context, _, _ string, _, _ int)
 	return nil, 0, nil
 }
 
-func (cache *fakeSyncCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	return nil, nil
-}
-
-func (cache *fakeSyncCache) RebuildRegionIndexFromRedis(_ context.Context, _ string) (bool, error) {
+func (cache *fakeSyncCache) HasRegionData(_ context.Context, _ string) (bool, error) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	cache.rebuildCalls++
-	if cache.rebuildFromRedisOK {
-		return true, nil
-	}
-
-	return false, nil
-}
-
-func (cache *fakeSyncCache) LoadRegionIndexFromRedis(_ context.Context, _ string) (bool, error) {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
-	cache.loadCalls++
-	if cache.loadFromRedisOK {
-		return true, nil
-	}
-
-	return false, nil
-}
-
-func (cache *fakeSyncCache) HasRegionIndex(_ string) bool {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
-	if !cache.hasRegionIndexSet {
-		return true
-	}
-
-	return cache.hasRegionIndex
+	cache.regionDataCalls++
+	return cache.hasRegionData, nil
 }
 
 type fakeSyncStatusStore struct {
@@ -460,8 +417,10 @@ type manifestSyncTestOptions struct {
 	remoteManifestErr error
 	archivePayload    map[string]any
 	archiveLoadErr    error
-	backupCommit      string
-	backupPayload     map[string]any
+	// storedManifest is the version payload the store already holds; nil
+	// leaves it missing.
+	storedManifest    map[string]any
+	storedManifestErr error
 	cacheReady        bool
 }
 
@@ -469,9 +428,9 @@ type manifestSyncTestFixture struct {
 	source         masterdata.Source
 	previousStatus masterdata.SyncStatus
 	loader         *fakeSyncLoader
-	cache          *fakeSyncCache
+	cache          *fakeVersionSyncCache
 	statusStore    *fakeSyncStatusStore
-	backupStore    MasterDataPayloadBackupStore
+	publisher      *fakeSyncEventPublisher
 	usecase        *MasterDataSyncUsecase
 }
 
@@ -504,20 +463,15 @@ func newManifestSyncTestFixture(t *testing.T, options manifestSyncTestOptions) *
 		loader.loadErrByZone = map[string]error{source.Region: options.archiveLoadErr}
 	}
 
-	cache := &fakeSyncCache{}
-	if options.cacheReady {
-		cache.loadFromRedisOK = true
+	cache := &fakeVersionSyncCache{loadedVersions: map[string]any{}, loadReturnErr: options.storedManifestErr}
+	cache.hasRegionData = options.cacheReady
+	if options.storedManifest != nil {
+		cache.loadedVersions[source.Region] = options.storedManifest
 	}
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if options.backupPayload != nil {
-		if err := backupStore.SaveRegionPayload(context.Background(), source, options.backupCommit, options.backupPayload); err != nil {
-			t.Fatalf("save local backup: %v", err)
-		}
-	}
+	publisher := &fakeSyncEventPublisher{}
 
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	usecase.SetBackupStore(backupStore)
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
 
 	return &manifestSyncTestFixture{
 		source:         source,
@@ -525,7 +479,7 @@ func newManifestSyncTestFixture(t *testing.T, options manifestSyncTestOptions) *
 		loader:         loader,
 		cache:          cache,
 		statusStore:    statusStore,
-		backupStore:    backupStore,
+		publisher:      publisher,
 		usecase:        usecase,
 	}
 }
@@ -576,8 +530,7 @@ func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 		resolvedByZone: map[string]string{"jp": "abc123"},
 		payloadByZone:  map[string]map[string]any{"jp": {"cards.json": []any{map[string]any{"id": 1}}}},
 	}
-	cache := &fakeSyncCache{}
-	cache.rebuildFromRedisOK = true
+	cache := &fakeSyncCache{hasRegionData: true}
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
@@ -592,8 +545,8 @@ func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 	if cache.storeCalls != 0 {
 		t.Fatalf("expected cache store to be skipped, got storeCalls=%d", cache.storeCalls)
 	}
-	if cache.rebuildCalls != 2 {
-		t.Fatalf("expected redis index rebuild calls on skip and readiness annotation, got rebuildCalls=%d", cache.rebuildCalls)
+	if cache.regionDataCalls != 2 {
+		t.Fatalf("expected region data checks for readiness and the skip, got regionDataCalls=%d", cache.regionDataCalls)
 	}
 	if statusStore.saveCount() == 0 {
 		t.Fatalf("expected status to be saved after skip")
@@ -608,52 +561,6 @@ func TestSyncAllSkipsRegionWhenCommitUnchanged(t *testing.T) {
 	}
 	if latest.Status != "success" {
 		t.Fatalf("expected status to remain success, got %s", latest.Status)
-	}
-}
-
-func TestSyncAllLocalBackupRestoreOnCommitUnchangedPublishesIntermediateProgress(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    2,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "same-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "same-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
-			},
-		},
-	}
-	cache := &fakeSyncCache{rebuildFromRedisOK: false}
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-	publisher := &fakeSyncEventPublisher{}
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "same-commit", map[string]any{
-		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.backupStore = backupStore
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	events := publisher.listEvents()
-	if !containsSyncProgressEvent(events, "jp", "running", "cache", "restoring cache from local backup") {
-		t.Fatalf("expected running cache progress event for local backup restore")
-	}
-	if !containsSyncProgressEvent(events, "jp", "success", "compare", "commit unchanged, restored cache from local backup and skipped sync") {
-		t.Fatalf("expected success compare event for local backup restore")
 	}
 }
 
@@ -718,7 +625,7 @@ func TestDashboardStatusKeepsRunningWhileSyncActive(t *testing.T) {
 	}
 }
 
-func TestDashboardStatusKeepsSuccessfulStatusWhenRuntimeIndexMissing(t *testing.T) {
+func TestDashboardStatusKeepsSuccessfulStatusWithoutCheckingStore(t *testing.T) {
 	now := time.Now().UTC()
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
 		{
@@ -729,10 +636,7 @@ func TestDashboardStatusKeepsSuccessfulStatusWhenRuntimeIndexMissing(t *testing.
 			UpdatedAt:    now.Add(-time.Minute),
 		},
 	})
-	cache := &fakeSyncCache{
-		hasRegionIndexSet: true,
-		hasRegionIndex:    false,
-	}
+	cache := &fakeSyncCache{hasRegionData: false}
 
 	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
 
@@ -749,37 +653,8 @@ func TestDashboardStatusKeepsSuccessfulStatusWhenRuntimeIndexMissing(t *testing.
 	if statuses[0].ErrorMessage != "" {
 		t.Fatalf("expected persisted success to avoid cache readiness message, got %q", statuses[0].ErrorMessage)
 	}
-	if cache.loadCalls != 0 {
-		t.Fatalf("expected dashboard status to avoid redis index load, got %d calls", cache.loadCalls)
-	}
-	if cache.rebuildCalls != 0 {
-		t.Fatalf("expected dashboard status to avoid redis index rebuild, got %d calls", cache.rebuildCalls)
-	}
-}
-
-func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusWhenRedisCacheMissing(t *testing.T) {
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
-		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
-	})
-	cache := &fakeSyncCache{
-		hasRegionIndexSet: true,
-		hasRegionIndex:    false,
-	}
-
-	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
-
-	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
-	if err != nil {
-		t.Fatalf("expected ready regions success, got %v", err)
-	}
-	if len(regions) != 0 {
-		t.Fatalf("expected no ready regions when redis cache is missing, got %v", regions)
-	}
-	if cache.loadCalls != 0 {
-		t.Fatalf("expected ready regions to avoid redis index load, got %d calls", cache.loadCalls)
-	}
-	if cache.rebuildCalls != 0 {
-		t.Fatalf("expected ready regions to avoid redis index rebuild, got %d calls", cache.rebuildCalls)
+	if cache.regionDataCalls != 0 {
+		t.Fatalf("expected dashboard status to avoid store readiness checks, got %d calls", cache.regionDataCalls)
 	}
 }
 
@@ -800,80 +675,6 @@ func TestSuccessfulSyncRegionsNormalizesDeduplicatesAndSorts(t *testing.T) {
 	}
 	if len(regions) != 2 || regions[0] != "en" || regions[1] != "jp" {
 		t.Fatalf("expected normalized, unique, sorted successful regions, got %v", regions)
-	}
-}
-
-func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanLoad(t *testing.T) {
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
-		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
-	})
-	cache := &fakeSyncCache{
-		hasRegionIndexSet: true,
-		hasRegionIndex:    false,
-		loadFromRedisOK:   true,
-	}
-
-	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
-
-	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
-	if err != nil {
-		t.Fatalf("expected ready regions success, got %v", err)
-	}
-	if len(regions) != 0 {
-		t.Fatalf("expected no ready regions without retained runtime index, got %v", regions)
-	}
-	if cache.loadCalls != 0 {
-		t.Fatalf("expected ready regions to avoid redis index load, got %d calls", cache.loadCalls)
-	}
-}
-
-func TestRuntimeSearchIndexReadyRegionsSkipsSuccessfulStatusEvenWhenRedisIndexCanRebuild(t *testing.T) {
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
-		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
-	})
-	cache := &fakeSyncCache{
-		hasRegionIndexSet:  true,
-		hasRegionIndex:     false,
-		rebuildFromRedisOK: true,
-	}
-
-	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
-
-	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
-	if err != nil {
-		t.Fatalf("expected ready regions success, got %v", err)
-	}
-	if len(regions) != 0 {
-		t.Fatalf("expected no ready regions without retained runtime index, got %v", regions)
-	}
-	if cache.rebuildCalls != 0 {
-		t.Fatalf("expected ready regions to avoid redis index rebuild, got %d calls", cache.rebuildCalls)
-	}
-}
-
-func TestRuntimeSearchIndexReadyRegionsIncludesSuccessfulStatusWhenRuntimeIndexIsRetained(t *testing.T) {
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
-		{Region: "jp", Status: "success", UpdatedAt: time.Now().UTC()},
-	})
-	cache := &fakeSyncCache{
-		hasRegionIndexSet: true,
-		hasRegionIndex:    true,
-	}
-
-	usecase := NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)
-
-	regions, err := usecase.RuntimeSearchIndexReadyRegions(context.Background())
-	if err != nil {
-		t.Fatalf("expected ready regions success, got %v", err)
-	}
-	if len(regions) != 1 || regions[0] != "jp" {
-		t.Fatalf("expected jp ready from retained runtime index, got %v", regions)
-	}
-	if cache.loadCalls != 0 {
-		t.Fatalf("expected ready regions to avoid redis index load, got %d calls", cache.loadCalls)
-	}
-	if cache.rebuildCalls != 0 {
-		t.Fatalf("expected ready regions to avoid redis index rebuild, got %d calls", cache.rebuildCalls)
 	}
 }
 
@@ -1031,14 +832,12 @@ func TestSyncAllLoadsRegionWhenCommitChanged(t *testing.T) {
 
 func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) {
 	manifest := map[string]any{"dataVersion": "20260802"}
-	latestPayload := manifestPayload(manifest, "from-backup")
 	fixture := newManifestSyncTestFixture(t, manifestSyncTestOptions{
 		previousCommit:    "old-commit",
 		previousFileCount: 99,
 		resolvedCommit:    "new-commit",
 		remoteManifest:    manifest,
-		backupCommit:      "old-commit",
-		backupPayload:     latestPayload,
+		storedManifest:    manifest,
 		cacheReady:        true,
 	})
 
@@ -1056,7 +855,10 @@ func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) 
 		t.Fatalf("expected manifest ref to be pinned to new-commit, got %q", fixture.loader.manifestRefsByZone["jp"])
 	}
 	if fixture.cache.storeCalls != 0 {
-		t.Fatalf("expected ready cache not to be restored, got storeCalls=%d", fixture.cache.storeCalls)
+		t.Fatalf("expected stored data to be kept, got storeCalls=%d", fixture.cache.storeCalls)
+	}
+	if fixture.cache.storeCallCount() != 0 {
+		t.Fatalf("expected stored version payload to be kept, got versionStoreCalls=%d", fixture.cache.storeCallCount())
 	}
 
 	latest, exists := fixture.statusStore.latest("jp")
@@ -1066,39 +868,37 @@ func TestSyncAllSkipsChangedCommitWhenVersionsManifestIsUnchanged(t *testing.T) 
 	if latest.Status != "success" || latest.SourceCommit != "new-commit" {
 		t.Fatalf("expected successful status pinned to new-commit, got %#v", latest)
 	}
-	if latest.FileCount != len(latestPayload) {
-		t.Fatalf("expected file count to equal reusable payload count %d, got %d", len(latestPayload), latest.FileCount)
+	if latest.FileCount != 99 {
+		t.Fatalf("expected file count to carry over the previous count 99, got %d", latest.FileCount)
 	}
-
-	_, rebasedCommit, _, found, err := fixture.backupStore.LoadLatestRegionPayload(context.Background(), fixture.source)
-	if err != nil {
-		t.Fatalf("load rebased local backup: %v", err)
-	}
-	if !found || rebasedCommit != "new-commit" {
-		t.Fatalf("expected local backup to be rebased to new-commit, found=%t commit=%q", found, rebasedCommit)
+	if !containsSyncProgressEvent(fixture.publisher.listEvents(), "jp", "success", "compare", "versions manifest unchanged, kept stored data and skipped sync") {
+		t.Fatalf("expected success compare event for the manifest skip")
 	}
 }
 
-func TestSyncAllRestoresManifestMatchToCacheWhenCacheIsNotReady(t *testing.T) {
+func TestSyncAllLoadsRegionWhenManifestMatchesButStoreIsEmpty(t *testing.T) {
 	manifest := map[string]any{"dataVersion": "20260802"}
 	fixture := newManifestSyncTestFixture(t, manifestSyncTestOptions{
 		previousCommit:    "old-commit",
 		previousFileCount: 99,
 		resolvedCommit:    "new-commit",
 		remoteManifest:    manifest,
-		backupCommit:      "old-commit",
-		backupPayload:     manifestPayload(manifest, "from-backup"),
+		archivePayload:    manifestPayload(manifest, "from-archive"),
+		storedManifest:    manifest,
 	})
 
 	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if fixture.loader.loadCalls != 0 {
-		t.Fatalf("expected archive load to be skipped, got loadCalls=%d", fixture.loader.loadCalls)
+	if fixture.loader.loadCalls != 1 {
+		t.Fatalf("expected an empty store to take the archive load, got loadCalls=%d", fixture.loader.loadCalls)
 	}
 	if fixture.cache.storeCalls != 1 {
-		t.Fatalf("expected exactly one cache restore, got storeCalls=%d", fixture.cache.storeCalls)
+		t.Fatalf("expected exactly one store write, got storeCalls=%d", fixture.cache.storeCalls)
+	}
+	if !fixture.statusStore.hasSavedStatus("jp", "pending") {
+		t.Fatalf("expected pending status while the store is empty")
 	}
 
 	latest, exists := fixture.statusStore.latest("jp")
@@ -1110,7 +910,7 @@ func TestSyncAllRestoresManifestMatchToCacheWhenCacheIsNotReady(t *testing.T) {
 	}
 }
 
-func TestSyncAllFallsBackToArchiveWhenManifestBackupCommitDiffers(t *testing.T) {
+func TestSyncAllLoadsRegionWhenStoredVersionPayloadCannotBeRead(t *testing.T) {
 	manifest := map[string]any{"dataVersion": "20260802"}
 	fixture := newManifestSyncTestFixture(t, manifestSyncTestOptions{
 		previousCommit:    "old-commit",
@@ -1118,8 +918,8 @@ func TestSyncAllFallsBackToArchiveWhenManifestBackupCommitDiffers(t *testing.T) 
 		resolvedCommit:    "new-commit",
 		remoteManifest:    manifest,
 		archiveLoadErr:    errors.New("archive fallback"),
-		backupCommit:      "other-commit",
-		backupPayload:     manifestPayload(manifest, "from-backup"),
+		storedManifestErr: errors.New("store read failed"),
+		cacheReady:        true,
 	})
 
 	if err := fixture.usecase.SyncAll(context.Background()); err == nil {
@@ -1128,22 +928,14 @@ func TestSyncAllFallsBackToArchiveWhenManifestBackupCommitDiffers(t *testing.T) 
 	if fixture.loader.loadCalls != 1 {
 		t.Fatalf("expected exactly one archive fallback load, got loadCalls=%d", fixture.loader.loadCalls)
 	}
-	if fixture.cache.storeCalls != 0 {
-		t.Fatalf("expected manifest reuse not to restore the cache, got storeCalls=%d", fixture.cache.storeCalls)
+	if fixture.loader.manifestCalls != 0 {
+		t.Fatalf("expected the remote manifest not to load without a stored payload, got manifestCalls=%d", fixture.loader.manifestCalls)
 	}
 
 	for _, saved := range fixture.statusStore.savedByRegion("jp") {
 		if strings.EqualFold(saved.Status, "success") && saved.SourceCommit == "new-commit" {
-			t.Fatalf("did not expect manifest reuse to advance a success status to new-commit: %#v", saved)
+			t.Fatalf("did not expect the manifest skip to advance a success status to new-commit: %#v", saved)
 		}
-	}
-
-	_, backupCommit, _, found, err := fixture.backupStore.LoadLatestRegionPayload(context.Background(), fixture.source)
-	if err != nil {
-		t.Fatalf("load local backup after fallback: %v", err)
-	}
-	if !found || backupCommit != "other-commit" {
-		t.Fatalf("expected local backup to remain pinned to other-commit, found=%t commit=%q", found, backupCommit)
 	}
 }
 
@@ -1154,8 +946,7 @@ func TestSyncAllLoadsRegionWhenChangedCommitManifestDiffers(t *testing.T) {
 		resolvedCommit:    "new-commit",
 		remoteManifest:    map[string]any{"dataVersion": "new"},
 		archivePayload:    map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
-		backupCommit:      "old-commit",
-		backupPayload:     map[string]any{"data/versions.json": map[string]any{"dataVersion": "old"}},
+		storedManifest:    map[string]any{"dataVersion": "old"},
 		cacheReady:        true,
 	})
 
@@ -1173,8 +964,7 @@ func TestSyncAllLoadsRegionWhenChangedCommitManifestLoadFails(t *testing.T) {
 		resolvedCommit:    "new-commit",
 		remoteManifestErr: errors.New("manifest unavailable"),
 		archivePayload:    map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
-		backupCommit:      "old-commit",
-		backupPayload:     map[string]any{"data/versions.json": map[string]any{"dataVersion": "old"}},
+		storedManifest:    map[string]any{"dataVersion": "old"},
 		cacheReady:        true,
 	})
 
@@ -1302,8 +1092,7 @@ func TestSyncAllForceLoadsWhenChangedCommitManifestIsUnchanged(t *testing.T) {
 		resolvedCommit: "new-commit",
 		remoteManifest: map[string]any{"dataVersion": "same"},
 		archivePayload: map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
-		backupCommit:   "old-commit",
-		backupPayload:  map[string]any{"data/versions.json": map[string]any{"dataVersion": "same"}},
+		storedManifest: map[string]any{"dataVersion": "same"},
 		cacheReady:     true,
 	})
 
@@ -1318,90 +1107,7 @@ func TestSyncAllForceLoadsWhenChangedCommitManifestIsUnchanged(t *testing.T) {
 	}
 }
 
-func TestSyncAllSkipDoesNotMutateRedisCache(t *testing.T) {
-	miniRedis, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("start miniredis: %v", err)
-	}
-	defer miniRedis.Close()
-
-	redisCache, err := storage.NewRedisMasterDataCache(config.Config{
-		RedisAddr:                miniRedis.Addr(),
-		RedisDB:                  0,
-		MasterDataRedisKeyPrefix: "test:master-data:",
-	})
-	if err != nil {
-		t.Fatalf("new redis cache: %v", err)
-	}
-	defer func() {
-		_ = redisCache.Close()
-	}()
-
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-
-	seedPayload := map[string]any{
-		"data/versions.json": map[string]any{"appVersion": "seeded"},
-		"cards.json":         []any{map[string]any{"id": 1, "prefix": "stable"}},
-	}
-	if err := redisCache.StoreRegion(context.Background(), "jp", seedPayload); err != nil {
-		t.Fatalf("seed redis cache: %v", err)
-	}
-	if err := redisCache.StoreRegionVersionPayload(context.Background(), "jp", map[string]any{"appVersion": "seeded"}); err != nil {
-		t.Fatalf("seed version cache: %v", err)
-	}
-
-	beforeRecord, found, err := redisCache.GetByID(context.Background(), "jp", "cards", "1")
-	if err != nil {
-		t.Fatalf("read seeded record: %v", err)
-	}
-	if !found {
-		t.Fatalf("expected seeded record to exist")
-	}
-
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    1,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "same-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "same-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-apply"}},
-			},
-		},
-	}
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, redisCache, statusStore, nil, 1)
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if loader.loadCalls != 0 {
-		t.Fatalf("expected loader not to run when commit unchanged, got %d", loader.loadCalls)
-	}
-
-	afterRecord, found, err := redisCache.GetByID(context.Background(), "jp", "cards", "1")
-	if err != nil {
-		t.Fatalf("read record after sync: %v", err)
-	}
-	if !found {
-		t.Fatalf("expected record to remain after skip")
-	}
-
-	if beforeRecord["prefix"] != afterRecord["prefix"] {
-		t.Fatalf("expected redis record unchanged, before=%v after=%v", beforeRecord["prefix"], afterRecord["prefix"])
-	}
-}
-
-func TestSyncAllSkipsByRestoringFromLocalBackupWhenRedisMissing(t *testing.T) {
+func TestSyncAllFallsBackToFullSyncWhenCommitUnchangedButStoreIsEmpty(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
 		Region:       "jp",
@@ -1421,282 +1127,24 @@ func TestSyncAllSkipsByRestoringFromLocalBackupWhenRedisMissing(t *testing.T) {
 			},
 		},
 	}
-	cache := &fakeSyncCache{}
-	cache.rebuildFromRedisOK = false
+	cache := &fakeSyncCache{hasRegionData: false}
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "same-commit", map[string]any{
-		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.backupStore = backupStore
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if loader.loadCalls != 0 {
-		t.Fatalf("expected full sync to be skipped using local backup, got loadCalls=%d", loader.loadCalls)
-	}
-	if cache.rebuildCalls != 2 {
-		t.Fatalf("expected redis rebuild attempts during skip and readiness annotation, got %d", cache.rebuildCalls)
-	}
-	if cache.storeCalls != 1 {
-		t.Fatalf("expected one cache store from local backup, got %d", cache.storeCalls)
-	}
-}
-
-func TestSyncAllFallsBackToFullSyncWhenRedisAndLocalBackupMissing(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	previousStatus := masterdata.SyncStatus{
-		Region:       "jp",
-		Status:       "success",
-		FileCount:    2,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
-		SourceCommit: "same-commit",
-		Source:       source,
-		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
-	}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "same-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
-			},
-		},
-	}
-	cache := &fakeSyncCache{}
-	cache.rebuildFromRedisOK = false
-	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	usecase.backupStore = NewFileMasterDataPayloadBackupStore(t.TempDir())
 
 	if err := usecase.SyncAll(context.Background()); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	if loader.loadCalls != 1 {
-		t.Fatalf("expected fallback to full sync when local backup missing, got loadCalls=%d", loader.loadCalls)
+		t.Fatalf("expected fallback to full sync when the store is empty, got loadCalls=%d", loader.loadCalls)
 	}
 	if cache.storeCalls != 1 {
 		t.Fatalf("expected cache to be built from github payload, got storeCalls=%d", cache.storeCalls)
 	}
 }
 
-func TestSyncAllRestoresFromLocalBackupWhenStatusMissingInDevelopment(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "remote-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"data/versions.json": map[string]any{
-					"dataVersion": "20260421",
-				},
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
-			},
-		},
-	}
-	cache := &fakeSyncCache{}
-	statusStore := newFakeSyncStatusStore(nil)
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	usecase.EnableDevelopmentBackupBootstrap(true)
-
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
-		"cards.json":  []any{map[string]any{"id": 99, "prefix": "from-local"}},
-		"skills.json": []any{map[string]any{"id": 100, "name": "from-local-skill"}},
-		"data/versions.json": map[string]any{
-			"dataVersion": "20260421",
-		},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.backupStore = backupStore
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if loader.resolveCalls != 0 {
-		t.Fatalf("expected remote compare to be skipped, got resolveCalls=%d", loader.resolveCalls)
-	}
-	if loader.loadCalls != 1 {
-		t.Fatalf("expected one remote versions compare load, got loadCalls=%d", loader.loadCalls)
-	}
-	if cache.storeCalls != 1 {
-		t.Fatalf("expected one cache store from local backup, got %d", cache.storeCalls)
-	}
-
-	latest, exists := statusStore.latest("jp")
-	if !exists {
-		t.Fatalf("expected restored status for jp")
-	}
-	if latest.Status != "success" {
-		t.Fatalf("expected success status, got %s", latest.Status)
-	}
-	if latest.SourceCommit != "local-commit" {
-		t.Fatalf("expected restored commit local-commit, got %s", latest.SourceCommit)
-	}
-	if latest.FileCount != 3 {
-		t.Fatalf("expected restored file_count=3, got %d", latest.FileCount)
-	}
-}
-
-func TestSyncAllFallsBackToRemoteSyncWhenLocalBackupVersionsMismatchInDevelopment(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "remote-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"data/versions.json": map[string]any{
-					"dataVersion": "20260422",
-				},
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
-			},
-		},
-	}
-	cache := &fakeSyncCache{}
-	statusStore := newFakeSyncStatusStore(nil)
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	usecase.EnableDevelopmentBackupBootstrap(true)
-
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
-		"data/versions.json": map[string]any{
-			"dataVersion": "20260421",
-		},
-		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.backupStore = backupStore
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if loader.resolveCalls != 1 {
-		t.Fatalf("expected remote compare to run after mismatch, got resolveCalls=%d", loader.resolveCalls)
-	}
-	if loader.loadCalls != 2 {
-		t.Fatalf("expected one versions compare load + one remote sync load, got loadCalls=%d", loader.loadCalls)
-	}
-	if cache.storeCalls != 1 {
-		t.Fatalf("expected one cache store from remote payload, got %d", cache.storeCalls)
-	}
-
-	latest, exists := statusStore.latest("jp")
-	if !exists {
-		t.Fatalf("expected latest status for jp")
-	}
-	if latest.SourceCommit != "remote-commit" {
-		t.Fatalf("expected remote commit remote-commit, got %s", latest.SourceCommit)
-	}
-}
-
-func TestSyncAllBootstrapLocalBackupRestorePublishesIntermediateProgress(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "remote-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"data/versions.json": map[string]any{
-					"dataVersion": "20260421",
-				},
-			},
-		},
-	}
-	cache := &fakeSyncCache{}
-	statusStore := newFakeSyncStatusStore(nil)
-	publisher := &fakeSyncEventPublisher{}
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
-	usecase.EnableDevelopmentBackupBootstrap(true)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
-		"data/versions.json": map[string]any{
-			"dataVersion": "20260421",
-		},
-		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.backupStore = backupStore
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	events := publisher.listEvents()
-	if !containsSyncProgressEvent(events, "jp", "running", "bootstrap", "comparing local versions.json with remote") {
-		t.Fatalf("expected bootstrap compare progress event")
-	}
-	if !containsSyncProgressEvent(events, "jp", "running", "cache", "restoring cache from local backup") {
-		t.Fatalf("expected running cache progress event")
-	}
-	if !containsSyncProgressEvent(events, "jp", "success", "bootstrap", "database status missing, restored cache from local backup") {
-		t.Fatalf("expected bootstrap success event")
-	}
-}
-
-func TestSyncAllDoesNotRestoreFromLocalBackupWhenStatusMissingOutsideDevelopment(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-
-	loader := &fakeSyncLoader{
-		resolvedByZone: map[string]string{"jp": "remote-commit"},
-		payloadByZone: map[string]map[string]any{
-			"jp": {
-				"cards.json": []any{map[string]any{"id": 1, "prefix": "from-github"}},
-			},
-		},
-	}
-	cache := &fakeSyncCache{}
-	statusStore := newFakeSyncStatusStore(nil)
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "local-commit", map[string]any{
-		"cards.json": []any{map[string]any{"id": 99, "prefix": "from-local"}},
-	}); err != nil {
-		t.Fatalf("save local backup: %v", err)
-	}
-	usecase.backupStore = backupStore
-
-	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if loader.resolveCalls != 1 {
-		t.Fatalf("expected remote compare to run outside development bootstrap, got resolveCalls=%d", loader.resolveCalls)
-	}
-	if loader.loadCalls != 1 {
-		t.Fatalf("expected remote load to run outside development bootstrap, got loadCalls=%d", loader.loadCalls)
-	}
-	if cache.storeCalls != 1 {
-		t.Fatalf("expected one cache store from remote payload, got %d", cache.storeCalls)
-	}
-
-	latest, exists := statusStore.latest("jp")
-	if !exists {
-		t.Fatalf("expected latest status for jp")
-	}
-	if latest.SourceCommit != "remote-commit" {
-		t.Fatalf("expected remote commit remote-commit, got %s", latest.SourceCommit)
-	}
-}
-
-func TestSyncAllSetsPendingWhenRegionIndexMissing(t *testing.T) {
+func TestSyncAllSetsPendingWhenStoreHasNoRegionData(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	loader := &fakeSyncLoader{
 		resolvedByZone: map[string]string{"jp": "new-commit"},
@@ -1706,10 +1154,7 @@ func TestSyncAllSetsPendingWhenRegionIndexMissing(t *testing.T) {
 			},
 		},
 	}
-	cache := &fakeSyncCache{
-		hasRegionIndexSet: true,
-		hasRegionIndex:    false,
-	}
+	cache := &fakeSyncCache{hasRegionData: false}
 	statusStore := newFakeSyncStatusStore(nil)
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
@@ -1719,7 +1164,7 @@ func TestSyncAllSetsPendingWhenRegionIndexMissing(t *testing.T) {
 	}
 
 	if !statusStore.hasSavedStatus("jp", "pending") {
-		t.Fatalf("expected pending status to be saved when region index is missing")
+		t.Fatalf("expected pending status to be saved when the store has no region data")
 	}
 
 	latest, exists := statusStore.latest("jp")
@@ -1731,7 +1176,7 @@ func TestSyncAllSetsPendingWhenRegionIndexMissing(t *testing.T) {
 	}
 }
 
-func TestSyncAllDoesNotSetPendingWhenPersistedRegionIndexLoads(t *testing.T) {
+func TestSyncAllDoesNotSetPendingWhenStoreHasRegionData(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	loader := &fakeSyncLoader{
 		resolvedByZone: map[string]string{"jp": "new-commit"},
@@ -1741,11 +1186,7 @@ func TestSyncAllDoesNotSetPendingWhenPersistedRegionIndexLoads(t *testing.T) {
 			},
 		},
 	}
-	cache := &fakeSyncCache{
-		hasRegionIndexSet: true,
-		hasRegionIndex:    false,
-		loadFromRedisOK:   true,
-	}
+	cache := &fakeSyncCache{hasRegionData: true}
 	statusStore := newFakeSyncStatusStore(nil)
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
@@ -1755,10 +1196,10 @@ func TestSyncAllDoesNotSetPendingWhenPersistedRegionIndexLoads(t *testing.T) {
 	}
 
 	if statusStore.hasSavedStatus("jp", "pending") {
-		t.Fatalf("did not expect pending status when persisted region index loads")
+		t.Fatalf("did not expect pending status when the store has region data")
 	}
-	if cache.loadCalls == 0 {
-		t.Fatalf("expected persisted index load to be attempted")
+	if cache.regionDataCalls == 0 {
+		t.Fatalf("expected the region data check to run")
 	}
 
 	latest, exists := statusStore.latest("jp")
@@ -1799,7 +1240,7 @@ func TestSyncAllUsesLatestSuccessWhenLatestStatusIsPending(t *testing.T) {
 			"jp": {"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-load"}}},
 		},
 	}
-	cache := &fakeSyncCache{rebuildFromRedisOK: true}
+	cache := &fakeSyncCache{hasRegionData: true}
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{pendingStatus})
 	statusStore.successByZone["jp"] = latestSuccess
 
@@ -1812,12 +1253,12 @@ func TestSyncAllUsesLatestSuccessWhenLatestStatusIsPending(t *testing.T) {
 	if loader.loadCalls != 0 {
 		t.Fatalf("expected load to be skipped using latest success status, got loadCalls=%d", loader.loadCalls)
 	}
-	if cache.rebuildCalls != 2 {
-		t.Fatalf("expected redis index rebuild calls on skip and readiness annotation, got rebuildCalls=%d", cache.rebuildCalls)
+	if cache.regionDataCalls != 2 {
+		t.Fatalf("expected region data checks for readiness and the skip, got regionDataCalls=%d", cache.regionDataCalls)
 	}
 }
 
-func TestSyncAllSkipDoesNotWritePendingWhenRegionIndexCanRebuild(t *testing.T) {
+func TestSyncAllSkipDoesNotWritePendingWhenStoreHasRegionData(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
 		Region:       "jp",
@@ -1835,7 +1276,7 @@ func TestSyncAllSkipDoesNotWritePendingWhenRegionIndexCanRebuild(t *testing.T) {
 			"jp": {"cards.json": []any{map[string]any{"id": 1, "prefix": "should-not-load"}}},
 		},
 	}
-	cache := &fakeSyncCache{rebuildFromRedisOK: true, hasRegionIndexSet: true, hasRegionIndex: false}
+	cache := &fakeSyncCache{hasRegionData: true}
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
@@ -2015,13 +1456,13 @@ func TestSyncAllFallsBackToPreviousStateOnRateLimit(t *testing.T) {
 	}
 }
 
-func TestSyncAllFallsBackAndRestoresBackupOnRateLimit(t *testing.T) {
+func TestSyncAllRateLimitFallbackKeepsStoredDataAndResavesPreviousSuccess(t *testing.T) {
 	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
 	previousStatus := masterdata.SyncStatus{
 		Region:       "jp",
 		Status:       "success",
 		FileCount:    3,
-		LastSyncedAt: time.Now().UTC().Add(-time.Hour),
+		LastSyncedAt: time.Now().UTC().Add(-time.Hour).Truncate(time.Second),
 		SourceCommit: "prev-commit",
 		Source:       source,
 		UpdatedAt:    time.Now().UTC().Add(-time.Hour),
@@ -2031,24 +1472,28 @@ func TestSyncAllFallsBackAndRestoresBackupOnRateLimit(t *testing.T) {
 		resolvedByZone: map[string]string{"jp": "next-commit"},
 		loadErrByZone:  map[string]error{"jp": errors.New("too many requests")},
 	}
-	cache := &fakeSyncCache{}
+	cache := &fakeSyncCache{hasRegionData: true}
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus})
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, nil, 1)
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "prev-commit", map[string]any{
-		"cards.json": []any{map[string]any{"id": 1, "prefix": "from-backup"}},
-	}); err != nil {
-		t.Fatalf("save backup payload: %v", err)
-	}
-	usecase.backupStore = backupStore
 
 	if err := usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error on rate limit fallback with backup, got %v", err)
+		t.Fatalf("expected no error on rate limit fallback, got %v", err)
 	}
 
-	if cache.storeCalls != 1 {
-		t.Fatalf("expected one cache restore call from backup, got %d", cache.storeCalls)
+	if cache.storeCalls != 0 {
+		t.Fatalf("expected the fallback to keep stored data without writing, got %d store calls", cache.storeCalls)
+	}
+
+	latest, exists := statusStore.latest("jp")
+	if !exists {
+		t.Fatalf("expected fallback status for jp")
+	}
+	if !strings.EqualFold(latest.Status, "success") || latest.SourceCommit != "prev-commit" || latest.ErrorMessage != "" {
+		t.Fatalf("expected previous success status re-saved, got %#v", latest)
+	}
+	if latest.FileCount != previousStatus.FileCount || !latest.LastSyncedAt.Equal(previousStatus.LastSyncedAt) {
+		t.Fatalf("expected file count %d and last synced %v carried over, got %#v", previousStatus.FileCount, previousStatus.LastSyncedAt, latest)
 	}
 }
 
@@ -2075,50 +1520,6 @@ func TestSyncAllRateLimitWithoutPreviousStatusFails(t *testing.T) {
 	}
 	if !strings.EqualFold(latest.Status, "failed") {
 		t.Fatalf("expected failed status, got %s", latest.Status)
-	}
-}
-
-func TestVersionByRegionReadsVersionPayloadWithoutLoadingWholeBackup(t *testing.T) {
-	source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-
-	if err := backupStore.SaveRegionPayload(context.Background(), source, "commit-1", map[string]any{
-		"data/versions.json": map[string]any{
-			"appVersion":  "3.2.1",
-			"dataVersion": "20260423",
-		},
-		"cards.json": []any{map[string]any{"id": 1}},
-	}); err != nil {
-		t.Fatalf("save backup payload: %v", err)
-	}
-
-	store, ok := backupStore.(*fileMasterDataPayloadBackupStore)
-	if !ok {
-		t.Fatalf("expected file backup store")
-	}
-
-	corruptedPath := filepath.Join(store.regionDir(source.Region), "latest", "cards.json")
-	if err := os.WriteFile(corruptedPath, []byte("{"), 0o644); err != nil {
-		t.Fatalf("corrupt non-version backup file: %v", err)
-	}
-
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, nil, nil, nil, 1)
-	usecase.SetBackupStore(backupStore)
-
-	version, found, err := usecase.VersionByRegion(context.Background(), "jp")
-	if err != nil {
-		t.Fatalf("expected version lookup success, got %v", err)
-	}
-	if !found {
-		t.Fatalf("expected version to be found")
-	}
-
-	versionMap, ok := version.(map[string]any)
-	if !ok {
-		t.Fatalf("expected version payload map, got %T", version)
-	}
-	if versionMap["appVersion"] != "3.2.1" {
-		t.Fatalf("expected appVersion 3.2.1, got %v", versionMap["appVersion"])
 	}
 }
 
@@ -2422,85 +1823,6 @@ func TestCurrentEventDoesNotExtendWindowWithDisplayOrDistributionTimes(t *testin
 	}
 }
 
-func TestWarmConfiguredRegionIndexesLoadsPersistedIndexes(t *testing.T) {
-	cache := &fakeSyncCache{
-		loadFromRedisOK: true,
-	}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
-		{Region: "jp"},
-		{Region: "en"},
-	}, nil, cache, nil, nil, 1)
-
-	regions, err := usecase.WarmConfiguredRegionIndexes(context.Background())
-	if err != nil {
-		t.Fatalf("warm configured region indexes: %v", err)
-	}
-	if len(regions) != 2 {
-		t.Fatalf("expected 2 warmed regions, got %d", len(regions))
-	}
-	if cache.loadCalls != 2 {
-		t.Fatalf("expected 2 persisted index load calls, got %d", cache.loadCalls)
-	}
-}
-
-func TestEnsureConfiguredRegionIndexesRebuildsMissingIndexes(t *testing.T) {
-	cache := &fakeSyncCache{
-		hasRegionIndexSet:  true,
-		hasRegionIndex:     false,
-		loadFromRedisOK:    false,
-		rebuildFromRedisOK: true,
-	}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
-		{Region: "jp"},
-		{Region: "en"},
-	}, nil, cache, nil, nil, 1)
-
-	loadedRegions, rebuiltRegions, err := usecase.EnsureConfiguredRegionIndexes(context.Background())
-	if err != nil {
-		t.Fatalf("ensure configured region indexes: %v", err)
-	}
-	if len(loadedRegions) != 0 {
-		t.Fatalf("expected no loaded regions, got %v", loadedRegions)
-	}
-	if len(rebuiltRegions) != 2 {
-		t.Fatalf("expected 2 rebuilt regions, got %d", len(rebuiltRegions))
-	}
-	if cache.loadCalls != 2 {
-		t.Fatalf("expected 2 persisted index load calls, got %d", cache.loadCalls)
-	}
-	if cache.rebuildCalls != 2 {
-		t.Fatalf("expected 2 index rebuild calls, got %d", cache.rebuildCalls)
-	}
-}
-
-func TestEnsureConfiguredRegionIndexesValidatesRedisWhenDecodedIndexIsRetained(t *testing.T) {
-	cache := &fakeSyncCache{
-		hasRegionIndexSet: true,
-		hasRegionIndex:    true,
-		loadFromRedisOK:   true,
-	}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{
-		{Region: "jp"},
-	}, nil, cache, nil, nil, 1)
-
-	loadedRegions, rebuiltRegions, err := usecase.EnsureConfiguredRegionIndexes(context.Background())
-	if err != nil {
-		t.Fatalf("ensure configured region indexes: %v", err)
-	}
-	if len(loadedRegions) != 1 || loadedRegions[0] != "jp" {
-		t.Fatalf("expected jp to load from persisted Redis indexes, got %v", loadedRegions)
-	}
-	if len(rebuiltRegions) != 0 {
-		t.Fatalf("expected no rebuilt regions, got %v", rebuiltRegions)
-	}
-	if cache.loadCalls != 1 {
-		t.Fatalf("expected 1 persisted index load call, got %d", cache.loadCalls)
-	}
-	if cache.rebuildCalls != 0 {
-		t.Fatalf("expected no rebuild calls, got %d", cache.rebuildCalls)
-	}
-}
-
 type fakeVersionSyncCache struct {
 	fakeSyncCache
 	mu                sync.Mutex
@@ -2554,25 +1876,21 @@ type versionSyncTestFixture struct {
 	cache       *fakeVersionSyncCache
 	statusStore *fakeSyncStatusStore
 	publisher   *fakeSyncEventPublisher
-	backupStore MasterDataPayloadBackupStore
 	usecase     *MasterDataSyncUsecase
 }
 
 type versionSyncTestOptions struct {
-	previousCommit     string
-	previousFileCount  int
-	resolvedCommit     string
-	manifest           map[string]any
-	archivePayload     map[string]any
-	backupPayload      map[string]any
-	backupCommit       string
-	cacheReady         bool
-	rebuildFromRedisOK bool
-	storeReturnErr     error
-	loadReturnErr      error
-	loadedVersions     map[string]any
-	previousStatus     string
-	publisher          *fakeSyncEventPublisher
+	previousCommit    string
+	previousFileCount int
+	resolvedCommit    string
+	manifest          map[string]any
+	archivePayload    map[string]any
+	cacheReady        bool
+	storeReturnErr    error
+	loadReturnErr     error
+	loadedVersions    map[string]any
+	previousStatus    string
+	publisher         *fakeSyncEventPublisher
 }
 
 func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versionSyncTestFixture {
@@ -2609,8 +1927,7 @@ func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versi
 		opts.loadedVersions = map[string]any{}
 	}
 	cache := &fakeVersionSyncCache{loadedVersions: opts.loadedVersions}
-	cache.loadFromRedisOK = opts.cacheReady
-	cache.rebuildFromRedisOK = opts.rebuildFromRedisOK
+	cache.hasRegionData = opts.cacheReady
 	cache.storeReturnErr = opts.storeReturnErr
 	cache.loadReturnErr = opts.loadReturnErr
 
@@ -2619,19 +1936,8 @@ func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versi
 	if publisher == nil {
 		publisher = &fakeSyncEventPublisher{}
 	}
-	backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-	if opts.backupPayload != nil {
-		commit := opts.backupCommit
-		if commit == "" {
-			commit = opts.previousCommit
-		}
-		if err := backupStore.SaveRegionPayload(context.Background(), source, commit, opts.backupPayload); err != nil {
-			t.Fatalf("save local backup: %v", err)
-		}
-	}
 
 	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
-	usecase.SetBackupStore(backupStore)
 
 	return &versionSyncTestFixture{
 		source:      source,
@@ -2639,7 +1945,6 @@ func newVersionSyncTestFixture(t *testing.T, opts versionSyncTestOptions) *versi
 		cache:       cache,
 		statusStore: statusStore,
 		publisher:   publisher,
-		backupStore: backupStore,
 		usecase:     usecase,
 	}
 }
@@ -2671,7 +1976,7 @@ func TestSyncFailsWhenVersionCacheStoreErrors(t *testing.T) {
 		resolvedCommit: "def456",
 		manifest:       manifest,
 		archivePayload: payload,
-		storeReturnErr: errors.New("redis connection refused"),
+		storeReturnErr: errors.New("store connection refused"),
 	})
 
 	if err := fixture.usecase.SyncAll(context.Background()); err == nil {
@@ -2681,63 +1986,56 @@ func TestSyncFailsWhenVersionCacheStoreErrors(t *testing.T) {
 		t.Fatalf("expected failed status saved for jp")
 	}
 	events := fixture.publisher.listEvents()
-	if !containsSyncProgressEvent(events, "jp", "failed", "version-cache", "redis connection refused") {
+	if !containsSyncProgressEvent(events, "jp", "failed", "version-cache", "store connection refused") {
 		t.Fatalf("expected version-cache failed event published, got %v", events)
 	}
 }
 
-func TestVersionByRegionCacheAndBackupFallback(t *testing.T) {
+func TestVersionByRegionReadsStoredVersionPayload(t *testing.T) {
 	source := versionCacheSource()
 	tests := []struct {
 		name           string
 		loadedVersions map[string]any
 		loadReturnErr  error
-		backupPayload  map[string]any
-		backupCommit   string
+		wantErr        bool
 		wantFound      bool
 		wantAppVersion string
 	}{
 		{
-			name:           "reads_from_redis_cache_first",
-			loadedVersions: map[string]any{"jp": map[string]any{"appVersion": "redis-version"}},
-			backupPayload:  map[string]any{"data/versions.json": map[string]any{"appVersion": "backup-version"}},
-			backupCommit:   "commit-backup",
+			name:           "returns_stored_payload",
+			loadedVersions: map[string]any{"jp": map[string]any{"appVersion": "stored-version"}},
 			wantFound:      true,
-			wantAppVersion: "redis-version",
+			wantAppVersion: "stored-version",
 		},
 		{
-			name:           "falls_back_on_load_error",
-			loadReturnErr:  errors.New("redis connection refused"),
-			backupPayload:  map[string]any{"data/versions.json": map[string]any{"appVersion": "fallback-version"}},
-			backupCommit:   "commit-fallback",
-			wantFound:      true,
-			wantAppVersion: "fallback-version",
-		},
-		{
-			name:           "falls_back_on_cache_miss",
+			name:           "reports_missing_payload",
 			loadedVersions: map[string]any{},
-			backupPayload:  map[string]any{"data/versions.json": map[string]any{"appVersion": "miss-version"}},
-			backupCommit:   "commit-miss",
-			wantFound:      true,
-			wantAppVersion: "miss-version",
+		},
+		{
+			name:          "returns_load_error",
+			loadReturnErr: errors.New("store connection refused"),
+			wantErr:       true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			backupStore := NewFileMasterDataPayloadBackupStore(t.TempDir())
-			if err := backupStore.SaveRegionPayload(context.Background(), source, tt.backupCommit, tt.backupPayload); err != nil {
-				t.Fatalf("save backup payload: %v", err)
-			}
-
 			cache := &fakeVersionSyncCache{
 				loadedVersions: tt.loadedVersions,
 				loadReturnErr:  tt.loadReturnErr,
 			}
 			usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, cache, nil, nil, 1)
-			usecase.SetBackupStore(backupStore)
 
 			version, found, err := usecase.VersionByRegion(context.Background(), "jp")
+			if tt.wantErr {
+				if err == nil || !errors.Is(err, tt.loadReturnErr) {
+					t.Fatalf("expected wrapped load error, got %v", err)
+				}
+				if found || version != nil {
+					t.Fatalf("expected no version on load error, got found=%v version=%v", found, version)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
@@ -2754,77 +2052,26 @@ func TestVersionByRegionCacheAndBackupFallback(t *testing.T) {
 	}
 }
 
-func TestVersionByRegionReadsCacheWithoutBackupStore(t *testing.T) {
+func TestVersionByRegionWithoutVersionLoaderOrSource(t *testing.T) {
 	source := versionCacheSource()
-	cache := &fakeVersionSyncCache{
-		loadedVersions: map[string]any{
-			source.Region: map[string]any{"appVersion": "redis-version"},
-		},
-	}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, cache, nil, nil, 1)
-	usecase.SetBackupStore(nil)
+	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, &fakeSyncCache{}, nil, nil, 1)
 
-	version, found, err := usecase.VersionByRegion(context.Background(), source.Region)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if !found {
-		t.Fatalf("expected version to be found in shared cache")
+	if version, found, err := usecase.VersionByRegion(context.Background(), source.Region); err != nil || found || version != nil {
+		t.Fatalf("expected no version from a store without version payloads, got version=%v found=%v err=%v", version, found, err)
 	}
 
-	versionMap, ok := version.(map[string]any)
-	if !ok {
-		t.Fatalf("expected version payload map, got %T", version)
-	}
-	if versionMap["appVersion"] != "redis-version" {
-		t.Fatalf("expected appVersion=redis-version, got %v", versionMap["appVersion"])
-	}
-}
-
-func TestSyncSkipPopulatesVersionCacheWhenManifestUnchanged(t *testing.T) {
-	manifest := map[string]any{"dataVersion": "20260802"}
-	latestPayload := manifestPayload(manifest, "from-backup")
-	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
-		previousCommit:    "old-commit",
-		previousFileCount: 99,
-		resolvedCommit:    "new-commit",
-		manifest:          manifest,
-		archivePayload:    latestPayload,
-		backupPayload:     latestPayload,
-		backupCommit:      "old-commit",
-		cacheReady:        true,
-	})
-
-	if err := fixture.usecase.SyncAll(context.Background()); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if fixture.loader.loadCalls != 0 {
-		t.Fatalf("expected archive load to be skipped, got loadCalls=%d", fixture.loader.loadCalls)
-	}
-	if fixture.loader.manifestCalls != 1 {
-		t.Fatalf("expected one manifest load, got manifestCalls=%d", fixture.loader.manifestCalls)
-	}
-	if fixture.cache.versionStoreCalls != 1 {
-		t.Fatalf("expected version cache to be populated, got versionStoreCalls=%d", fixture.cache.versionStoreCalls)
-	}
-	if fixture.cache.storeCalls != 0 {
-		t.Fatalf("expected ready cache not to be restored, got storeCalls=%d", fixture.cache.storeCalls)
-	}
-
-	latest, exists := fixture.statusStore.latest("jp")
-	if !exists {
-		t.Fatalf("expected latest jp status")
-	}
-	if latest.Status != "success" || latest.SourceCommit != "new-commit" {
-		t.Fatalf("expected successful status pinned to new-commit, got %#v", latest)
+	versioned := NewMasterDataSyncUsecase([]masterdata.Source{source}, nil, &fakeVersionSyncCache{
+		loadedVersions: map[string]any{"jp": map[string]any{"appVersion": "stored-version"}},
+	}, nil, nil, 1)
+	if version, found, err := versioned.VersionByRegion(context.Background(), "unknown"); err != nil || found || version != nil {
+		t.Fatalf("expected no version for an unconfigured region, got version=%v found=%v err=%v", version, found, err)
 	}
 }
 
 func TestSyncSkipFallsBackToFullSyncWhenVersionsPayloadMissing(t *testing.T) {
 	manifest := map[string]any{"dataVersion": "20260802"}
 	payloadWithoutVersions := map[string]any{
-		"cards.json": []any{map[string]any{"id": 1, "prefix": "from-backup"}},
+		"cards.json": []any{map[string]any{"id": 1, "prefix": "from-archive"}},
 	}
 	fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
 		previousCommit:    "old-commit",
@@ -2832,8 +2079,6 @@ func TestSyncSkipFallsBackToFullSyncWhenVersionsPayloadMissing(t *testing.T) {
 		resolvedCommit:    "new-commit",
 		manifest:          manifest,
 		archivePayload:    payloadWithoutVersions,
-		backupPayload:     payloadWithoutVersions,
-		backupCommit:      "old-commit",
 		cacheReady:        true,
 	})
 
@@ -2850,69 +2095,54 @@ func TestSyncSkipFallsBackToFullSyncWhenVersionsPayloadMissing(t *testing.T) {
 }
 
 func TestSyncAllVersionCacheShortcutScenarios(t *testing.T) {
+	storedVersion := map[string]any{"appVersion": "3.2.1"}
 	tests := []struct {
-		name               string
-		previousCommit     string
-		resolvedCommit     string
-		backupCommit       string
-		rebuildFromRedisOK bool
-		backupPayload      map[string]any
-		wantLoadCalls      int
-		wantVersionStores  int
+		name              string
+		hasRegionData     bool
+		loadedVersions    map[string]any
+		loadReturnErr     error
+		wantLoadCalls     int
+		wantVersionStores int
 	}{
 		{
-			name:               "redis_rebuild_restores_missing_version_cache",
-			resolvedCommit:     "abc123",
-			rebuildFromRedisOK: true,
-			backupPayload: map[string]any{
-				"data/versions.json": map[string]any{"appVersion": "3.2.1"},
-				"cards.json":         []any{map[string]any{"id": 1}},
-			},
+			name:              "skips_when_region_data_and_version_payload_are_stored",
+			hasRegionData:     true,
+			loadedVersions:    map[string]any{"jp": storedVersion},
 			wantLoadCalls:     0,
-			wantVersionStores: 1,
-		},
-		{
-			name:           "local_backup_restore_writes_version_cache",
-			previousCommit: "same-commit",
-			resolvedCommit: "same-commit",
-			backupPayload: map[string]any{
-				"data/versions.json": map[string]any{"appVersion": "3.0.0"},
-				"cards.json":         []any{map[string]any{"id": 99}},
-			},
-			wantLoadCalls:     0,
-			wantVersionStores: 1,
-		},
-		{
-			name:               "falls_back_when_version_payload_is_missing",
-			resolvedCommit:     "abc123",
-			rebuildFromRedisOK: true,
-			backupPayload:      map[string]any{"cards.json": []any{map[string]any{"id": 99}}},
-			wantLoadCalls:      1,
-			wantVersionStores:  0,
-		},
-		{
-			name:           "falls_back_when_backup_commit_mismatches",
-			previousCommit: "current-commit",
-			resolvedCommit: "current-commit",
-			backupCommit:   "stale-commit",
-			backupPayload: map[string]any{
-				"data/versions.json": map[string]any{"appVersion": "3.2.1"},
-				"cards.json":         []any{map[string]any{"id": 1}},
-			},
-			wantLoadCalls:     1,
 			wantVersionStores: 0,
+		},
+		{
+			name:              "falls_back_when_version_payload_is_missing",
+			hasRegionData:     true,
+			wantLoadCalls:     1,
+			wantVersionStores: 1,
+		},
+		{
+			name:              "falls_back_when_version_payload_load_fails",
+			hasRegionData:     true,
+			loadReturnErr:     errors.New("store read failed"),
+			wantLoadCalls:     1,
+			wantVersionStores: 1,
+		},
+		{
+			name:              "falls_back_when_store_has_no_region_data",
+			loadedVersions:    map[string]any{"jp": storedVersion},
+			wantLoadCalls:     1,
+			wantVersionStores: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := newVersionSyncTestFixture(t, versionSyncTestOptions{
-				previousCommit:     tt.previousCommit,
-				resolvedCommit:     tt.resolvedCommit,
-				backupCommit:       tt.backupCommit,
-				rebuildFromRedisOK: tt.rebuildFromRedisOK,
-				archivePayload:     map[string]any{"cards.json": []any{map[string]any{"id": 1}}},
-				backupPayload:      tt.backupPayload,
+				resolvedCommit: "abc123",
+				cacheReady:     tt.hasRegionData,
+				loadedVersions: tt.loadedVersions,
+				loadReturnErr:  tt.loadReturnErr,
+				archivePayload: map[string]any{
+					"data/versions.json": storedVersion,
+					"cards.json":         []any{map[string]any{"id": 1}},
+				},
 			})
 
 			if err := fixture.usecase.SyncAll(context.Background()); err != nil {
@@ -2924,45 +2154,41 @@ func TestSyncAllVersionCacheShortcutScenarios(t *testing.T) {
 			if fixture.cache.storeCallCount() != tt.wantVersionStores {
 				t.Fatalf("expected version store calls=%d, got %d", tt.wantVersionStores, fixture.cache.storeCallCount())
 			}
-			if tt.wantLoadCalls == 0 && !fixture.statusStore.hasSavedStatus("jp", "success") {
+			if !fixture.statusStore.hasSavedStatus("jp", "success") {
 				t.Fatalf("expected success status saved for jp")
+			}
+			latest, _ := fixture.statusStore.latest("jp")
+			if latest.SourceCommit != "abc123" {
+				t.Fatalf("expected status pinned to abc123, got %#v", latest)
 			}
 		})
 	}
 }
 
-// fakeRedisReadinessCache is a minimal MasterDataCache used to exercise the
-// Redis connectivity and version-metadata readiness helpers without a real
-// Redis backend.
-type fakeRedisReadinessCache struct {
-	pingErr         error
+// fakeReadinessCache is a minimal MasterDataCache used to exercise the
+// version-metadata readiness helper without a real store.
+type fakeReadinessCache struct {
 	versionByRegion map[string]bool
 	versionErr      error
 }
 
-func (c *fakeRedisReadinessCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
+func (c *fakeReadinessCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
 	return nil
 }
 
-func (c *fakeRedisReadinessCache) GetByID(_ context.Context, _, _, _ string) (map[string]any, bool, error) {
+func (c *fakeReadinessCache) GetByID(_ context.Context, _, _, _ string) (map[string]any, bool, error) {
 	return nil, false, nil
 }
 
-func (c *fakeRedisReadinessCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
+func (c *fakeReadinessCache) ListAll(_ context.Context, _, _ string) ([]map[string]any, error) {
 	return nil, nil
 }
 
-func (c *fakeRedisReadinessCache) ListByPage(_ context.Context, _, _ string, _, _ int) ([]map[string]any, int, error) {
+func (c *fakeReadinessCache) ListByPage(_ context.Context, _, _ string, _, _ int) ([]map[string]any, int, error) {
 	return nil, 0, nil
 }
 
-func (c *fakeRedisReadinessCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	return nil, nil
-}
-
-func (c *fakeRedisReadinessCache) Ping(_ context.Context) error { return c.pingErr }
-
-func (c *fakeRedisReadinessCache) LoadRegionVersionPayload(_ context.Context, region string) (any, bool, error) {
+func (c *fakeReadinessCache) LoadRegionVersionPayload(_ context.Context, region string) (any, bool, error) {
 	if c.versionErr != nil {
 		return nil, false, c.versionErr
 	}
@@ -2975,28 +2201,8 @@ func (c *fakeRedisReadinessCache) LoadRegionVersionPayload(_ context.Context, re
 	return map[string]any{"appVersion": "stub"}, true, nil
 }
 
-func TestRedisReadyReflectsCacheReachability(t *testing.T) {
-	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{pingErr: errors.New("redis down")}}
-	ready, err := uc.RedisReady(context.Background())
-	if ready {
-		t.Fatalf("expected redis not ready when ping fails")
-	}
-	if err == nil {
-		t.Fatalf("expected error when ping fails")
-	}
-
-	uc.cache = &fakeRedisReadinessCache{}
-	ready, err = uc.RedisReady(context.Background())
-	if !ready {
-		t.Fatalf("expected redis ready, err=%v", err)
-	}
-	if err != nil {
-		t.Fatalf("expected no error when ping ok, got %v", err)
-	}
-}
-
 func TestRegionVersionReadyReflectsVersionAvailability(t *testing.T) {
-	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{versionByRegion: map[string]bool{"jp": false}}}
+	uc := &MasterDataSyncUsecase{cache: &fakeReadinessCache{versionByRegion: map[string]bool{"jp": false}}}
 	ready, err := uc.RegionVersionReady(context.Background(), "jp")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -3005,7 +2211,7 @@ func TestRegionVersionReadyReflectsVersionAvailability(t *testing.T) {
 		t.Fatalf("expected jp version not ready")
 	}
 
-	uc.cache = &fakeRedisReadinessCache{versionByRegion: map[string]bool{"jp": true}}
+	uc.cache = &fakeReadinessCache{versionByRegion: map[string]bool{"jp": true}}
 	ready, err = uc.RegionVersionReady(context.Background(), "jp")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -3016,7 +2222,7 @@ func TestRegionVersionReadyReflectsVersionAvailability(t *testing.T) {
 
 	// A region without an explicit version mapping defaults to available so a
 	// non-version-aware cache does not block readiness.
-	uc.cache = &fakeRedisReadinessCache{}
+	uc.cache = &fakeReadinessCache{}
 	ready, err = uc.RegionVersionReady(context.Background(), "unknown")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -3027,34 +2233,74 @@ func TestRegionVersionReadyReflectsVersionAvailability(t *testing.T) {
 }
 
 func TestRegionVersionReadyCorruptPayloadReportsNotReadyWithoutError(t *testing.T) {
-	// A corrupt/malformed version payload read from Redis is a data problem
-	// (surfaced as master_data by the readiness probe), not a Redis connectivity
-	// failure, so it must not propagate an error to the caller.
+	// A corrupt/malformed stored version payload is a data problem (surfaced
+	// as master_data by the readiness probe), not a store failure, so it must
+	// not propagate an error to the caller.
 	var corruptSink any
 	corrupt := json.Unmarshal([]byte("{not-valid-json"), &corruptSink)
 	if corrupt == nil {
 		t.Fatalf("expected a corrupt json unmarshal error fixture")
 	}
-	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{versionErr: corrupt}}
+	uc := &MasterDataSyncUsecase{cache: &fakeReadinessCache{versionErr: corrupt}}
 	ready, err := uc.RegionVersionReady(context.Background(), "jp")
 	if err != nil {
-		t.Fatalf("corrupt payload must not propagate a redis error, got %v", err)
+		t.Fatalf("corrupt payload must not propagate a store error, got %v", err)
 	}
 	if ready {
 		t.Fatalf("expected jp version not ready for corrupt payload")
 	}
 }
 
-func TestRegionVersionReadyRedisTransportErrorPropagates(t *testing.T) {
-	// A genuine Redis transport/read failure must propagate so the readiness
-	// probe reports the redis dependency rather than master_data.
-	uc := &MasterDataSyncUsecase{cache: &fakeRedisReadinessCache{versionErr: errors.New("redis: connection pool timeout")}}
+func TestRegionVersionReadyStoreReadErrorPropagates(t *testing.T) {
+	// A genuine store read failure must propagate so the readiness probe
+	// reports the database dependency rather than master_data.
+	uc := &MasterDataSyncUsecase{cache: &fakeReadinessCache{versionErr: errors.New("database: connection pool timeout")}}
 	ready, err := uc.RegionVersionReady(context.Background(), "jp")
 	if err == nil {
-		t.Fatalf("expected redis transport error to propagate")
+		t.Fatalf("expected store read error to propagate")
 	}
 	if ready {
-		t.Fatalf("expected jp not ready when redis fails")
+		t.Fatalf("expected jp not ready when the store read fails")
+	}
+}
+
+// recordCountingSyncCache is a store that counts its records per region.
+type recordCountingSyncCache struct {
+	fakeSyncCache
+	counts   map[string]int64
+	countErr error
+}
+
+func (cache *recordCountingSyncCache) RegionRecordCounts(_ context.Context) (map[string]int64, error) {
+	return cache.counts, cache.countErr
+}
+
+func TestRegionRecordCountsReadsStoreCounter(t *testing.T) {
+	counting := &recordCountingSyncCache{counts: map[string]int64{"jp": 12, "en": 3}}
+	counts, err := NewMasterDataSyncUsecase(nil, nil, counting, nil, nil, 1).RegionRecordCounts(context.Background())
+	if err != nil {
+		t.Fatalf("RegionRecordCounts() error = %v", err)
+	}
+	if len(counts) != 2 || counts["jp"] != 12 || counts["en"] != 3 {
+		t.Fatalf("RegionRecordCounts() = %v, want jp=12 en=3", counts)
+	}
+	if counting.storeCalls != 0 || counting.regionDataCalls != 0 {
+		t.Fatalf("expected record counts to only read the counter, got storeCalls=%d regionDataCalls=%d", counting.storeCalls, counting.regionDataCalls)
+	}
+
+	countErr := errors.New("count failed")
+	failing := &recordCountingSyncCache{countErr: countErr}
+	if _, err := NewMasterDataSyncUsecase(nil, nil, failing, nil, nil, 1).RegionRecordCounts(context.Background()); !errors.Is(err, countErr) {
+		t.Fatalf("RegionRecordCounts() error = %v, want %v", err, countErr)
+	}
+
+	if counts, err := NewMasterDataSyncUsecase(nil, nil, &fakeSyncCache{}, nil, nil, 1).RegionRecordCounts(context.Background()); err != nil || counts != nil {
+		t.Fatalf("expected nil counts from a store without a counter, got %v %v", counts, err)
+	}
+
+	var nilUsecase *MasterDataSyncUsecase
+	if counts, err := nilUsecase.RegionRecordCounts(context.Background()); err != nil || counts != nil {
+		t.Fatalf("expected nil counts from a nil usecase, got %v %v", counts, err)
 	}
 }
 
@@ -3080,7 +2326,6 @@ func TestStartSyncInterruptedByLifecycleCancellation(t *testing.T) {
 	publisher := &fakeSyncEventPublisher{}
 
 	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, publisher, 1)
-	uc.SetBackupStore(nil)
 
 	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
 	uc.SetLifecycleContext(lifecycleCtx)
@@ -3150,7 +2395,7 @@ func TestSyncAllBuildsRelationIndexesWhenSkippingUnchangedCommit(t *testing.T) {
 		wantLoaded bool
 	}{
 		{name: "indexes built, sync skipped"},
-		{name: "index build failed, full sync", ensureErr: errors.New("redis down"), wantLoaded: true},
+		{name: "index build failed, full sync", ensureErr: errors.New("store down"), wantLoaded: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			source := masterdata.Source{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"}
@@ -3159,7 +2404,7 @@ func TestSyncAllBuildsRelationIndexesWhenSkippingUnchangedCommit(t *testing.T) {
 				resolvedByZone: map[string]string{"jp": "abc123"},
 				payloadByZone:  map[string]map[string]any{"jp": {"cards.json": []any{map[string]any{"id": 1}}}},
 			}
-			cache := &indexEnsuringSyncCache{fakeSyncCache: &fakeSyncCache{rebuildFromRedisOK: true}, ensureErr: test.ensureErr}
+			cache := &indexEnsuringSyncCache{fakeSyncCache: &fakeSyncCache{hasRegionData: true}, ensureErr: test.ensureErr}
 			usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, newFakeSyncStatusStore([]masterdata.SyncStatus{previousStatus}), nil, 1)
 
 			if err := usecase.SyncAll(context.Background()); err != nil {

@@ -3,7 +3,7 @@
 [![CI](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/ci.yml)
 [![Swagger Check](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml/badge.svg)](https://github.com/Sekai-World/sekai-master-api/actions/workflows/swagger-check.yml)
 
-Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token validation, Goose migrations, PostgreSQL, and a Redis cache.
+Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token validation, Goose migrations, and PostgreSQL.
 
 ## Features
 
@@ -13,7 +13,7 @@ Golang RESTful API for Sekai master data, built with Gin, OIDC bearer-token vali
 - Public card metadata batch endpoint: `GET /api/v1/cards/:region/batch?ids=1,2,3`
 - OIDC-protected admin APIs and dashboard
 - PostgreSQL in every environment
-- Redis-backed master-data cache with specialized card/music/event/virtual-live queries
+- PostgreSQL master-data store with specialized card/music/event/virtual-live queries ([design](docs/postgres-master-data-store.md))
 - Multi-region GitHub master-data sync
 - Swagger UI in development and test environments
 
@@ -27,8 +27,7 @@ mise run tidy
 mise run run
 ```
 
-Host-mode runs need a reachable PostgreSQL through `DATABASE_URL` and Redis
-through `REDIS_ADDR`. The standard development/testing path for
+Host-mode runs need a reachable PostgreSQL through `DATABASE_URL`. The standard development/testing path for
 this repository is the remote-cluster workflow: `mise run dev-cluster-rebuild`
 builds a ko image and deploys it to the remote test cluster, and
 `mise run dev-cluster-forward` forwards the public API + admin port to
@@ -45,7 +44,6 @@ private environment details; see `AGENTS.md` for the workflow.
 - `mise run migrate-up`: run migrations up
 - `mise run migrate-down`: run migrations down
 - `mise run smoke`: smoke-check a running endpoint (see Development)
-- `mise run redis-recovery-drill`: verify prefix-scoped Redis loss and control force-sync recovery (destructive; see Development)
 - `mise run admin-open`: open the admin login page of a locally forwarded dev server
 - `sekai-master-api migrate`: run embedded Goose migrations without starting an API role
 - `sekai-master-api dump --region jp --entity cards [--key 1 | --key field=value,... | --index field=value,...]`: print stored master-data records as JSON from the PostgreSQL store (reads `DATABASE_URL`; see [Inspecting records](docs/postgres-master-data-store.md#inspecting-records))

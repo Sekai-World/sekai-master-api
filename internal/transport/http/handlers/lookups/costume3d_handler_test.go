@@ -182,9 +182,6 @@ func TestCostume3DGroupedListUsesSameRegionFallbackAndFiltersBeforeStablePaginat
 	if len(filteredBody.Items) != 2 || filteredBody.Items[0]["id"] != float64(32) || filteredBody.Items[1]["id"] != float64(33) {
 		t.Fatalf("expected filtering to use normalized fallback names but not replace the primary name, got %#v", filteredBody.Items)
 	}
-	if cache.searchCalls != 0 {
-		t.Fatalf("costume display-field filtering must not use Redis Search, got %d search calls", cache.searchCalls)
-	}
 }
 
 func TestCostume3DByIDPreservesPrimaryRecordWhenGroupIsMissing(t *testing.T) {

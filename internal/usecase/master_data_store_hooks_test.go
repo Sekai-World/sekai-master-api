@@ -12,9 +12,8 @@ import (
 	"sekai-master-api/internal/domain/masterdata"
 )
 
-// systemOfRecordCache stands in for a store without a Redis search index (the
-// PostgreSQL store): it inspects region data and prunes entities instead of
-// loading or rebuilding indexes.
+// systemOfRecordCache stands in for the PostgreSQL store: it inspects region
+// data and prunes entities.
 type systemOfRecordCache struct {
 	fakeSyncCache
 	mu            sync.Mutex
@@ -25,8 +24,8 @@ type systemOfRecordCache struct {
 	pruneErr      error
 }
 
-// The embedded fake's index loader and rebuilder must not leak into this
-// store: shadow them so the usecase only sees the interfaces below.
+// systemOfRecordStore exposes only the store interfaces below, so the embedded
+// fake's own region data check does not leak into the usecase.
 type systemOfRecordStore struct {
 	cache *systemOfRecordCache
 }
@@ -48,10 +47,6 @@ func (store systemOfRecordStore) ListAll(ctx context.Context, region, entity str
 
 func (store systemOfRecordStore) ListByPage(ctx context.Context, region, entity string, page, pageSize int) ([]map[string]any, int, error) {
 	return store.cache.fakeSyncCache.ListByPage(ctx, region, entity, page, pageSize)
-}
-
-func (store systemOfRecordStore) Search(ctx context.Context, region, entity, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	return store.cache.fakeSyncCache.Search(ctx, region, entity, query, fields, limit)
 }
 
 func (store systemOfRecordStore) HasRegionData(_ context.Context, _ string) (bool, error) {
@@ -78,9 +73,7 @@ var (
 func newSystemOfRecordUsecase(t *testing.T, loader *fakeSyncLoader, statusStore *fakeSyncStatusStore, cache *systemOfRecordCache) *MasterDataSyncUsecase {
 	t.Helper()
 	source := masterdata.Source{Region: "jp", Owner: "Sekai-World", Repo: "masterdata-dump", Ref: "main"}
-	usecase := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, systemOfRecordStore{cache: cache}, statusStore, nil, 1)
-	usecase.SetBackupStore(NewFileMasterDataPayloadBackupStore(t.TempDir()))
-	return usecase
+	return NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, systemOfRecordStore{cache: cache}, statusStore, nil, 1)
 }
 
 func TestSyncCarriesLeaseTokenToStoreWrites(t *testing.T) {
@@ -167,7 +160,7 @@ func TestUnchangedCommitSkipsWhenStoreHasRegionData(t *testing.T) {
 		if latest, _ := statusStore.latest("jp"); latest.Status != "success" || latest.SourceCommit != "commit-1" {
 			t.Fatalf("region data %t: status = %+v", hasData, latest)
 		}
-		// Progress names the check this store ran, not a Redis index rebuild.
+		// Progress names the region data check the store ran.
 		wantStatus, wantMessage := "running", "commit unchanged but the store has no data for the region, fallback to full sync"
 		if hasData {
 			wantStatus, wantMessage = "success", "commit unchanged, stored region data present and skipped sync"

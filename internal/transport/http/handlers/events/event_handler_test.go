@@ -25,19 +25,7 @@ type fakeEventHandlerCache struct {
 	byID           map[string]map[string]map[string]map[string]any
 	listByEntity   map[string]map[string][]map[string]any
 	storeCallCount int
-	searchCalls    []fakeEventSearchCall
-	searchErr      error
 	hasRecords     map[string]map[string]bool
-	hasIndex       bool
-	hasIndexSet    bool
-}
-
-type fakeEventSearchCall struct {
-	region string
-	entity string
-	query  string
-	fields []string
-	limit  int
 }
 
 type fakeEventHandlerStatusStore struct {
@@ -216,17 +204,12 @@ func (cache *fakeEventHandlerCache) ListByPage(_ context.Context, region string,
 }
 
 func (cache *fakeEventHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
 	if cache.hasRecords == nil {
-		return false, nil
+		return len(cache.byID[region][entity]) > 0 || len(cache.listByEntity[region][entity]) > 0, nil
 	}
-	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
-}
-
-func (cache *fakeEventHandlerCache) HasRegionIndex(_ string) bool {
-	if !cache.hasIndexSet {
-		return true
-	}
-	return cache.hasIndex
+	return cache.hasRecords[region][entity], nil
 }
 
 func TestEventByIDEndpointOmitsRankingRewardsField(t *testing.T) {
@@ -375,7 +358,7 @@ func TestEventAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *tes
 	}
 }
 
-func TestEventByIDEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *testing.T) {
+func TestEventByIDEndpointReadsPersistedRecordsAfterSuccessfulSync(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -394,8 +377,6 @@ func TestEventByIDEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *test
 		hasRecords: map[string]map[string]bool{
 			"jp": {"events": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyEventHandler(cache)
@@ -406,12 +387,29 @@ func TestEventByIDEndpointRequiresRuntimeIndexWhenOnlyEntityRecordsExist(t *test
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected status 503, got %d", resp.Code)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if body["name"] != "persisted-event" {
+		t.Fatalf("expected persisted event 101, got %v", body)
+	}
+
+	// The same records are not ready while the region has no successful sync.
+	unsyncedStatusStore := &fakeEventHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "running"}}}
+	unsyncedRouter := gin.New()
+	unsyncedRouter.GET("/api/v1/events/:region/:id", NewEventHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, unsyncedStatusStore, nil, 1)).ByID)
+	unsyncedResp := httptest.NewRecorder()
+	unsyncedRouter.ServeHTTP(unsyncedResp, httptest.NewRequest(http.MethodGet, "/api/v1/events/jp/101", nil))
+	if unsyncedResp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503 without a successful sync, got %d: %s", unsyncedResp.Code, unsyncedResp.Body.String())
 	}
 }
 
-func TestEventSecondaryEndpointsUsePersistedEventRecordsWhenRuntimeIndexMissing(t *testing.T) {
+func TestEventSecondaryEndpointsUsePersistedEventRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -478,8 +476,6 @@ func TestEventSecondaryEndpointsUsePersistedEventRecordsWhenRuntimeIndexMissing(
 		hasRecords: map[string]map[string]bool{
 			"jp": {"events": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyEventHandler(cache)
@@ -583,8 +579,6 @@ func TestEventSecondaryEndpointsReturnNotFoundWhenPersistedEventIsMissing(t *tes
 		hasRecords: map[string]map[string]bool{
 			"jp": {"events": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 	handler := newReadyEventHandler(cache)
 	router := gin.New()
@@ -621,8 +615,6 @@ func TestEventSecondaryEndpointsRejectPersistedRecordsWhenSyncFailed(t *testing.
 		hasRecords: map[string]map[string]bool{
 			"jp": {"events": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 	statusStore := &fakeEventHandlerStatusStore{
 		statuses: []masterdata.SyncStatus{{Region: "jp", Status: "failed"}},
@@ -656,7 +648,7 @@ func TestEventSecondaryEndpointsRejectPersistedRecordsWhenSyncFailed(t *testing.
 	}
 }
 
-func TestEventListAndCurrentUsePersistedEventRecordsWhenRuntimeIndexMissing(t *testing.T) {
+func TestEventListAndCurrentUsePersistedEventRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	nowMillis := time.Now().UTC().UnixMilli()
@@ -686,8 +678,6 @@ func TestEventListAndCurrentUsePersistedEventRecordsWhenRuntimeIndexMissing(t *t
 		hasRecords: map[string]map[string]bool{
 			"jp": {"events": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	statusStore := &fakeEventHandlerStatusStore{
@@ -722,7 +712,7 @@ func TestEventListAndCurrentUsePersistedEventRecordsWhenRuntimeIndexMissing(t *t
 	}
 }
 
-func TestEventAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
+func TestEventAvailabilityEndpointUsesPersistedEntityRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeEventHandlerCache{
@@ -736,8 +726,6 @@ func TestEventAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(
 		hasRecords: map[string]map[string]bool{
 			"jp": {"events": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	handler := newReadyEventHandler(cache)
@@ -907,7 +895,7 @@ func TestEventByIDEndpointExpandsUnitAndVirtualLive(t *testing.T) {
 	}
 }
 
-func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecordsWithoutRuntimeIndex(t *testing.T) {
+func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	const eventStartAt = int64(946684800000)
@@ -998,8 +986,6 @@ func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecordsWith
 		hasRecords: map[string]map[string]bool{
 			"jp": {"events": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	statusStore := &fakeEventHandlerStatusStore{
@@ -1039,7 +1025,7 @@ func TestEventDetailByIDEndpointReturnsCompleteAggregateFromPersistedRecordsWith
 
 	availableRegions := body["availableRegions"].([]any)
 	if !reflect.DeepEqual(availableRegions, []any{"en", "jp"}) {
-		t.Fatalf("expected persisted event regions without runtime indexes, got %v", availableRegions)
+		t.Fatalf("expected persisted event regions, got %v", availableRegions)
 	}
 	if body["isCurrentEvent"] != true {
 		t.Fatalf("expected isCurrentEvent=true, got %v", body["isCurrentEvent"])
@@ -1620,10 +1606,6 @@ func TestEventListEndpointFiltersByNameUnitAndEventTypeUsingEventStoryUnits(t *t
 	}
 
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{101})
-
-	if len(cache.searchCalls) != 0 {
-		t.Fatalf("expected event list filters not to call Search, got %v", cache.searchCalls)
-	}
 }
 
 func TestEventListEndpointUnitFilterRequiresExactUnitCode(t *testing.T) {
@@ -2548,67 +2530,6 @@ func TestCurrentEventEndpointIgnoresStaleCurrentEventsEntity(t *testing.T) {
 	if cache.storeCallCount != 0 {
 		t.Fatalf("expected current event lookup not to write, got %d writes", cache.storeCallCount)
 	}
-}
-
-func (cache *fakeEventHandlerCache) Search(_ context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	if cache.searchErr != nil {
-		return nil, cache.searchErr
-	}
-	if limit <= 0 {
-		limit = 20
-	}
-
-	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
-	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
-	normalizedQuery := shared.NormalizeComparableText(query)
-	if normalizedRegion == "" || normalizedEntity == "" || normalizedQuery == "" {
-		return []masterdata.SearchMatch{}, nil
-	}
-
-	regionData, ok := cache.listByEntity[normalizedRegion]
-	if !ok {
-		return []masterdata.SearchMatch{}, nil
-	}
-
-	records := regionData[normalizedEntity]
-	if len(records) == 0 {
-		return []masterdata.SearchMatch{}, nil
-	}
-
-	if len(fields) == 0 {
-		fields = []string{"name"}
-	}
-
-	cache.searchCalls = append(cache.searchCalls, fakeEventSearchCall{
-		region: normalizedRegion,
-		entity: normalizedEntity,
-		query:  query,
-		fields: append([]string{}, fields...),
-		limit:  limit,
-	})
-
-	results := make([]masterdata.SearchMatch, 0, len(records))
-	for _, record := range records {
-		for _, field := range fields {
-			if shared.NormalizeComparableText(record[field]) != normalizedQuery {
-				continue
-			}
-
-			results = append(results, masterdata.SearchMatch{
-				Item:         record,
-				MatchScore:   100,
-				MatchType:    "exact",
-				MatchedField: field,
-			})
-			break
-		}
-
-		if len(results) >= limit {
-			break
-		}
-	}
-
-	return results, nil
 }
 
 func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64) {

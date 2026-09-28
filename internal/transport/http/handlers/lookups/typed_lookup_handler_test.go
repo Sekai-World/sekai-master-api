@@ -288,7 +288,8 @@ func TestHonorByIDProjectsFieldsAndReturnsNotFoundForMissingRecord(t *testing.T)
 						"honorType": "degree", "assetbundleName": "honor_7", "extra": "hidden",
 					},
 				},
-				honorGroupsEntity: {"8": {"id": 8, "name": "Honor Group", "other": "hidden"}},
+				honorGroupsEntity:             {"8": {"id": 8, "name": "Honor Group", "other": "hidden"}},
+				mysekaiPhotoDecorationsEntity: {"1": {"id": 1, "name": "Other Decoration"}},
 			},
 		},
 	}
@@ -376,7 +377,7 @@ func TestHonorsListReturnsQueryErrorWhenGroupStorageFails(t *testing.T) {
 	}
 }
 
-func TestTypedLookupEndpointsUsePersistedRecordsWithoutRuntimeSearchIndex(t *testing.T) {
+func TestTypedLookupEndpointsUsePersistedRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	photoDecoration := map[string]any{"id": 1, "seq": 1, "name": "Decoration", "description": "", "assetbundleName": "decoration_1"}
 	honor := map[string]any{"id": 2, "seq": 1, "groupId": 0, "name": "Honor", "honorRarity": "rarity_normal", "assetbundleName": "honor_2"}
@@ -396,8 +397,6 @@ func TestTypedLookupEndpointsUsePersistedRecordsWithoutRuntimeSearchIndex(t *tes
 		hasRecords: map[string]map[string]bool{
 			"jp": {mysekaiPhotoDecorationsEntity: true, honorsEntity: true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 	router := newTypedLookupRouter(newReadyLookupHandler(cache))
 	paths := []string{
@@ -412,14 +411,11 @@ func TestTypedLookupEndpointsUsePersistedRecordsWithoutRuntimeSearchIndex(t *tes
 			t.Fatalf("expected persisted records to be readable for %s, got %d: %s", path, resp.Code, resp.Body.String())
 		}
 	}
-	if cache.searchCalls != 0 {
-		t.Fatalf("persisted-record reads must not depend on decoded search-index state, got %d search calls", cache.searchCalls)
-	}
 }
 
 func TestTypedLookupEndpointsReturnServiceUnavailableWhenEntityIsNotReady(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cache := &fakeLookupCache{hasIndexSet: true, hasIndex: false}
+	cache := &fakeLookupCache{}
 	router := newTypedLookupRouter(newReadyLookupHandler(cache))
 	for _, path := range []string{
 		"/api/v1/mysekaiPhotoDecorations/jp/list",

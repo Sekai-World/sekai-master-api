@@ -5,6 +5,12 @@ Kubernetes-deployable service toward a more autonomous cloud-native platform.
 It is an implementation backlog, not a claim that every item is required for
 the API to run in Kubernetes today.
 
+> Master data moved from Redis to PostgreSQL
+> ([store design](postgres-master-data-store.md)): the Redis store, its search
+> indexes, the local backup store, Redis readiness, and the Redis-loss drill
+> were removed. Redis items below are kept as history; the current recovery
+> paths are in the [runbook](runbook.md).
+
 ## Current position
 
 The repository already has a solid runtime foundation:
@@ -13,12 +19,13 @@ The repository already has a solid runtime foundation:
 - Horizontally scalable, stateless public reads in `serve`.
 - Optional HPA, rolling updates, resource requests/limits, topology settings,
   and root-level liveness/startup/readiness probes.
-- External PostgreSQL and Redis dependencies.
+- An external PostgreSQL dependency, which holds master data and sync state.
 - ConfigMap/Secret-based configuration, non-root containers, dropped
   capabilities, and a read-only root filesystem.
 - OpenTelemetry metrics/tracing integration and local/production observability
   documentation.
-- Version payloads persisted to Redis by `control` on sync completion
+- Version payloads persisted by `control` on sync completion (to Redis
+  originally, now to PostgreSQL)
   ([PR #68](https://github.com/Sekai-World/sekai-master-api/pull/68),
    [PR #74](https://github.com/Sekai-World/sekai-master-api/pull/74)).
 - `serve` readiness (`/readyz`) verifies persisted card records and complete
@@ -33,7 +40,7 @@ The repository already has a solid runtime foundation:
   expand/contract compatibility guidance in the chart README.
 - Redis durability objectives (RPO ≤ 60 s / RTO ≤ 30 min), a documented
   restore/recovery sequence, and a Redis-loss recovery drill script
-  (`scripts/redis-recovery-drill.sh`).
+  (`scripts/redis-recovery-drill.sh`), all retired with the Redis store.
 - A deployment smoke script covering the `/readyz` readiness surface, a
   representative public read, admin authentication, webhook rejection, and the
   admin SSE stream (`scripts/smoke.sh`).

@@ -21,7 +21,6 @@ type MasterDataReadinessChecker interface {
 	ConfiguredRegions() []string
 	HasSuccessfulSync(ctx context.Context, region string) (bool, error)
 	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
-	RedisReady(ctx context.Context) (bool, error)
 	RegionVersionReady(ctx context.Context, region string) (bool, error)
 }
 
@@ -92,28 +91,20 @@ func (handler *HealthHandler) Ready(c *gin.Context) {
 	response.JSON(c, http.StatusOK, gin.H{"status": "ok"})
 }
 
-// readinessProbeTimeout bounds the readiness scan so a slow PostgreSQL or Redis
-// cannot hang the Kubernetes readiness probe indefinitely. The check is
-// read-only: it never writes to PostgreSQL or Redis.
+// readinessProbeTimeout bounds the readiness scan so a slow PostgreSQL cannot
+// hang the Kubernetes readiness probe indefinitely. The check is read-only.
 const readinessProbeTimeout = 5 * time.Second
 
 // serveReady evaluates a bounded, read-only readiness check for the serve role.
-// It verifies Redis connectivity once, then for each configured region checks
-// that persisted card records AND version metadata are available. The response
-// enumerates affected (unready) regions but never includes secrets such as
-// database URLs, Redis credentials, or source repository references.
+// For each configured region it checks that persisted card records AND version
+// metadata are available. The response enumerates affected (unready) regions
+// but never includes secrets such as database URLs or source repository
+// references.
 func (handler *HealthHandler) serveReady(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), readinessProbeTimeout)
 	defer cancel()
 
 	configured := handler.masterDataSync.ConfiguredRegions()
-
-	if redisReady, _ := handler.masterDataSync.RedisReady(ctx); !redisReady {
-		// Without Redis the serve pod cannot serve any configured region. The
-		// response reason "redis" already signals the failing dependency.
-		respondNotReadyWithRegions(c, "redis", configured, []string{})
-		return
-	}
 
 	ready := make([]string, 0, len(configured))
 	unready := make([]string, 0, len(configured))
@@ -122,10 +113,10 @@ func (handler *HealthHandler) serveReady(c *gin.Context) {
 	for _, region := range configured {
 		r, err := handler.evaluateRegionReadiness(ctx, region)
 		if err != nil {
-			// HasEntityRecords and RegionVersionReady both read from Redis, so a
-			// transport/storage error here means Redis is not reachable. Report
-			// the redis dependency rather than master_data.
-			respondNotReadyWithRegions(c, "redis", configured, []string{})
+			// HasEntityRecords and RegionVersionReady both read from PostgreSQL,
+			// so an error here means the store is not reachable. Report the
+			// database dependency rather than master_data.
+			respondNotReadyWithRegions(c, "database", configured, []string{})
 			return
 		}
 		if r.ready {
@@ -193,8 +184,8 @@ func respondNotReady(c *gin.Context, reason string) {
 // respondNotReadyWithRegions reports the pod not ready and enumerates the regions
 // that are (and are not) ready. Both keys are always present for response
 // compatibility: ready_regions is emitted as [] when no region is ready. Secrets
-// such as database connection strings, Redis credentials, and source references are
-// never included.
+// such as database connection strings and source references are never
+// included.
 func respondNotReadyWithRegions(c *gin.Context, reason string, unreadyRegions, readyRegions []string) {
 	body := gin.H{
 		"status":          "not_ready",

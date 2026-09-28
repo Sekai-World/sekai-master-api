@@ -215,6 +215,10 @@ func TestPostgresStoreReportsRegionData(t *testing.T) {
 	if has, _ := store.HasRegionData(ctx, "en"); has {
 		t.Fatal("other region has data")
 	}
+	counts, err := store.RegionRecordCounts(ctx)
+	if err != nil || len(counts) != 1 || counts["jp"] != 1 {
+		t.Fatalf("region record counts = %v, %v; want jp=1", counts, err)
+	}
 }
 
 func TestPostgresStoreRewritesOnlyWhatChanged(t *testing.T) {

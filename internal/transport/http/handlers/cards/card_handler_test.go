@@ -19,33 +19,13 @@ import (
 )
 
 type fakeCardHandlerCache struct {
-	byID          map[string]map[string]map[string]map[string]any
-	listByEntity  map[string][]map[string]any
-	listItems     []map[string]any
-	listTotal     int
-	hasRecords    map[string]map[string]bool
-	hasIndex      bool
-	hasIndexSet   bool
-	searchMatches []masterdata.SearchMatch
-	rarityMatches []masterdata.SearchMatch
-	searchCalls   []fakeCardSearchCall
-	getByIDCalls  []fakeCardGetByIDCall
-	listAllCalls  map[string]int
-	lastSearch    struct {
-		region string
-		entity string
-		query  string
-		fields []string
-		limit  int
-	}
-}
-
-type fakeCardSearchCall struct {
-	region string
-	entity string
-	query  string
-	fields []string
-	limit  int
+	byID         map[string]map[string]map[string]map[string]any
+	listByEntity map[string][]map[string]any
+	listItems    []map[string]any
+	listTotal    int
+	hasRecords   map[string]map[string]bool
+	getByIDCalls []fakeCardGetByIDCall
+	listAllCalls map[string]int
 }
 
 type fakeCardGetByIDCall struct {
@@ -155,8 +135,8 @@ func TestCardBatchEndpointReturnsRequestedMetadataInFirstSeenRequestOrder(t *tes
 	}) {
 		t.Fatalf("expected only direct card reads in first-seen request order, got %#v", cache.getByIDCalls)
 	}
-	if len(cache.searchCalls) != 0 || len(cache.listAllCalls) != 0 {
-		t.Fatalf("expected no search or list reads, got search=%#v list=%#v", cache.searchCalls, cache.listAllCalls)
+	if len(cache.listAllCalls) != 0 {
+		t.Fatalf("expected no list reads, got list=%#v", cache.listAllCalls)
 	}
 }
 
@@ -244,35 +224,12 @@ func (cache *fakeCardHandlerCache) HasEntityRecords(_ context.Context, region st
 		if regionData, ok := cache.byID[region]; ok && len(regionData[entity]) > 0 {
 			return true, nil
 		}
+		if len(cache.listByEntity[entity]) > 0 {
+			return true, nil
+		}
 		return len(cache.listItems) > 0, nil
 	}
 	return cache.hasRecords[region][entity], nil
-}
-
-func (cache *fakeCardHandlerCache) HasRegionIndex(_ string) bool {
-	if !cache.hasIndexSet {
-		return true
-	}
-	return cache.hasIndex
-}
-
-func (cache *fakeCardHandlerCache) Search(_ context.Context, region, entity, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	cache.lastSearch.region = region
-	cache.lastSearch.entity = entity
-	cache.lastSearch.query = query
-	cache.lastSearch.limit = limit
-	cache.lastSearch.fields = append([]string{}, fields...)
-	cache.searchCalls = append(cache.searchCalls, fakeCardSearchCall{
-		region: region,
-		entity: entity,
-		query:  query,
-		fields: append([]string{}, fields...),
-		limit:  limit,
-	})
-	if entity == "cardrarities" {
-		return cache.rarityMatches, nil
-	}
-	return cache.searchMatches, nil
 }
 
 func TestBuildCardBaseMapsCardSupply(t *testing.T) {
@@ -603,7 +560,7 @@ func TestCardAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *test
 	}
 }
 
-func TestCardAvailabilityEndpointUsesPersistedCardDataWithoutRuntimeIndex(t *testing.T) {
+func TestCardAvailabilityEndpointUsesPersistedCardData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{
@@ -617,8 +574,6 @@ func TestCardAvailabilityEndpointUsesPersistedCardDataWithoutRuntimeIndex(t *tes
 		hasRecords: map[string]map[string]bool{
 			"jp": {"cards": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	cardHandler := newReadyCardHandler(cache)
@@ -673,9 +628,6 @@ func TestCardListEndpointMapsCardSupply(t *testing.T) {
 			},
 		},
 		listTotal: 1,
-	}
-	cache.rarityMatches = []masterdata.SearchMatch{
-		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
 	}
 
 	cardHandler := newReadyCardHandler(cache)
@@ -737,9 +689,6 @@ func TestCardListEndpointBatchesRelatedLookups(t *testing.T) {
 		},
 		listTotal: 3,
 	}}
-	cache.rarityMatches = []masterdata.SearchMatch{
-		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
-	}
 
 	statusStore := &fakeCardHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
 	router := gin.New()
@@ -770,16 +719,14 @@ func TestCardListEndpointBatchesRelatedLookups(t *testing.T) {
 	}
 }
 
-func TestCardListEndpointUsesPersistedCardDataWhenRuntimeIndexMissing(t *testing.T) {
+func TestCardListEndpointUsesPersistedCardData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{
 		listItems: []map[string]any{
 			{"id": 1001, "prefix": "persisted-card"},
 		},
-		listTotal:   1,
-		hasIndexSet: true,
-		hasIndex:    false,
+		listTotal: 1,
 	}
 
 	cardHandler := newReadyCardHandler(cache)
@@ -798,7 +745,7 @@ func TestCardListEndpointUsesPersistedCardDataWhenRuntimeIndexMissing(t *testing
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
 }
 
-func TestCardRecordEndpointsUsePersistedCardDataWhenRuntimeIndexMissing(t *testing.T) {
+func TestCardRecordEndpointsUsePersistedCardData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{
@@ -809,8 +756,6 @@ func TestCardRecordEndpointsUsePersistedCardDataWhenRuntimeIndexMissing(t *testi
 				},
 			},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	cardHandler := newReadyCardHandler(cache)
@@ -840,13 +785,10 @@ func TestCardRecordEndpointsUsePersistedCardDataWhenRuntimeIndexMissing(t *testi
 
 }
 
-func TestCardListEndpointReturnsNotReadyWhenNoRuntimeIndexOrCardData(t *testing.T) {
+func TestCardListEndpointReturnsNotReadyWithoutCardData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &fakeCardHandlerCache{
-		hasIndexSet: true,
-		hasIndex:    false,
-	}
+	cache := &fakeCardHandlerCache{}
 
 	cardHandler := newReadyCardHandler(cache)
 
@@ -862,7 +804,7 @@ func TestCardListEndpointReturnsNotReadyWhenNoRuntimeIndexOrCardData(t *testing.
 	}
 }
 
-func TestCardPersistedAggregateReadsReturnOKWithoutRuntimeIndex(t *testing.T) {
+func TestCardPersistedAggregateReadsReturnOK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeCardHandlerCache{
@@ -881,8 +823,6 @@ func TestCardPersistedAggregateReadsReturnOKWithoutRuntimeIndex(t *testing.T) {
 				{"eventId": 143, "cardId": 1001, "bonusRate": 0},
 			},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	cardHandler := newReadyCardHandler(cache)
@@ -913,10 +853,6 @@ func TestCardPersistedAggregateReadsReturnOKWithoutRuntimeIndex(t *testing.T) {
 				t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
 			}
 		})
-	}
-
-	if len(cache.searchCalls) != 0 {
-		t.Fatalf("expected persisted aggregate reads not to call Search, got %v", cache.searchCalls)
 	}
 }
 
@@ -1027,15 +963,6 @@ func TestCardListSortingBuildsOnlyCurrentPage(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 
-	rarityLookups := 0
-	for _, call := range cache.searchCalls {
-		if call.entity == "cardrarities" {
-			rarityLookups++
-		}
-	}
-	if rarityLookups != 0 {
-		t.Fatalf("expected card rarity enrichment not to use Search, got %d calls", rarityLookups)
-	}
 	if cache.listAllCalls["cardrarities"] != 1 {
 		t.Fatalf("expected card rarities to load once per response, got %d calls", cache.listAllCalls["cardrarities"])
 	}
@@ -1313,10 +1240,6 @@ func TestCardParamsByIDEndpointReturnsSeparateCardParameters(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
-	}
-
-	if len(cache.searchCalls) != 0 {
-		t.Fatalf("expected params endpoint not to call Search, got %v", cache.searchCalls)
 	}
 
 	var body map[string]any
@@ -1869,7 +1792,6 @@ func TestCardEventsByIDEndpointReturnsEmptyItemsWhenNoEvents(t *testing.T) {
 				},
 			},
 		},
-		searchMatches: nil,
 	}
 
 	cardHandler := newReadyCardHandler(cache)

@@ -3,11 +3,11 @@ package system
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -15,92 +15,42 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-type fakeVersionsBackupStore struct {
-	payload                map[string]any
-	payloadByRegion        map[string]map[string]any
-	versionPayload         any
+// fakeVersionsCache is a store that keeps a version payload per region.
+type fakeVersionsCache struct {
 	versionPayloadByRegion map[string]any
-	found                  bool
-	foundByRegion          map[string]bool
-	versionFound           bool
-	versionFoundByRegion   map[string]bool
-	err                    error
-	errByRegion            map[string]error
 	versionErr             error
-	versionErrByRegion     map[string]error
-	source                 masterdata.Source
-	loadLatestCalls        int
-	loadLatestVersionCalls int
+	loadedRegions          []string
 }
 
-func (store *fakeVersionsBackupStore) SaveRegionPayload(context.Context, masterdata.Source, string, map[string]any) error {
+func (cache *fakeVersionsCache) StoreRegion(context.Context, string, map[string]any) error {
 	return nil
 }
 
-func (store *fakeVersionsBackupStore) LoadRegionPayload(context.Context, masterdata.Source, string) (map[string]any, bool, error) {
+func (cache *fakeVersionsCache) GetByID(context.Context, string, string, string) (map[string]any, bool, error) {
 	return nil, false, nil
 }
 
-func (store *fakeVersionsBackupStore) LoadLatestRegionPayload(_ context.Context, source masterdata.Source) (map[string]any, string, time.Time, bool, error) {
-	store.source = source
-	store.loadLatestCalls++
-
-	if store.payloadByRegion != nil {
-		payload, payloadFound := store.payloadByRegion[source.Region]
-		found := false
-		if store.foundByRegion != nil {
-			found = store.foundByRegion[source.Region]
-		} else {
-			found = payloadFound
-		}
-
-		var err error
-		if store.errByRegion != nil {
-			err = store.errByRegion[source.Region]
-		}
-
-		return payload, "commit", time.Now().UTC(), found, err
-	}
-
-	return store.payload, "commit", time.Now().UTC(), store.found, store.err
+func (cache *fakeVersionsCache) ListAll(context.Context, string, string) ([]map[string]any, error) {
+	return nil, nil
 }
 
-func (store *fakeVersionsBackupStore) LoadLatestRegionVersionPayload(_ context.Context, source masterdata.Source) (any, string, time.Time, bool, error) {
-	store.source = source
-	store.loadLatestVersionCalls++
+func (cache *fakeVersionsCache) ListByPage(context.Context, string, string, int, int) ([]map[string]any, int, error) {
+	return nil, 0, nil
+}
 
-	if store.versionPayloadByRegion != nil {
-		payload, payloadFound := store.versionPayloadByRegion[source.Region]
-		found := false
-		if store.versionFoundByRegion != nil {
-			found = store.versionFoundByRegion[source.Region]
-		} else {
-			found = payloadFound
-		}
-
-		var err error
-		if store.versionErrByRegion != nil {
-			err = store.versionErrByRegion[source.Region]
-		}
-
-		return payload, "commit", time.Now().UTC(), found, err
+func (cache *fakeVersionsCache) LoadRegionVersionPayload(_ context.Context, region string) (any, bool, error) {
+	cache.loadedRegions = append(cache.loadedRegions, region)
+	if cache.versionErr != nil {
+		return nil, false, cache.versionErr
 	}
-
-	return store.versionPayload, "commit", time.Now().UTC(), store.versionFound, store.versionErr
+	payload, found := cache.versionPayloadByRegion[region]
+	return payload, found, nil
 }
 
 func TestVersionsAllRegionsReturnsConfiguredVersions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	syncUsecase := usecase.NewMasterDataSyncUsecase([]masterdata.Source{
-		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
-		{Region: "en", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
-		{Region: "tw", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
-		{Region: "kr", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
-		{Region: "cn", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
-	}, nil, nil, nil, nil, 1)
-
-	backupStore := &fakeVersionsBackupStore{
+	cache := &fakeVersionsCache{
 		versionPayloadByRegion: map[string]any{
 			"jp": map[string]any{
 				"appVersion":   "3.2.1",
@@ -133,15 +83,14 @@ func TestVersionsAllRegionsReturnsConfiguredVersions(t *testing.T) {
 				"cdnVersion":   "3",
 			},
 		},
-		versionFoundByRegion: map[string]bool{
-			"jp": true,
-			"en": true,
-			"tw": true,
-			"kr": true,
-			"cn": true,
-		},
 	}
-	syncUsecase.SetBackupStore(backupStore)
+	syncUsecase := usecase.NewMasterDataSyncUsecase([]masterdata.Source{
+		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+		{Region: "en", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+		{Region: "tw", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+		{Region: "kr", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+		{Region: "cn", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+	}, nil, cache, nil, nil, 1)
 
 	handler := NewVersionsHandler(syncUsecase)
 	router := gin.New()
@@ -244,25 +193,25 @@ func TestVersionsAllRegionsReturnsConfiguredVersions(t *testing.T) {
 		}
 	}
 
-	if backupStore.loadLatestVersionCalls != 5 {
-		t.Fatalf("expected 5 version-only loads, got %d", backupStore.loadLatestVersionCalls)
+	if len(cache.loadedRegions) != 5 {
+		t.Fatalf("expected 5 version payload loads, got %v", cache.loadedRegions)
 	}
 }
 
 func TestVersionsByRegionReturnsCachedVersionPayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	syncUsecase := usecase.NewMasterDataSyncUsecase([]masterdata.Source{
-		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
-	}, nil, nil, nil, nil, 1)
-	backupStore := &fakeVersionsBackupStore{
-		versionFound: true,
-		versionPayload: map[string]any{
-			"appVersion":  "3.2.1",
-			"dataVersion": "20260419",
+	cache := &fakeVersionsCache{
+		versionPayloadByRegion: map[string]any{
+			"jp": map[string]any{
+				"appVersion":  "3.2.1",
+				"dataVersion": "20260419",
+			},
 		},
 	}
-	syncUsecase.SetBackupStore(backupStore)
+	syncUsecase := usecase.NewMasterDataSyncUsecase([]masterdata.Source{
+		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main", Path: "data"},
+	}, nil, cache, nil, nil, 1)
 
 	handler := NewVersionsHandler(syncUsecase)
 	router := gin.New()
@@ -284,14 +233,8 @@ func TestVersionsByRegionReturnsCachedVersionPayload(t *testing.T) {
 	if body["appVersion"] != "3.2.1" {
 		t.Fatalf("expected appVersion 3.2.1, got %v", body["appVersion"])
 	}
-	if backupStore.source.Region != "jp" {
-		t.Fatalf("expected source region jp, got %s", backupStore.source.Region)
-	}
-	if backupStore.loadLatestCalls != 0 {
-		t.Fatalf("expected no full payload load, got %d", backupStore.loadLatestCalls)
-	}
-	if backupStore.loadLatestVersionCalls != 1 {
-		t.Fatalf("expected one version-only load, got %d", backupStore.loadLatestVersionCalls)
+	if len(cache.loadedRegions) != 1 || cache.loadedRegions[0] != "jp" {
+		t.Fatalf("expected one version payload load for jp, got %v", cache.loadedRegions)
 	}
 }
 
@@ -300,11 +243,7 @@ func TestVersionsByRegionReturnsNotFoundWhenVersionMissing(t *testing.T) {
 
 	syncUsecase := usecase.NewMasterDataSyncUsecase([]masterdata.Source{
 		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main"},
-	}, nil, nil, nil, nil, 1)
-	syncUsecase.SetBackupStore(&fakeVersionsBackupStore{
-		found:   true,
-		payload: map[string]any{"cards.json": []any{}},
-	})
+	}, nil, &fakeVersionsCache{}, nil, nil, 1)
 
 	handler := NewVersionsHandler(syncUsecase)
 	router := gin.New()
@@ -316,5 +255,37 @@ func TestVersionsByRegionReturnsNotFoundWhenVersionMissing(t *testing.T) {
 
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestVersionsEndpointsReturnQueryErrorWhenVersionLoadFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	syncUsecase := usecase.NewMasterDataSyncUsecase([]masterdata.Source{
+		{Region: "jp", Owner: "owner", Repo: "repo", Ref: "main"},
+	}, nil, &fakeVersionsCache{versionErr: errors.New("store read failed")}, nil, nil, 1)
+
+	handler := NewVersionsHandler(syncUsecase)
+	router := gin.New()
+	router.GET("/api/v1/versions", handler.AllRegions)
+	router.GET("/api/v1/versions/:region", handler.ByRegion)
+
+	for _, path := range []string{"/api/v1/versions", "/api/v1/versions/jp"} {
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, path, nil))
+		if resp.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500 for %s, got %d: %s", path, resp.Code, resp.Body.String())
+		}
+		var body struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if body.Error.Code != "VERSION_QUERY_ERROR" {
+			t.Fatalf("expected VERSION_QUERY_ERROR for %s, got %q", path, body.Error.Code)
+		}
 	}
 }

@@ -40,7 +40,6 @@ type MasterDataCache interface {
 	GetByID(ctx context.Context, region string, entity string, id string) (map[string]any, bool, error)
 	ListAll(ctx context.Context, region string, entity string) ([]map[string]any, error)
 	ListByPage(ctx context.Context, region string, entity string, page int, pageSize int) ([]map[string]any, int, error)
-	Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error)
 }
 
 // MasterDataCacheBatchReader reads several records in one round trip.
@@ -77,28 +76,21 @@ type MasterDataCacheSourceDigestStorer interface {
 	StoreRegionWithSourceDigests(ctx context.Context, region string, payload map[string]any, fileDigests map[string]string) error
 }
 
-type MasterDataCacheIndexRebuilder interface {
-	RebuildRegionIndexFromRedis(ctx context.Context, region string) (bool, error)
-}
-
-type MasterDataCacheIndexLoader interface {
-	LoadRegionIndexFromRedis(ctx context.Context, region string) (bool, error)
-}
-
-type MasterDataCacheIndexInspector interface {
-	HasRegionIndex(region string) bool
-}
-
 type MasterDataCacheEntityInspector interface {
 	HasEntityRecords(ctx context.Context, region string, entity string) (bool, error)
 }
 
 // MasterDataCacheRegionDataInspector reports whether a store holds any
-// records for a region. Stores without a Redis search index (the PostgreSQL
-// store) use it to confirm the region is populated before a sync shortcut
-// skips loading the source.
+// records for a region. Sync uses it to confirm the region is populated
+// before a shortcut skips loading the source.
 type MasterDataCacheRegionDataInspector interface {
 	HasRegionData(ctx context.Context, region string) (bool, error)
+}
+
+// MasterDataCacheRegionRecordCounter reports the number of stored records per
+// region, for metrics.
+type MasterDataCacheRegionRecordCounter interface {
+	RegionRecordCounts(ctx context.Context) (map[string]int64, error)
 }
 
 // MasterDataCacheEntityPruner deletes the entities of a region that keep does
@@ -115,13 +107,6 @@ type MasterDataCacheVersionStorer interface {
 
 type MasterDataCacheVersionLoader interface {
 	LoadRegionVersionPayload(ctx context.Context, region string) (any, bool, error)
-}
-
-// MasterDataRedisPinger reports whether the Redis-backed cache is reachable. It
-// is satisfied by *storage.RedisMasterDataCache and lets the readiness probe
-// verify Redis connectivity without depending on the concrete storage type.
-type MasterDataRedisPinger interface {
-	Ping(ctx context.Context) error
 }
 
 type MasterDataSyncStatusStore interface {
@@ -154,29 +139,17 @@ type MasterDataSyncLeaseCoordinator interface {
 	State(ctx context.Context) (masterdata.SyncLeaseState, error)
 }
 
-type MasterDataPayloadBackupStore interface {
-	SaveRegionPayload(ctx context.Context, source masterdata.Source, commit string, payload map[string]any) error
-	LoadRegionPayload(ctx context.Context, source masterdata.Source, commit string) (map[string]any, bool, error)
-	LoadLatestRegionPayload(ctx context.Context, source masterdata.Source) (map[string]any, string, time.Time, bool, error)
-}
-
-type MasterDataVersionBackupStore interface {
-	LoadLatestRegionVersionPayload(ctx context.Context, source masterdata.Source) (any, string, time.Time, bool, error)
-}
-
 type MasterDataSyncUsecase struct {
-	sources                             []masterdata.Source
-	loader                              MasterDataSourceLoader
-	cache                               MasterDataCache
-	statusStore                         MasterDataSyncStatusStore
-	publisher                           MasterDataEventPublisher
-	backupStore                         MasterDataPayloadBackupStore
-	concurrency                         int
-	regionTimeout                       time.Duration
-	jobTimeout                          time.Duration
-	restoreFromLocalBackupWithoutStatus bool
-	statusMu                            sync.Mutex
-	syncRunning                         atomic.Bool
+	sources       []masterdata.Source
+	loader        MasterDataSourceLoader
+	cache         MasterDataCache
+	statusStore   MasterDataSyncStatusStore
+	publisher     MasterDataEventPublisher
+	concurrency   int
+	regionTimeout time.Duration
+	jobTimeout    time.Duration
+	statusMu      sync.Mutex
+	syncRunning   atomic.Bool
 
 	// leaseCoordinator owns cross-pod sync admission; nil keeps the
 	// process-local-only behavior. currentLeaseToken carries the fencing
@@ -237,25 +210,8 @@ func NewMasterDataSyncUsecase(
 		cache:       cache,
 		statusStore: statusStore,
 		publisher:   publisher,
-		backupStore: NewFileMasterDataPayloadBackupStore("tmp/master-data-backup"),
 		concurrency: concurrency,
 	}
-}
-
-func (usecase *MasterDataSyncUsecase) EnableDevelopmentBackupBootstrap(enabled bool) {
-	if usecase == nil {
-		return
-	}
-
-	usecase.restoreFromLocalBackupWithoutStatus = enabled
-}
-
-func (usecase *MasterDataSyncUsecase) SetBackupStore(store MasterDataPayloadBackupStore) {
-	if usecase == nil {
-		return
-	}
-
-	usecase.backupStore = store
 }
 
 func (usecase *MasterDataSyncUsecase) SetRegionTimeout(timeout time.Duration) {
@@ -813,12 +769,9 @@ type regionSyncTask struct {
 	recordFailure     func(region string, err error)
 }
 
-// syncRegion runs one region through bootstrap restore, shortcut checks, and
-// the full sync path. Failures are reported through recordFailure.
+// syncRegion runs one region through the shortcut checks and the full sync
+// path. Failures are reported through recordFailure.
 func (task *regionSyncTask) syncRegion(ctx, regionCtx context.Context) {
-	if task.tryBootstrapRestoreFromLocalBackup(regionCtx) {
-		return
-	}
 	if !task.ensureCacheReady(regionCtx) {
 		return
 	}
@@ -831,24 +784,8 @@ func (task *regionSyncTask) syncRegion(ctx, regionCtx context.Context) {
 	task.runRegionFullSync(ctx, regionCtx)
 }
 
-// tryBootstrapRestoreFromLocalBackup restores a region without persisted sync
-// status straight from the latest local backup. It reports whether the region
-// was restored, in which case the full sync is skipped.
-func (task *regionSyncTask) tryBootstrapRestoreFromLocalBackup(regionCtx context.Context) bool {
-	if task.force || !task.usecase.restoreFromLocalBackupWithoutStatus || task.hasPreviousStatus {
-		return false
-	}
-
-	restored, restoreErr := task.usecase.restoreRegionFromLatestLocalBackup(regionCtx, task.source, task.step, task.totalSteps)
-	if restoreErr != nil {
-		task.usecase.logf("sync local bootstrap restore failed region=%s error=%v", task.source.Region, restoreErr)
-		return false
-	}
-	return restored
-}
-
-// ensureCacheReady checks the Redis cache for the region and records a
-// failure when the readiness check itself errors.
+// ensureCacheReady checks whether the store holds the region and records a
+// failure when the check itself errors.
 func (task *regionSyncTask) ensureCacheReady(regionCtx context.Context) bool {
 	cacheReady, cacheReadyErr := task.usecase.regionCacheReady(regionCtx, task.source.Region)
 	if cacheReadyErr != nil {
@@ -922,36 +859,23 @@ func (task *regionSyncTask) maybeSkipRegionSync(ctx, regionCtx context.Context) 
 }
 
 // trySkipUnchangedCommit short-circuits a region whose remote commit matches
-// the last successful sync, restoring state from Redis or the local backup.
+// the last successful sync and whose data the store still holds.
 func (task *regionSyncTask) trySkipUnchangedCommit(ctx, regionCtx context.Context) bool {
 	if task.hasPreviousStatus && strings.EqualFold(strings.TrimSpace(task.previous.Status), "success") && task.previous.SourceCommit != "" && task.previous.SourceCommit == task.resolvedCommit {
-		if task.trySkipViaRedisIndexRebuild(ctx, regionCtx) {
-			return true
-		}
-		return task.trySkipViaLocalBackupRestore(ctx, regionCtx)
+		return task.trySkipWhenStoreHasRegion(ctx, regionCtx)
 	}
 	return false
 }
 
-// trySkipViaRedisIndexRebuild rebuilds the persisted search index from Redis
-// and skips the sync when the version cache can be confirmed. It reports
-// whether the region was skipped.
-func (task *regionSyncTask) trySkipViaRedisIndexRebuild(ctx, regionCtx context.Context) bool {
-	// check names how the store confirmed it still holds the region, for logs
-	// and progress: the Redis store rebuilds its search index from the stored
-	// records, while a store without one only needs the region to be populated.
-	var check, checkDescription string
-	var populated bool
-	var checkErr error
-	if rebuilder, ok := task.usecase.cache.(MasterDataCacheIndexRebuilder); ok {
-		check, checkDescription = "rebuilt_from_redis", "rebuilt index from redis"
-		populated, checkErr = rebuilder.RebuildRegionIndexFromRedis(regionCtx, task.source.Region)
-	} else if inspector, ok := task.usecase.cache.(MasterDataCacheRegionDataInspector); ok {
-		check, checkDescription = "region_data_present", "stored region data present"
-		populated, checkErr = inspector.HasRegionData(regionCtx, task.source.Region)
-	} else {
+// trySkipWhenStoreHasRegion skips the sync when the store still holds the
+// region, its derived data is current, and its version payload is stored. It
+// reports whether the region was skipped.
+func (task *regionSyncTask) trySkipWhenStoreHasRegion(ctx, regionCtx context.Context) bool {
+	inspector, ok := task.usecase.cache.(MasterDataCacheRegionDataInspector)
+	if !ok {
 		return false
 	}
+	populated, checkErr := inspector.HasRegionData(regionCtx, task.source.Region)
 	if checkErr != nil {
 		task.usecase.logf("sync compare region=%s commit=%s store_check=failed error=%v", task.source.Region, task.resolvedCommit, checkErr)
 		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but the stored region could not be checked, fallback to full sync", task.now)
@@ -973,84 +897,18 @@ func (task *regionSyncTask) trySkipViaRedisIndexRebuild(ctx, regionCtx context.C
 			task.usecase.logf("sync compare region=%s commit=%s derived_data_built=%v", task.source.Region, task.resolvedCommit, indexed)
 		}
 	}
-	if !task.usecase.ensureVersionCachePopulated(regionCtx, task.source, task.resolvedCommit, nil) {
-		task.usecase.logf("sync compare region=%s commit=%s check=%s version_cache=missing fallback=full_sync", task.source.Region, task.resolvedCommit, check)
+	if !task.usecase.versionPayloadStored(regionCtx, task.source) {
+		task.usecase.logf("sync compare region=%s commit=%s version_cache=missing fallback=full_sync", task.source.Region, task.resolvedCommit)
 		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but version cache unavailable, fallback to full sync", task.now)
 		return false
 	}
 
-	task.usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s check=%s", task.source.Region, task.resolvedCommit, check)
-	task.publishRegionProgress(ctx, "success", "compare", "commit unchanged, "+checkDescription+" and skipped sync", task.now)
+	task.usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s check=region_data_present", task.source.Region, task.resolvedCommit)
+	task.publishRegionProgress(ctx, "success", "compare", "commit unchanged, stored region data present and skipped sync", task.now)
 	return task.persistUnchangedSkipStatus(ctx)
 }
 
-// trySkipViaLocalBackupRestore restores the region cache from the local
-// backup when the remote commit is unchanged. It reports whether the region
-// was skipped.
-func (task *regionSyncTask) trySkipViaLocalBackupRestore(ctx, regionCtx context.Context) bool {
-	if task.usecase.backupStore == nil {
-		return false
-	}
-
-	backupPayload, backupFound, backupErr := task.usecase.backupStore.LoadRegionPayload(regionCtx, task.source, task.resolvedCommit)
-	if backupErr != nil {
-		task.usecase.logf("sync compare region=%s commit=%s local_backup=load_failed error=%v", task.source.Region, task.resolvedCommit, backupErr)
-		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but local backup read failed, fallback to full sync", task.now)
-		return false
-	}
-	if !backupFound {
-		task.usecase.logf("sync compare region=%s commit=%s local_backup=missing fallback=full_sync", task.source.Region, task.resolvedCommit)
-		return false
-	}
-	return task.restoreCacheFromLocalBackup(ctx, regionCtx, backupPayload)
-}
-
-// restoreCacheFromLocalBackup stores the backup payload into the cache,
-// confirms the version cache, and skips the sync on success.
-func (task *regionSyncTask) restoreCacheFromLocalBackup(ctx, regionCtx context.Context, backupPayload map[string]any) bool {
-	task.usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:          "master_data_sync_progress",
-		Status:         "running",
-		Region:         task.source.Region,
-		Phase:          "cache",
-		Message:        "restoring cache from local backup",
-		CurrentStep:    task.step,
-		TotalSteps:     task.totalSteps,
-		FileCount:      len(backupPayload),
-		ProcessedFiles: 0,
-		TotalFiles:     len(backupPayload),
-		UpdatedAt:      time.Now().UTC(),
-	})
-	if cacheErr := task.usecase.cache.StoreRegion(regionCtx, task.source.Region, backupPayload); cacheErr != nil {
-		task.usecase.logf("sync compare region=%s commit=%s local_backup=restore_failed error=%v", task.source.Region, task.resolvedCommit, cacheErr)
-		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but local backup restore failed, fallback to full sync", task.now)
-		return false
-	}
-	if !task.usecase.ensureVersionCachePopulated(regionCtx, task.source, task.resolvedCommit, backupPayload) {
-		task.usecase.logf("sync compare region=%s commit=%s local_backup=version_cache_missing fallback=full_sync", task.source.Region, task.resolvedCommit)
-		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but version cache unavailable from local backup, fallback to full sync", task.now)
-		return false
-	}
-
-	task.usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:          "master_data_sync_progress",
-		Status:         "running",
-		Region:         task.source.Region,
-		Phase:          "cache",
-		Message:        "local backup cache restore completed",
-		CurrentStep:    task.step,
-		TotalSteps:     task.totalSteps,
-		FileCount:      len(backupPayload),
-		ProcessedFiles: len(backupPayload),
-		TotalFiles:     len(backupPayload),
-		UpdatedAt:      time.Now().UTC(),
-	})
-	task.usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s check=restored_from_local_backup", task.source.Region, task.resolvedCommit)
-	task.publishRegionProgress(ctx, "success", "compare", "commit unchanged, restored cache from local backup and skipped sync", task.now)
-	return task.persistUnchangedSkipStatus(ctx)
-}
-
-// trySkipChangedCommit reuses the local backup when the remote commit changed
+// trySkipChangedCommit keeps the stored data when the remote commit changed
 // but the versions manifest did not. It reports whether the region was
 // handled (skipped, or a persist error was recorded).
 func (task *regionSyncTask) trySkipChangedCommit(regionCtx context.Context) bool {
@@ -1111,8 +969,8 @@ func (task *regionSyncTask) publishRegionProgress(ctx context.Context, status, p
 	})
 }
 
-// runRegionFullSync loads the region payload from the source, stores it in
-// Redis, mirrors it to the local backup, and persists the success status.
+// runRegionFullSync loads the region payload from the source, stores it, and
+// persists the success status.
 func (task *regionSyncTask) runRegionFullSync(ctx, regionCtx context.Context) {
 	task.persistRunningStatus(ctx)
 	task.publishLoadPhase(ctx)
@@ -1159,7 +1017,6 @@ func (task *regionSyncTask) runRegionFullSync(ctx, regionCtx context.Context) {
 	if task.storeRegionVersionPayload(ctx, regionCtx, payload) {
 		return
 	}
-	task.saveRegionBackup(regionCtx, payload)
 	task.finishRegionSuccess(ctx, len(payload))
 }
 
@@ -1273,8 +1130,8 @@ func (task *regionSyncTask) failRegionLoad(ctx context.Context, loadErr error) {
 	task.persistFailedStatus(ctx, 0, duration, loadErr.Error())
 }
 
-// storeRegionPayload writes the payload to Redis, preferring the digest-aware
-// store path when the cache supports it. It reports whether the region failed.
+// storeRegionPayload writes the payload to the store, preferring the
+// digest-aware store path when the store supports it. It reports whether the region failed.
 func (task *regionSyncTask) storeRegionPayload(ctx, storeCtx context.Context, payload map[string]any) bool {
 	fileDigests := masterdata.SourceFileDigestsFromContext(storeCtx).Snapshot()
 	var storeErr error
@@ -1346,15 +1203,15 @@ func (task *regionSyncTask) pruneRemovedEntities(ctx, regionCtx context.Context,
 	return true
 }
 
-// storeRegionVersionPayload mirrors the versions payload found in the loaded
-// files into the Redis version cache. It reports whether the region failed.
+// storeRegionVersionPayload stores the versions payload found in the loaded
+// files as the region's version payload. It reports whether the region failed.
 func (task *regionSyncTask) storeRegionVersionPayload(ctx, regionCtx context.Context, payload map[string]any) bool {
 	versionStore, ok := task.usecase.cache.(MasterDataCacheVersionStorer)
 	if !ok {
 		return false
 	}
 
-	versionPayload, versionFound := versionPayloadFromBackup(task.source, payload)
+	versionPayload, versionFound := versionPayloadFromFiles(task.source, payload)
 	if !versionFound {
 		return false
 	}
@@ -1381,17 +1238,6 @@ func (task *regionSyncTask) storeRegionVersionPayload(ctx, regionCtx context.Con
 	task.recordFailure(task.source.Region, versionCacheErr)
 	task.persistFailedStatus(ctx, len(payload), duration, versionCacheErr.Error())
 	return true
-}
-
-// saveRegionBackup mirrors the synced payload to the local backup; backup
-// failures are logged but do not fail the region.
-func (task *regionSyncTask) saveRegionBackup(regionCtx context.Context, payload map[string]any) {
-	if task.usecase.backupStore == nil {
-		return
-	}
-	if backupErr := task.usecase.backupStore.SaveRegionPayload(regionCtx, task.source, task.resolvedCommit, payload); backupErr != nil {
-		task.usecase.logf("sync backup save failed region=%s commit=%s error=%v", task.source.Region, task.resolvedCommit, backupErr)
-	}
 }
 
 // finishRegionSuccess publishes the success event and persists the region's
@@ -1498,43 +1344,12 @@ type manifestSkipProgress struct {
 	updatedAt   time.Time
 }
 
+// trySkipRegionWithUnchangedManifest keeps the stored data when the commit
+// changed but the source's versions manifest equals the stored version
+// payload, so the new commit changed nothing the store holds. It reports
+// whether the region was skipped.
 func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx context.Context, source masterdata.Source, previous masterdata.SyncStatus, resolvedCommit string, cacheReady bool, progress manifestSkipProgress) (bool, error) {
-	if !usecase.versionManifestsMatchForSkip(ctx, source, resolvedCommit) {
-		return false, nil
-	}
-
-	latestPayload, backupCommit, _, payloadFound, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
-	if err != nil {
-		usecase.logf("sync compare region=%s commit=%s reason=latest_payload_load_error error=%v", source.Region, resolvedCommit, err)
-		return false, nil
-	}
-	if !payloadFound {
-		return false, nil
-	}
-
-	if strings.TrimSpace(backupCommit) != strings.TrimSpace(previous.SourceCommit) {
-		usecase.logf("sync compare region=%s commit=%s local_backup=commit_mismatch backup_commit=%s fallback=full_sync", source.Region, resolvedCommit, strings.TrimSpace(backupCommit))
-		return false, nil
-	}
-
-	if !cacheReady && !usecase.restoreManifestSkipCache(ctx, source, resolvedCommit, latestPayload, progress) {
-		return false, nil
-	}
-
-	if versionStore, ok := usecase.cache.(MasterDataCacheVersionStorer); ok {
-		if versionPayload, versionFound := versionPayloadFromBackup(source, latestPayload); versionFound {
-			if versionCacheErr := versionStore.StoreRegionVersionPayload(ctx, source.Region, versionPayload); versionCacheErr != nil {
-				usecase.logf("sync compare region=%s commit=%s reason=version_cache_store_error error=%v", source.Region, resolvedCommit, versionCacheErr)
-				return false, nil
-			}
-		} else {
-			usecase.logf("sync compare region=%s commit=%s reason=version_cache_unavailable", source.Region, resolvedCommit)
-			return false, nil
-		}
-	}
-
-	if err := usecase.backupStore.SaveRegionPayload(ctx, source, resolvedCommit, latestPayload); err != nil {
-		usecase.logf("sync compare region=%s commit=%s reason=backup_rebase_error error=%v", source.Region, resolvedCommit, err)
+	if !cacheReady || !usecase.versionManifestsMatchForSkip(ctx, source, resolvedCommit) {
 		return false, nil
 	}
 
@@ -1542,7 +1357,7 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 	if err := usecase.saveStatus(ctx, masterdata.SyncStatus{
 		Region:         previous.Region,
 		Status:         "success",
-		FileCount:      len(latestPayload),
+		FileCount:      previous.FileCount,
 		SyncDurationMS: 0,
 		LastSyncedAt:   previous.LastSyncedAt,
 		SourceCommit:   resolvedCommit,
@@ -1559,10 +1374,10 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 		Status:      "success",
 		Region:      source.Region,
 		Phase:       "compare",
-		Message:     "versions manifest unchanged, reused local backup and skipped sync",
+		Message:     "versions manifest unchanged, kept stored data and skipped sync",
 		CurrentStep: progress.currentStep,
 		TotalSteps:  progress.totalSteps,
-		FileCount:   len(latestPayload),
+		FileCount:   previous.FileCount,
 		UpdatedAt:   progress.updatedAt,
 	})
 
@@ -1571,16 +1386,16 @@ func (usecase *MasterDataSyncUsecase) trySkipRegionWithUnchangedManifest(ctx con
 
 func (usecase *MasterDataSyncUsecase) versionManifestsMatchForSkip(ctx context.Context, source masterdata.Source, resolvedCommit string) bool {
 	manifestLoader, ok := usecase.loader.(MasterDataSourceVersionManifestLoader)
-	if !ok || usecase.backupStore == nil {
-		return false
-	}
-
-	versionStore, ok := usecase.backupStore.(MasterDataVersionBackupStore)
 	if !ok {
 		return false
 	}
 
-	localManifest, _, _, localFound, err := versionStore.LoadLatestRegionVersionPayload(ctx, source)
+	versionLoader, ok := usecase.cache.(MasterDataCacheVersionLoader)
+	if !ok {
+		return false
+	}
+
+	localManifest, localFound, err := versionLoader.LoadRegionVersionPayload(ctx, source.Region)
 	if err != nil {
 		usecase.logf("sync compare region=%s commit=%s reason=local_manifest_load_error error=%v", source.Region, resolvedCommit, err)
 		return false
@@ -1609,153 +1424,16 @@ func (usecase *MasterDataSyncUsecase) versionManifestsMatchForSkip(ctx context.C
 	return matched
 }
 
-func (usecase *MasterDataSyncUsecase) restoreManifestSkipCache(ctx context.Context, source masterdata.Source, resolvedCommit string, latestPayload map[string]any, progress manifestSkipProgress) bool {
-	if usecase.cache == nil {
-		return false
-	}
-
-	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:          "master_data_sync_progress",
-		Status:         "running",
-		Region:         source.Region,
-		Phase:          "cache",
-		Message:        "restoring cache from local backup",
-		CurrentStep:    progress.currentStep,
-		TotalSteps:     progress.totalSteps,
-		FileCount:      len(latestPayload),
-		ProcessedFiles: 0,
-		TotalFiles:     len(latestPayload),
-		UpdatedAt:      time.Now().UTC(),
-	})
-	if err := usecase.cache.StoreRegion(ctx, source.Region, latestPayload); err != nil {
-		usecase.logf("sync compare region=%s commit=%s reason=cache_store_region_error error=%v", source.Region, resolvedCommit, err)
-		return false
-	}
-
-	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:          "master_data_sync_progress",
-		Status:         "running",
-		Region:         source.Region,
-		Phase:          "cache",
-		Message:        "local backup cache restore completed",
-		CurrentStep:    progress.currentStep,
-		TotalSteps:     progress.totalSteps,
-		FileCount:      len(latestPayload),
-		ProcessedFiles: len(latestPayload),
-		TotalFiles:     len(latestPayload),
-		UpdatedAt:      time.Now().UTC(),
-	})
-
-	return true
-}
-
-// ensureVersionCachePopulated checks whether the version payload is available in
-// the version cache key. If the cache does not support separate version storage
-// it returns true immediately (nothing to worry about). Otherwise it tries to
-// load from cache, restore from the in-hand payload hint, or restore from a
-// commit-matched local backup before giving up.
-//
-// The backup restore is strict: only a snapshot whose commit matches
-// expectedCommit may be used, so a stale backup captured for a different commit
-// never leaks its versions.json into the cache during a commit-unchanged
-// shortcut. A missing version payload forces the caller to fall back to a full
-// sync.
-func (usecase *MasterDataSyncUsecase) ensureVersionCachePopulated(ctx context.Context, source masterdata.Source, expectedCommit string, payloadHint map[string]any) bool {
-	versionStore, ok := usecase.cache.(MasterDataCacheVersionStorer)
-	if !ok {
-		return true
-	}
-
-	if usecase.versionCacheAlreadyLoaded(ctx, source) {
-		return true
-	}
-	if usecase.tryRestoreVersionFromHint(ctx, source, versionStore, payloadHint) {
-		return true
-	}
-	if usecase.tryRestoreVersionFromBackup(ctx, source, versionStore, expectedCommit) {
-		return true
-	}
-
-	return false
-}
-
-func (usecase *MasterDataSyncUsecase) versionCacheAlreadyLoaded(ctx context.Context, source masterdata.Source) bool {
+// versionPayloadStored reports whether the region's version payload is
+// stored, or true when the store keeps no separate version payload. A missing
+// payload makes the caller fall back to a full sync.
+func (usecase *MasterDataSyncUsecase) versionPayloadStored(ctx context.Context, source masterdata.Source) bool {
 	versionLoader, ok := usecase.cache.(MasterDataCacheVersionLoader)
 	if !ok {
-		return false
+		return true
 	}
 	_, found, loadErr := versionLoader.LoadRegionVersionPayload(ctx, source.Region)
 	return loadErr == nil && found
-}
-
-func (usecase *MasterDataSyncUsecase) tryRestoreVersionFromHint(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, payloadHint map[string]any) bool {
-	if payloadHint == nil {
-		return false
-	}
-	return usecase.storeVersionFromPayload(ctx, source, versionStore, payloadHint)
-}
-
-func (usecase *MasterDataSyncUsecase) tryRestoreVersionFromBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
-	if usecase.backupStore == nil || expectedCommit == "" {
-		return false
-	}
-
-	if payload, found, err := usecase.backupStore.LoadRegionPayload(ctx, source, expectedCommit); err == nil && found {
-		if usecase.storeVersionFromPayload(ctx, source, versionStore, payload) {
-			return true
-		}
-	}
-
-	if usecase.restoreVersionFromLatestBackup(ctx, source, versionStore, expectedCommit) {
-		return true
-	}
-
-	return false
-}
-
-// restoreVersionFromLatestBackup restores the version payload from the latest
-// local backups, but only when the snapshot's commit matches expectedCommit.
-func (usecase *MasterDataSyncUsecase) restoreVersionFromLatestBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
-	if usecase.restoreVersionFromVersionBackup(ctx, source, versionStore, expectedCommit) {
-		return true
-	}
-
-	return usecase.restoreVersionFromPayloadBackup(ctx, source, versionStore, expectedCommit)
-}
-
-func (usecase *MasterDataSyncUsecase) restoreVersionFromVersionBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
-	versionBackupStore, ok := usecase.backupStore.(MasterDataVersionBackupStore)
-	if !ok {
-		return false
-	}
-
-	version, commit, _, found, err := versionBackupStore.LoadLatestRegionVersionPayload(ctx, source)
-	if err != nil || !found || !strings.EqualFold(commit, expectedCommit) {
-		return false
-	}
-
-	return usecase.restoreVersionPayload(ctx, source, versionStore, version)
-}
-
-func (usecase *MasterDataSyncUsecase) restoreVersionFromPayloadBackup(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, expectedCommit string) bool {
-	payload, commit, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
-	if err != nil || !found || !strings.EqualFold(commit, expectedCommit) {
-		return false
-	}
-
-	return usecase.storeVersionFromPayload(ctx, source, versionStore, payload)
-}
-
-func (usecase *MasterDataSyncUsecase) storeVersionFromPayload(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, payload map[string]any) bool {
-	version, ok := versionPayloadFromBackup(source, payload)
-	if !ok {
-		return false
-	}
-	return usecase.restoreVersionPayload(ctx, source, versionStore, version)
-}
-
-func (usecase *MasterDataSyncUsecase) restoreVersionPayload(ctx context.Context, source masterdata.Source, versionStore MasterDataCacheVersionStorer, version any) bool {
-	return versionStore.StoreRegionVersionPayload(ctx, source.Region, version) == nil
 }
 
 func (usecase *MasterDataSyncUsecase) loadStatusMap(ctx context.Context) map[string]masterdata.SyncStatus {
@@ -1801,25 +1479,6 @@ func (usecase *MasterDataSyncUsecase) Status(ctx context.Context) ([]masterdata.
 	}
 
 	return usecase.statusStore.List(ctx)
-}
-
-func (usecase *MasterDataSyncUsecase) RuntimeSearchIndexReadyRegions(ctx context.Context) ([]string, error) {
-	regions, err := usecase.SuccessfulSyncRegions(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	readyRegions := make([]string, 0, len(regions))
-	for _, region := range regions {
-		cacheReady := usecase.regionCacheReadySnapshot(region)
-		if !cacheReady {
-			continue
-		}
-
-		readyRegions = append(readyRegions, region)
-	}
-
-	return readyRegions, nil
 }
 
 func (usecase *MasterDataSyncUsecase) SuccessfulSyncRegions(ctx context.Context) ([]string, error) {
@@ -1955,23 +1614,6 @@ func (usecase *MasterDataSyncUsecase) DashboardStatus(ctx context.Context) ([]ma
 	return merged, nil
 }
 
-func (usecase *MasterDataSyncUsecase) regionCacheReadySnapshot(region string) bool {
-	if usecase == nil || usecase.cache == nil {
-		return true
-	}
-
-	region = strings.ToLower(strings.TrimSpace(region))
-	if region == "" {
-		return false
-	}
-
-	if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok {
-		return inspector.HasRegionIndex(region)
-	}
-
-	return true
-}
-
 func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, region string) (bool, error) {
 	if usecase == nil || usecase.cache == nil {
 		return true, nil
@@ -1982,45 +1624,28 @@ func (usecase *MasterDataSyncUsecase) regionCacheReady(ctx context.Context, regi
 		return false, nil
 	}
 
-	if loader, ok := usecase.cache.(MasterDataCacheIndexLoader); ok {
-		loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
-		if err != nil {
-			return false, fmt.Errorf("load region index %s: %w", region, err)
-		}
-		if loaded {
-			return true, nil
-		}
-	}
-
-	if rebuilder, ok := usecase.cache.(MasterDataCacheIndexRebuilder); ok {
-		rebuilt, err := rebuilder.RebuildRegionIndexFromRedis(ctx, region)
-		if err != nil {
-			return false, fmt.Errorf("rebuild region index %s: %w", region, err)
-		}
-		if rebuilt {
-			return true, nil
-		}
-	}
-
-	_, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
-	_, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
-	if !canLoad && !canRebuild {
-		if inspector, ok := usecase.cache.(MasterDataCacheIndexInspector); ok {
-			return inspector.HasRegionIndex(region), nil
-		}
-		if inspector, ok := usecase.cache.(MasterDataCacheRegionDataInspector); ok {
-			hasData, err := inspector.HasRegionData(ctx, region)
-			if err != nil {
-				return false, fmt.Errorf("check region data %s: %w", region, err)
-			}
-			return hasData, nil
-		}
-	}
-	if !canLoad && !canRebuild {
+	inspector, ok := usecase.cache.(MasterDataCacheRegionDataInspector)
+	if !ok {
 		return true, nil
 	}
+	hasData, err := inspector.HasRegionData(ctx, region)
+	if err != nil {
+		return false, fmt.Errorf("check region data %s: %w", region, err)
+	}
+	return hasData, nil
+}
 
-	return false, nil
+// RegionRecordCounts returns the number of stored records per region, or nil
+// when the store cannot count them. It only reads.
+func (usecase *MasterDataSyncUsecase) RegionRecordCounts(ctx context.Context) (map[string]int64, error) {
+	if usecase == nil {
+		return nil, nil
+	}
+	counter, ok := usecase.cache.(MasterDataCacheRegionRecordCounter)
+	if !ok {
+		return nil, nil
+	}
+	return counter.RegionRecordCounts(ctx)
 }
 
 func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
@@ -2037,32 +1662,8 @@ func (usecase *MasterDataSyncUsecase) ConfiguredRegions() []string {
 	return regions
 }
 
-// RedisReady reports whether the Redis cache backend is reachable. It returns
-// (true, nil) when Redis is reachable or when the configured cache does not
-// support connectivity checks. It returns (false, err) when Redis is
-// unreachable so the serve readiness probe can report the pod not ready.
-func (usecase *MasterDataSyncUsecase) RedisReady(ctx context.Context) (bool, error) {
-	if usecase == nil {
-		return false, fmt.Errorf("master data sync usecase is nil")
-	}
-	if usecase.cache == nil {
-		return false, fmt.Errorf("master data cache is nil")
-	}
-
-	pinger, ok := usecase.cache.(MasterDataRedisPinger)
-	if !ok {
-		return true, nil
-	}
-
-	if err := pinger.Ping(ctx); err != nil {
-		return false, fmt.Errorf("redis readiness check: %w", err)
-	}
-
-	return true, nil
-}
-
 // RegionVersionReady reports whether usable version metadata for a region is
-// available in the cache. The serve readiness probe requires persisted card
+// stored. The serve readiness probe requires persisted card
 // records AND version metadata before considering a region ready, and the
 // version payload must satisfy the same contract the public /versions response
 // enforces (at least one valid version field). When the cache does not support
@@ -2086,9 +1687,9 @@ func (usecase *MasterDataSyncUsecase) RegionVersionReady(ctx context.Context, re
 	payload, found, err := loader.LoadRegionVersionPayload(ctx, region)
 	if err != nil {
 		// A corrupt/malformed version payload is a data problem (surfaced by the
-		// caller as master_data), not a Redis connectivity failure. Only genuine
-		// Redis transport/read failures propagate as errors so the readiness probe
-		// reports the redis dependency instead of master_data.
+		// caller as master_data), not a store failure. Only genuine read failures
+		// propagate as errors, so the readiness probe reports the database
+		// dependency instead of master_data.
 		var syntaxErr *json.SyntaxError
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
@@ -2118,67 +1719,18 @@ func (usecase *MasterDataSyncUsecase) VersionByRegion(ctx context.Context, regio
 		return nil, false, nil
 	}
 
-	if loader, ok := usecase.cache.(MasterDataCacheVersionLoader); ok {
-		version, loadFound, loadErr := loader.LoadRegionVersionPayload(ctx, source.Region)
-		if loadErr != nil {
-			usecase.logf("version_by_region region=%s reason=versions_cache_load_error error=%v", source.Region, loadErr)
-		} else if version != nil && loadFound {
-			return version, true, nil
-		}
-	}
-
-	if usecase.backupStore == nil {
-		return nil, false, nil
-	}
-
-	if versionStore, ok := usecase.backupStore.(MasterDataVersionBackupStore); ok {
-		version, _, _, versionFound, err := versionStore.LoadLatestRegionVersionPayload(ctx, source)
-		if err != nil || versionFound {
-			return version, versionFound, err
-		}
-	}
-
-	payload, _, _, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
-	if err != nil || !found {
-		return nil, found, err
-	}
-
-	version, found := versionPayloadFromBackup(source, payload)
-	if !found {
-		return nil, false, nil
-	}
-
-	return version, true, nil
-}
-
-func (usecase *MasterDataSyncUsecase) WarmConfiguredRegionIndexes(ctx context.Context) ([]string, error) {
-	ctx, span := tracing.StartSpan(ctx, "master_data.warm_region_indexes")
-	var warmed []string
-	var err error
-	defer func() {
-		span.SetAttributes(attribute.Int("region.count", len(warmed)))
-		tracing.EndSpan(span, err)
-	}()
-
-	loader, ok := usecase.cache.(MasterDataCacheIndexLoader)
+	loader, ok := usecase.cache.(MasterDataCacheVersionLoader)
 	if !ok {
-		return nil, nil
+		return nil, false, nil
 	}
-
-	regions := usecase.ConfiguredRegions()
-	warmed = make([]string, 0, len(regions))
-	for _, region := range regions {
-		loaded, loadErr := loader.LoadRegionIndexFromRedis(ctx, region)
-		if loadErr != nil {
-			err = fmt.Errorf("warm region index %s: %w", region, loadErr)
-			return warmed, err
-		}
-		if loaded {
-			warmed = append(warmed, region)
-		}
+	version, found, err := loader.LoadRegionVersionPayload(ctx, source.Region)
+	if err != nil {
+		return nil, false, fmt.Errorf("load region version payload %s: %w", source.Region, err)
 	}
-
-	return warmed, nil
+	if version == nil || !found {
+		return nil, false, nil
+	}
+	return version, true, nil
 }
 
 func (usecase *MasterDataSyncUsecase) sourceByRegion(region string) (masterdata.Source, bool) {
@@ -2196,7 +1748,7 @@ func (usecase *MasterDataSyncUsecase) sourceByRegion(region string) (masterdata.
 	return masterdata.Source{}, false
 }
 
-func versionPayloadFromBackup(source masterdata.Source, payload map[string]any) (any, bool) {
+func versionPayloadFromFiles(source masterdata.Source, payload map[string]any) (any, bool) {
 	if len(payload) == 0 {
 		return nil, false
 	}
@@ -2219,60 +1771,6 @@ func versionPayloadFromBackup(source masterdata.Source, payload map[string]any) 
 	}
 
 	return nil, false
-}
-
-func (usecase *MasterDataSyncUsecase) EnsureConfiguredRegionIndexes(ctx context.Context) ([]string, []string, error) {
-	ctx, span := tracing.StartSpan(ctx, "master_data.ensure_region_indexes")
-	var loadedRegions []string
-	var rebuiltRegions []string
-	var err error
-	defer func() {
-		span.SetAttributes(
-			attribute.Int("region.loaded.count", len(loadedRegions)),
-			attribute.Int("region.rebuilt.count", len(rebuiltRegions)),
-		)
-		tracing.EndSpan(span, err)
-	}()
-
-	regions := usecase.ConfiguredRegions()
-	if len(regions) == 0 {
-		return nil, nil, nil
-	}
-
-	loader, canLoad := usecase.cache.(MasterDataCacheIndexLoader)
-	rebuilder, canRebuild := usecase.cache.(MasterDataCacheIndexRebuilder)
-	if !canLoad && !canRebuild {
-		return nil, nil, nil
-	}
-
-	loadedRegions = make([]string, 0, len(regions))
-	rebuiltRegions = make([]string, 0, len(regions))
-	for _, region := range regions {
-		if canLoad {
-			loaded, err := loader.LoadRegionIndexFromRedis(ctx, region)
-			if err != nil {
-				err = fmt.Errorf("ensure region index %s load: %w", region, err)
-				return loadedRegions, rebuiltRegions, err
-			}
-			if loaded {
-				loadedRegions = append(loadedRegions, region)
-				continue
-			}
-		}
-
-		if canRebuild {
-			rebuilt, err := rebuilder.RebuildRegionIndexFromRedis(ctx, region)
-			if err != nil {
-				err = fmt.Errorf("ensure region index %s rebuild: %w", region, err)
-				return loadedRegions, rebuiltRegions, err
-			}
-			if rebuilt {
-				rebuiltRegions = append(rebuiltRegions, region)
-			}
-		}
-	}
-
-	return loadedRegions, rebuiltRegions, nil
 }
 
 func (usecase *MasterDataSyncUsecase) IsSyncRunning() bool {
@@ -2454,22 +1952,6 @@ func (usecase *MasterDataSyncUsecase) ListAll(ctx context.Context, region string
 	return items, err
 }
 
-func (usecase *MasterDataSyncUsecase) Search(ctx context.Context, region string, entity string, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	ctx, span := tracing.StartSpan(ctx, "master_data.search", attribute.String("region", strings.ToLower(strings.TrimSpace(region))), attribute.String("entity", strings.ToLower(strings.TrimSpace(entity))), attribute.Int("search.field.count", len(fields)), attribute.Int("search.limit", limit))
-	var err error
-	defer func() {
-		tracing.EndSpan(span, err)
-	}()
-
-	if usecase.cache == nil {
-		return []masterdata.SearchMatch{}, nil
-	}
-
-	matches, err := usecase.cache.Search(ctx, region, entity, query, fields, limit)
-	span.SetAttributes(attribute.Int("result.count", len(matches)))
-	return matches, err
-}
-
 // CurrentEvent returns the event whose startAt..closedAt window contains now,
 // preferring the latest start. It picks the event from the events list
 // projection and reads only that record, so it never writes.
@@ -2521,184 +2003,6 @@ func (usecase *MasterDataSyncUsecase) CurrentEvent(ctx context.Context, region s
 	return record, true, nil
 }
 
-func (usecase *MasterDataSyncUsecase) restoreRegionFromLatestLocalBackup(ctx context.Context, source masterdata.Source, currentStep int, totalSteps int) (bool, error) {
-	if usecase.backupStore == nil {
-		return false, nil
-	}
-
-	backupPayload, commit, restoredAt, found, err := usecase.backupStore.LoadLatestRegionPayload(ctx, source)
-	if err != nil {
-		return false, fmt.Errorf("load latest backup payload: %w", err)
-	}
-	if !found {
-		return false, nil
-	}
-
-	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:       "master_data_sync_progress",
-		Status:      "running",
-		Region:      source.Region,
-		Phase:       "bootstrap",
-		Message:     "comparing local versions.json with remote",
-		CurrentStep: currentStep,
-		TotalSteps:  totalSteps,
-		UpdatedAt:   time.Now().UTC(),
-	})
-
-	canRestore, reason, compareErr := usecase.canRestoreFromLocalBackupByVersions(ctx, source, backupPayload)
-	if compareErr != nil {
-		usecase.logf("sync bootstrap local backup compare failed region=%s reason=%s error=%v", source.Region, reason, compareErr)
-		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-			Event:       "master_data_sync_progress",
-			Status:      "running",
-			Region:      source.Region,
-			Phase:       "bootstrap",
-			Message:     "local versions.json compare failed, fallback to remote sync",
-			CurrentStep: currentStep,
-			TotalSteps:  totalSteps,
-			UpdatedAt:   time.Now().UTC(),
-		})
-		return false, nil
-	}
-	if !canRestore {
-		usecase.logf("sync bootstrap local backup skipped region=%s reason=%s", source.Region, reason)
-		usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-			Event:       "master_data_sync_progress",
-			Status:      "running",
-			Region:      source.Region,
-			Phase:       "bootstrap",
-			Message:     "local versions.json mismatch remote, fallback to remote sync",
-			CurrentStep: currentStep,
-			TotalSteps:  totalSteps,
-			UpdatedAt:   time.Now().UTC(),
-		})
-		return false, nil
-	}
-
-	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:          "master_data_sync_progress",
-		Status:         "running",
-		Region:         source.Region,
-		Phase:          "cache",
-		Message:        "restoring cache from local backup",
-		CurrentStep:    currentStep,
-		TotalSteps:     totalSteps,
-		FileCount:      len(backupPayload),
-		ProcessedFiles: 0,
-		TotalFiles:     len(backupPayload),
-		UpdatedAt:      time.Now().UTC(),
-	})
-
-	if err := usecase.cache.StoreRegion(ctx, source.Region, backupPayload); err != nil {
-		return false, fmt.Errorf("restore latest backup payload: %w", err)
-	}
-
-	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:          "master_data_sync_progress",
-		Status:         "running",
-		Region:         source.Region,
-		Phase:          "cache",
-		Message:        "local backup cache restore completed",
-		CurrentStep:    currentStep,
-		TotalSteps:     totalSteps,
-		FileCount:      len(backupPayload),
-		ProcessedFiles: len(backupPayload),
-		TotalFiles:     len(backupPayload),
-		UpdatedAt:      time.Now().UTC(),
-	})
-
-	if restoredAt.IsZero() {
-		restoredAt = time.Now().UTC()
-	}
-
-	statusSavedAt := time.Now().UTC()
-	status := masterdata.SyncStatus{
-		Region:         source.Region,
-		Status:         "success",
-		FileCount:      len(backupPayload),
-		SyncDurationMS: 0,
-		LastSyncedAt:   restoredAt,
-		SourceCommit:   strings.TrimSpace(commit),
-		Source:         source,
-		UpdatedAt:      statusSavedAt,
-	}
-	if err := usecase.saveStatus(ctx, status); err != nil {
-		return false, fmt.Errorf("save restored backup status: %w", err)
-	}
-
-	usecase.logf("sync bootstrap restored from local backup region=%s commit=%s files=%d", source.Region, status.SourceCommit, len(backupPayload))
-	usecase.publishSyncEvent(ctx, masterdata.SyncUpdatedEvent{
-		Event:       "master_data_sync_progress",
-		Status:      "success",
-		Region:      source.Region,
-		Phase:       "bootstrap",
-		Message:     "database status missing, restored cache from local backup",
-		CurrentStep: currentStep,
-		TotalSteps:  totalSteps,
-		FileCount:   len(backupPayload),
-		UpdatedAt:   statusSavedAt,
-	})
-
-	return true, nil
-}
-
-func (usecase *MasterDataSyncUsecase) canRestoreFromLocalBackupByVersions(ctx context.Context, source masterdata.Source, backupPayload map[string]any) (bool, string, error) {
-	localVersion, localFound := versionPayloadFromBackup(source, backupPayload)
-	if !localFound {
-		return false, "local_versions_missing", nil
-	}
-
-	remoteVersion, remoteFound, err := usecase.loadRemoteVersionPayload(ctx, source)
-	if err != nil {
-		return false, "remote_versions_load_failed", err
-	}
-	if !remoteFound {
-		return false, "remote_versions_missing", nil
-	}
-
-	matched, err := jsonValuesEqual(localVersion, remoteVersion)
-	if err != nil {
-		return false, "versions_compare_failed", err
-	}
-	if !matched {
-		return false, "versions_mismatch", nil
-	}
-
-	return true, "versions_matched", nil
-}
-
-func (usecase *MasterDataSyncUsecase) loadRemoteVersionPayload(ctx context.Context, source masterdata.Source) (any, bool, error) {
-	if usecase.loader == nil {
-		return nil, false, errors.New("source loader is not configured")
-	}
-
-	versionSource := source
-	versionSource.Path = versionsSourcePath(source)
-	payload, err := usecase.loader.LoadRegion(ctx, versionSource)
-	if err != nil {
-		return nil, false, err
-	}
-
-	version, found := versionPayloadFromBackup(source, payload)
-	if !found {
-		return nil, false, nil
-	}
-
-	return version, true, nil
-}
-
-func versionsSourcePath(source masterdata.Source) string {
-	trimmedPath := strings.Trim(strings.TrimSpace(source.Path), "/")
-	if trimmedPath == "" {
-		return "versions.json"
-	}
-	if strings.EqualFold(path.Base(trimmedPath), "versions.json") {
-		return trimmedPath
-	}
-
-	return path.Join(trimmedPath, "versions.json")
-}
-
 func jsonValuesEqual(left any, right any) (bool, error) {
 	leftBytes, err := json.Marshal(left)
 	if err != nil {
@@ -2718,20 +2022,7 @@ func (usecase *MasterDataSyncUsecase) fallbackToPreviousAvailableState(ctx conte
 		return errors.New("previous available status not found")
 	}
 
-	restored := false
 	commit := strings.TrimSpace(previous.SourceCommit)
-	if usecase.backupStore != nil && commit != "" {
-		backupPayload, backupFound, backupErr := usecase.backupStore.LoadRegionPayload(ctx, source, commit)
-		if backupErr != nil {
-			return fmt.Errorf("load backup payload: %w", backupErr)
-		}
-		if backupFound {
-			if err := usecase.cache.StoreRegion(ctx, source.Region, backupPayload); err != nil {
-				return fmt.Errorf("restore backup payload: %w", err)
-			}
-			restored = true
-		}
-	}
 
 	if fallbackAt.IsZero() {
 		fallbackAt = time.Now().UTC()
@@ -2753,11 +2044,7 @@ func (usecase *MasterDataSyncUsecase) fallbackToPreviousAvailableState(ctx conte
 		return fmt.Errorf("save fallback status: %w", err)
 	}
 
-	if restored {
-		usecase.logf("fallback restored from backup region=%s commit=%s", source.Region, commit)
-	} else {
-		usecase.logf("fallback kept previous cached state region=%s commit=%s", source.Region, commit)
-	}
+	usecase.logf("fallback kept previous stored state region=%s commit=%s", source.Region, commit)
 
 	return nil
 }

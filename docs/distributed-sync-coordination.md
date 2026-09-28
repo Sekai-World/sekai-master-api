@@ -46,7 +46,9 @@ Sync entry points that must become cross-pod mutually exclusive: startup
 | Redis lease (`SET NX PX`) + `INCR` fencing counter | rejected as primary | The fencing counter would live in the datastore that Redis-loss recovery rebuilds. After a Redis wipe the counter restarts and a partitioned stale owner's old (high) token would compare as valid again, reopening the exact window fencing exists to close. |
 | Kubernetes Lease | rejected | Adds `k8s.io/client-go` + RBAC, couples coordination to cluster machinery while the app already runs split-role on plain hosts (`run-serve` / `run-control`), and still needs a separate durable fencing counter. |
 
-Redis remains the data plane; it just does not host the coordinator.
+Redis was the data plane when this was decided; master data has since moved to
+PostgreSQL ([store design](postgres-master-data-store.md)), where the same
+lease also fences data writes.
 
 ## Lease protocol
 
@@ -68,7 +70,7 @@ CREATE TABLE master_data_sync_leases (
 A single lease scope (`master-data-sync`) covers all sync entry points,
 preserving today's "one active sync job per deployment" semantics across
 pods. Region-scoped leases are a deliberate non-goal: region syncs share the
-Redis data plane, status history, and backup store, and partial-region
+master-data store and status history, and partial-region
 concurrency across pods buys little for the added split-brain surface.
 
 Instance identity: `os.Hostname()` (pod name) plus process boot timestamp,
@@ -128,29 +130,19 @@ durable stores, not just in the holder's memory:
    lease's current token. This protects the authoritative record of
    "last successful sync per region" — the input to skip decisions,
    readiness, and the dashboard — with an airtight storage-side check.
-2. **Redis data-plane writes — phase-boundary fencing plus idempotent
-   shapes.** Per-key token checks on Redis writes are not proposed. Instead
-   the job re-verifies lease ownership at each region-phase boundary
-   (before load, before cache store, before version-cache store); writes
-   between boundaries are bounded by the phase durations and the job
-   timeout. Safety of a bounded stale write is provided by the existing
-   content-addressed write shapes: entity records/order are guarded by
-   revision and source-digest comparisons
-   (`StoreRegionWithSourceDigests`), version payloads are keyed by commit.
-   A stale writer can at worst re-write content its own earlier phase
-   loaded; the next authoritative owner's revision/digest compare detects
-   and corrects divergence on the next sync.
-3. **Local backup store — guarded by content addressing.** Backup payload
-   directories are commit-named; a stale write lands as an unreferenced
-   snapshot and is ignored by commit-pinned loads.
+2. **Master-data writes — strict fencing.** The PostgreSQL master-data store
+   writes each entity in one transaction that first reads
+   `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR SHARE`
+   and aborts with `ErrFencedOut` unless the token still matches the one the
+   sync holds. Sync jobs carry their token in the context
+   (`masterdata.WithFencingToken`), so records, derived data, version
+   payloads, and entity pruning are all checked at the store. Writes without
+   a token pass, as they do for status, when the lease is disabled.
 
-Residual risk, stated plainly: between phase boundaries a partitioned stale
-owner may still write Redis. The window is bounded (phase-level, not
-unbounded), the written content is commit/revision-addressed so it cannot
-masquerade as newer data, and the PG status fence prevents it from ever
-being recorded as successful. This is the standard pragmatic fencing
-boundary (strict check at the source-of-truth store; idempotency + checks
-at derived stores) and it is what the acceptance tests will demonstrate.
+Before the move to PostgreSQL, data-plane writes went to Redis and were only
+checked at phase boundaries, with content-addressed write shapes bounding a
+stale owner's writes, and a commit-named local backup store. Both are gone;
+the stale-write window described for them no longer exists.
 
 ## Idempotency
 
@@ -158,18 +150,15 @@ at derived stores) and it is what the acceptance tests will demonstrate.
 - Status transitions remain region-keyed upserts; with the token guard they
   become "write only if mine is the current lease" — retrying after
   takeover correctly fails instead of double-writing.
-- Sync payloads are commit-addressed end to end (Redis records by revision,
-  version payloads by commit, backups by commit), so a re-run after
-  interruption converges rather than duplicates.
+- Store writes compare each entity's revision and source digest, so a re-run
+  after interruption converges rather than duplicates.
 
 ## Failure scenarios
 
 | Scenario | Behavior |
 |----------|----------|
 | Owner pod crashes mid-sync | Lease expires after TTL; next pod acquires with token+1, runs `RecoverInterruptedSync` (statuses for the dead owner's regions are still `running`/`pending` and recoverable), completes the set. |
-| Owner partitioned from PG, still running | Heartbeat renew fails → job context cancelled → same recoverable-interruption path. Writes it attempted afterwards fail the PG fence; Redis-side effect bounded as above. |
-| Owner partitioned from PG *and* Redis | Nothing to write; cancellation on next phase boundary/heartbeat failure. |
-| Redis loss during owned sync | Existing behavior: sync fails or falls back per region; lease is untouched (it lives in PG), owner may retry/force-sync without a lease flap. |
+| Owner partitioned from PG, still running | Heartbeat renew fails → job context cancelled → same recoverable-interruption path. Writes it attempted afterwards fail the PG fence. |
 | PG failover during heartbeat | Renewal fails → owner self-cancels; after failover a pod re-acquires. Token durability follows PG durability — by design the strongest available. |
 | Two pods start simultaneously | One Acquire wins (single row, atomic token bump); loser skips/waits. |
 
@@ -264,8 +253,8 @@ fake coordinator did not validate the release context.
 - `internal/repository/master_data_sync_status_repository.go` — status
   store (driver-split), fencing integration point
 - `internal/storage/migrations/` — status schema/history/latest view
-- `internal/storage/master_data_redis_cache.go` — content-addressed write
-  shapes (`StoreRegionWithSourceDigests` revision/digest guards)
+- `internal/storage/master_data_postgres_store.go` — fenced entity writes
+  and revision/digest guards (`StoreRegionWithSourceDigests`)
 - `cmd/api/main.go` — startup `SyncAll`/`RecoverInterruptedSync` wiring
 - `deploy/helm/sekai-master-api/values.schema.json` — `control.replicaCount`
   lock and rollout gating

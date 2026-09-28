@@ -11,15 +11,10 @@ import (
 	"sekai-master-api/internal/usecase"
 )
 
-func RuntimeSearchIndexReadyRegions(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase) ([]string, error) {
-	if masterDataSync == nil {
-		return nil, nil
-	}
-
-	return masterDataSync.RuntimeSearchIndexReadyRegions(ctx)
-}
-
-func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) (bool, error) {
+// RegionHasSyncedEntityRecords reports whether region's data is ready for an
+// entity: the region's latest sync status is success and the store holds
+// records of the entity.
+func RegionHasSyncedEntityRecords(ctx context.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) (bool, error) {
 	if masterDataSync == nil {
 		return true, nil
 	}
@@ -31,31 +26,10 @@ func RegionHasEntityRecordsOrReady(ctx context.Context, masterDataSync *usecase.
 	}
 
 	hasRecords, err := masterDataSync.HasEntityRecords(ctx, normalizedRegion, normalizedEntity)
-	if err != nil {
+	if err != nil || !hasRecords {
 		return false, err
 	}
-	if hasRecords {
-		hasSuccessfulSync, err := masterDataSync.HasSuccessfulSync(ctx, normalizedRegion)
-		if err != nil {
-			return false, err
-		}
-		if hasSuccessfulSync {
-			return true, nil
-		}
-	}
-
-	readyRegions, err := RuntimeSearchIndexReadyRegions(ctx, masterDataSync)
-	if err != nil {
-		return false, err
-	}
-
-	for _, readyRegion := range readyRegions {
-		if readyRegion == normalizedRegion {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return masterDataSync.HasSuccessfulSync(ctx, normalizedRegion)
 }
 
 func EnsureRegionReadyForEntityRecords(c *gin.Context, masterDataSync *usecase.MasterDataSyncUsecase, region string, entity string) bool {
@@ -63,7 +37,7 @@ func EnsureRegionReadyForEntityRecords(c *gin.Context, masterDataSync *usecase.M
 		return true
 	}
 
-	ready, err := RegionHasEntityRecordsOrReady(c.Request.Context(), masterDataSync, region, entity)
+	ready, err := RegionHasSyncedEntityRecords(c.Request.Context(), masterDataSync, region, entity)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
 		return false

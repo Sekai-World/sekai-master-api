@@ -2,7 +2,7 @@
 
 ## Sync
 
-At startup, the API can sync parsed game database JSON files from one or more GitHub repositories into cache. Startup sync runs in the background after the HTTP listener is available.
+At startup, the API can sync parsed game database JSON files from one or more GitHub repositories into the PostgreSQL store. Startup sync runs in the background after the HTTP listener is available.
 
 Region sources are configured with:
 
@@ -29,16 +29,14 @@ Set `MASTER_DATA_GITHUB_TOKEN` if higher GitHub API rate limits are needed.
 
 - Startup sync compares the configured source commit with the latest successful sync record.
 - Commit comparison uses the GitHub REST API first and falls back to Git smart HTTP ref advertisement when the REST lookup is unavailable, so anonymous API rate limits do not force every region into a full archive sync. The fallback resolves only advertised branches, tags, or `HEAD`; a raw SHA configured as `MASTER_DATA_GITHUB_REF_<REGION>` cannot be resolved through this fallback, so operators relying on it must configure a branch or tag instead.
-- For a normal sync after resolving a distinct remote commit, the upstream-complete `versions.json` manifest is fetched at that exact commit. Because the upstream contract includes every API-relevant synchronized data change, an equivalent local backup manifest allows the archive load to be skipped; `SourceCommit` remains pinned to the resolved commit as the local snapshot identity.
-- Unchanged regions validate persisted Redis search indexes and rebuild missing or stale persisted indexes when needed.
+- For a normal sync after resolving a distinct remote commit, the upstream-complete `versions.json` manifest is fetched at that exact commit. Because the upstream contract includes every API-relevant synchronized data change, a manifest equal to the stored version payload allows the archive load to be skipped while the store still holds the region; `SourceCommit` remains pinned to the resolved commit as the local snapshot identity.
+- Unchanged regions skip the load when the store still holds the region (`HasRegionData`) and its version payload; relation indexes and list projections whose definitions changed are rebuilt from the stored records (`EnsureDerivedEntityData`). Otherwise the region falls back to a full sync.
 - Admin dashboard status items are read-only views of persisted sync status. They do not downgrade a successful sync to `pending` just because the current process has not retained a decoded runtime cache/index after restart.
-- Available-region reads, dashboard readiness region lists, and observability metric callbacks are read-only runtime readiness snapshots. They report whether the current process has retained usable runtime cache/index state, but they do not load, rebuild, rewrite, or repair Redis search indexes.
-- The `serve` role's Kubernetes `/readyz` probe is a deeper, bounded, read-only readiness snapshot for split deployment: it verifies PostgreSQL (via `/startupz`) and Redis connectivity, then requires every configured region to have persisted card records **and** a complete `versions.json` payload (the same contract the public `/versions` response enforces) before reporting the pod ready. Its response enumerates affected (unready) regions and never includes secrets such as database URLs, Redis credentials, or source repository references.
-- Safe single-entity data endpoints can still serve from persisted Redis by-id records after a process restart even when decoded search indexes have not been warmed in memory, but only while the region's current persisted sync status is `success`.
-- If Redis data is missing but local backup exists, cache is restored from backup.
+- Available-region reads, dashboard status, readiness probes, and observability metric callbacks only read sync status and the store; only sync writes master data.
+- The `serve` role's Kubernetes `/readyz` probe is a deeper, bounded, read-only readiness snapshot for split deployment: it verifies PostgreSQL, then requires every configured region to have persisted card records **and** a complete `versions.json` payload (the same contract the public `/versions` response enforces) before reporting the pod ready. Its response enumerates affected (unready) regions and never includes secrets such as database URLs or source repository references. A store read error reports the reason `database`.
 - Changed regions download one GitHub tarball for the resolved commit and extract JSON files under the configured path.
-- Cache writes are incremental: changed records are upserted and deleted records are removed.
-- A changed region's whole extracted payload stays in memory from extraction through the Redis store and local backup (about 290 MB of compact JSON records for JP at 6.8.0). During the store, each entity's search index is built by decoding one record at a time instead of holding every decoded record map. Stored record bodies are zstd-compressed by pooled single-concurrency encoders, whose output matches the default encoder byte for byte, and record reads share one decoder. Measured on JP 6.8.0 at file concurrency 8 (`GOMEMLIMIT=900MiB`), a forced full store now peaks at about 510 MiB live heap instead of about 764 MiB.
+- Store writes are per entity: an entity whose source digest and derived-data versions match is skipped, and a changed entity is rewritten in one transaction (see [PostgreSQL Store](#postgresql-store)).
+- A changed region's whole extracted payload stays in memory from extraction through the store (about 290 MB of compact JSON records for JP at 6.8.0). Blocks and projections are zstd-compressed by pooled single-concurrency encoders, and reads share one decoder.
 - Sync status is persisted in `master_data_sync_status`; latest status is exposed through `master_data_sync_status_latest`.
 - Sync status includes region, state, file count, source info, source commit, sync duration, and timestamps.
 - Sync events are exposed through `GET /api/v1/admin/master-data/events`.
@@ -51,20 +49,20 @@ Useful settings:
 - `MASTER_DATA_HTTP_RETRY_COUNT`
 - `MASTER_DATA_HTTP_RETRY_BACKOFF_MS`
 - `MASTER_DATA_GITHUB_WEBHOOK_SECRET`
-- `MASTER_DATA_WARM_SEARCH_INDEXES` controls optional startup persisted search-index warmup. It defaults to off in development so indexes are ensured lazily per searched entity, and defaults to on outside development unless explicitly overridden.
-- `MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES` bounds the in-process LRU cache of decoded search indexes. The default is `32`; set it to `0` to disable decoded-index retention while keeping Redis persisted indexes authoritative.
 
 Temporary sync workspace:
 
 - `tmp/master-data-sync-resume/` (overridable via `MASTER_DATA_RESUME_BASE_DIR`)
-- `tmp/master-data-backup/<region>/latest/`
+
+There is no local backup: the source repositories on GitHub are the canonical
+copy of every record, and a forced sync rewrites a region.
 
 ## PostgreSQL Store
 
-`MASTER_DATA_STORE=postgres` keeps master data in PostgreSQL instead of Redis
-(`storage.PostgresMasterDataStore`; design in
-[postgres-master-data-store.md](postgres-master-data-store.md)). The default is
-`redis`. With `postgres`, the process does not connect to Redis at all.
+Master data lives in PostgreSQL (`storage.PostgresMasterDataStore`; design in
+[postgres-master-data-store.md](postgres-master-data-store.md)). The Redis
+store was removed: the process does not connect to Redis, and
+`MASTER_DATA_STORE` is optional and accepts only `postgres`.
 
 - **Tables.** `master_entities` (one row per region and entity: revision,
   tagged source digest, record count, zstd order keys, index and projection
@@ -74,7 +72,7 @@ Temporary sync workspace:
   blocks that close at 32 record keys or on the record that brings them to
   64 kB of JSON. A block is a zstd JSON array of
   `[record_key, [position, ...], record]`: a key the source repeats keeps
-  every position and reads the record stored last under it, as in Redis.
+  every position and reads the record stored last under it.
 - **Writes.** Each entity is one transaction: it rewrites the blocks and order
   keys when the revision changes, the postings and projection when the records
   or their definitions change, and then the entity row. An entity whose source
@@ -88,60 +86,40 @@ Temporary sync workspace:
   with the greatest `first_key` at or below each key; `ListAll` reads all
   blocks; `ListByIndex` reads the index version, the postings, and their
   blocks together, using the SQL `master_block_sort_key()` function.
-  `ListByPage` reads the order keys and then the page. `Search` is not
-  supported; it has no HTTP caller.
-- **Readiness.** The store has no search index. A region counts as populated
-  when an entity has records (`HasRegionData`), which the commit-unchanged
-  shortcut and the cache-ready check use.
-- **Parity.** The storage contract suite runs every scenario against both
-  stores and compares their answers. `MASTER_DATA_PARITY_DIR=<checkout of a
-  master data repository> go test ./internal/storage -run
-  StoreParityOnSourceDirectory` compares both stores on real data.
+  `ListByPage` reads the order keys and then the page. Batch reads decode
+  records on every core, so handlers batch keys into one call rather than
+  looping over `GetByID`.
+- **Readiness.** A region counts as populated when an entity has records
+  (`HasRegionData`), which the commit-unchanged shortcut and the cache-ready
+  check use.
+- **Contract.** `internal/storage/master_data_store_contract_test.go` pins the
+  answers of the reads handlers and sync use.
+- **Inspecting records.** Blocks are opaque to SQL; use
+  `sekai-master-api dump` (see
+  [Inspecting records](postgres-master-data-store.md#inspecting-records)).
 
-## Cache Strategy
+## Keys, Indexes, and Projections
 
-Redis settings:
+`resourceboxes`, `resourceboxdetails`, and `charactermissionv2parametergroups` are keyed by composite keys (`masterdata.CompositeKeyFields`) instead of bare business IDs: resource boxes key on `(id, resourceBoxPurpose)`, details key on `(resourceBoxId, resourceBoxPurpose, seq)`, and parameter groups key on `(id, seq)`. The original record body and business fields are unchanged. Records missing any required key component receive deterministic `auto:` keys, with an occurrence suffix for identical incomplete records so they remain independently listable. Read a record whose full key is known with `GetByCompositeKeys` (any number of keys in one read, for example `{id, resourceBoxPurpose: "event_ranking_reward"}`); `GetByID` and `GetByIDs` intentionally report no match for these entities because a bare ID cannot disambiguate them.
 
-- `REDIS_ADDR`
-- `REDIS_PASSWORD`
-- `REDIS_DB`
-- `REDIS_DIAL_TIMEOUT_SECONDS`
-- `REDIS_READ_TIMEOUT_SECONDS`
-- `REDIS_WRITE_TIMEOUT_SECONDS`
-- `REDIS_POOL_TIMEOUT_SECONDS`
-- `MASTER_DATA_REDIS_KEY_PREFIX`
+Relation indexes answer "which records have this field value" without decoding an entity. `masterdata.EntityIndexes` (`internal/domain/masterdata/index.go`) defines them per entity, for example `gachas` by `gachaPickups.cardId`, `resourceboxes` by `id`, `resourceboxdetails` by `resourceBoxId,resourceBoxPurpose`, and the event, card, music, and virtual live child tables by their parent ID. A field path steps into objects with `.` and indexes every element of an array; several fields are joined with `,`. Each index maps the canonical field value (decimal numbers, trimmed strings, length-prefixed parts for several fields) to the storage keys carrying it, in stored order, as postings in `master_record_index`. Sync builds the indexes from the records it stores and writes them in the same transaction as the records, so readers never see an index that disagrees with the data. The entity's `index_version` records the definitions they were built from: a store rebuilds an entity's indexes when its records change or its definitions differ, even for an unchanged source file, and a sync that skips an unchanged commit calls `EnsureDerivedEntityData` to build out-of-date indexes and list projections from the stored records, falling back to a full sync if that fails. `ListByIndex` answers any number of lookups with one index read and one batched record read; until an entity's index is built it scans the entity and logs `master data index not built; scanning entity`, so results stay correct right after a deploy.
 
-Redis timeout settings use whole seconds and default to `0`, which preserves
-go-redis's built-in defaults. Set them when the API connects over a slower or
-forwarded link such as `kubectl port-forward`; read and write timeouts bound
-large hash reads and pipeline I/O, while the pool timeout bounds connection
-pool waits.
-
-Search indexes are scoped to fields used by API search paths instead of every scalar field. The default searchable field is `name`; `cards` additionally indexes `prefix` and `cardSkillName`; relationship lookups index `cardId`, `eventId`, `musicId`, `virtualLiveId`, `eventStoryId`, `cardRarityType`, and `unit` when those fields are present. Persisted search indexes live in Redis as entity payload keys plus matching `:search-index-version` keys. Decoded Go in-memory index structures are held only in the bounded `MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES` LRU cache, so hot searched entities avoid repeated Redis decode work without retaining every region/entity forever. Loading an older persisted search index filters out fields outside that policy before using it in memory. Older Redis payloads may also use the legacy raw `{field: [id, ...]}` shape instead of `{id, normalized_text}` items; load-time migration resolves those IDs through the entity `:by-id` hash, rebuilds the searchable text, and rewrites the compact persisted index format.
-
-`MASTER_DATA_WARM_SEARCH_INDEXES` and the related ensure flow validate that the persisted Redis search indexes needed by search endpoints already exist, or rebuild those persisted indexes when Redis is missing or stale data. Search misses may also rebuild the requested entity index from Redis by-id data. Any decoded indexes created during warmup, ensure, or search are still subject to the same bounded LRU cache; Redis remains the authoritative source. Rebuild cleanup deletes stale search-index payload keys, their matching version keys, and empty region search-index entity sets so Redis key counts do not retain orphaned index metadata.
-
-`resourceboxes`, `resourceboxdetails`, and `charactermissionv2parametergroups` use versioned, length-prefixed composite Redis hash fields instead of bare business IDs: resource boxes key on `(id, resourceBoxPurpose)`, details key on `(resourceBoxId, resourceBoxPurpose, seq)`, and parameter groups key on `(id, seq)`. The original record body and business fields are unchanged. Records missing any required key component receive deterministic `auto:` keys, with an occurrence suffix for identical incomplete records so they remain independently listable. Read a record whose full key is known with `GetByCompositeKeys` (one HMGET for any number of keys, for example `{id, resourceBoxPurpose: "event_ranking_reward"}`); the legacy `GetByID` and `GetByIDs` intentionally report no match for these entities because a bare ID cannot disambiguate them. These entities are excluded from search indexes and `Search` returns no matches. The next region store migrates legacy bare-ID hash/order entries and removes their stale search-index artifacts, even when the source digest is unchanged.
-
-Relation indexes answer "which records have this field value" without decoding an entity. `masterdata.EntityIndexes` (`internal/domain/masterdata/index.go`) defines them per entity, for example `gachas` by `gachaPickups.cardId`, `resourceboxes` by `id`, `resourceboxdetails` by `resourceBoxId,resourceBoxPurpose`, and the event, card, music, and virtual live child tables by their parent ID. A field path steps into objects with `.` and indexes every element of an array; several fields are joined with `,`. Each index is a Redis hash `<region>:<entity>:index:<name>` from the canonical field value (decimal numbers, trimmed strings, length-prefixed parts for several fields) to a JSON array of storage keys in stored order. Sync builds the indexes from the records it stores and writes them in the same MULTI/EXEC as the records, so readers never see an index that disagrees with the data. `<entity>:index-version` records the definitions they were built from: a store rebuilds an entity's indexes when its records change or its definitions differ, even for an unchanged source file, and a sync that skips an unchanged commit calls `EnsureDerivedEntityData` to build out-of-date indexes and list projections from Redis, falling back to a full sync if that fails. `ListByIndex` answers any number of lookups with one index read and one batched record read; until an entity's index is built it scans the entity and logs `master data index not built; scanning entity`, so results stay correct right after a deploy.
-
-Handlers read a request's related records through `GetByIDs`, `GetByCompositeKeys`, or `ListByIndex` and must not decode a large entity with `ListAll` per request or per item; the API latency budget is under 1 s per request and never over 3 s. Mission and character rank reward catalogs are built per request from the boxes, details, and items the request references. List endpoints read list projections instead of entities. `masterdata.ProjectionFields` (`internal/domain/masterdata/projection.go`) lists, per entity, the fields its list filters, sorts, and spoiler-checks on, and for small lists everything they return (currently `cards`, `gachas`, `costume3ds`, and `costume3dgroups`). Sync builds each projection from the records it stores, column by column in the narrowest type that holds every value (int, float, string, bool, or raw JSON for mixed fields), gob-encodes and zstd-compresses it into `<region>:<entity>:projection`, and writes it with `:projection-version` in the same MULTI/EXEC as the records. `LoadProjection` returns it; a region without the entity gets an empty projection, and until sync has written one it is built from the entity's records with a `master data projection not built` warning. Small lists turn projection rows into records and reuse the shared filter and sort helpers; the 3D costume list (about 124k JP rows) deduplicates, filters, and sorts projection rows directly and normalizes only the requested page. No derived data is cached in process. Event, music, and virtual live lists and their cross-entity filters still read full entities until they move to projections. Batch reads (`ListAll`, `ListByPage`, `GetByIDs`, `GetByCompositeKeys`, `ListByIndex`) fetch up to eight HMGET batches concurrently and decode records on every core in chunks of 32, so handlers should batch keys into one call rather than looping over `GetByID`.
+Handlers read a request's related records through `GetByIDs`, `GetByCompositeKeys`, or `ListByIndex` and must not decode a large entity with `ListAll` per request or per item; the API latency budget is under 1 s per request and never over 3 s. Mission and character rank reward catalogs are built per request from the boxes, details, and items the request references. List endpoints read list projections instead of entities. `masterdata.ProjectionFields` (`internal/domain/masterdata/projection.go`) lists, per entity, the fields its list filters, sorts, and spoiler-checks on, and for small lists everything they return (currently `cards`, `gachas`, `costume3ds`, and `costume3dgroups`, plus `events` with the window fields the current-event lookup compares). Sync builds each projection from the records it stores, column by column in the narrowest type that holds every value (int, float, string, bool, or raw JSON for mixed fields), gob-encodes and zstd-compresses it into `master_projections`, and writes it with its projection version in the same transaction as the records. `LoadProjection` returns it; a region without the entity gets an empty projection, and until sync has written one it is built from the entity's records with a `master data projection not built` warning. Small lists turn projection rows into records and reuse the shared filter and sort helpers; the 3D costume list (about 124k JP rows) deduplicates, filters, and sorts projection rows directly and normalizes only the requested page. No derived data is cached in process. Event, music, and virtual live lists and their cross-entity filters still read full entities until they move to projections. Card and music lists and event rewards read their related records with one `GetByIDs` per entity through `shared.PrefetchRecords`.
 
 Query behavior:
 
-- Card by-id reads from Redis hash cache.
+- Card by-id reads one stored record.
 - Card metadata batch reads perform direct persisted by-id lookups only, return `id`, `prefix`, `assetbundleName`, `attr`, and `rarityType`, and omit missing cards.
 - Card list pagination follows real `cards.json` array order, not contiguous IDs.
-- Card params reuses the cached card record and returns params-related fields only.
+- Card params reuses the stored card record and returns params-related fields only.
 - Music responses expand `creatorArtistId` and `liveStageId` and hide the raw ids.
-- Card responses expand `cardSupplyId`, `skillId`, `characterId`, and `cardRarityType`. Card rarity enrichment lists persisted `cardrarities` records directly rather than invoking search-index repair.
+- Card responses expand `cardSupplyId`, `skillId`, `characterId`, and `cardRarityType`. Card rarity enrichment lists persisted `cardrarities` records directly.
 - Event card and music relation endpoints preserve relation fields and enrich minimal display fields from `cards`/`musics`; event music `seq` remains the relation sequence, not the master music sequence.
 - `GET /api/v1/events/{region}/{id}/detail` is a bounded first-screen aggregate: it returns event detail, availability/current metadata, bonuses, enriched cards/musics, and reward preview/summary. It intentionally does not include every ranking reward range; use `/events/{region}/{id}/rewards` for the full reward payload.
-- Event current lookup uses Redis first and refreshes from `events.json` when stale or missing.
+- Event current lookup picks the in-window event with the latest start from the `events` list projection and reads that one record; it never writes.
 - Event by-id omits `eventRankingRewardRanges`; use the rewards endpoint.
 - Gacha list accepts the optional `ongoing` boolean. When `ongoing=true`, only records with `startAt <= now <= endAt` are returned, with filtering applied before sorting and pagination; omitted or `false` preserves the existing list behavior.
 - Virtual live base response omits items, schedules, and setlists; use dedicated endpoints.
 - If a top-level `releaseConditionId` exists, the response expands `releaseCondition` and hides `releaseConditionId`. Missing related records produce `null`; storage failures on required music/card enrichment paths return the endpoint's existing query error instead of an incomplete `200` response.
-- Region data endpoints return `503 REGION_DATA_NOT_READY` until the required persisted data is available or the current process reports usable read-only runtime cache/index state for that region. Safe single-entity list/basic endpoints require both a current persisted `success` sync status and a non-empty entity `:by-id` hash checked with read-only status/Redis probes before falling back to strict runtime readiness, so these reads do not depend on decoded search-index LRU state after restart and cannot expose in-progress or failed sync contents.
-- The current relaxed set is intentionally narrow: `cards` by-id/params/list, `gachas` by-id/list, `musics` by-id/list, `events` list/current, `unitProfiles` by-unit/list, `gameCharacterUnits` by-id/list, and `gameCharacters` by-id/list.
-- Composite, enriched, search-backed, availability, available-region, dashboard readiness region lists, metrics, and other multi-entity endpoints still require strict runtime readiness. Dashboard status items are the exception: they report the persisted sync status instead of runtime cache readiness. For `musics`, this means detail, difficulties, vocals, and availability remain strict even though the basic by-id/list endpoints can serve from persisted `musics` records. For `events`, detail, by-id detail expansion, break-times, rewards, bonus/composite, availability, and search-like endpoints remain strict even though list/current can serve from persisted `events` records. Run the explicit sync, warmup, or ensure flow to repair persisted Redis indexes instead of relying on status/availability read endpoints to do it.
+- Region data endpoints return `503 REGION_DATA_NOT_READY` until the region's current persisted sync status is `success` and the store holds records of the entity the endpoint reads (`shared.EnsureRegionReadyForEntityRecords`), so they cannot expose in-progress or failed sync contents.
+- Availability endpoints list the regions whose latest sync succeeded and that hold the requested record.

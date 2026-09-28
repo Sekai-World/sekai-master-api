@@ -21,8 +21,6 @@ type fakeReadinessChecker struct {
 	entityRecordsErr  error           // error when HasEntityRecords called
 	syncStatus        map[string]bool // region -> has successful sync
 	syncStatusErr     error           // error when HasSuccessfulSync called
-	redisDown         bool            // simulate Redis unreachable (no error)
-	redisErr          error           // error when RedisReady called
 	versionReady      map[string]bool // region -> version metadata available
 	versionErr        error           // error when RegionVersionReady called
 }
@@ -51,21 +49,11 @@ func (f *fakeReadinessChecker) HasSuccessfulSync(_ context.Context, region strin
 	return false, nil
 }
 
-func (f *fakeReadinessChecker) RedisReady(_ context.Context) (bool, error) {
-	if f.redisErr != nil {
-		return false, f.redisErr
-	}
-	if f.redisDown {
-		return false, nil
-	}
-	return true, nil
-}
-
 func (f *fakeReadinessChecker) RegionVersionReady(_ context.Context, region string) (bool, error) {
 	if f.versionErr != nil {
 		// Mirror the production classification so tests can simulate both a
 		// corrupt/malformed payload (data problem -> not ready, no error) and a
-		// genuine Redis transport error (propagated so the probe reports redis).
+		// genuine store read error (propagated so the probe reports database).
 		var syntaxErr *json.SyntaxError
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(f.versionErr, &syntaxErr) || errors.As(f.versionErr, &typeErr) {
@@ -190,14 +178,26 @@ func TestReadyDoesNot503WhenHasSuccessfulSyncErrors(t *testing.T) {
 }
 
 func TestReadyReturns503WhenHasEntityRecordsErrors(t *testing.T) {
+	// A store read error means the database is not reachable, so the probe
+	// reports the database dependency and every configured region as unready.
 	fake := &fakeReadinessChecker{
-		configuredRegions: []string{"jp"},
-		entityRecordsErr:  errors.New("redis connection refused"),
+		configuredRegions: []string{"global", "jp"},
+		entityRecordsErr:  errors.New("database connection refused"),
 	}
 	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
 	if r.code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 on HasEntityRecords error, got %d body=%s", r.code, r.body)
+	}
+	if r.body["status"] != "not_ready" {
+		t.Fatalf("expected status not_ready, got %v", r.body["status"])
+	}
+	if r.body["reason"] != "database" {
+		t.Fatalf("expected reason database, got %v", r.body["reason"])
+	}
+	unready, ok := r.body["unready_regions"].([]any)
+	if !ok || len(unready) != 2 {
+		t.Fatalf("expected all configured regions unready on a store error, got %v", r.body["unready_regions"])
 	}
 }
 
@@ -258,48 +258,6 @@ func TestReadyNoRegionsPendingSyncWhenAllSyncSucceeds(t *testing.T) {
 	}
 }
 
-func TestReadyReturns503WhenRedisDown(t *testing.T) {
-	fake := &fakeReadinessChecker{
-		configuredRegions: []string{"global", "jp"},
-		entityRecords:     map[string]bool{"global": true, "jp": true},
-		redisDown:         true,
-	}
-	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
-
-	if r.code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when redis down, got %d body=%s", r.code, r.body)
-	}
-	if r.body["status"] != "not_ready" {
-		t.Fatalf("expected status not_ready, got %v", r.body["status"])
-	}
-	if r.body["reason"] != "redis" {
-		t.Fatalf("expected reason redis, got %v", r.body["reason"])
-	}
-	unready, ok := r.body["unready_regions"].([]any)
-	if !ok {
-		t.Fatalf("expected unready_regions array, got %v", r.body["unready_regions"])
-	}
-	if len(unready) != 2 {
-		t.Fatalf("expected all configured regions unready when redis down, got %d", len(unready))
-	}
-}
-
-func TestReadyReturns503WhenRedisErrors(t *testing.T) {
-	fake := &fakeReadinessChecker{
-		configuredRegions: []string{"jp"},
-		entityRecords:     map[string]bool{"jp": true},
-		redisErr:          errors.New("redis connection refused"),
-	}
-	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
-
-	if r.code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on redis error, got %d body=%s", r.code, r.body)
-	}
-	if r.body["reason"] != "redis" {
-		t.Fatalf("expected reason redis, got %v", r.body["reason"])
-	}
-}
-
 func TestReadyReturns503WhenRegionVersionMissing(t *testing.T) {
 	fake := &fakeReadinessChecker{
 		configuredRegions: []string{"global", "jp"},
@@ -327,21 +285,21 @@ func TestReadyReturns503WhenRegionVersionMissing(t *testing.T) {
 	}
 }
 
-func TestReadyReturns503WhenRedisErrorLoadingVersion(t *testing.T) {
-	// A version load error is a Redis read failure, so the readiness probe
-	// reports the redis dependency (not master_data).
+func TestReadyReturns503WhenStoreErrorsLoadingVersion(t *testing.T) {
+	// A version load error is a store read failure, so the readiness probe
+	// reports the database dependency (not master_data).
 	fake := &fakeReadinessChecker{
 		configuredRegions: []string{"jp"},
 		entityRecords:     map[string]bool{"jp": true},
-		versionErr:        errors.New("redis timeout loading version"),
+		versionErr:        errors.New("database timeout loading version"),
 	}
 	r := runReadyRequest(t, fake, config.AppRoleServe, nil)
 
 	if r.code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 on redis version error, got %d body=%s", r.code, r.body)
+		t.Fatalf("expected 503 on store version error, got %d body=%s", r.code, r.body)
 	}
-	if r.body["reason"] != "redis" {
-		t.Fatalf("expected reason redis, got %v", r.body["reason"])
+	if r.body["reason"] != "database" {
+		t.Fatalf("expected reason database, got %v", r.body["reason"])
 	}
 }
 
@@ -367,8 +325,8 @@ func TestReadyReturnsOKWhenRecordsAndVersionPresent(t *testing.T) {
 }
 
 func TestReadyReturns503WhenVersionCorruptReportedAsMasterData(t *testing.T) {
-	// A corrupt/malformed version payload from Redis is a data problem, so the
-	// probe must report master_data (not redis) and enumerate the affected region.
+	// A corrupt/malformed stored version payload is a data problem, so the probe
+	// must report master_data (not database) and enumerate the affected region.
 	corrupt := json.Unmarshal([]byte("{not-valid-json"), new(any))
 	fake := &fakeReadinessChecker{
 		configuredRegions: []string{"jp"},

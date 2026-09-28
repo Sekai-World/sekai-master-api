@@ -17,31 +17,12 @@ import (
 )
 
 type fakeMusicHandlerCache struct {
-	byID          map[string]map[string]map[string]map[string]any
-	listItems     []map[string]any
-	listByEntity  map[string][]map[string]any
-	listTotal     int
-	hasRecords    map[string]map[string]bool
-	hasIndex      bool
-	hasIndexSet   bool
-	searchMatches []masterdata.SearchMatch
-	searchCalls   []fakeMusicSearchCall
-	getByIDCalls  []fakeMusicGetByIDCall
-	lastSearch    struct {
-		region string
-		entity string
-		query  string
-		fields []string
-		limit  int
-	}
-}
-
-type fakeMusicSearchCall struct {
-	region string
-	entity string
-	query  string
-	fields []string
-	limit  int
+	byID         map[string]map[string]map[string]map[string]any
+	listItems    []map[string]any
+	listByEntity map[string][]map[string]any
+	listTotal    int
+	hasRecords   map[string]map[string]bool
+	getByIDCalls []fakeMusicGetByIDCall
 }
 
 type fakeMusicGetByIDCall struct {
@@ -121,34 +102,19 @@ func (cache *fakeMusicHandlerCache) ListByPage(_ context.Context, _, _ string, _
 	return cache.listItems, cache.listTotal, nil
 }
 
-func (cache *fakeMusicHandlerCache) Search(_ context.Context, region, entity, query string, fields []string, limit int) ([]masterdata.SearchMatch, error) {
-	cache.lastSearch.region = region
-	cache.lastSearch.entity = entity
-	cache.lastSearch.query = query
-	cache.lastSearch.limit = limit
-	cache.lastSearch.fields = append([]string{}, fields...)
-	cache.searchCalls = append(cache.searchCalls, fakeMusicSearchCall{
-		region: region,
-		entity: entity,
-		query:  query,
-		fields: append([]string{}, fields...),
-		limit:  limit,
-	})
-	return cache.searchMatches, nil
-}
-
 func (cache *fakeMusicHandlerCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
 	if cache.hasRecords == nil {
-		return false, nil
+		if regionData, ok := cache.byID[region]; ok && len(regionData[entity]) > 0 {
+			return true, nil
+		}
+		if len(cache.listByEntity[entity]) > 0 {
+			return true, nil
+		}
+		return len(cache.listItems) > 0, nil
 	}
-	return cache.hasRecords[strings.ToLower(strings.TrimSpace(region))][strings.ToLower(strings.TrimSpace(entity))], nil
-}
-
-func (cache *fakeMusicHandlerCache) HasRegionIndex(_ string) bool {
-	if !cache.hasIndexSet {
-		return true
-	}
-	return cache.hasIndex
+	return cache.hasRecords[region][entity], nil
 }
 
 func assertResponseItemOrder(t *testing.T, bodyBytes []byte, expected []float64) {
@@ -359,7 +325,7 @@ func TestMusicAvailableRegionsByIDEndpointReturnsAvailableRegionsWithData(t *tes
 	}
 }
 
-func TestMusicByIDEndpointReturnsPersistedMusicWithoutRuntimeIndex(t *testing.T) {
+func TestMusicByIDEndpointReturnsPersistedMusic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{
@@ -373,8 +339,6 @@ func TestMusicByIDEndpointReturnsPersistedMusicWithoutRuntimeIndex(t *testing.T)
 		hasRecords: map[string]map[string]bool{
 			"jp": {"musics": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	musicHandler := newReadyMusicHandler(cache)
@@ -390,7 +354,7 @@ func TestMusicByIDEndpointReturnsPersistedMusicWithoutRuntimeIndex(t *testing.T)
 	}
 }
 
-func TestMusicListEndpointReturnsPersistedRecordsWithoutRuntimeIndex(t *testing.T) {
+func TestMusicListEndpointReturnsPersistedRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{
@@ -399,8 +363,6 @@ func TestMusicListEndpointReturnsPersistedRecordsWithoutRuntimeIndex(t *testing.
 		hasRecords: map[string]map[string]bool{
 			"jp": {"musics": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	musicHandler := newReadyMusicHandler(cache)
@@ -418,7 +380,7 @@ func TestMusicListEndpointReturnsPersistedRecordsWithoutRuntimeIndex(t *testing.
 	assertResponseItemOrder(t, resp.Body.Bytes(), []float64{1001})
 }
 
-func TestMusicEndpointsReturnPersistedRecordsAfterRestartWithoutRuntimeIndex(t *testing.T) {
+func TestMusicEndpointsReturnPersistedRecordsAfterRestart(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	vocal := map[string]any{
@@ -471,9 +433,6 @@ func TestMusicEndpointsReturnPersistedRecordsAfterRestartWithoutRuntimeIndex(t *
 		hasRecords: map[string]map[string]bool{
 			"jp": {"musics": true},
 		},
-		hasIndexSet:   true,
-		hasIndex:      false,
-		searchMatches: []masterdata.SearchMatch{{Item: vocal}},
 	}
 
 	musicHandler := newReadyMusicHandler(cache)
@@ -573,7 +532,7 @@ func TestMusicEndpointsReturnPersistedRecordsAfterRestartWithoutRuntimeIndex(t *
 	}
 }
 
-func TestMusicEndpointsWithoutMusicRecordsStillRequireRuntimeIndexEvenIfRelatedRecordsExist(t *testing.T) {
+func TestMusicEndpointsRequireMusicRecordsEvenIfRelatedRecordsExist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{
@@ -599,8 +558,6 @@ func TestMusicEndpointsWithoutMusicRecordsStillRequireRuntimeIndexEvenIfRelatedR
 				"musictags":         true,
 			},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	musicHandler := newReadyMusicHandler(cache)
@@ -627,7 +584,7 @@ func TestMusicEndpointsWithoutMusicRecordsStillRequireRuntimeIndexEvenIfRelatedR
 	}
 }
 
-func TestMusicAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(t *testing.T) {
+func TestMusicAvailabilityEndpointUsesPersistedEntityRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cache := &fakeMusicHandlerCache{
@@ -641,8 +598,6 @@ func TestMusicAvailabilityEndpointUsesPersistedEntityRecordsWithoutRuntimeIndex(
 		hasRecords: map[string]map[string]bool{
 			"jp": {"musics": true},
 		},
-		hasIndexSet: true,
-		hasIndex:    false,
 	}
 
 	musicHandler := newReadyMusicHandler(cache)
@@ -941,7 +896,7 @@ func TestMusicListEndpointSupportsSpoilerOption(t *testing.T) {
 func TestMusicListInvalidSpoilerReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &fakeMusicHandlerCache{}
+	cache := &fakeMusicHandlerCache{hasRecords: map[string]map[string]bool{"jp": {"musics": true}}}
 	musicHandler := newReadyMusicHandler(cache)
 
 	router := gin.New()
@@ -1116,7 +1071,7 @@ func TestMusicListEndpointSupportsHasAppendFilter(t *testing.T) {
 func TestMusicListInvalidHasAppendReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	cache := &fakeMusicHandlerCache{}
+	cache := &fakeMusicHandlerCache{hasRecords: map[string]map[string]bool{"jp": {"musics": true}}}
 	musicHandler := newReadyMusicHandler(cache)
 
 	router := gin.New()

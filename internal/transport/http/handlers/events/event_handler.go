@@ -56,7 +56,7 @@ func (handler *EventHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "region and id are required")
 		return
 	}
-	if !handler.ensureRegionReady(c, region) {
+	if !shared.EnsureRegionReadyForEntityRecords(c, handler.masterDataSync, region, "events") {
 		return
 	}
 
@@ -1217,28 +1217,6 @@ func (handler *EventHandler) enrichEventRelationItems(ctx context.Context, regio
 	}
 
 	return nil
-}
-
-func (handler *EventHandler) ensureRegionReady(c *gin.Context, region string) bool {
-	if handler == nil || handler.masterDataSync == nil {
-		return true
-	}
-
-	readyRegions, err := shared.RuntimeSearchIndexReadyRegions(c.Request.Context(), handler.masterDataSync)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "MASTER_DATA_STATUS_ERROR", "failed to check master data sync status")
-		return false
-	}
-
-	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
-	for _, readyRegion := range readyRegions {
-		if readyRegion == normalizedRegion {
-			return true
-		}
-	}
-
-	response.Error(c, http.StatusServiceUnavailable, "REGION_DATA_NOT_READY", "region data is updating or unavailable, please try again later")
-	return false
 }
 
 func buildEventBase(record map[string]any) map[string]any {

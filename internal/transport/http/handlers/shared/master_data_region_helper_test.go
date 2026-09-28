@@ -53,8 +53,7 @@ func TestEnsureRegionReadyForEntityRecords_maps_unavailable_region(t *testing.T)
 		nil,
 		nil,
 		&fakeMasterDataRegionHelperCache{
-			hasRecords:     map[string]map[string]bool{"jp": {"cards": false}},
-			hasRegionIndex: map[string]bool{"jp": false},
+			hasRecords: map[string]map[string]bool{"jp": {"cards": false}},
 		},
 		&fakeMasterDataRegionHelperStatusStore{
 			statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}},
@@ -149,7 +148,7 @@ func assertMasterDataRegionHelperError(
 	}
 }
 
-func TestRegionHasEntityRecordsOrReady_returns_true_when_entity_records_exist(t *testing.T) {
+func TestRegionHasSyncedEntityRecords_returns_true_when_entity_records_exist(t *testing.T) {
 	t.Parallel()
 
 	// Given
@@ -170,7 +169,7 @@ func TestRegionHasEntityRecordsOrReady_returns_true_when_entity_records_exist(t 
 	)
 
 	// When
-	ready, err := RegionHasEntityRecordsOrReady(ctx, masterDataSync, "jp", "cards")
+	ready, err := RegionHasSyncedEntityRecords(ctx, masterDataSync, "jp", "cards")
 
 	// Then
 	if err != nil {
@@ -181,7 +180,7 @@ func TestRegionHasEntityRecordsOrReady_returns_true_when_entity_records_exist(t 
 	}
 }
 
-func TestRegionHasEntityRecordsOrReady_rejects_records_without_successful_sync(t *testing.T) {
+func TestRegionHasSyncedEntityRecords_rejects_records_without_successful_sync(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -213,7 +212,7 @@ func TestRegionHasEntityRecordsOrReady_rejects_records_without_successful_sync(t
 				1,
 			)
 
-			ready, err := RegionHasEntityRecordsOrReady(context.Background(), masterDataSync, "jp", "cards")
+			ready, err := RegionHasSyncedEntityRecords(context.Background(), masterDataSync, "jp", "cards")
 
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
@@ -225,7 +224,7 @@ func TestRegionHasEntityRecordsOrReady_rejects_records_without_successful_sync(t
 	}
 }
 
-func TestRegionHasEntityRecordsOrReady_returns_error_when_sync_status_check_fails(t *testing.T) {
+func TestRegionHasSyncedEntityRecords_returns_error_when_sync_status_check_fails(t *testing.T) {
 	t.Parallel()
 
 	expectedErr := errors.New("list statuses failed")
@@ -240,7 +239,7 @@ func TestRegionHasEntityRecordsOrReady_returns_error_when_sync_status_check_fail
 		1,
 	)
 
-	ready, err := RegionHasEntityRecordsOrReady(context.Background(), masterDataSync, "jp", "cards")
+	ready, err := RegionHasSyncedEntityRecords(context.Background(), masterDataSync, "jp", "cards")
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected error %v, got %v", expectedErr, err)
@@ -250,7 +249,7 @@ func TestRegionHasEntityRecordsOrReady_returns_error_when_sync_status_check_fail
 	}
 }
 
-func TestRegionHasEntityRecordsOrReady_returns_true_when_strict_ready_regions_include_region(t *testing.T) {
+func TestRegionHasSyncedEntityRecords_returns_false_when_entity_records_are_missing(t *testing.T) {
 	t.Parallel()
 
 	// Given
@@ -262,7 +261,6 @@ func TestRegionHasEntityRecordsOrReady_returns_true_when_strict_ready_regions_in
 			hasRecords: map[string]map[string]bool{
 				"jp": {"cards": false},
 			},
-			hasRegionIndex: map[string]bool{"jp": true},
 		},
 		&fakeMasterDataRegionHelperStatusStore{
 			statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}},
@@ -272,51 +270,18 @@ func TestRegionHasEntityRecordsOrReady_returns_true_when_strict_ready_regions_in
 	)
 
 	// When
-	ready, err := RegionHasEntityRecordsOrReady(ctx, masterDataSync, "jp", "cards")
-
-	// Then
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if !ready {
-		t.Fatalf("expected region to be ready when strict ready regions include it")
-	}
-}
-
-func TestRegionHasEntityRecordsOrReady_returns_false_when_neither_entity_records_nor_strict_ready_region_exist(t *testing.T) {
-	t.Parallel()
-
-	// Given
-	ctx := context.Background()
-	masterDataSync := usecase.NewMasterDataSyncUsecase(
-		nil,
-		nil,
-		&fakeMasterDataRegionHelperCache{
-			hasRecords: map[string]map[string]bool{
-				"jp": {"cards": false},
-			},
-			hasRegionIndex: map[string]bool{"jp": false},
-		},
-		&fakeMasterDataRegionHelperStatusStore{
-			statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}},
-		},
-		nil,
-		1,
-	)
-
-	// When
-	ready, err := RegionHasEntityRecordsOrReady(ctx, masterDataSync, "jp", "cards")
+	ready, err := RegionHasSyncedEntityRecords(ctx, masterDataSync, "jp", "cards")
 
 	// Then
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if ready {
-		t.Fatalf("expected region to be unavailable when entity records and strict readiness both fail")
+		t.Fatalf("expected region to be unavailable without entity records despite a successful sync")
 	}
 }
 
-func TestRegionHasEntityRecordsOrReady_returns_error_when_entity_record_check_fails(t *testing.T) {
+func TestRegionHasSyncedEntityRecords_returns_error_when_entity_record_check_fails(t *testing.T) {
 	t.Parallel()
 
 	// Given
@@ -332,7 +297,7 @@ func TestRegionHasEntityRecordsOrReady_returns_error_when_entity_record_check_fa
 	)
 
 	// When
-	ready, err := RegionHasEntityRecordsOrReady(ctx, masterDataSync, "jp", "cards")
+	ready, err := RegionHasSyncedEntityRecords(ctx, masterDataSync, "jp", "cards")
 
 	// Then
 	if !errors.Is(err, expectedErr) {
@@ -343,7 +308,7 @@ func TestRegionHasEntityRecordsOrReady_returns_error_when_entity_record_check_fa
 	}
 }
 
-func TestAvailableRegionsByID_uses_successful_status_and_direct_records_without_runtime_index(t *testing.T) {
+func TestAvailableRegionsByID_uses_successful_status_and_direct_records(t *testing.T) {
 	t.Parallel()
 
 	masterDataSync := usecase.NewMasterDataSyncUsecase(
@@ -375,7 +340,7 @@ func TestAvailableRegionsByID_uses_successful_status_and_direct_records_without_
 	}
 }
 
-func TestRegionHasEntityRecordsOrReady_returns_false_for_empty_region_or_entity(t *testing.T) {
+func TestRegionHasSyncedEntityRecords_returns_false_for_empty_region_or_entity(t *testing.T) {
 	t.Parallel()
 
 	// Given
@@ -405,7 +370,7 @@ func TestRegionHasEntityRecordsOrReady_returns_false_for_empty_region_or_entity(
 			t.Parallel()
 
 			// When
-			ready, err := RegionHasEntityRecordsOrReady(ctx, masterDataSync, tt.region, tt.entity)
+			ready, err := RegionHasSyncedEntityRecords(ctx, masterDataSync, tt.region, tt.entity)
 
 			// Then
 			if err != nil {
@@ -419,10 +384,9 @@ func TestRegionHasEntityRecordsOrReady_returns_false_for_empty_region_or_entity(
 }
 
 type fakeMasterDataRegionHelperCache struct {
-	hasRecords     map[string]map[string]bool
-	hasRecordsErr  error
-	hasRegionIndex map[string]bool
-	records        map[string]map[string]map[string]map[string]any
+	hasRecords    map[string]map[string]bool
+	hasRecordsErr error
+	records       map[string]map[string]map[string]map[string]any
 }
 
 func (cache *fakeMasterDataRegionHelperCache) StoreRegion(_ context.Context, _ string, _ map[string]any) error {
@@ -445,10 +409,6 @@ func (cache *fakeMasterDataRegionHelperCache) ListByPage(_ context.Context, _, _
 	return nil, 0, nil
 }
 
-func (cache *fakeMasterDataRegionHelperCache) Search(_ context.Context, _, _, _ string, _ []string, _ int) ([]masterdata.SearchMatch, error) {
-	return nil, nil
-}
-
 func (cache *fakeMasterDataRegionHelperCache) HasEntityRecords(_ context.Context, region string, entity string) (bool, error) {
 	if cache.hasRecordsErr != nil {
 		return false, cache.hasRecordsErr
@@ -457,13 +417,6 @@ func (cache *fakeMasterDataRegionHelperCache) HasEntityRecords(_ context.Context
 		return false, nil
 	}
 	return cache.hasRecords[region][entity], nil
-}
-
-func (cache *fakeMasterDataRegionHelperCache) HasRegionIndex(region string) bool {
-	if cache.hasRegionIndex == nil {
-		return false
-	}
-	return cache.hasRegionIndex[region]
 }
 
 type fakeMasterDataRegionHelperStatusStore struct {

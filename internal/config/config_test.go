@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,12 +19,6 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 		"MASTER_DATA_SYNC_TIMEOUT_SECONDS",
 		"MASTER_DATA_SYNC_JOB_TIMEOUT_SECONDS",
 		"MASTER_DATA_REGION_FILE_CONCURRENCY",
-		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES",
-		"MASTER_DATA_WARM_SEARCH_INDEXES",
-		"REDIS_DIAL_TIMEOUT_SECONDS",
-		"REDIS_READ_TIMEOUT_SECONDS",
-		"REDIS_WRITE_TIMEOUT_SECONDS",
-		"REDIS_POOL_TIMEOUT_SECONDS",
 		"OTEL_ENABLED",
 	)
 
@@ -54,37 +49,11 @@ func TestLoadUsesDotenvLocalPrecedence(t *testing.T) {
 	if cfg.MasterDataFileConcurrency != 2 {
 		t.Fatalf("expected development master data file concurrency to default to 2, got %d", cfg.MasterDataFileConcurrency)
 	}
-	if cfg.MasterDataWarmSearchIndexes {
-		t.Fatalf("expected development master data search index warmup to default disabled")
-	}
-	if cfg.MasterDataSearchIndexCacheEntries != 32 {
-		t.Fatalf("expected search index cache entries to default to 32, got %d", cfg.MasterDataSearchIndexCacheEntries)
-	}
 	if cfg.OTELEnabled {
 		t.Fatalf("expected OTel to default disabled in development")
 	}
 	if cfg.MasterDataResumeBaseDir != "tmp/master-data-sync-resume" {
 		t.Fatalf("expected MasterDataResumeBaseDir default, got %q", cfg.MasterDataResumeBaseDir)
-	}
-	if cfg.RedisDialTimeout != 0 || cfg.RedisReadTimeout != 0 || cfg.RedisWriteTimeout != 0 || cfg.RedisPoolTimeout != 0 {
-		t.Fatalf("expected Redis timeout defaults to preserve go-redis defaults, got dial=%s read=%s write=%s pool=%s", cfg.RedisDialTimeout, cfg.RedisReadTimeout, cfg.RedisWriteTimeout, cfg.RedisPoolTimeout)
-	}
-}
-
-func TestLoadReadsRedisTimeoutConfig(t *testing.T) {
-	restoreEnv(t, "APP_ENV", "REDIS_DIAL_TIMEOUT_SECONDS", "REDIS_READ_TIMEOUT_SECONDS", "REDIS_WRITE_TIMEOUT_SECONDS", "REDIS_POOL_TIMEOUT_SECONDS")
-
-	tmpDir := t.TempDir()
-	writeFile(t, filepath.Join(tmpDir, ".env"), "APP_ENV=production\n"+
-		"REDIS_DIAL_TIMEOUT_SECONDS=11\n"+
-		"REDIS_READ_TIMEOUT_SECONDS=22\n"+
-		"REDIS_WRITE_TIMEOUT_SECONDS=33\n"+
-		"REDIS_POOL_TIMEOUT_SECONDS=44\n")
-	chdir(t, tmpDir)
-
-	cfg := Load()
-	if cfg.RedisDialTimeout != 11*time.Second || cfg.RedisReadTimeout != 22*time.Second || cfg.RedisWriteTimeout != 33*time.Second || cfg.RedisPoolTimeout != 44*time.Second {
-		t.Fatalf("unexpected Redis timeout config: dial=%s read=%s write=%s pool=%s", cfg.RedisDialTimeout, cfg.RedisReadTimeout, cfg.RedisWriteTimeout, cfg.RedisPoolTimeout)
 	}
 }
 
@@ -126,18 +95,34 @@ func TestLoadMasterDataStore(t *testing.T) {
 	restoreEnv(t, "APP_ENV", "MASTER_DATA_STORE")
 	chdir(t, t.TempDir())
 
-	if cfg := Load(); cfg.MasterDataStore != MasterDataStoreRedis || cfg.ValidateMasterDataStore() != nil {
-		t.Fatalf("default store = %q, want redis", cfg.MasterDataStore)
+	if cfg := Load(); cfg.MasterDataStore != "" || cfg.ValidateMasterDataStore() != nil {
+		t.Fatalf("default store = %q, want unset and valid", cfg.MasterDataStore)
 	}
 
 	t.Setenv("MASTER_DATA_STORE", " Postgres ")
-	if cfg := Load(); cfg.MasterDataStore != MasterDataStorePostgres || cfg.ValidateMasterDataStore() != nil {
+	if cfg := Load(); cfg.MasterDataStore != "postgres" || cfg.ValidateMasterDataStore() != nil {
 		t.Fatalf("store = %q, want postgres", cfg.MasterDataStore)
 	}
 
 	t.Setenv("MASTER_DATA_STORE", "sqlite")
 	if err := Load().ValidateMasterDataStore(); err == nil {
 		t.Fatal("unknown store accepted")
+	}
+}
+
+func TestValidateMasterDataStoreAcceptsOnlyPostgres(t *testing.T) {
+	for _, store := range []string{"", "postgres"} {
+		if err := (Config{MasterDataStore: store}).ValidateMasterDataStore(); err != nil {
+			t.Fatalf("store %q rejected: %v", store, err)
+		}
+	}
+
+	err := (Config{MasterDataStore: "redis"}).ValidateMasterDataStore()
+	if err == nil {
+		t.Fatal("store \"redis\" accepted, want an error")
+	}
+	if !strings.Contains(err.Error(), "Redis master-data store was removed") {
+		t.Fatalf("redis store error = %q, want it to say the Redis store was removed", err)
 	}
 }
 
@@ -185,17 +170,13 @@ func TestLoadKeepsExplicitMasterDataMemoryControlOverrides(t *testing.T) {
 		"APP_ENV",
 		"MASTER_DATA_SYNC_CONCURRENCY",
 		"MASTER_DATA_REGION_FILE_CONCURRENCY",
-		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES",
-		"MASTER_DATA_WARM_SEARCH_INDEXES",
 	)
 
 	tmpDir := t.TempDir()
 	writeFile(t, filepath.Join(tmpDir, ".env"), ""+
 		"APP_ENV=development\n"+
 		"MASTER_DATA_SYNC_CONCURRENCY=3\n"+
-		"MASTER_DATA_REGION_FILE_CONCURRENCY=8\n"+
-		"MASTER_DATA_SEARCH_INDEX_CACHE_ENTRIES=0\n"+
-		"MASTER_DATA_WARM_SEARCH_INDEXES=true\n")
+		"MASTER_DATA_REGION_FILE_CONCURRENCY=8\n")
 
 	chdir(t, tmpDir)
 
@@ -206,12 +187,6 @@ func TestLoadKeepsExplicitMasterDataMemoryControlOverrides(t *testing.T) {
 	if cfg.MasterDataFileConcurrency != 8 {
 		t.Fatalf("expected explicit file concurrency override 8, got %d", cfg.MasterDataFileConcurrency)
 	}
-	if !cfg.MasterDataWarmSearchIndexes {
-		t.Fatalf("expected explicit search index warmup override enabled")
-	}
-	if cfg.MasterDataSearchIndexCacheEntries != 0 {
-		t.Fatalf("expected explicit search index cache override 0, got %d", cfg.MasterDataSearchIndexCacheEntries)
-	}
 }
 
 func TestLoadKeepsProductionMasterDataDefaults(t *testing.T) {
@@ -220,7 +195,6 @@ func TestLoadKeepsProductionMasterDataDefaults(t *testing.T) {
 		"APP_ENV",
 		"MASTER_DATA_SYNC_CONCURRENCY",
 		"MASTER_DATA_REGION_FILE_CONCURRENCY",
-		"MASTER_DATA_WARM_SEARCH_INDEXES",
 	)
 
 	tmpDir := t.TempDir()
@@ -233,9 +207,6 @@ func TestLoadKeepsProductionMasterDataDefaults(t *testing.T) {
 	}
 	if cfg.MasterDataFileConcurrency != 8 {
 		t.Fatalf("expected production file concurrency default 8, got %d", cfg.MasterDataFileConcurrency)
-	}
-	if !cfg.MasterDataWarmSearchIndexes {
-		t.Fatalf("expected production search index warmup to default enabled")
 	}
 }
 
@@ -527,22 +498,6 @@ func writeFile(t *testing.T, path string, content string) {
 
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func TestEffectiveSearchIndexCacheEntriesDisablesForControl(t *testing.T) {
-	standalone := Config{Role: AppRoleStandalone, MasterDataSearchIndexCacheEntries: 32}
-	serve := Config{Role: AppRoleServe, MasterDataSearchIndexCacheEntries: 32}
-	control := Config{Role: AppRoleControl, MasterDataSearchIndexCacheEntries: 32}
-
-	if got := standalone.EffectiveSearchIndexCacheEntries(); got != 32 {
-		t.Fatalf("standalone: expected 32, got %d", got)
-	}
-	if got := serve.EffectiveSearchIndexCacheEntries(); got != 32 {
-		t.Fatalf("serve: expected 32, got %d", got)
-	}
-	if got := control.EffectiveSearchIndexCacheEntries(); got != 0 {
-		t.Fatalf("control: expected decoded-index LRU disabled (0), got %d", got)
 	}
 }
 

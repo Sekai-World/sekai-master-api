@@ -116,23 +116,10 @@ func main() {
 	if err := cfg.ValidateMasterDataStore(); err != nil {
 		logger.Fatalf("invalid master data store: %v", err)
 	}
-	// MASTER_DATA_STORE picks where master data lives. The PostgreSQL store
-	// (docs/postgres-master-data-store.md) shares the database pool, fences
-	// its writes by the same sync lease as status writes, and needs no Redis.
-	var masterDataCache usecase.MasterDataCache
-	var redisMasterDataCache *storage.RedisMasterDataCache
-	var masterDataCacheCloser func() error
-	if cfg.MasterDataStore == config.MasterDataStorePostgres {
-		masterDataCache = storage.NewPostgresMasterDataStore(db.Pool, cfg.MasterDataFileConcurrency, syncLeaseName)
-		logger.Infow("master data store selected", "store", cfg.MasterDataStore)
-	} else {
-		redisMasterDataCache, err = storage.NewRedisMasterDataCache(cfg)
-		if err != nil {
-			logger.Fatalf("failed to initialize redis master data cache: %v", err)
-		}
-		masterDataCache = redisMasterDataCache
-		masterDataCacheCloser = redisMasterDataCache.Close
-	}
+	// Master data lives in PostgreSQL (docs/postgres-master-data-store.md):
+	// the store shares the database pool and fences its writes by the same
+	// sync lease as status writes.
+	masterDataCache := storage.NewPostgresMasterDataStore(db.Pool, cfg.MasterDataFileConcurrency, syncLeaseName)
 
 	masterDataSyncUsecase := usecase.NewMasterDataSyncUsecase(
 		masterDataSources,
@@ -164,13 +151,12 @@ func main() {
 		masterDataSyncUsecase.SetRegionTimeout(time.Duration(cfg.MasterDataSyncTimeout) * time.Second)
 	}
 	masterDataSyncUsecase.SetJobTimeout(time.Duration(cfg.MasterDataSyncJobTimeout) * time.Second)
-	masterDataSyncUsecase.EnableDevelopmentBackupBootstrap(cfg.IsDevelopment())
 	// Cancellable app lifecycle context; terminating it interrupts background
 	// sync workers (admin StartSync, webhook SyncRegion) during graceful shutdown.
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 	masterDataSyncUsecase.SetLifecycleContext(appCtx)
-	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase, redisMasterDataCache); err != nil {
+	if err := observability.RegisterMasterDataMetrics(masterDataSyncUsecase); err != nil {
 		logger.Fatalf("failed to register master data metrics: %v", err)
 	}
 	startupState := startup.NewState()
@@ -192,9 +178,9 @@ func main() {
 	}()
 
 	// The `serve` role is a pure public read workload: it must not run
-	// migrations, search-index warmup, master-data sync, or interrupted-sync
-	// recovery. It is immediately ready because those lifecycle jobs are owned
-	// by the `control` (or `standalone`) role.
+	// migrations, master-data sync, or interrupted-sync recovery. It is
+	// immediately ready because those lifecycle jobs are owned by the `control`
+	// (or `standalone`) role.
 	lifecycleWG := &sync.WaitGroup{}
 	if !cfg.OwnsSyncLifecycle() {
 		startupState.MarkReady()
@@ -208,11 +194,7 @@ func main() {
 		migrationsDone := make(chan struct{})
 
 		lifecycleWG.Add(1) // startup migrations goroutine
-		warmupEnabled := len(masterDataSources) > 0 && cfg.MasterDataWarmSearchIndexes && cfg.Role != config.AppRoleControl
 		autoSyncEnabled := len(masterDataSources) > 0 && (cfg.MasterDataAutoSync || cfg.MasterDataRecoverInterrupted)
-		if warmupEnabled {
-			lifecycleWG.Add(1)
-		}
 		if autoSyncEnabled {
 			lifecycleWG.Add(1)
 		}
@@ -232,51 +214,6 @@ func main() {
 			logger.Infow("startup migrations completed; general api routes enabled")
 			close(migrationsDone)
 		}()
-
-		if warmupEnabled {
-			go func() {
-				defer lifecycleWG.Done()
-
-				// Begin only after migrations (or shutdown) to preserve the original
-				// startup ordering.
-				select {
-				case <-migrationsDone:
-				case <-appCtx.Done():
-					return
-				}
-
-				warmupTimeout := cfg.MasterDataSyncJobTimeout
-				if warmupTimeout <= 0 {
-					warmupTimeout = 120
-				}
-				wctx, wcancel := context.WithTimeout(appCtx, time.Duration(warmupTimeout)*time.Second)
-				defer wcancel()
-
-				logger.Infow("master data search index warmup running in background", "regions", len(masterDataSources))
-				loadedRegions, rebuiltRegions, warmErr := masterDataSyncUsecase.EnsureConfiguredRegionIndexes(wctx)
-				if warmErr != nil {
-					if errors.Is(warmErr, context.Canceled) {
-						logger.Infow("master data search index warmup cancelled by shutdown")
-						return
-					}
-					logger.Warnw("master data search index warmup completed with errors", "error", warmErr)
-					return
-				}
-
-				if len(loadedRegions) == 0 && len(rebuiltRegions) == 0 {
-					logger.Infow("master data search index warmup found no missing regions")
-					return
-				}
-
-				logger.Infow(
-					"master data search index warmup completed",
-					"loaded_regions", loadedRegions,
-					"rebuilt_regions", rebuiltRegions,
-				)
-			}()
-		} else if cfg.Role == config.AppRoleControl && cfg.MasterDataWarmSearchIndexes {
-			logger.Infow("control role skips local search-index warmup; persisted indexes are built during sync/force-sync")
-		}
 
 		if autoSyncEnabled {
 			go func() {
@@ -388,14 +325,9 @@ func main() {
 	logger.Infow("shutting down dependencies")
 
 	// Ordered teardown: stop OTel periodic callbacks/flush first (so no metrics
-	// push races with closed dependencies), then Redis cache, then database,
-	// then logger flush. Cleanup runs exactly once.
+	// push races with closed dependencies), then database, then logger flush.
+	// Cleanup runs exactly once.
 	cleanupObservability()
-	if masterDataCacheCloser != nil {
-		if closeErr := masterDataCacheCloser(); closeErr != nil {
-			logger.Warnw("redis cache close error", "error", closeErr)
-		}
-	}
 	if closeErr := db.Close(); closeErr != nil {
 		logger.Warnw("database close error", "error", closeErr)
 	}

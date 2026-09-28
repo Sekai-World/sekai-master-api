@@ -247,12 +247,11 @@ func newShutdownTestLoader() *fakeSyncLoader {
 }
 
 // newShutdownFixtureUsecase builds a MasterDataSyncUsecase for shutdown tests with
-// a nil backup store and a background lifecycle context, collapsing the repeated
-// constructor/setup boilerplate shared across these tests.
+// a background lifecycle context, collapsing the repeated constructor/setup
+// boilerplate shared across these tests.
 func newShutdownFixtureUsecase(t *testing.T, source masterdata.Source, loader MasterDataSourceLoader, cache MasterDataCache, statusStore MasterDataSyncStatusStore) *MasterDataSyncUsecase {
 	t.Helper()
 	uc := NewMasterDataSyncUsecase([]masterdata.Source{source}, loader, cache, statusStore, &fakeSyncEventPublisher{}, 1)
-	uc.SetBackupStore(nil)
 	uc.SetLifecycleContext(context.Background())
 	return uc
 }

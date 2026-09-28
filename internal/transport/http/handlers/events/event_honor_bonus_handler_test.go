@@ -133,8 +133,6 @@ func newEventHonorBonusFixtureCache() *eventHonorBonusTrackingCache {
 			byID:         map[string]map[string]map[string]map[string]any{},
 			listByEntity: map[string]map[string][]map[string]any{},
 			hasRecords:   map[string]map[string]bool{},
-			hasIndexSet:  true,
-			hasIndex:     false,
 		},
 		listCalls:  make(map[string]map[string]int),
 		listErrors: make(map[string]error),

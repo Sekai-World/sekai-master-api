@@ -568,7 +568,7 @@ func TestHonorGroupsListPreservesQueryAndReadinessErrors(t *testing.T) {
 	}
 
 	readinessCache := &honorGroupListCache{
-		fakeLookupCache: &fakeLookupCache{hasIndexSet: true, hasIndex: false},
+		fakeLookupCache: &fakeLookupCache{},
 	}
 	readinessResponse := serveLookupRequest(
 		t,

@@ -32,13 +32,6 @@ type SyncStatus struct {
 	FencingToken int64 `json:"-"`
 }
 
-type SearchMatch struct {
-	Item         map[string]any `json:"item"`
-	MatchScore   int            `json:"match_score"`
-	MatchType    string         `json:"match_type"`
-	MatchedField string         `json:"matched_field"`
-}
-
 type SyncUpdatedEvent struct {
 	Event          string      `json:"event"`
 	Status         string      `json:"status"`
