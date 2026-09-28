@@ -113,7 +113,7 @@ expect_contains "$RENDER" "  minAvailable: 1" "serve PDB keeping one replica ava
 expect_contains "$RENDER" "  maxUnavailable: 0" "control PDB blocking voluntary disruption"
 expect_count "$RENDER" "kind: NetworkPolicy" 1 "NetworkPolicy"
 expect_contains "$RENDER" "port: 8080" "NetworkPolicy ingress to the application port"
-for port in 53 5432 6379 443 4317; do
+for port in 53 5432 443 4317; do
   expect_contains "$RENDER" "port: $port" "NetworkPolicy egress to port $port"
 done
 expect_contains "$RENDER" "topologyKey: kubernetes.io/hostname" "hostname topology spread"

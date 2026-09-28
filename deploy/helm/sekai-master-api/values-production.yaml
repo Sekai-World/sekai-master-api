@@ -88,9 +88,9 @@ networkPolicy:
           port: 53
         - protocol: TCP
           port: 53
-    # PostgreSQL and Redis in the data namespace. Rename the namespace to
-    # wherever your managed/in-cluster dependencies live (or split into two
-    # rules with podSelectors pinned to the actual database and redis pods).
+    # PostgreSQL in the data namespace. Rename the namespace to wherever your
+    # managed/in-cluster database lives (or pin a podSelector to the actual
+    # database pods).
     - to:
         - namespaceSelector:
             matchLabels:
@@ -98,8 +98,6 @@ networkPolicy:
       ports:
         - protocol: TCP
           port: 5432
-        - protocol: TCP
-          port: 6379
     # HTTPS to external dependencies: OIDC issuer discovery/validation and
     # GitHub (source archives and the webhook-independent API calls). Restricted
     # to non-private ranges so cluster-internal traffic cannot smuggle through.
