@@ -416,18 +416,121 @@ exists only because Redis could lose data.
 
 ## Caching
 
-The first release has no Redis read path. Postgres reads are expected to fit
-the budget, and a cache adds invalidation and consistency work that
-measurements must justify. If a measured hotspot needs one, the rule is:
+Rollout step 7. Redis holds no master data; it may hold a read-through cache
+of finished responses. Nothing reads it yet.
 
-- Read-through only. Keys embed the entity revision, for example
-  `<region>:<entity>:<revision>:projection`, so a new sync can never serve
-  stale data and nothing needs invalidating.
-- Every key has a TTL, and LRU eviction is fine.
-- Redis is never a write target and never a readiness input.
+### Measurements
 
-`REDIS_ADDR` becomes optional. The master-data Redis instances can be
-downsized or removed once nothing reads them.
+Server time per route on the test cluster, `0.2.0` next to its PostgreSQL,
+timed inside the `serve` pod over loopback on 2026-09-28. That is 790 `jp`
+and `en` routes, with one cold request and three warm requests each. busybox
+`time` resolves 10 ms.
+
+| Warm (median of 3) | Median | p90 | p95 | p99 | Max |
+|---|---|---|---|---|---|
+| All 790 routes | < 10 ms | 40 ms | 90 ms | 300 ms | 540 ms |
+
+37 routes take 100 ms or more and 16 take 200 ms or more. They all compute
+their response: they sort, filter or build a large list, not read a record.
+
+| Route | Median | Max |
+|---|---|---|
+| `costume3ds/{region}/list` (sorting by name) | 300 ms | 540 ms |
+| `events/{region}/list` | 80 ms | 310 ms |
+| `events/{region}/{id}/detail` | 100 ms | 150 ms |
+| `virtualLives/{region}/list` | 100 ms | 120 ms |
+| `cardEpisodes/{region}/list` | 50 ms | 140 ms |
+| `actionSets/{region}/list` | 45 ms | 130 ms |
+| `honorGroups/{region}/list` | 70 ms | 80 ms |
+
+Two conclusions follow:
+
+- **Caching records gains nothing.** A key lookup in PostgreSQL on the same
+  node takes 1–3 ms, and hot blocks stay in its buffer cache. A Redis `GET`
+  would save about 1 ms and add a second copy to keep consistent.
+- **Caching the responses of computed routes does gain.** A hit costs the
+  status read the handler already makes plus one Redis `GET`, a few
+  milliseconds instead of 100–540 ms. A cache cannot remove network time:
+  through the public ingress every request pays about 100–200 ms more.
+
+### Design
+
+A response cache in the public read routes of `serve` and `standalone`:
+
+- **Scope.** An explicit allowlist of route patterns, starting with the table
+  above. A route may join the list only if its response depends on nothing
+  but its path, query, the region's stored data, the build, and time handled
+  as described below. Region-less routes such as `/versions` and availability
+  routes stay out, because they read several regions and are cheap.
+- **Key.** `sekai-master-api:cache:v1:` followed by a SHA-256 over:
+  - the build commit (`version.Commit`), so a deploy never serves another
+    build's response shape;
+  - the region, and its latest sync status (`source_commit` and
+    `updated_at`), which every completed sync changes, including skips;
+  - the route pattern, the path, and the query with keys sorted and values
+    kept in order.
+- **Read path.** Handlers already read every region's latest status for
+  readiness (`HasSuccessfulSync`, one query). The cache uses that read.
+  - If the latest status is not `success`, the cache is bypassed. A running
+    sync never writes entries, so half-written regions are never cached. A
+    failed sync still answers `503` from the handler.
+  - A hit returns the stored status, `Content-Type` and body with
+    `X-Cache: hit` and skips the handler, including its per-entity readiness
+    check. That is safe, because an entry is written only for a `200` built
+    under the same successful status.
+  - A miss runs the handler and records its response. A `200` no larger than
+    `CACHE_MAX_ENTRY_BYTES` is stored.
+- **Time.** Some allowlisted responses depend on the clock:
+  - spoiler filtering: list endpoints without `spoiler=true` drop records
+    whose `releaseAt`/`publishedAt`/`startAt` is in the future;
+  - the current event: event detail flags it;
+  - the gacha `ongoing` filter, and the game-news current filter.
+
+  Each such handler reports the next moment its answer changes, through a
+  request-scoped `shared.CacheValidUntil`: the earliest future timestamp it
+  filtered on, or the current event's `closedAt` and the next event's
+  `startAt`. The entry's TTL is the smaller of that and `CACHE_TTL_SECONDS`.
+  A handler that reads the clock without reporting would serve stale
+  answers. Each allowlisted time-dependent handler has a test that the
+  bound is reported.
+- **Failure.** Redis is never a readiness input and never fails a request.
+  A read or write error or a timeout (`CACHE_REDIS_TIMEOUT_MS`, default 50 ms)
+  bypasses the cache and counts as an error. Without `CACHE_REDIS_ADDR` the
+  cache is off.
+- **Storage.** A value is a small header (status, content type) and the body,
+  zstd-compressed above 1 KiB. Every key has a TTL. `allkeys-lru` eviction is
+  expected, so the existing master-data instances (`redis-sekai-master`,
+  1.5 GiB, `allkeys-lru`) fit as they are.
+- **Stampede.** Concurrent misses for one key in one pod share a single
+  handler run (`singleflight`). That coalesces requests; it keeps nothing.
+- **Settings.** `CACHE_REDIS_ADDR` (empty disables), `CACHE_REDIS_PASSWORD`,
+  `CACHE_REDIS_DB`, `CACHE_REDIS_TIMEOUT_MS`, `CACHE_TTL_SECONDS` (default
+  21600) and `CACHE_MAX_ENTRY_BYTES` (default 1 MiB). They are new names, so
+  the removed `REDIS_*` settings stay removed.
+- **Observability.** The `X-Cache: hit|miss|bypass` header, and
+  `sekai_http_cache_requests_total{route,result}` with `result` one of `hit`,
+  `miss`, `bypass` or `error`.
+
+### Alternative
+
+Optimizing the hot handlers would speed up cold requests too, starting with
+the `costume3ds` name sort, which is the only route near 0.5 s. The cache
+serves repeat traffic, and the two combine. The first implementation should
+start with the cache for the allowlist and profile `costume3ds`
+separately.
+
+### Verification
+
+- With the cache on and off, every public route returns the same bytes. The
+  step-4 capture is run twice with the cache on: the first run fills it, and
+  the second must hit and still match.
+- A sync that changes nothing but the status timestamp retires every entry of
+  the region, and the next request misses.
+- A spoiler boundary: a list cached before an item's `releaseAt` misses after
+  it and includes the item.
+- With Redis unreachable or flushed, responses do not change and latency stays
+  at the uncached numbers.
+- Hit ratio and hit latency are measured on the test cluster.
 
 ## Testing
 
@@ -564,7 +667,9 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
    - Step 6 is done. The master-data Redis instances no longer have a
      reader. Removing them is a separate infra change.
 7. **Cache, only if measurements require it:** a revision-keyed Redis
-   read-through cache.
+   read-through cache. Measured and designed on 2026-09-28; see
+   [Caching](#caching). The existing master-data Redis instances are kept
+   for it.
 
 The remaining list projections (events, musics and virtual lives, with their
 cross-entity filters) continue after step 5, on Postgres.
