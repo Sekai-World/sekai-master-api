@@ -4,13 +4,20 @@ How `sekai-master-api` container images and GitHub Releases are produced. The
 pipeline is defined in `.github/workflows/release.yml`, runs on GitHub-hosted
 runners (this is a public repository, so self-hosted runners must not be used),
 and is triggered only by `v*` tag pushes. The tag-only trigger keeps untrusted
-code out of jobs that hold registry credentials for `docker.dnaroma.eu`.
+code out of jobs that hold registry credentials.
+
+Images live in the Zot registry `zot.dna.moe`, which is reachable only on the
+Tailnet. GitHub-hosted runners push through `zot-push.dna.moe`, a public
+endpoint that accepts only the requests an image push makes, only under
+`sekai-world/`, and refuses every read. Deployments pull from `zot.dna.moe`.
 
 ## Prerequisites
 
-- Secrets `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` (credentials for
-  `docker.dnaroma.eu`) configured at repository or organization level. No other
-  secrets are required; release creation uses the workflow `GITHUB_TOKEN`.
+- Repository secrets `ZOT_PUSH_USERNAME` and `ZOT_PUSH_PASSWORD`: the Zot user
+  `registry-push-github`, which may push only under `sekai-world/`. The
+  prepaid-host `zot/add-push-credential.sh` script creates or rotates it and
+  sets both secrets without printing the password. No other secrets are
+  required; release creation uses the workflow `GITHUB_TOKEN`.
 - The application Dockerfile at `deploy/compose/app/Dockerfile` accepts the
   build args `VERSION`, `COMMIT`, and `BUILD_DATE` and injects them into
   `internal/version` via `-ldflags`.
@@ -49,8 +56,9 @@ under a version must stay immutable.
 3. Builds the `linux/amd64` image from `deploy/compose/app/Dockerfile` with
    build args `VERSION=<X.Y.Z>`, `COMMIT=<full SHA>`, and
    `BUILD_DATE=<RFC3339 UTC>`.
-4. Pushes to `docker.dnaroma.eu/sekai-world/sekai-master-api` and records the
-   pushed digest in the workflow step summary.
+4. Pushes to `zot-push.dna.moe/sekai-world/sekai-master-api` and records the
+   pushed digest in the workflow step summary under the pull reference
+   `zot.dna.moe/sekai-world/sekai-master-api`.
 5. Creates a GitHub Release for the tag with auto-generated notes plus the
    image reference, digest, and a rollback hint.
 
@@ -70,13 +78,13 @@ release pipeline pushed. The Helm chart renders
 
 ```yaml
 image:
-  repository: docker.dnaroma.eu/sekai-world/sekai-master-api
+  repository: zot.dna.moe/sekai-world/sekai-master-api
   tag: "1.2.3@sha256:<digest>"
 ```
 
 Resolve the digest from the GitHub Release notes, the workflow step summary,
-or `docker buildx imagetools inspect
-docker.dnaroma.eu/sekai-world/sekai-master-api:X.Y.Z`.
+or, on the Tailnet, `docker buildx imagetools inspect
+zot.dna.moe/sekai-world/sekai-master-api:X.Y.Z`.
 
 ## Rollback by digest
 
