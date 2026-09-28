@@ -673,6 +673,15 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
    allowlist in `cachedRoutes`. It is off until `CACHE_REDIS_ADDR` is set.
    The gacha list is not on the allowlist: its `ongoing` filter does not
    report a boundary yet.
+   Enabled on the test cluster with `0.3.0` on 2026-09-28
+   (sekai-k3s-infra#362). It uses `redis-sekai-master` for `serve` only.
+   Server time for the 77 allowlisted `jp`/`en` URLs, timed inside the pod:
+   - first request (miss): median 120 ms, max 550 ms;
+   - repeat (hit): under the 10 ms timer resolution.
+
+   Through the public ingress a hit takes about 0.13 s, which is the network
+   floor. On dev the cache returned the same bytes as the uncached build for
+   all 2,026 URLs, and a sync retired its entries.
 
 The remaining list projections (events, musics and virtual lives, with their
 cross-entity filters) continue after step 5, on Postgres.
