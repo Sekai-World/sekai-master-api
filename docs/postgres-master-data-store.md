@@ -118,7 +118,9 @@ Footprint for all five regions and all 461 entity kinds:
 - projections: about 10 MB
 
 That is **under 0.3 GB** in about 170k block rows, instead of 2.5–3 GB in
-5.2 M `jsonb` rows.
+5.2 M `jsonb` rows. The dev cut-over measured 339 MB in 175,766 blocks. The
+relation index postings came out larger than estimated (see
+[Dev cut-over results](#dev-cut-over-results)).
 
 ## Architecture
 
@@ -445,16 +447,21 @@ downsized or removed once nothing reads them.
   0.3 GB.
 - **New role.** A read-only role for `serve`, with its own `DATABASE_URL`
   secret.
-- **Interim.** Until cut-over, set both master-data Redis instances to
-  `--maxmemory-policy noeviction`. A full Redis then fails sync writes loudly
-  instead of silently deleting data.
+- **Redis.** The eviction policy of the master-data Redis instances stays
+  unchanged ([Decision 7](#7-redis-eviction-policy)).
 
 ## Rollout
 
 Each step is its own PR, with tests, lint and a dev-cluster check.
 
-1. **Infra.** Add the read-only `serve` role and secret, and set the interim
-   `noeviction`.
+1. **Infra.** Add the read-only `serve` role and secret. Done in
+   Sekai-World/sekai-k3s-infra#354:
+   - The `postgresql-sekai-viewer` reconcile job creates
+     `sekai_master_api_reader` with `CONNECT` on `sekai_master_api`. It gets
+     `SELECT` on current tables, and on future ones through default
+     privileges.
+   - `sekai-master-api-serve-secrets` holds its `DATABASE_URL`. No workload
+     uses it yet.
 2. **Groundwork.** Done:
    - Drop SQLite. `DATABASE_DRIVER` stays optional but accepts only `pgx`;
      any other value fails startup.
@@ -481,7 +488,8 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
      search index.
    - Until step 5, `CurrentEvent` still writes its `currentevents` cache, so
      `serve` on the PostgreSQL store needs write access.
-4. **Dev cut-over.**
+4. **Dev cut-over.** Done on 2026-09-28; dev now runs on `postgres` (see
+   [Dev cut-over results](#dev-cut-over-results)).
    - Set `postgres` on dev and run a full sync.
    - Compare every public route byte for byte against a Redis-backed build of
      the same commit.
@@ -513,6 +521,86 @@ A step counts as done only when all of these hold:
 - Flushing Redis, or running without it, changes no response.
 - A sync holding a stale fencing token cannot write data.
 - `serve` issues no writes, which the read-only role enforces.
+
+## Dev cut-over results
+
+Rollout step 4, measured on the dev cluster on 2026-09-28 with commit
+`c0fc0fa`.
+
+**Method.**
+
+1. The dev Redis was flushed.
+2. A Redis-backed build synced `jp` and `en` (about 540 MB, below the 1.5 GB
+   cap, with no new evictions).
+3. We captured 855 URLs, each fetched twice (cold, then warm):
+   - every public GET route in the swagger, for both regions;
+   - `{id}` routes filled with real ids sampled from the list endpoints;
+   - page, spoiler and sort variants of every list;
+   - the costume, card, gacha, event, music, mission and Kizuna filter
+     queries.
+4. The same commit, switched to `MASTER_DATA_STORE=postgres`, synced the same
+   regions, and the same URLs were captured again.
+5. The Postgres build then synced all five regions, and every route was timed.
+
+**Correctness.**
+
+- 854 of the 855 responses were byte-identical, status included.
+- The one exception is `/build-info`, whose `buildDate` differs because the
+  two images were built at different times.
+- The Postgres process never connected to Redis. JP `actionSets`, which had
+  returned 503 on Redis after evictions, now returns 200.
+
+**Sync.**
+
+| Region | Redis | Postgres |
+|---|---|---|
+| jp (419 files) | 58.8 s | 35.3 s |
+| en (404 files) | 51.0 s | 31.2 s |
+| tw (455 files) | — | 35.0 s |
+| kr (455 files) | — | 37.1 s |
+| cn (437 files) | — | 35.1 s |
+
+A no-op re-sync of all five regions skipped every region in 1.5 s.
+
+**Footprint.** 339 MB for 5,541,830 records in 2,110 entities:
+
+| Table | Size |
+|---|---|
+| `master_blocks` (175,766 blocks) | 193 MB |
+| `master_record_index` (293,214 postings) | 109 MB |
+| `master_entities` (including order keys) | 31 MB |
+| `master_projections` | 5.7 MB |
+
+The Redis store held about 1.5 GB for the same five regions.
+
+**Latency (dev, through the port-forward).**
+
+On the same 855 `jp` and `en` URLs:
+
+| Store | Median | p95 | Max |
+|---|---|---|---|
+| Redis | 115 ms | 242 ms | 908 ms |
+| Postgres | 123 ms | 343 ms | 1048 ms |
+
+All five regions, 2,026 URLs: median 118 ms, p95 348 ms, p99 627 ms, maximum
+999 ms. No route reached 1 s in that run.
+
+Routes that are slower than on Redis:
+
+| Route | Postgres | Redis |
+|---|---|---|
+| card list, 100 per page | 0.87–1.05 s | 0.38 s |
+| music list, 100 per page | about 0.8 s | 0.41 s |
+| event rewards | 0.6–0.74 s | 0.30 s |
+
+Each of these reads related records one at a time:
+
+- the card list reads a card's supply, skill and character per card;
+- the music list reads a music's artist and stage per music;
+- event rewards read each reward's box, item and title per detail.
+
+A single read costs about 1 ms on Redis and about 3 ms on Postgres, so these
+routes are batched into one `GetByIDs` per entity before step 5.
 
 ## Decisions
 
@@ -546,3 +634,9 @@ Accepted.
 ### 6. Delete entity kinds removed from the source
 
 Accepted.
+
+### 7. Redis eviction policy
+
+The master-data Redis instances keep their eviction policy
+(`allkeys-lru`). An interim `noeviction` was proposed and declined: the fix
+is moving master data to PostgreSQL, not reconfiguring Redis.

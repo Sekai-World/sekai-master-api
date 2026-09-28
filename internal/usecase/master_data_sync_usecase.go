@@ -939,25 +939,29 @@ func (task *regionSyncTask) trySkipUnchangedCommit(ctx, regionCtx context.Contex
 // and skips the sync when the version cache can be confirmed. It reports
 // whether the region was skipped.
 func (task *regionSyncTask) trySkipViaRedisIndexRebuild(ctx, regionCtx context.Context) bool {
-	var rebuilt bool
-	var rebuildErr error
+	// check names how the store confirmed it still holds the region, for logs
+	// and progress: the Redis store rebuilds its search index from the stored
+	// records, while a store without one only needs the region to be populated.
+	var check, checkDescription string
+	var populated bool
+	var checkErr error
 	if rebuilder, ok := task.usecase.cache.(MasterDataCacheIndexRebuilder); ok {
-		rebuilt, rebuildErr = rebuilder.RebuildRegionIndexFromRedis(regionCtx, task.source.Region)
+		check, checkDescription = "rebuilt_from_redis", "rebuilt index from redis"
+		populated, checkErr = rebuilder.RebuildRegionIndexFromRedis(regionCtx, task.source.Region)
 	} else if inspector, ok := task.usecase.cache.(MasterDataCacheRegionDataInspector); ok {
-		// A store without a search index has nothing to rebuild; the
-		// shortcut only needs the region to be populated.
-		rebuilt, rebuildErr = inspector.HasRegionData(regionCtx, task.source.Region)
+		check, checkDescription = "region_data_present", "stored region data present"
+		populated, checkErr = inspector.HasRegionData(regionCtx, task.source.Region)
 	} else {
 		return false
 	}
-	if rebuildErr != nil {
-		task.usecase.logf("sync compare region=%s commit=%s redis_index_rebuild=failed error=%v", task.source.Region, task.resolvedCommit, rebuildErr)
-		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but redis index rebuild failed, fallback to full sync", task.now)
+	if checkErr != nil {
+		task.usecase.logf("sync compare region=%s commit=%s store_check=failed error=%v", task.source.Region, task.resolvedCommit, checkErr)
+		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but the stored region could not be checked, fallback to full sync", task.now)
 		return false
 	}
-	if !rebuilt {
-		task.usecase.logf("sync compare region=%s commit=%s redis_cache=empty fallback=full_sync", task.source.Region, task.resolvedCommit)
-		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but redis cache missing, fallback to full sync", task.now)
+	if !populated {
+		task.usecase.logf("sync compare region=%s commit=%s store=empty fallback=full_sync", task.source.Region, task.resolvedCommit)
+		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but the store has no data for the region, fallback to full sync", task.now)
 		return false
 	}
 	if ensurer, ok := task.usecase.cache.(MasterDataCacheDerivedDataEnsurer); ok {
@@ -972,13 +976,13 @@ func (task *regionSyncTask) trySkipViaRedisIndexRebuild(ctx, regionCtx context.C
 		}
 	}
 	if !task.usecase.ensureVersionCachePopulated(regionCtx, task.source, task.resolvedCommit, nil) {
-		task.usecase.logf("sync compare region=%s commit=%s redis_index_rebuilt=true version_cache=missing fallback=full_sync", task.source.Region, task.resolvedCommit)
+		task.usecase.logf("sync compare region=%s commit=%s check=%s version_cache=missing fallback=full_sync", task.source.Region, task.resolvedCommit, check)
 		task.publishRegionProgress(ctx, "running", "compare", "commit unchanged but version cache unavailable, fallback to full sync", task.now)
 		return false
 	}
 
-	task.usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s index=rebuilt_from_redis", task.source.Region, task.resolvedCommit)
-	task.publishRegionProgress(ctx, "success", "compare", "commit unchanged, rebuilt index from redis and skipped sync", task.now)
+	task.usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s check=%s", task.source.Region, task.resolvedCommit, check)
+	task.publishRegionProgress(ctx, "success", "compare", "commit unchanged, "+checkDescription+" and skipped sync", task.now)
 	return task.persistUnchangedSkipStatus(ctx)
 }
 
@@ -1043,7 +1047,7 @@ func (task *regionSyncTask) restoreCacheFromLocalBackup(ctx, regionCtx context.C
 		TotalFiles:     len(backupPayload),
 		UpdatedAt:      time.Now().UTC(),
 	})
-	task.usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s index=restored_from_local_backup", task.source.Region, task.resolvedCommit)
+	task.usecase.logf("sync skipped region=%s reason=commit_unchanged commit=%s check=restored_from_local_backup", task.source.Region, task.resolvedCommit)
 	task.publishRegionProgress(ctx, "success", "compare", "commit unchanged, restored cache from local backup and skipped sync", task.now)
 	return task.persistUnchangedSkipStatus(ctx)
 }
