@@ -106,6 +106,17 @@ func SortResponseItems(items []map[string]any, sortBy string, descending bool) {
 	})
 }
 
+// CompareSortableValues orders two non-nil sort values the way
+// SortResponseItems does: numerically, then as booleans, then as normalized text.
+func CompareSortableValues(left any, right any) int {
+	return compareSortableValues(left, right)
+}
+
+// CompareIDValues breaks sort ties the way SortResponseItems does.
+func CompareIDValues(left any, right any) int {
+	return compareIDValue(left, right)
+}
+
 func compareSortableValues(left any, right any) int {
 	if leftNumber, ok := sortableNumericValue(left); ok {
 		if rightNumber, ok := sortableNumericValue(right); ok {

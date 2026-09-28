@@ -245,64 +245,67 @@ func TestCostume3DByIDNotFoundAndInvalidIDResponses(t *testing.T) {
 	}
 }
 
-func TestCostume3DListReusesNormalizedCostumesWhileRevisionsAreUnchanged(t *testing.T) {
+func TestCostume3DListReadsProjectionsAndNormalizesOnlyThePage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cache := &revisionTrackingMissionCache{
-		missionTrackingCache: &missionTrackingCache{fakeLookupCache: &fakeLookupCache{
-			listByEntity: map[string]map[string][]map[string]any{
-				"jp": {
-					costume3dsEntity: {
-						{"id": 101, "groupId": 11, "name": "B"},
-						{"id": 102, "groupId": 11, "name": "A"},
-					},
-					costume3dGroupsEntity: {{"groupId": 11, "characterId": 13}},
+	cache := &missionTrackingCache{fakeLookupCache: &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"tw": {
+				costume3dsEntity: {
+					{"id": 101, "costume3dGroupId": 11, "name": "B"},
+					{"id": 102, "costume3dGroupId": 11, "name": "A"},
+					{"id": 101, "costume3dGroupId": 11, "name": "duplicate"},
+					{"id": 103, "costume3dGroupId": 12},
+				},
+				costume3dGroupsEntity: {
+					{"groupId": 11, "characterId": 13, "designer": "Group designer"},
+					{"groupId": 12, "characterId": 14, "name": "From group"},
 				},
 			},
-		}},
-		revisions: map[string]map[string]string{"jp": {costume3dsEntity: "c1", costume3dGroupsEntity: "g1"}},
-	}
+		},
+	}}
 	router := newCostume3DTestRouter(newMissionTestHandler(cache))
 
-	ids := func(path string) []int64 {
+	type item struct {
+		ID          int64  `json:"id"`
+		Name        string `json:"name"`
+		CharacterID int64  `json:"characterId"`
+		Designer    string `json:"designer"`
+	}
+	list := func(path string) ([]item, int) {
 		t.Helper()
 		resp := serveLookupRequest(t, router, http.MethodGet, path)
 		if resp.Code != http.StatusOK {
 			t.Fatalf("%s: expected 200, got %d: %s", path, resp.Code, resp.Body.String())
 		}
 		var body struct {
-			Items []struct {
-				ID          int64 `json:"id"`
-				CharacterID int64 `json:"characterId"`
-			} `json:"items"`
+			Items      []item `json:"items"`
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
 		}
 		if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 			t.Fatalf("unmarshal response: %v", err)
 		}
-		result := make([]int64, 0, len(body.Items))
-		for _, item := range body.Items {
-			if item.CharacterID != 13 {
-				t.Fatalf("expected the group's character on %d, got %d", item.ID, item.CharacterID)
-			}
-			result = append(result, item.ID)
+		return body.Items, body.Pagination.Total
+	}
+
+	items, total := list("/api/v1/costume3ds/tw/list?sort_by=name&sort_order=asc")
+	if total != 3 || len(items) != 3 || items[0].ID != 102 || items[1].ID != 101 || items[2].ID != 103 {
+		t.Fatalf("expected deduplicated costumes sorted by their normalized names, got %d %+v", total, items)
+	}
+	if items[1].Name != "B" || items[1].CharacterID != 13 || items[1].Designer != "Group designer" || items[2].Name != "From group" {
+		t.Fatalf("expected group fields to fill missing costume fields, got %+v", items)
+	}
+	if items, _ := list("/api/v1/costume3ds/tw/list?character_id=14"); len(items) != 1 || items[0].ID != 103 {
+		t.Fatalf("expected a filter on a group-supplied field, got %+v", items)
+	}
+	if items, _ := list("/api/v1/costume3ds/tw/list?name=from"); len(items) != 1 || items[0].ID != 103 {
+		t.Fatalf("expected a name filter on the group-supplied name, got %+v", items)
+	}
+
+	for _, call := range cache.listCalls {
+		if call.entity == costume3dsEntity || call.entity == costume3dGroupsEntity {
+			t.Fatalf("expected costumes read through projections, got ListAll calls %#v", cache.listCalls)
 		}
-		return result
 	}
-
-	if got := ids("/api/v1/costume3ds/jp/list?sort_by=name&sort_order=asc"); len(got) != 2 || got[0] != 102 {
-		t.Fatalf("expected costumes sorted by name, got %v", got)
-	}
-	if got := ids("/api/v1/costume3ds/jp/list"); len(got) != 2 || got[0] != 101 {
-		t.Fatalf("expected the cached order to survive an earlier sort, got %v", got)
-	}
-	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{costume3dsEntity: 1, costume3dGroupsEntity: 1})
-
-	cache.revisions["jp"][costume3dGroupsEntity] = "g2"
-	ids("/api/v1/costume3ds/jp/list")
-	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{costume3dsEntity: 2, costume3dGroupsEntity: 2})
-
-	// A region without costume groups has no groups revision but still caches.
-	delete(cache.revisions["jp"], costume3dGroupsEntity)
-	ids("/api/v1/costume3ds/jp/list")
-	ids("/api/v1/costume3ds/jp/list")
-	assertMissionEntityListCalls(t, cache.missionTrackingCache, map[string]int{costume3dsEntity: 3})
 }

@@ -17,10 +17,6 @@ import (
 
 type LookupHandler struct {
 	masterDataSync *usecase.MasterDataSyncUsecase
-
-	// Normalized 3D costumes and their groups, keyed by region.
-	costume3DRecords shared.RevisionCache[[]map[string]any]
-	costume3DGroups  shared.RevisionCache[map[string]map[string]any]
 }
 
 type lookupResourceConfig struct {
