@@ -57,7 +57,7 @@ func TestParseDumpArgs(t *testing.T) {
 	}{
 		{"all records", []string{"--region", "JP", "--entity", "Cards"}, dumpRequest{region: "jp", entity: "cards"}},
 		{"record ID", []string{"--region", "jp", "--entity", "cards", "--key", "1"}, dumpRequest{region: "jp", entity: "cards", id: "1"}},
-		{"composite key", []string{"--region", "jp", "--entity", "cardparameters", "--key", "cardId=1,level=2"}, dumpRequest{region: "jp", entity: "cardparameters", compositeKey: map[string]any{"cardId": "1", "level": "2"}}},
+		{"composite key", []string{"--region", "jp", "--entity", "resourceboxes", "--key", "id=1,resourceBoxPurpose=shop_item"}, dumpRequest{region: "jp", entity: "resourceboxes", compositeKey: map[string]any{"id": "1", "resourceBoxPurpose": "shop_item"}}},
 		{"index lookup", []string{"--region", "jp", "--entity", "resourceboxdetails", "--index", "resourceBoxId=5,resourceBoxPurpose=mission_reward"}, dumpRequest{region: "jp", entity: "resourceboxdetails", index: "resourceBoxId,resourceBoxPurpose", indexValues: []any{"5", "mission_reward"}}},
 	}
 	for _, testCase := range cases {
@@ -79,6 +79,8 @@ func TestParseDumpArgsRejectsInvalidInput(t *testing.T) {
 		{"--region", "jp", "--entity", "cards", "--index", "eventId"},
 		{"--region", "jp", "--entity", "cards", "extra"},
 		{"--region", "jp", "--entity", "cards", "--unknown"},
+		{"--region", "jp", "--entity", "resourceboxes", "--key", "1"},
+		{"--region", "jp", "--entity", "cards", "--key", "id=1"},
 	} {
 		if _, err := parseDumpArgs(args); err == nil || !strings.Contains(err.Error(), "usage: sekai-master-api dump") {
 			t.Fatalf("args %v: expected a usage error, got %v", args, err)

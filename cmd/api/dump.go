@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"sekai-master-api/internal/config"
+	"sekai-master-api/internal/domain/masterdata"
 	"sekai-master-api/internal/storage"
 )
 
@@ -90,9 +91,16 @@ func parseDumpArgs(args []string) (dumpRequest, error) {
 	}
 
 	if rawKey := strings.TrimSpace(*key); rawKey != "" {
+		composite := masterdata.UsesCompositeKey(request.entity)
 		if !strings.Contains(rawKey, "=") {
+			if composite {
+				return dumpRequest{}, fmt.Errorf("--key: %s is keyed by %s; pass them as field=value,...\n%s", request.entity, strings.Join(masterdata.CompositeKeyFields(request.entity), ","), dumpUsage)
+			}
 			request.id = rawKey
 			return request, nil
+		}
+		if !composite {
+			return dumpRequest{}, fmt.Errorf("--key: %s is keyed by id; pass the ID alone, for example --key 1\n%s", request.entity, dumpUsage)
 		}
 		fields, values, err := parseDumpFieldValues(rawKey)
 		if err != nil {

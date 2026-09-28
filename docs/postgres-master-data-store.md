@@ -384,7 +384,7 @@ Record blocks are opaque to SQL. Operators inspect data with the `dump`
 subcommand (`cmd/api/dump.go`), which reads `DATABASE_URL` like the API:
 
 ```
-sekai-master-api dump --region jp --entity cards [--key 1 | --index eventId=150]
+sekai-master-api dump --region jp --entity eventcards [--key 1 | --index eventId=150]
 ```
 
 - `--key 1` prints one record by ID.
