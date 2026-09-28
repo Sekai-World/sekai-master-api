@@ -26,6 +26,10 @@ fi
 go vet ./...
 '''
 
+[tasks.route-parity]
+description = "Compare every public GET route of two deployments byte for byte and time them (pass flags after --, e.g. -a URL -b URL)"
+run = "go run -buildvcs=false ./cmd/route-parity"
+
 [tasks.swagger]
 description = "Regenerate Swagger docs"
 run = "go run -buildvcs=false github.com/swaggo/swag/cmd/swag@v1.8.12 init -g main.go -d cmd/api,internal/transport/http/handlers/admin,internal/transport/http/handlers/cards,internal/transport/http/handlers/events,internal/transport/http/handlers/gachas,internal/transport/http/handlers/gamenews,internal/transport/http/handlers/lookups,internal/transport/http/handlers/musics,internal/transport/http/handlers/shared,internal/transport/http/handlers/system,internal/transport/http/handlers/virtuallives,internal/domain/masterdata -o internal/transport/http/swaggerdocs"

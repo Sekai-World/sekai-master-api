@@ -486,6 +486,27 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
    - Compare every public route byte for byte against a Redis-backed build of
      the same commit.
    - Time every route cold and warm, and time the sync.
+
+   The comparison and route timing are one command against the two
+   deployments (for example two port-forwards):
+
+   ```
+   mise run route-parity -- -a http://localhost:18080 -b http://localhost:18081
+   ```
+
+   `cmd/route-parity` reads the public GET routes from the Swagger spec and
+   fills ids from the reference deployment's lists (first, middle and last
+   item, plus an id that does not exist). It adds page and sort variants of
+   every list, requests each URL once cold and twice warm on both
+   deployments, and prints every differing response and the slowest routes.
+   It exits 1 when a response differs or a candidate request takes 3 s or
+   more. `/health` and `/build-info` are skipped by default. Both deployments
+   need a `success` sync status for every region, or strict routes answer
+   503 on both.
+
+   Run against local builds of the same commit seeded with TW data, all 271
+   TW URLs were identical, and the slowest route took about 100 ms on both
+   stores. The dev run on all five regions is still to do.
 5. **Make Postgres the default.**
    - Remove the Redis store, the search index, the LRU, the local backups and
      Redis readiness.
