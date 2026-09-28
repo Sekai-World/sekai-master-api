@@ -1,6 +1,7 @@
 package lookups
 
 import (
+	"cmp"
 	"context"
 	"net/http"
 	"slices"
@@ -250,6 +251,12 @@ func (handler *LookupHandler) loadCostume3DRows(ctx context.Context, region stri
 	if err != nil {
 		return nil, err
 	}
+	return costume3DRowsFromProjections(costumes, groupProjection), nil
+}
+
+// costume3DRowsFromProjections joins costumes to their groups and keeps every
+// costume with a valid ID once, in stored order.
+func costume3DRowsFromProjections(costumes *masterdata.Projection, groupProjection *masterdata.Projection) []costume3DRow {
 	groups := make(map[string]costume3DSource, groupProjection.Len())
 	for row := range groupProjection.Len() {
 		source := costume3DProjectionRow{projection: groupProjection, row: row}
@@ -274,7 +281,7 @@ func (handler *LookupHandler) loadCostume3DRows(ctx context.Context, region stri
 		seenIDs[id] = struct{}{}
 		rows = append(rows, costume3DRow{source: source, group: groups[costume3DGroupLookupKey(source)], id: id})
 	}
-	return rows, nil
+	return rows
 }
 
 // loadCostume3DGroup reads the group a costume belongs to through the
@@ -320,27 +327,29 @@ func costume3DRowMatches(row costume3DRow, numericFilters map[string][]float64, 
 }
 
 // sortCostume3DRows orders rows like shared.SortResponseItems orders
-// normalized records: missing values last, ties by ID.
+// normalized records: missing values last, ties by ID. Each row's sort key and
+// ID text are computed once, since comparing ~124k JP costumes by normalizing
+// both sides of every comparison dominated sorted lists.
 func sortCostume3DRows(rows []costume3DRow, field string, descending bool) {
-	keys := make([]any, len(rows))
+	keys := make([]costume3DSortKey, len(rows))
 	for index, row := range rows {
-		keys[index] = row.fieldValue(field)
+		keys[index] = newCostume3DSortKey(row.fieldValue(field), row.id)
 	}
 	order := make([]int, len(rows))
 	for index := range order {
 		order[index] = index
 	}
 	sort.SliceStable(order, func(i int, j int) bool {
-		left, right := keys[order[i]], keys[order[j]]
-		if (left == nil) != (right == nil) {
-			return left != nil
+		left, right := &keys[order[i]], &keys[order[j]]
+		if (left.value == nil) != (right.value == nil) {
+			return left.value != nil
 		}
 		comparison := 0
-		if left != nil {
-			comparison = shared.CompareSortableValues(left, right)
+		if left.value != nil {
+			comparison = left.compare(right)
 		}
 		if comparison == 0 {
-			return shared.CompareIDValues(rows[order[i]].id, rows[order[j]].id) < 0
+			return left.id < right.id
 		}
 		if descending {
 			return comparison > 0
@@ -353,6 +362,39 @@ func sortCostume3DRows(rows []costume3DRow, field string, descending bool) {
 		sorted[index] = rows[position]
 	}
 	copy(rows, sorted)
+}
+
+// costume3DSortKey precomputes what shared.CompareSortableValues and
+// shared.CompareIDValues derive on every comparison.
+type costume3DSortKey struct {
+	value    any
+	number   float64
+	isNumber bool
+	text     string
+	id       string
+}
+
+func newCostume3DSortKey(value any, id int64) costume3DSortKey {
+	key := costume3DSortKey{value: value, id: shared.NormalizeAnyID(id)}
+	switch typed := value.(type) {
+	case nil:
+	case int64:
+		key.number, key.isNumber = float64(typed), true
+	default:
+		key.text = shared.NormalizeComparableText(value)
+	}
+	return key
+}
+
+func (key *costume3DSortKey) compare(other *costume3DSortKey) int {
+	switch {
+	case key.isNumber && other.isNumber:
+		return cmp.Compare(key.number, other.number)
+	case !key.isNumber && !other.isNumber:
+		return strings.Compare(key.text, other.text)
+	default:
+		return shared.CompareSortableValues(key.value, other.value)
+	}
 }
 
 func pageCostume3DRows(rows []costume3DRow, page int, pageSize int) []costume3DRow {
