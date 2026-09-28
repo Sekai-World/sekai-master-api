@@ -86,7 +86,7 @@ func (handler *CardHandler) ByID(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
 		return
 	}
-	item, err := handler.buildCardBase(c.Request.Context(), region, record, rarities)
+	item, err := handler.buildCardBase(c.Request.Context(), region, record, rarities, handler.masterDataSync.GetByID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
 		return
@@ -830,14 +830,10 @@ func (handler *CardHandler) List(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
 			return
 		}
-		items := make([]map[string]any, 0, len(pagedRecords))
-		for _, record := range pagedRecords {
-			item, buildErr := handler.buildCardBase(c.Request.Context(), region, record, rarities)
-			if buildErr != nil {
-				response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
-				return
-			}
-			items = append(items, item)
+		items, err := handler.buildCardBases(c.Request.Context(), region, pagedRecords, rarities)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
+			return
 		}
 		response.JSON(c, http.StatusOK, gin.H{
 			"items":      items,
@@ -852,19 +848,15 @@ func (handler *CardHandler) List(c *gin.Context) {
 		return
 	}
 
-	items := make([]map[string]any, 0, len(records))
 	rarities, err := handler.loadCardRarities(c.Request.Context(), region)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
 		return
 	}
-	for _, record := range records {
-		item, buildErr := handler.buildCardBase(c.Request.Context(), region, record, rarities)
-		if buildErr != nil {
-			response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
-			return
-		}
-		items = append(items, item)
+	items, err := handler.buildCardBases(c.Request.Context(), region, records, rarities)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich cards")
+		return
 	}
 
 	totalPages := 0
@@ -1177,7 +1169,34 @@ func setContains(set map[string]struct{}, value string) bool {
 	return ok
 }
 
-func (handler *CardHandler) buildCardBase(ctx context.Context, region string, record map[string]any, rarities []map[string]any) (map[string]any, error) {
+// buildCardBases builds the list items of records, reading their card
+// supplies, skills, and characters with one batched read per entity.
+func (handler *CardHandler) buildCardBases(ctx context.Context, region string, records []map[string]any, rarities []map[string]any) ([]map[string]any, error) {
+	ids := map[string][]string{}
+	for _, record := range records {
+		ids["cardsupplies"] = append(ids["cardsupplies"], shared.NormalizeAnyID(record["cardSupplyId"]))
+		ids["skills"] = append(ids["skills"], shared.NormalizeAnyID(record["skillId"]))
+		ids["gamecharacters"] = append(ids["gamecharacters"], shared.NormalizeAnyID(record["characterId"]))
+	}
+	related, err := shared.PrefetchRecords(ctx, handler.masterDataSync, region, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		item, err := handler.buildCardBase(ctx, region, record, rarities, related.Lookup)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+// buildCardBase builds a card's base fields, reading its supply, skill, and
+// character through lookup.
+func (handler *CardHandler) buildCardBase(ctx context.Context, region string, record map[string]any, rarities []map[string]any, lookup shared.RecordLookup) (map[string]any, error) {
 	if record == nil {
 		return map[string]any{}, nil
 	}
@@ -1213,7 +1232,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 		if lookupID == "" {
 			result["cardSupply"] = nil
 		} else {
-			cardSupply, found, err := handler.masterDataSync.GetByID(ctx, region, "cardsupplies", lookupID)
+			cardSupply, found, err := lookup(ctx, region, "cardsupplies", lookupID)
 			if err != nil {
 				return nil, fmt.Errorf("get card supply %s: %w", lookupID, err)
 			}
@@ -1230,7 +1249,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 		if skillLookupID == "" {
 			result["skill"] = nil
 		} else {
-			skill, found, err := handler.masterDataSync.GetByID(ctx, region, "skills", skillLookupID)
+			skill, found, err := lookup(ctx, region, "skills", skillLookupID)
 			if err != nil {
 				return nil, fmt.Errorf("get skill %s: %w", skillLookupID, err)
 			}
@@ -1247,7 +1266,7 @@ func (handler *CardHandler) buildCardBase(ctx context.Context, region string, re
 		if characterLookupID == "" {
 			result["character"] = nil
 		} else {
-			character, found, err := handler.masterDataSync.GetByID(ctx, region, "gamecharacters", characterLookupID)
+			character, found, err := lookup(ctx, region, "gamecharacters", characterLookupID)
 			if err != nil {
 				return nil, fmt.Errorf("get game character %s: %w", characterLookupID, err)
 			}
@@ -1407,7 +1426,7 @@ func (handler *CardHandler) DetailByID(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
 		return
 	}
-	cardBase, err := handler.buildCardBase(ctx, region, card, rarities)
+	cardBase, err := handler.buildCardBase(ctx, region, card, rarities, handler.masterDataSync.GetByID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "CARD_QUERY_ERROR", "failed to enrich card")
 		return

@@ -417,10 +417,15 @@ func (handler *EventHandler) RewardsByID(c *gin.Context) {
 		}
 	}
 
-	response.JSON(c, http.StatusOK, gin.H{"items": handler.enrichEventRewardRanges(c.Request.Context(), region, rewards)})
+	response.JSON(c, http.StatusOK, gin.H{"items": handler.enrichEventRewardRanges(c.Request.Context(), region, rewards, nil)})
 }
 
-func (handler *EventHandler) enrichEventRewardRanges(ctx context.Context, region string, ranges []any) []any {
+// enrichEventRewardRanges resolves the reward boxes of ranges. lookups holds
+// the boxes and detail records already read for them; nil reads them here.
+func (handler *EventHandler) enrichEventRewardRanges(ctx context.Context, region string, ranges []any, lookups *eventRewardLookups) []any {
+	if lookups == nil {
+		lookups = handler.loadEventRewardLookups(ctx, region, ranges)
+	}
 	items := make([]any, 0, len(ranges))
 	for _, item := range ranges {
 		rangeRecord, ok := item.(map[string]any)
@@ -431,7 +436,7 @@ func (handler *EventHandler) enrichEventRewardRanges(ctx context.Context, region
 
 		result := copyRecord(rangeRecord)
 		if rewards, ok := rangeRecord["eventRankingRewards"]; ok {
-			result["eventRankingRewards"] = handler.enrichEventRankingRewards(ctx, region, rewards)
+			result["eventRankingRewards"] = handler.enrichEventRankingRewards(ctx, region, rewards, lookups)
 		}
 		items = append(items, result)
 	}
@@ -439,10 +444,13 @@ func (handler *EventHandler) enrichEventRewardRanges(ctx context.Context, region
 	return items
 }
 
-func (handler *EventHandler) enrichEventRankingRewards(ctx context.Context, region string, rewards any) []any {
+func (handler *EventHandler) enrichEventRankingRewards(ctx context.Context, region string, rewards any, lookups *eventRewardLookups) []any {
 	items, ok := rewards.([]any)
 	if !ok {
 		items = []any{rewards}
+	}
+	if lookups == nil {
+		lookups = handler.loadEventRewardLookups(ctx, region, []any{map[string]any{"eventRankingRewards": items}})
 	}
 
 	result := make([]any, 0, len(items))
@@ -454,7 +462,7 @@ func (handler *EventHandler) enrichEventRankingRewards(ctx context.Context, regi
 		}
 
 		reward := copyRecord(rewardRecord)
-		if resourceBox := handler.resolveRewardResourceBox(ctx, region, rewardRecord); resourceBox != nil {
+		if resourceBox := handler.resolveRewardResourceBox(ctx, region, rewardRecord, lookups); resourceBox != nil {
 			reward["resourceBox"] = resourceBox
 		}
 		result = append(result, reward)
@@ -463,8 +471,13 @@ func (handler *EventHandler) enrichEventRankingRewards(ctx context.Context, regi
 	return result
 }
 
-func (handler *EventHandler) resolveRewardResourceBox(ctx context.Context, region string, reward map[string]any) map[string]any {
-	resolved := handler.resolveRewardResourceBoxWithRegion(ctx, region, reward)
+// resolveRewardResourceBox resolves one reward's box. lookups holds the boxes
+// and detail records already read for the request; nil reads them for reward.
+func (handler *EventHandler) resolveRewardResourceBox(ctx context.Context, region string, reward map[string]any, lookups *eventRewardLookups) map[string]any {
+	if lookups == nil {
+		lookups = handler.loadEventRewardLookups(ctx, region, []any{map[string]any{"eventRankingRewards": []any{reward}}})
+	}
+	resolved := handler.resolveRewardResourceBoxWithRegion(ctx, region, reward, lookups)
 	if resolved == nil {
 		return nil
 	}
@@ -479,14 +492,49 @@ type resolvedRewardResourceBox struct {
 // resolveRewardResourceBoxWithRegion deliberately applies the regional fallback
 // only to ranking reward resource boxes. Event and range master data remain
 // strictly region-scoped.
-func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Context, region string, reward map[string]any) *resolvedRewardResourceBox {
-	if handler == nil || handler.masterDataSync == nil {
+func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Context, region string, reward map[string]any, lookups *eventRewardLookups) *resolvedRewardResourceBox {
+	if handler == nil || handler.masterDataSync == nil || lookups == nil {
 		return nil
 	}
 
-	resourceBoxID := shared.NormalizeAnyID(reward["resourceBoxId"])
-	if resourceBoxID == "" {
+	source, ok := lookups.boxes[shared.NormalizeAnyID(reward["resourceBoxId"])]
+	if !ok {
 		return nil
+	}
+	result := pickFields(source.record, []string{"id", "resourceBoxPurpose", "resourceBoxType", "details"})
+	details, _ := source.record["details"].([]any)
+	result["details"] = handler.enrichRewardResourceBoxDetails(ctx, source.region, details, lookups.records[source.region])
+	return &resolvedRewardResourceBox{record: result, region: source.region}
+}
+
+// eventRewardLookups holds, for one request, the ranking reward boxes its
+// rewards reference and the records their details name. Each is read with one
+// batched read per entity and region, instead of once per reward and detail.
+type eventRewardLookups struct {
+	// boxes maps a resource box ID to the usable box and the region it came
+	// from: the request region, or JP as the fallback.
+	boxes map[string]resolvedRewardResourceBox
+	// records answers detail lookups (items, titles, title groups) per region.
+	records map[string]*shared.PrefetchedRecords
+}
+
+// loadEventRewardLookups reads the event_ranking_reward boxes of every reward
+// in ranges, falling back to JP for boxes the region lacks or cannot use, then
+// prefetches the records their details name.
+func (handler *EventHandler) loadEventRewardLookups(ctx context.Context, region string, ranges []any) *eventRewardLookups {
+	lookups := &eventRewardLookups{boxes: map[string]resolvedRewardResourceBox{}, records: map[string]*shared.PrefetchedRecords{}}
+	if handler == nil || handler.masterDataSync == nil {
+		return lookups
+	}
+
+	pending := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, reward := range eventRangeRewards(ranges) {
+		id := shared.NormalizeAnyID(reward["resourceBoxId"])
+		if _, duplicate := seen[id]; id != "" && !duplicate {
+			seen[id] = struct{}{}
+			pending = append(pending, id)
+		}
 	}
 
 	regions := []string{region}
@@ -494,30 +542,87 @@ func (handler *EventHandler) resolveRewardResourceBoxWithRegion(ctx context.Cont
 		regions = append(regions, "jp")
 	}
 	for _, sourceRegion := range regions {
-		resourceBox := handler.loadEventRankingResourceBox(ctx, sourceRegion, resourceBoxID)
-		if resourceBox == nil {
+		if len(pending) == 0 {
+			break
+		}
+		keys := make([]map[string]any, len(pending))
+		for index, id := range pending {
+			keys[index] = map[string]any{"id": id, "resourceBoxPurpose": "event_ranking_reward"}
+		}
+		boxes, err := handler.masterDataSync.GetByCompositeKeys(ctx, sourceRegion, "resourceboxes", keys)
+		if err != nil {
 			continue
 		}
-
-		result := pickFields(resourceBox, []string{"id", "resourceBoxPurpose", "resourceBoxType", "details"})
-		details, _ := resourceBox["details"].([]any)
-		result["details"] = handler.enrichRewardResourceBoxDetails(ctx, sourceRegion, details)
-		return &resolvedRewardResourceBox{record: result, region: sourceRegion}
+		remaining := pending[:0:0]
+		for index, id := range pending {
+			if index < len(boxes) && boxes[index] != nil && isUsableEventRankingResourceBox(boxes[index]) {
+				lookups.boxes[id] = resolvedRewardResourceBox{record: boxes[index], region: sourceRegion}
+			} else {
+				remaining = append(remaining, id)
+			}
+		}
+		pending = remaining
 	}
-	return nil
+
+	detailsByRegion := make(map[string][]map[string]any)
+	for _, box := range lookups.boxes {
+		details, _ := box.record["details"].([]any)
+		for _, item := range details {
+			if detail, ok := item.(map[string]any); ok {
+				detailsByRegion[box.region] = append(detailsByRegion[box.region], detail)
+			}
+		}
+	}
+	for sourceRegion, details := range detailsByRegion {
+		lookups.records[sourceRegion] = handler.prefetchRewardDetailRecords(ctx, sourceRegion, details)
+	}
+	return lookups
 }
 
-// loadEventRankingResourceBox reads the region's event_ranking_reward box by
-// its composite key. resourceboxes IDs are not unique across purposes, and a
-// box without details (TW/KR/CN keep them in resourceboxdetails) is unusable.
-func (handler *EventHandler) loadEventRankingResourceBox(ctx context.Context, region string, resourceBoxID string) map[string]any {
-	boxes, err := handler.masterDataSync.GetByCompositeKeys(ctx, region, "resourceboxes", []map[string]any{
-		{"id": resourceBoxID, "resourceBoxPurpose": "event_ranking_reward"},
-	})
-	if err != nil || len(boxes) == 0 || boxes[0] == nil || !isUsableEventRankingResourceBox(boxes[0]) {
-		return nil
+// prefetchRewardDetailRecords reads the items and titles details name, then
+// the titles' groups. A failed read leaves those lookups to GetByID.
+func (handler *EventHandler) prefetchRewardDetailRecords(ctx context.Context, region string, details []map[string]any) *shared.PrefetchedRecords {
+	records, err := shared.PrefetchRecords(ctx, handler.masterDataSync, region, shared.RewardItemIDsByEntity(details))
+	if err != nil {
+		records, _ = shared.PrefetchRecords(ctx, handler.masterDataSync, region, nil)
+		return records
 	}
-	return boxes[0]
+	groupIDs := make([]string, 0)
+	for _, detail := range details {
+		if shared.NormalizeComparableText(detail["resourceType"]) != "honor" {
+			continue
+		}
+		if honor, ok := records.Record("honors", shared.NormalizeAnyID(detail["resourceId"])); ok {
+			groupIDs = append(groupIDs, shared.NormalizeAnyID(honor["groupId"]))
+		}
+	}
+	_ = records.Add(ctx, map[string][]string{"honorgroups": groupIDs})
+	return records
+}
+
+// eventRangeRewards returns the ranking rewards of ranges.
+func eventRangeRewards(ranges []any) []map[string]any {
+	rewards := make([]map[string]any, 0, len(ranges))
+	for _, item := range ranges {
+		rangeRecord, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		value, ok := rangeRecord["eventRankingRewards"]
+		if !ok {
+			continue
+		}
+		items, ok := value.([]any)
+		if !ok {
+			items = []any{value}
+		}
+		for _, entry := range items {
+			if reward, ok := entry.(map[string]any); ok {
+				rewards = append(rewards, reward)
+			}
+		}
+	}
+	return rewards
 }
 
 func isUsableEventRankingResourceBox(resourceBox map[string]any) bool {
@@ -528,7 +633,11 @@ func isUsableEventRankingResourceBox(resourceBox map[string]any) bool {
 	return ok && len(details) > 0
 }
 
-func (handler *EventHandler) enrichRewardResourceBoxDetails(ctx context.Context, region string, details []any) []any {
+func (handler *EventHandler) enrichRewardResourceBoxDetails(ctx context.Context, region string, details []any, records *shared.PrefetchedRecords) []any {
+	lookup := shared.RecordLookup(handler.masterDataSync.GetByID)
+	if records != nil {
+		lookup = records.Lookup
+	}
 	items := make([]any, 0, len(details))
 	for _, item := range details {
 		detailRecord, ok := item.(map[string]any)
@@ -538,13 +647,11 @@ func (handler *EventHandler) enrichRewardResourceBoxDetails(ctx context.Context,
 		}
 
 		detail := copyRecord(detailRecord)
-		if honor := handler.resolveRewardHonor(ctx, region, detailRecord); honor != nil {
+		if honor := resolveRewardHonor(ctx, lookup, region, detailRecord); honor != nil {
 			detail["honor"] = honor
 		}
-		if handler != nil && handler.masterDataSync != nil {
-			for key, value := range shared.RewardItemFields(ctx, handler.masterDataSync.GetByID, region, detailRecord) {
-				detail[key] = value
-			}
+		for key, value := range shared.RewardItemFields(ctx, shared.RewardItemRecordLookup(lookup), region, detailRecord) {
+			detail[key] = value
 		}
 		items = append(items, detail)
 	}
@@ -552,11 +659,7 @@ func (handler *EventHandler) enrichRewardResourceBoxDetails(ctx context.Context,
 	return items
 }
 
-func (handler *EventHandler) resolveRewardHonor(ctx context.Context, region string, detail map[string]any) map[string]any {
-	if handler == nil || handler.masterDataSync == nil {
-		return nil
-	}
-
+func resolveRewardHonor(ctx context.Context, lookup shared.RecordLookup, region string, detail map[string]any) map[string]any {
 	if shared.NormalizeComparableText(detail["resourceType"]) != "honor" {
 		return nil
 	}
@@ -566,14 +669,14 @@ func (handler *EventHandler) resolveRewardHonor(ctx context.Context, region stri
 		return nil
 	}
 
-	honor, found, err := handler.masterDataSync.GetByID(ctx, region, "honors", honorID)
+	honor, found, err := lookup(ctx, region, "honors", honorID)
 	if err != nil || !found {
 		return nil
 	}
 
 	result := pickFields(honor, []string{"id", "groupId", "honorRarity", "honorMissionType", "honorType", "assetbundleName", "name", "levels"})
 	if groupID := shared.NormalizeAnyID(honor["groupId"]); groupID != "" {
-		if honorGroup, found, err := handler.masterDataSync.GetByID(ctx, region, "honorgroups", groupID); err == nil && found {
+		if honorGroup, found, err := lookup(ctx, region, "honorgroups", groupID); err == nil && found {
 			result["group"] = pickFields(honorGroup, []string{"id", "name", "honorType", "backgroundAssetbundleName", "frameName"})
 		}
 	}
@@ -864,10 +967,12 @@ func (handler *EventHandler) buildEventRewardPreview(ctx context.Context, region
 	}
 
 	// The final degree reward rank is chosen from all ranges, rather than from
-	// rank borders: a degree can occur in any inclusive reward interval.
+	// rank borders: a degree can occur in any inclusive reward interval. Every
+	// range's boxes are read at once, since the scan may look at all of them.
+	lookups := handler.loadEventRewardLookups(ctx, region, ranges)
 	for offset := len(orderedIndices) - 1; offset >= 0; offset-- {
 		index := orderedIndices[offset]
-		if selected[index] || !handler.eventRewardRangeHasDegree(ctx, region, ranges[index]) {
+		if selected[index] || !handler.eventRewardRangeHasDegree(ctx, region, ranges[index], lookups) {
 			continue
 		}
 		selected[index] = true
@@ -883,7 +988,7 @@ func (handler *EventHandler) buildEventRewardPreview(ctx context.Context, region
 		}
 		return left < right
 	})
-	return handler.enrichEventRewardRanges(ctx, region, previewSource)
+	return handler.enrichEventRewardRanges(ctx, region, previewSource, lookups)
 }
 
 func eventRewardRangeContains(item any, rank float64) bool {
@@ -932,7 +1037,7 @@ func eventRewardRangeToRank(item any) (float64, bool) {
 	return numericRank(rangeRecord["toRank"])
 }
 
-func (handler *EventHandler) eventRewardRangeHasDegree(ctx context.Context, region string, item any) bool {
+func (handler *EventHandler) eventRewardRangeHasDegree(ctx context.Context, region string, item any, lookups *eventRewardLookups) bool {
 	rangeRecord, ok := item.(map[string]any)
 	if !ok {
 		return false
@@ -950,7 +1055,7 @@ func (handler *EventHandler) eventRewardRangeHasDegree(ctx context.Context, regi
 		if !ok {
 			continue
 		}
-		resourceBox := handler.resolveRewardResourceBox(ctx, region, reward)
+		resourceBox := handler.resolveRewardResourceBox(ctx, region, reward, lookups)
 		if resourceBox == nil {
 			continue
 		}

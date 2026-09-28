@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -1193,7 +1194,7 @@ func TestEventRankingRewardResourceBoxPrefersRegionalRecord(t *testing.T) {
 	}}
 	handler := newReadyEventHandler(cache)
 
-	resolved := handler.resolveRewardResourceBox(context.Background(), "tw", map[string]any{"resourceBoxId": 9001})
+	resolved := handler.resolveRewardResourceBox(context.Background(), "tw", map[string]any{"resourceBoxId": 9001}, nil)
 	if resolved == nil || resolved["details"].([]any)[0].(map[string]any)["resourceQuantity"] != 300 {
 		t.Fatalf("expected regional resource box to win, got %v", resolved)
 	}
@@ -1212,7 +1213,7 @@ func TestEventRankingRewardResourceBoxSelectsPurposeForCollidingID(t *testing.T)
 	}
 	handler := newReadyEventHandler(cache)
 
-	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001})
+	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001}, nil)
 	if resourceBox == nil {
 		t.Fatal("expected event ranking resource box to resolve")
 	}
@@ -1238,12 +1239,78 @@ func TestEventRankingRewardJPFallbackEnrichesHonorFromJP(t *testing.T) {
 	}}
 	handler := newReadyEventHandler(cache)
 	rewards := []any{map[string]any{"resourceBoxId": 9001}}
-	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards)
+	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards, nil)
 	reward := result[0].(map[string]any)
 	detail := reward["resourceBox"].(map[string]any)["details"].([]any)[0].(map[string]any)
 	honor := detail["honor"].(map[string]any)
 	if honor["assetbundleName"] != "degree_301" || honor["group"].(map[string]any)["backgroundAssetbundleName"] != "degree_bg" {
 		t.Fatalf("expected JP honor and group enrichment, got %v", detail)
+	}
+}
+
+func TestEventRankingRewardsMixRegionalAndJPBoxesInOneRequest(t *testing.T) {
+	cache := &fakeEventHandlerCache{byID: map[string]map[string]map[string]map[string]any{
+		"tw": {
+			"resourceboxes": {
+				"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 301}}},
+				"9002": {"id": 9002, "resourceBoxPurpose": "event_ranking_reward", "details": []any{}},
+			},
+			"honors": {"301": {"id": 301, "assetbundleName": "tw_degree_301"}},
+		},
+		"jp": {
+			"resourceboxes": {"9002": {"id": 9002, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 302}}}},
+			"honors": {
+				"301": {"id": 301, "assetbundleName": "jp_degree_301"},
+				"302": {"id": 302, "assetbundleName": "jp_degree_302"},
+			},
+		},
+	}}
+	handler := newReadyEventHandler(cache)
+	rewards := []any{map[string]any{"resourceBoxId": 9001}, map[string]any{"resourceBoxId": 9002}}
+	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards, nil)
+
+	honorOf := func(position int) map[string]any {
+		t.Helper()
+		reward := result[position].(map[string]any)
+		detail := reward["resourceBox"].(map[string]any)["details"].([]any)[0].(map[string]any)
+		return detail["honor"].(map[string]any)
+	}
+	if got := honorOf(0)["assetbundleName"]; got != "tw_degree_301" {
+		t.Fatalf("expected the regional box to use the regional honor, got %v", got)
+	}
+	if got := honorOf(1)["assetbundleName"]; got != "jp_degree_302" {
+		t.Fatalf("expected the JP fallback box to use the JP honor, got %v", got)
+	}
+}
+
+// failingBatchEventHandlerCache fails batched reads of one entity, so tests
+// can check that reward enrichment falls back to single reads.
+type failingBatchEventHandlerCache struct {
+	*fakeEventHandlerCache
+	failEntity string
+}
+
+func (cache *failingBatchEventHandlerCache) GetByIDs(ctx context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	if entity == cache.failEntity {
+		return nil, errors.New("batch read failed")
+	}
+	return cache.fakeEventHandlerCache.GetByIDs(ctx, region, entity, ids)
+}
+
+func TestEventRankingRewardFallsBackToSingleReadsWhenBatchReadFails(t *testing.T) {
+	cache := &failingBatchEventHandlerCache{failEntity: "honors", fakeEventHandlerCache: &fakeEventHandlerCache{byID: map[string]map[string]map[string]map[string]any{
+		"jp": {
+			"resourceboxes": {"9001": {"id": 9001, "resourceBoxPurpose": "event_ranking_reward", "details": []any{map[string]any{"resourceType": "honor", "resourceId": 301}}}},
+			"honors":        {"301": {"id": 301, "assetbundleName": "degree_301"}},
+		},
+	}}}
+	statusStore := &fakeEventHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
+	handler := NewEventHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1))
+
+	result := handler.enrichEventRankingRewards(context.Background(), "jp", []any{map[string]any{"resourceBoxId": 9001}}, nil)
+	detail := result[0].(map[string]any)["resourceBox"].(map[string]any)["details"].([]any)[0].(map[string]any)
+	if honor, ok := detail["honor"].(map[string]any); !ok || honor["assetbundleName"] != "degree_301" {
+		t.Fatalf("expected the honor through single reads after a failed batch, got %v", detail)
 	}
 }
 
@@ -1261,7 +1328,7 @@ func TestEventRankingRewardDetailsNameTheirItems(t *testing.T) {
 		},
 	}}
 	handler := newReadyEventHandler(cache)
-	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001})
+	resourceBox := handler.resolveRewardResourceBox(context.Background(), "jp", map[string]any{"resourceBoxId": 9001}, nil)
 	if resourceBox == nil {
 		t.Fatal("expected event ranking resource box to resolve")
 	}
@@ -1289,7 +1356,7 @@ func TestEventRankingRewardDetailsNameTheirItems(t *testing.T) {
 func TestEventRankingRewardMissingResourceBoxesRemainSparse(t *testing.T) {
 	handler := newReadyEventHandler(&fakeEventHandlerCache{})
 	rewards := []any{map[string]any{"id": 701, "resourceBoxId": 9001}}
-	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards)
+	result := handler.enrichEventRankingRewards(context.Background(), "tw", rewards, nil)
 	reward := result[0].(map[string]any)
 	if _, exists := reward["resourceBox"]; exists {
 		t.Fatalf("expected missing resource box to remain sparse, got %v", reward)

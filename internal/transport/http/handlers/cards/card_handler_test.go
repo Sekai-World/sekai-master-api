@@ -319,7 +319,7 @@ func TestBuildCardBaseMapsCardSupply(t *testing.T) {
 		"cardSupplyId":   10,
 		"skillId":        20,
 	}
-	result, err := handler.buildCardBase(context.Background(), "jp", card, cache.listByEntity["cardrarities"])
+	result, err := handler.buildCardBase(context.Background(), "jp", card, cache.listByEntity["cardrarities"], handler.masterDataSync.GetByID)
 	if err != nil {
 		t.Fatalf("build card base: %v", err)
 	}
@@ -697,6 +697,77 @@ func TestCardListEndpointMapsCardSupply(t *testing.T) {
 	}
 
 	assertFirstItemHasMappedCardSupply(t, body)
+}
+
+// batchingCardHandlerCache adds batch reads to the fake, like the stores in
+// production, so tests can check which reads a handler issues.
+type batchingCardHandlerCache struct {
+	*fakeCardHandlerCache
+	getByIDsCalls []string
+}
+
+func (cache *batchingCardHandlerCache) GetByIDs(_ context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	cache.getByIDsCalls = append(cache.getByIDsCalls, entity+":"+strings.Join(ids, ","))
+	records := make([]map[string]any, len(ids))
+	for position, id := range ids {
+		records[position] = cache.byID[region][entity][id]
+	}
+	return records, nil
+}
+
+func (cache *batchingCardHandlerCache) GetByCompositeKeys(_ context.Context, _ string, _ string, keys []map[string]any) ([]map[string]any, error) {
+	return make([]map[string]any, len(keys)), nil
+}
+
+func TestCardListEndpointBatchesRelatedLookups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &batchingCardHandlerCache{fakeCardHandlerCache: &fakeCardHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"gamecharacters": {"30": {"id": 30, "firstName": "Miku"}, "31": {"id": 31, "firstName": "Rin"}},
+				"skills":         {"20": {"id": 20, "name": "score up"}},
+				"cardsupplies":   {"10": {"id": 10, "name": "limited"}},
+			},
+		},
+		listItems: []map[string]any{
+			{"id": 1001, "cardRarityType": "rarity_4", "characterId": 30, "cardSupplyId": 10, "skillId": 20},
+			{"id": 1002, "cardRarityType": "rarity_4", "characterId": 31, "cardSupplyId": 10, "skillId": 20},
+			{"id": 1003, "cardRarityType": "rarity_4", "characterId": 30, "cardSupplyId": 10, "skillId": 20},
+		},
+		listTotal: 3,
+	}}
+	cache.rarityMatches = []masterdata.SearchMatch{
+		{Item: map[string]any{"id": 4, "cardRarityType": "rarity_4", "label": "4★"}},
+	}
+
+	statusStore := &fakeCardHandlerStatusStore{statuses: []masterdata.SyncStatus{{Region: "jp", Status: "success"}}}
+	router := gin.New()
+	router.GET("/api/v1/cards/:region/list", NewCardHandler(usecase.NewMasterDataSyncUsecase(nil, nil, cache, statusStore, nil, 1)).List)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cards/jp/list?page=1&page_size=20&spoiler=true", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	assertFirstItemHasMappedCardSupply(t, body)
+
+	for _, call := range cache.getByIDCalls {
+		switch call.entity {
+		case "cardsupplies", "skills", "gamecharacters":
+			t.Fatalf("expected related records to be batched, got GetByID %+v", call)
+		}
+	}
+	want := []string{"cardsupplies:10", "gamecharacters:30,31", "skills:20"}
+	if !reflect.DeepEqual(cache.getByIDsCalls, want) {
+		t.Fatalf("expected one batch per related entity %v, got %v", want, cache.getByIDsCalls)
+	}
 }
 
 func TestCardListEndpointUsesPersistedCardDataWhenRuntimeIndexMissing(t *testing.T) {

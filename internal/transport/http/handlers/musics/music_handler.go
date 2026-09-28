@@ -85,7 +85,7 @@ func (handler *MusicHandler) ByID(c *gin.Context) {
 		return
 	}
 
-	item, err := handler.buildMusic(c.Request.Context(), region, record, categories)
+	item, err := handler.buildMusic(c.Request.Context(), region, record, categories, handler.masterDataSync.GetByID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
@@ -819,10 +819,14 @@ func (handler *MusicHandler) buildMusicList(ctx context.Context, region string, 
 	if err != nil {
 		return nil, err
 	}
+	related, err := handler.prefetchMusicRelations(ctx, region, records)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		musicID := shared.NormalizeAnyID(record["id"])
-		item, err := handler.buildMusic(ctx, region, record, categories)
+		item, err := handler.buildMusic(ctx, region, record, categories, related.Lookup)
 		if err != nil {
 			return nil, err
 		}
@@ -1044,8 +1048,25 @@ func (handler *MusicHandler) buildMusicDifficulty(ctx context.Context, region st
 	return result, nil
 }
 
-func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any, aggregatedCategories map[string][]string) (map[string]any, error) {
-	result, err := shared.BuildRecordWithReleaseConditionResult(ctx, handler.masterDataSync, region, record)
+// prefetchMusicRelations reads the release conditions, creator artists, and
+// live stages of records with one batched read per entity.
+func (handler *MusicHandler) prefetchMusicRelations(ctx context.Context, region string, records []map[string]any) (*shared.PrefetchedRecords, error) {
+	ids := map[string][]string{}
+	for _, record := range records {
+		ids["releaseconditions"] = append(ids["releaseconditions"], shared.NormalizeAnyID(record["releaseConditionId"]))
+		ids["musicartists"] = append(ids["musicartists"], shared.NormalizeAnyID(record["creatorArtistId"]))
+		ids["livestages"] = append(ids["livestages"], shared.NormalizeAnyID(record["liveStageId"]))
+	}
+	return shared.PrefetchRecords(ctx, handler.masterDataSync, region, ids)
+}
+
+// buildMusic builds a music's fields, reading its release condition, creator
+// artist, and live stage through lookup.
+func (handler *MusicHandler) buildMusic(ctx context.Context, region string, record map[string]any, aggregatedCategories map[string][]string, lookup shared.RecordLookup) (map[string]any, error) {
+	if handler == nil || handler.masterDataSync == nil {
+		lookup = nil
+	}
+	result, err := shared.BuildRecordWithReleaseConditionLookup(ctx, lookup, region, record)
 	if err != nil {
 		return nil, err
 	}
@@ -1056,17 +1077,17 @@ func (handler *MusicHandler) buildMusic(ctx context.Context, region string, reco
 
 	result["categories"] = resolveMusicCategories(record, aggregatedCategories, shared.NormalizeAnyID(record["id"]))
 
-	if err := handler.attachCreatorArtist(ctx, region, record, result); err != nil {
+	if err := attachCreatorArtist(ctx, lookup, region, record, result); err != nil {
 		return nil, err
 	}
-	if err := handler.attachLiveStage(ctx, region, record, result); err != nil {
+	if err := attachLiveStage(ctx, lookup, region, record, result); err != nil {
 		return nil, err
 	}
 
 	return result, nil
 }
 
-func (handler *MusicHandler) attachCreatorArtist(ctx context.Context, region string, record map[string]any, result map[string]any) error {
+func attachCreatorArtist(ctx context.Context, lookup shared.RecordLookup, region string, record map[string]any, result map[string]any) error {
 	rawCreatorArtistID, hasCreatorArtistID := record["creatorArtistId"]
 	if !hasCreatorArtistID {
 		return nil
@@ -1079,7 +1100,7 @@ func (handler *MusicHandler) attachCreatorArtist(ctx context.Context, region str
 		return nil
 	}
 
-	creatorArtist, found, err := handler.masterDataSync.GetByID(ctx, region, "musicartists", creatorArtistLookupID)
+	creatorArtist, found, err := lookup(ctx, region, "musicartists", creatorArtistLookupID)
 	if err != nil {
 		return fmt.Errorf("get music artist %s: %w", creatorArtistLookupID, err)
 	}
@@ -1091,7 +1112,7 @@ func (handler *MusicHandler) attachCreatorArtist(ctx context.Context, region str
 	return nil
 }
 
-func (handler *MusicHandler) attachLiveStage(ctx context.Context, region string, record map[string]any, result map[string]any) error {
+func attachLiveStage(ctx context.Context, lookup shared.RecordLookup, region string, record map[string]any, result map[string]any) error {
 	rawLiveStageID, hasLiveStageID := record["liveStageId"]
 	if !hasLiveStageID {
 		return nil
@@ -1104,7 +1125,7 @@ func (handler *MusicHandler) attachLiveStage(ctx context.Context, region string,
 		return nil
 	}
 
-	liveStage, found, err := handler.masterDataSync.GetByID(ctx, region, "livestages", liveStageLookupID)
+	liveStage, found, err := lookup(ctx, region, "livestages", liveStageLookupID)
 	if err != nil {
 		return fmt.Errorf("get live stage %s: %w", liveStageLookupID, err)
 	}
@@ -1209,7 +1230,7 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 		return
 	}
 
-	music, err := handler.buildMusic(ctx, region, record, categories)
+	music, err := handler.buildMusic(ctx, region, record, categories, handler.masterDataSync.GetByID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
