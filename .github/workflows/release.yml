@@ -1,15 +1,17 @@
 # Release pipeline for sekai-master-api.
 #
-# Required secrets (repository or organization level):
-#   - REGISTRY_USERNAME: username for docker.dnaroma.eu
-#   - REGISTRY_PASSWORD: password/token for docker.dnaroma.eu
+# Required secrets (repository level):
+#   - ZOT_PUSH_USERNAME / ZOT_PUSH_PASSWORD: the Zot user registry-push-github,
+#     which may push only under sekai-world/.
 # No other secrets are required; release creation uses the workflow GITHUB_TOKEN.
 #
 # This workflow handles registry credentials and publishes releases, so it must
 # stay on trusted tag-push events only (never pull_request). It runs on
 # GitHub-hosted runners: this is a public repository, so self-hosted runners
-# must not be used here; docker.dnaroma.eu is publicly reachable and the
-# tag-only trigger keeps untrusted code out of credentialed jobs.
+# must not be used here. The registry (zot.dna.moe) is reachable only on the
+# Tailnet, so the image is pushed through zot-push.dna.moe, a public endpoint
+# that accepts pushes under sekai-world/ and refuses every read; deployments
+# pull the same image from zot.dna.moe.
 # See docs/release.md for the documented release flow.
 
 name: Release
@@ -33,7 +35,10 @@ jobs:
     timeout-minutes: 30
 
     env:
-      IMAGE: docker.dnaroma.eu/sekai-world/sekai-master-api
+      # IMAGE is the pull reference; PUSH_IMAGE is the same repository
+      # through the public write-only endpoint.
+      IMAGE: zot.dna.moe/sekai-world/sekai-master-api
+      PUSH_IMAGE: zot-push.dna.moe/sekai-world/sekai-master-api
       CHART_FILE: deploy/helm/sekai-master-api/Chart.yaml
 
     steps:
@@ -88,9 +93,9 @@ jobs:
       - name: Log in to container registry
         uses: docker/login-action@v4
         with:
-          registry: docker.dnaroma.eu
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          registry: zot-push.dna.moe
+          username: ${{ secrets.ZOT_PUSH_USERNAME }}
+          password: ${{ secrets.ZOT_PUSH_PASSWORD }}
 
       - name: Build and push image
         id: image
@@ -101,9 +106,9 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ steps.validate.outputs.version }}
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:sha-${{ steps.validate.outputs.short_sha }}
+            ${{ env.PUSH_IMAGE }}:${{ steps.validate.outputs.version }}
+            ${{ env.PUSH_IMAGE }}:latest
+            ${{ env.PUSH_IMAGE }}:sha-${{ steps.validate.outputs.short_sha }}
           build-args: |
             VERSION=${{ steps.validate.outputs.version }}
             COMMIT=${{ github.sha }}
