@@ -947,11 +947,29 @@ func collectMusicCategoryValues(value any) []string {
 	case []string:
 		return normalizeMusicCategorySlice(toStringSlice(typed))
 	default:
-		if normalized := shared.NormalizeComparableText(value); normalized != "" {
-			return []string{normalized}
+		if name := embeddedMusicCategoryName(value); name != "" {
+			return []string{name}
 		}
 		return []string{}
 	}
+}
+
+// embeddedMusicCategoryName reads one embedded category: a plain name, as in the EN
+// master data, or an object that carries the name, as in the KR, TW, and CN master
+// data ({"musicCategoryName": "mv"}).
+func embeddedMusicCategoryName(value any) string {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return shared.NormalizeComparableText(value)
+	}
+	for _, key := range []string{"musicCategoryName", "musicCategory"} {
+		if name, ok := object[key].(string); ok {
+			if normalized := shared.NormalizeComparableText(name); normalized != "" {
+				return normalized
+			}
+		}
+	}
+	return ""
 }
 
 func toStringSlice(values []string) []any {
@@ -965,8 +983,8 @@ func toStringSlice(values []string) []any {
 func normalizeMusicCategorySlice(values []any) []string {
 	normalized := make([]string, 0, len(values))
 	for _, value := range values {
-		if text := shared.NormalizeComparableText(value); text != "" {
-			normalized = append(normalized, text)
+		if name := embeddedMusicCategoryName(value); name != "" {
+			normalized = append(normalized, name)
 		}
 	}
 	return normalized
@@ -977,9 +995,8 @@ func musicCategoryMatchesOptions(record map[string]any, queries map[string]struc
 	if aggregated, ok := musicCategories[musicID]; ok && len(aggregated) > 0 {
 		return musicStringSliceContainsAny(aggregated, queries)
 	}
-	return musicValueContainsAny(record["category"], queries) ||
-		musicValueContainsAny(record["categories"], queries) ||
-		musicValueContainsAny(record["musicCategory"], queries)
+	// Match category names exactly, as for aggregated categories: "mv" must not match "mv_2d".
+	return musicStringSliceContainsAny(extractEmbeddedMusicCategories(record), queries)
 }
 
 func musicStringSliceContainsAny(values []string, queries map[string]struct{}) bool {

@@ -1658,6 +1658,61 @@ func TestMusicCategoryAggregation(t *testing.T) {
 			path:  "/api/v1/musics/jp/list?category=mv",
 			order: []float64{1},
 		},
+		{
+			// KR, TW, and CN master data embed each category as an object (the region does not
+			// matter to the handler; the fake cache serves jp).
+			name: "by-id reads embedded category objects",
+			cache: &fakeMusicHandlerCache{
+				byID: map[string]map[string]map[string]map[string]any{
+					"jp": {"musics": {"1001": {"id": 1001, "title": "Test Song", "categories": []any{
+						map[string]any{"musicCategoryName": "mv"},
+						map[string]any{"musicCategoryName": "mv_2d"},
+						map[string]any{"unrelated": "ignored"},
+					}}}},
+				},
+			},
+			path:   "/api/v1/musics/jp/1001",
+			expect: []string{"mv", "mv_2d"},
+		},
+		{
+			name: "list reads embedded category objects",
+			cache: &fakeMusicHandlerCache{
+				listItems: []map[string]any{
+					{"id": 1, "title": "alpha", "categories": []any{map[string]any{"musicCategoryName": "mv_2d"}}},
+					{"id": 2, "title": "bravo", "categories": []any{"image"}},
+				},
+				listTotal: 2,
+			},
+			path:      "/api/v1/musics/jp/list?page=1&page_size=20",
+			listItems: [][]string{{"mv_2d"}, {"image"}},
+		},
+		{
+			name: "list category filter matches embedded category objects exactly",
+			cache: &fakeMusicHandlerCache{
+				listItems: []map[string]any{
+					{"id": 1, "title": "alpha", "categories": []any{map[string]any{"musicCategoryName": "mv_2d"}}},
+					{"id": 2, "title": "bravo", "categories": []any{
+						map[string]any{"musicCategoryName": "mv"},
+						map[string]any{"musicCategoryName": "mv_2d"},
+					}},
+				},
+				listTotal: 2,
+			},
+			path:  "/api/v1/musics/jp/list?category=mv",
+			order: []float64{2},
+		},
+		{
+			name: "list category filter matches embedded category names exactly",
+			cache: &fakeMusicHandlerCache{
+				listItems: []map[string]any{
+					{"id": 1, "title": "alpha", "categories": []any{"mv_2d"}},
+					{"id": 2, "title": "bravo", "categories": []any{"mv", "mv_2d"}},
+				},
+				listTotal: 2,
+			},
+			path:  "/api/v1/musics/jp/list?category=mv",
+			order: []float64{2},
+		},
 	}
 
 	for _, tc := range cases {
