@@ -8517,6 +8517,10 @@
         },
         "shared.MusicSoundTrackCategoryResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8570,6 +8574,10 @@
         },
         "shared.MysekaiBlueprintResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "materialCosts"
+            ],
             "properties": {
                 "craftCountLimit": {
                     "type": "integer"
@@ -8596,6 +8604,9 @@
         },
         "shared.MysekaiFixtureCharacterBonusResponse": {
             "type": "object",
+            "required": [
+                "gameCharacterIds"
+            ],
             "properties": {
                 "bonusRate": {
                     "type": "number"
@@ -8621,6 +8632,14 @@
         },
         "shared.MysekaiFixtureDetailResponse": {
             "type": "object",
+            "required": [
+                "anotherColors",
+                "disassembleMaterials",
+                "id",
+                "name",
+                "tagIds",
+                "tags"
+            ],
             "properties": {
                 "anotherColors": {
                     "type": "array",
@@ -8713,6 +8732,10 @@
         },
         "shared.MysekaiFixtureFiltersResponse": {
             "type": "object",
+            "required": [
+                "mainGenres",
+                "tags"
+            ],
             "properties": {
                 "mainGenres": {
                     "type": "array",
@@ -8730,6 +8753,10 @@
         },
         "shared.MysekaiFixtureGenreResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8744,6 +8771,11 @@
         },
         "shared.MysekaiFixtureGridSizeResponse": {
             "type": "object",
+            "required": [
+                "depth",
+                "height",
+                "width"
+            ],
             "properties": {
                 "depth": {
                     "type": "integer"
@@ -8758,6 +8790,11 @@
         },
         "shared.MysekaiFixtureListItemResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name",
+                "tagIds"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8799,6 +8836,10 @@
         },
         "shared.MysekaiFixtureListResponse": {
             "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
             "properties": {
                 "items": {
                     "type": "array",
@@ -8813,6 +8854,10 @@
         },
         "shared.MysekaiFixtureMainGenreResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8834,6 +8879,10 @@
         },
         "shared.MysekaiFixtureSummaryResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8854,6 +8903,11 @@
         },
         "shared.MysekaiFixtureTagResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "mysekaiFixtureTagType",
+                "name"
+            ],
             "properties": {
                 "externalId": {
                     "type": "integer"
@@ -8874,6 +8928,13 @@
         },
         "shared.MysekaiMaterialDetailResponse": {
             "type": "object",
+            "required": [
+                "gameCharacterIds",
+                "id",
+                "name",
+                "sites",
+                "usedBy"
+            ],
             "properties": {
                 "description": {
                     "type": "string"
@@ -8921,6 +8982,10 @@
         },
         "shared.MysekaiMaterialListResponse": {
             "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
             "properties": {
                 "items": {
                     "type": "array",
@@ -8935,6 +9000,10 @@
         },
         "shared.MysekaiMaterialQuantityResponse": {
             "type": "object",
+            "required": [
+                "material",
+                "quantity"
+            ],
             "properties": {
                 "material": {
                     "$ref": "#/definitions/shared.MysekaiMaterialSummaryResponse"
@@ -8946,6 +9015,12 @@
         },
         "shared.MysekaiMaterialResponse": {
             "type": "object",
+            "required": [
+                "gameCharacterIds",
+                "id",
+                "name",
+                "sites"
+            ],
             "properties": {
                 "description": {
                     "type": "string"
@@ -8987,6 +9062,10 @@
         },
         "shared.MysekaiMaterialSummaryResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "iconAssetbundleName": {
                     "type": "string"
@@ -9007,6 +9086,10 @@
         },
         "shared.MysekaiMaterialUseResponse": {
             "type": "object",
+            "required": [
+                "fixture",
+                "quantity"
+            ],
             "properties": {
                 "fixture": {
                     "$ref": "#/definitions/shared.MysekaiFixtureSummaryResponse"
@@ -9018,6 +9101,9 @@
         },
         "shared.MysekaiMusicRecordFiltersResponse": {
             "type": "object",
+            "required": [
+                "soundTrackCategories"
+            ],
             "properties": {
                 "soundTrackCategories": {
                     "type": "array",
@@ -9029,6 +9115,10 @@
         },
         "shared.MysekaiMusicRecordListResponse": {
             "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
             "properties": {
                 "items": {
                     "type": "array",
@@ -9043,6 +9133,10 @@
         },
         "shared.MysekaiMusicRecordMusicResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "title"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -9057,6 +9151,11 @@
         },
         "shared.MysekaiMusicRecordResponse": {
             "type": "object",
+            "required": [
+                "externalId",
+                "id",
+                "mysekaiMusicTrackType"
+            ],
             "properties": {
                 "externalId": {
                     "type": "integer"
@@ -9077,6 +9176,10 @@
         },
         "shared.MysekaiMusicRecordSoundTrackResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "title"
+            ],
             "properties": {
                 "assetbundleFileName": {
                     "type": "string"
@@ -9131,6 +9234,10 @@
         },
         "shared.MysekaiSiteResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "id": {
                     "type": "integer"

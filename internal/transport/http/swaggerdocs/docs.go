@@ -8525,6 +8525,10 @@ const docTemplate = `{
         },
         "shared.MusicSoundTrackCategoryResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8578,6 +8582,10 @@ const docTemplate = `{
         },
         "shared.MysekaiBlueprintResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "materialCosts"
+            ],
             "properties": {
                 "craftCountLimit": {
                     "type": "integer"
@@ -8604,6 +8612,9 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureCharacterBonusResponse": {
             "type": "object",
+            "required": [
+                "gameCharacterIds"
+            ],
             "properties": {
                 "bonusRate": {
                     "type": "number"
@@ -8629,6 +8640,14 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureDetailResponse": {
             "type": "object",
+            "required": [
+                "anotherColors",
+                "disassembleMaterials",
+                "id",
+                "name",
+                "tagIds",
+                "tags"
+            ],
             "properties": {
                 "anotherColors": {
                     "type": "array",
@@ -8721,6 +8740,10 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureFiltersResponse": {
             "type": "object",
+            "required": [
+                "mainGenres",
+                "tags"
+            ],
             "properties": {
                 "mainGenres": {
                     "type": "array",
@@ -8738,6 +8761,10 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureGenreResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8752,6 +8779,11 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureGridSizeResponse": {
             "type": "object",
+            "required": [
+                "depth",
+                "height",
+                "width"
+            ],
             "properties": {
                 "depth": {
                     "type": "integer"
@@ -8766,6 +8798,11 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureListItemResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name",
+                "tagIds"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8807,6 +8844,10 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureListResponse": {
             "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
             "properties": {
                 "items": {
                     "type": "array",
@@ -8821,6 +8862,10 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureMainGenreResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8842,6 +8887,10 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureSummaryResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -8862,6 +8911,11 @@ const docTemplate = `{
         },
         "shared.MysekaiFixtureTagResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "mysekaiFixtureTagType",
+                "name"
+            ],
             "properties": {
                 "externalId": {
                     "type": "integer"
@@ -8882,6 +8936,13 @@ const docTemplate = `{
         },
         "shared.MysekaiMaterialDetailResponse": {
             "type": "object",
+            "required": [
+                "gameCharacterIds",
+                "id",
+                "name",
+                "sites",
+                "usedBy"
+            ],
             "properties": {
                 "description": {
                     "type": "string"
@@ -8929,6 +8990,10 @@ const docTemplate = `{
         },
         "shared.MysekaiMaterialListResponse": {
             "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
             "properties": {
                 "items": {
                     "type": "array",
@@ -8943,6 +9008,10 @@ const docTemplate = `{
         },
         "shared.MysekaiMaterialQuantityResponse": {
             "type": "object",
+            "required": [
+                "material",
+                "quantity"
+            ],
             "properties": {
                 "material": {
                     "$ref": "#/definitions/shared.MysekaiMaterialSummaryResponse"
@@ -8954,6 +9023,12 @@ const docTemplate = `{
         },
         "shared.MysekaiMaterialResponse": {
             "type": "object",
+            "required": [
+                "gameCharacterIds",
+                "id",
+                "name",
+                "sites"
+            ],
             "properties": {
                 "description": {
                     "type": "string"
@@ -8995,6 +9070,10 @@ const docTemplate = `{
         },
         "shared.MysekaiMaterialSummaryResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "iconAssetbundleName": {
                     "type": "string"
@@ -9015,6 +9094,10 @@ const docTemplate = `{
         },
         "shared.MysekaiMaterialUseResponse": {
             "type": "object",
+            "required": [
+                "fixture",
+                "quantity"
+            ],
             "properties": {
                 "fixture": {
                     "$ref": "#/definitions/shared.MysekaiFixtureSummaryResponse"
@@ -9026,6 +9109,9 @@ const docTemplate = `{
         },
         "shared.MysekaiMusicRecordFiltersResponse": {
             "type": "object",
+            "required": [
+                "soundTrackCategories"
+            ],
             "properties": {
                 "soundTrackCategories": {
                     "type": "array",
@@ -9037,6 +9123,10 @@ const docTemplate = `{
         },
         "shared.MysekaiMusicRecordListResponse": {
             "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
             "properties": {
                 "items": {
                     "type": "array",
@@ -9051,6 +9141,10 @@ const docTemplate = `{
         },
         "shared.MysekaiMusicRecordMusicResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "title"
+            ],
             "properties": {
                 "assetbundleName": {
                     "type": "string"
@@ -9065,6 +9159,11 @@ const docTemplate = `{
         },
         "shared.MysekaiMusicRecordResponse": {
             "type": "object",
+            "required": [
+                "externalId",
+                "id",
+                "mysekaiMusicTrackType"
+            ],
             "properties": {
                 "externalId": {
                     "type": "integer"
@@ -9085,6 +9184,10 @@ const docTemplate = `{
         },
         "shared.MysekaiMusicRecordSoundTrackResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "title"
+            ],
             "properties": {
                 "assetbundleFileName": {
                     "type": "string"
@@ -9139,6 +9242,10 @@ const docTemplate = `{
         },
         "shared.MysekaiSiteResponse": {
             "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
             "properties": {
                 "id": {
                     "type": "integer"

@@ -1699,6 +1699,9 @@ definitions:
         type: integer
       name:
         type: string
+    required:
+    - id
+    - name
     type: object
   shared.MusicVocalCharacterResponse:
     properties:
@@ -1744,6 +1747,9 @@ definitions:
         items:
           $ref: '#/definitions/shared.MysekaiMaterialQuantityResponse'
         type: array
+    required:
+    - id
+    - materialCosts
     type: object
   shared.MysekaiFixtureCharacterBonusResponse:
     properties:
@@ -1753,6 +1759,8 @@ definitions:
         items:
           type: integer
         type: array
+    required:
+    - gameCharacterIds
     type: object
   shared.MysekaiFixtureColorResponse:
     properties:
@@ -1821,6 +1829,13 @@ definitions:
         items:
           $ref: '#/definitions/shared.MysekaiFixtureTagResponse'
         type: array
+    required:
+    - anotherColors
+    - disassembleMaterials
+    - id
+    - name
+    - tagIds
+    - tags
     type: object
   shared.MysekaiFixtureFiltersResponse:
     properties:
@@ -1832,6 +1847,9 @@ definitions:
         items:
           $ref: '#/definitions/shared.MysekaiFixtureTagResponse'
         type: array
+    required:
+    - mainGenres
+    - tags
     type: object
   shared.MysekaiFixtureGenreResponse:
     properties:
@@ -1841,6 +1859,9 @@ definitions:
         type: integer
       name:
         type: string
+    required:
+    - id
+    - name
     type: object
   shared.MysekaiFixtureGridSizeResponse:
     properties:
@@ -1850,6 +1871,10 @@ definitions:
         type: integer
       width:
         type: integer
+    required:
+    - depth
+    - height
+    - width
     type: object
   shared.MysekaiFixtureListItemResponse:
     properties:
@@ -1877,6 +1902,10 @@ definitions:
         items:
           type: integer
         type: array
+    required:
+    - id
+    - name
+    - tagIds
     type: object
   shared.MysekaiFixtureListResponse:
     properties:
@@ -1886,6 +1915,9 @@ definitions:
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
+    required:
+    - items
+    - pagination
     type: object
   shared.MysekaiFixtureMainGenreResponse:
     properties:
@@ -1901,6 +1933,9 @@ definitions:
         items:
           $ref: '#/definitions/shared.MysekaiFixtureGenreResponse'
         type: array
+    required:
+    - id
+    - name
     type: object
   shared.MysekaiFixtureSummaryResponse:
     properties:
@@ -1914,6 +1949,9 @@ definitions:
         type: string
       name:
         type: string
+    required:
+    - id
+    - name
     type: object
   shared.MysekaiFixtureTagResponse:
     properties:
@@ -1927,6 +1965,10 @@ definitions:
         type: string
       pronunciation:
         type: string
+    required:
+    - id
+    - mysekaiFixtureTagType
+    - name
     type: object
   shared.MysekaiMaterialDetailResponse:
     properties:
@@ -1958,6 +2000,12 @@ definitions:
         items:
           $ref: '#/definitions/shared.MysekaiMaterialUseResponse'
         type: array
+    required:
+    - gameCharacterIds
+    - id
+    - name
+    - sites
+    - usedBy
     type: object
   shared.MysekaiMaterialListResponse:
     properties:
@@ -1967,6 +2015,9 @@ definitions:
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
+    required:
+    - items
+    - pagination
     type: object
   shared.MysekaiMaterialQuantityResponse:
     properties:
@@ -1974,6 +2025,9 @@ definitions:
         $ref: '#/definitions/shared.MysekaiMaterialSummaryResponse'
       quantity:
         type: integer
+    required:
+    - material
+    - quantity
     type: object
   shared.MysekaiMaterialResponse:
     properties:
@@ -2001,6 +2055,11 @@ definitions:
         items:
           $ref: '#/definitions/shared.MysekaiSiteResponse'
         type: array
+    required:
+    - gameCharacterIds
+    - id
+    - name
+    - sites
     type: object
   shared.MysekaiMaterialSummaryResponse:
     properties:
@@ -2014,6 +2073,9 @@ definitions:
         type: string
       name:
         type: string
+    required:
+    - id
+    - name
     type: object
   shared.MysekaiMaterialUseResponse:
     properties:
@@ -2021,6 +2083,9 @@ definitions:
         $ref: '#/definitions/shared.MysekaiFixtureSummaryResponse'
       quantity:
         type: integer
+    required:
+    - fixture
+    - quantity
     type: object
   shared.MysekaiMusicRecordFiltersResponse:
     properties:
@@ -2028,6 +2093,8 @@ definitions:
         items:
           $ref: '#/definitions/shared.MusicSoundTrackCategoryResponse'
         type: array
+    required:
+    - soundTrackCategories
     type: object
   shared.MysekaiMusicRecordListResponse:
     properties:
@@ -2037,6 +2104,9 @@ definitions:
         type: array
       pagination:
         $ref: '#/definitions/shared.PaginationResponse'
+    required:
+    - items
+    - pagination
     type: object
   shared.MysekaiMusicRecordMusicResponse:
     properties:
@@ -2046,6 +2116,9 @@ definitions:
         type: integer
       title:
         type: string
+    required:
+    - id
+    - title
     type: object
   shared.MysekaiMusicRecordResponse:
     properties:
@@ -2059,6 +2132,10 @@ definitions:
         type: string
       soundTrack:
         $ref: '#/definitions/shared.MysekaiMusicRecordSoundTrackResponse'
+    required:
+    - externalId
+    - id
+    - mysekaiMusicTrackType
     type: object
   shared.MysekaiMusicRecordSoundTrackResponse:
     properties:
@@ -2072,6 +2149,9 @@ definitions:
         type: integer
       title:
         type: string
+    required:
+    - id
+    - title
     type: object
   shared.MysekaiPhotoDecorationListResponse:
     properties:
@@ -2101,6 +2181,9 @@ definitions:
         type: integer
       name:
         type: string
+    required:
+    - id
+    - name
     type: object
   shared.PaginationResponse:
     properties:
