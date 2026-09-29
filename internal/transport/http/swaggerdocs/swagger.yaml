@@ -1691,6 +1691,15 @@ definitions:
       seq: {}
       title: {}
     type: object
+  shared.MusicSoundTrackCategoryResponse:
+    properties:
+      assetbundleName:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
   shared.MusicVocalCharacterResponse:
     properties:
       characterId: {}
@@ -1719,6 +1728,351 @@ definitions:
           $ref: '#/definitions/shared.MusicVocalResponse'
         type: array
     type: object
+  shared.MysekaiBlueprintResponse:
+    properties:
+      craftCountLimit:
+        type: integer
+      id:
+        type: integer
+      isAvailableWithoutPossession:
+        type: boolean
+      isEnableSketch:
+        type: boolean
+      isObtainedByConvert:
+        type: boolean
+      materialCosts:
+        items:
+          $ref: '#/definitions/shared.MysekaiMaterialQuantityResponse'
+        type: array
+    type: object
+  shared.MysekaiFixtureCharacterBonusResponse:
+    properties:
+      bonusRate:
+        type: number
+      gameCharacterIds:
+        items:
+          type: integer
+        type: array
+    type: object
+  shared.MysekaiFixtureColorResponse:
+    properties:
+      colorCode:
+        type: string
+      textureId:
+        type: integer
+    type: object
+  shared.MysekaiFixtureDetailResponse:
+    properties:
+      anotherColors:
+        items:
+          $ref: '#/definitions/shared.MysekaiFixtureColorResponse'
+        type: array
+      assetbundleName:
+        type: string
+      blueprint:
+        $ref: '#/definitions/shared.MysekaiBlueprintResponse'
+      characterBonus:
+        $ref: '#/definitions/shared.MysekaiFixtureCharacterBonusResponse'
+      colorCode:
+        type: string
+      disassembleMaterials:
+        items:
+          $ref: '#/definitions/shared.MysekaiMaterialQuantityResponse'
+        type: array
+      firstPutCost:
+        type: integer
+      flavorText:
+        type: string
+      gridSize:
+        $ref: '#/definitions/shared.MysekaiFixtureGridSizeResponse'
+      id:
+        type: integer
+      isAssembled:
+        type: boolean
+      isDisassembled:
+        type: boolean
+      mainGenre:
+        $ref: '#/definitions/shared.MysekaiFixtureGenreResponse'
+      mysekaiFixtureMainGenreId:
+        type: integer
+      mysekaiFixtureSubGenreId:
+        type: integer
+      mysekaiFixtureType:
+        type: string
+      mysekaiSettableLayoutType:
+        type: string
+      mysekaiSettableSiteType:
+        type: string
+      name:
+        type: string
+      pronunciation:
+        type: string
+      secondPutCost:
+        type: integer
+      seq:
+        type: integer
+      subGenre:
+        $ref: '#/definitions/shared.MysekaiFixtureGenreResponse'
+      tagIds:
+        items:
+          type: integer
+        type: array
+      tags:
+        items:
+          $ref: '#/definitions/shared.MysekaiFixtureTagResponse'
+        type: array
+    type: object
+  shared.MysekaiFixtureFiltersResponse:
+    properties:
+      mainGenres:
+        items:
+          $ref: '#/definitions/shared.MysekaiFixtureMainGenreResponse'
+        type: array
+      tags:
+        items:
+          $ref: '#/definitions/shared.MysekaiFixtureTagResponse'
+        type: array
+    type: object
+  shared.MysekaiFixtureGenreResponse:
+    properties:
+      assetbundleName:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  shared.MysekaiFixtureGridSizeResponse:
+    properties:
+      depth:
+        type: integer
+      height:
+        type: integer
+      width:
+        type: integer
+    type: object
+  shared.MysekaiFixtureListItemResponse:
+    properties:
+      assetbundleName:
+        type: string
+      gridSize:
+        $ref: '#/definitions/shared.MysekaiFixtureGridSizeResponse'
+      id:
+        type: integer
+      mysekaiFixtureMainGenreId:
+        type: integer
+      mysekaiFixtureSubGenreId:
+        type: integer
+      mysekaiFixtureType:
+        type: string
+      mysekaiSettableLayoutType:
+        type: string
+      name:
+        type: string
+      pronunciation:
+        type: string
+      seq:
+        type: integer
+      tagIds:
+        items:
+          type: integer
+        type: array
+    type: object
+  shared.MysekaiFixtureListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MysekaiFixtureListItemResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.MysekaiFixtureMainGenreResponse:
+    properties:
+      assetbundleName:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      subGenres:
+        description: SubGenres are the sub-genres fixtures of this main genre use,
+          by ID.
+        items:
+          $ref: '#/definitions/shared.MysekaiFixtureGenreResponse'
+        type: array
+    type: object
+  shared.MysekaiFixtureSummaryResponse:
+    properties:
+      assetbundleName:
+        type: string
+      id:
+        type: integer
+      mysekaiFixtureType:
+        type: string
+      mysekaiSettableLayoutType:
+        type: string
+      name:
+        type: string
+    type: object
+  shared.MysekaiFixtureTagResponse:
+    properties:
+      externalId:
+        type: integer
+      id:
+        type: integer
+      mysekaiFixtureTagType:
+        type: string
+      name:
+        type: string
+      pronunciation:
+        type: string
+    type: object
+  shared.MysekaiMaterialDetailResponse:
+    properties:
+      description:
+        type: string
+      gameCharacterIds:
+        items:
+          type: integer
+        type: array
+      iconAssetbundleName:
+        type: string
+      id:
+        type: integer
+      mysekaiMaterialRarityType:
+        type: string
+      mysekaiMaterialType:
+        type: string
+      name:
+        type: string
+      pronunciation:
+        type: string
+      seq:
+        type: integer
+      sites:
+        items:
+          $ref: '#/definitions/shared.MysekaiSiteResponse'
+        type: array
+      usedBy:
+        items:
+          $ref: '#/definitions/shared.MysekaiMaterialUseResponse'
+        type: array
+    type: object
+  shared.MysekaiMaterialListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MysekaiMaterialResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.MysekaiMaterialQuantityResponse:
+    properties:
+      material:
+        $ref: '#/definitions/shared.MysekaiMaterialSummaryResponse'
+      quantity:
+        type: integer
+    type: object
+  shared.MysekaiMaterialResponse:
+    properties:
+      description:
+        type: string
+      gameCharacterIds:
+        items:
+          type: integer
+        type: array
+      iconAssetbundleName:
+        type: string
+      id:
+        type: integer
+      mysekaiMaterialRarityType:
+        type: string
+      mysekaiMaterialType:
+        type: string
+      name:
+        type: string
+      pronunciation:
+        type: string
+      seq:
+        type: integer
+      sites:
+        items:
+          $ref: '#/definitions/shared.MysekaiSiteResponse'
+        type: array
+    type: object
+  shared.MysekaiMaterialSummaryResponse:
+    properties:
+      iconAssetbundleName:
+        type: string
+      id:
+        type: integer
+      mysekaiMaterialRarityType:
+        type: string
+      mysekaiMaterialType:
+        type: string
+      name:
+        type: string
+    type: object
+  shared.MysekaiMaterialUseResponse:
+    properties:
+      fixture:
+        $ref: '#/definitions/shared.MysekaiFixtureSummaryResponse'
+      quantity:
+        type: integer
+    type: object
+  shared.MysekaiMusicRecordFiltersResponse:
+    properties:
+      soundTrackCategories:
+        items:
+          $ref: '#/definitions/shared.MusicSoundTrackCategoryResponse'
+        type: array
+    type: object
+  shared.MysekaiMusicRecordListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.MysekaiMusicRecordResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.MysekaiMusicRecordMusicResponse:
+    properties:
+      assetbundleName:
+        type: string
+      id:
+        type: integer
+      title:
+        type: string
+    type: object
+  shared.MysekaiMusicRecordResponse:
+    properties:
+      externalId:
+        type: integer
+      id:
+        type: integer
+      music:
+        $ref: '#/definitions/shared.MysekaiMusicRecordMusicResponse'
+      mysekaiMusicTrackType:
+        type: string
+      soundTrack:
+        $ref: '#/definitions/shared.MysekaiMusicRecordSoundTrackResponse'
+    type: object
+  shared.MysekaiMusicRecordSoundTrackResponse:
+    properties:
+      assetbundleFileName:
+        type: string
+      assetbundleName:
+        type: string
+      id:
+        type: integer
+      musicSoundTrackCategoryId:
+        type: integer
+      title:
+        type: string
+    type: object
   shared.MysekaiPhotoDecorationListResponse:
     properties:
       items:
@@ -1740,6 +2094,13 @@ definitions:
         type: string
       seq:
         type: integer
+    type: object
+  shared.MysekaiSiteResponse:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
     type: object
   shared.PaginationResponse:
     properties:
@@ -5237,6 +5598,331 @@ paths:
       summary: Get available regions for a music id
       tags:
       - musics
+  /mysekaiFixtures/{region}/{id}:
+    get:
+      description: Returns a fixture (furniture) with its genres, tags, crafting blueprint
+        and material costs, character bonus, and the materials only disassembling
+        it returns.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Fixture ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiFixtureDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a MySekai fixture by id
+      tags:
+      - mysekaiFixtures
+  /mysekaiFixtures/{region}/filters:
+    get:
+      description: Returns the main genres with their sub-genres, and the series,
+        unit, and character tags, that at least one fixture of the region uses.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiFixtureFiltersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List the MySekai fixture catalogue filters
+      tags:
+      - mysekaiFixtures
+  /mysekaiFixtures/{region}/list:
+    get:
+      description: Lists fixtures (furniture) in stored order unless sorted. tag_id
+        keeps fixtures that carry every listed tag; genre filters keep fixtures in
+        any listed genre.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Case-insensitive substring of the name or its reading
+        in: query
+        name: name
+        type: string
+      - description: Comma-separated main genre IDs
+        in: query
+        name: main_genre_id
+        type: string
+      - description: Comma-separated sub-genre IDs
+        in: query
+        name: sub_genre_id
+        type: string
+      - description: Comma-separated tag IDs, all required
+        in: query
+        name: tag_id
+        type: string
+      - description: Sort field (id|seq|name)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiFixtureListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List MySekai fixtures by page
+      tags:
+      - mysekaiFixtures
+  /mysekaiMaterials/{region}/{id}:
+    get:
+      description: Returns a material with the sites it is gathered at, its related
+        characters, and the fixtures whose blueprints cost it.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Material ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiMaterialDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a MySekai material by id
+      tags:
+      - mysekaiMaterials
+  /mysekaiMaterials/{region}/list:
+    get:
+      description: Lists materials in stored order with the sites they are gathered
+        at and their related characters.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Comma-separated material types, such as wood or mineral
+        in: query
+        name: material_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiMaterialListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List MySekai materials by page
+      tags:
+      - mysekaiMaterials
+  /mysekaiMusicRecords/{region}/filters:
+    get:
+      description: Returns the sound-track categories that at least one sound-track
+        record uses, by ID.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiMusicRecordFiltersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List the MySekai music record filters
+      tags:
+      - mysekaiMusicRecords
+  /mysekaiMusicRecords/{region}/list:
+    get:
+      description: Lists music records in stored order with the song or sound track
+        each one plays. Records of unpublished songs are hidden unless spoiler=true;
+        records whose song or sound track is missing are omitted.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Track type (music|music_sound_track)
+        in: query
+        name: track_type
+        type: string
+      - description: Comma-separated sound-track category IDs; keeps sound-track records
+          only
+        in: query
+        name: sound_track_category_id
+        type: string
+      - description: Case-insensitive substring of the song or sound-track title
+        in: query
+        name: name
+        type: string
+      - description: Include records of unpublished songs
+        in: query
+        name: spoiler
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.MysekaiMusicRecordListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List MySekai music records by page
+      tags:
+      - mysekaiMusicRecords
   /mysekaiPhotoDecorations/{region}/{id}:
     get:
       parameters:

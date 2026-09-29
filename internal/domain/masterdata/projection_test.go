@@ -91,7 +91,7 @@ func TestProjectionVersionNamesItsFields(t *testing.T) {
 	if ProjectionVersion("Gachas") != projectionLayoutVersion+":id,gachaType,name,assetbundleName,startAt,endAt" {
 		t.Fatalf("unexpected gacha projection version %q", ProjectionVersion("Gachas"))
 	}
-	if ProjectionVersion("musics") != "" || NewProjectionBuilder("musics") != nil {
+	if ProjectionVersion("cardepisodes") != "" || NewProjectionBuilder("cardepisodes") != nil {
 		t.Fatal("expected entities without projections to have no version or builder")
 	}
 }

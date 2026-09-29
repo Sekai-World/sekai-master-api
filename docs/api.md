@@ -24,6 +24,13 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/gameCharacters/:region/:id`
 - `GET /api/v1/mysekaiPhotoDecorations/:region/list?page=1&page_size=20`
 - `GET /api/v1/mysekaiPhotoDecorations/:region/:id`
+- `GET /api/v1/mysekaiFixtures/:region/list?page=1&page_size=20&name=<kw>&main_genre_id=<ids>&sub_genre_id=<ids>&tag_id=<ids>&sort_by=id|seq|name&sort_order=asc|desc`
+- `GET /api/v1/mysekaiFixtures/:region/filters`
+- `GET /api/v1/mysekaiFixtures/:region/:id`
+- `GET /api/v1/mysekaiMaterials/:region/list?page=1&page_size=20&material_type=<types>`
+- `GET /api/v1/mysekaiMaterials/:region/:id`
+- `GET /api/v1/mysekaiMusicRecords/:region/list?page=1&page_size=20&track_type=music|music_sound_track&sound_track_category_id=<ids>&name=<kw>&spoiler=true`
+- `GET /api/v1/mysekaiMusicRecords/:region/filters`
 - `GET /api/v1/honors/:region/list?page=1&page_size=20`
 - `GET /api/v1/honors/:region/:id`
 - `GET /api/v1/bondsHonors/:region/list?page=1&page_size=20&game_character_ids=1,2`
@@ -55,11 +62,17 @@ Swagger UI is available only in `development` and `test`:
 
 List endpoints hide spoiler content by default. Pass `spoiler=true` to include records with a future `releaseAt` or `startAt`.
 
-Generic master-data lookup lists and the `mysekaiPhotoDecorations`, `honors`, and `bondsHonors` lists accept a positive `page` and a `page_size` from 1 to 100 (default 20). Requests with `page_size` greater than 100 return `400 INVALID_REQUEST`.
+Generic master-data lookup lists and the `mysekaiPhotoDecorations`, MySekai fixture, material, and music record, `honors`, and `bondsHonors` lists accept a positive `page` and a `page_size` from 1 to 100 (default 20). Requests with `page_size` greater than 100 return `400 INVALID_REQUEST`.
 
 MySekai photo decoration responses expose only `id`, `seq`, `name`, `description`, and `assetbundleName`. Honor responses expose the stable honor fields, normalized `levels`, and an optional same-region `group` looked up from `honorgroups`; missing groups are omitted, and no cross-region fallback is used. Honor list group lookups are deduplicated within the current page. Unknown upstream fields are not returned.
 
 Bonds honor responses expose only `id`, `seq`, `bondsGroupId`, `gameCharacterUnitId1`, `gameCharacterUnitId2`, `honorRarity`, `name`, `pronunciation`, `description`, `configurableUnitVirtualSinger`, normalized `levels` (`id`, `bondsHonorId`, `level`, and `description`), and same-region associations; missing fields are omitted. The optional `bondsGroup` exposes only `groupId`, `characterId1`, and `characterId2`, matched by `bondsHonors.bondsGroupId` to `bonds.groupId` (not `bonds.id`). `characterUnit1`/`characterUnit2` expose only `id`, `gameCharacterId`, and `unit`, matched to `gamecharacterunits.id`. Missing associations are omitted. Lists default to `seq ASC` with `id ASC` tie-breaking, support exact positive `bonds_group_id`, `game_character_unit_id1`, and `game_character_unit_id2` filters, and paginate only after projection, filtering, and sorting. The optional `game_character_ids` filter accepts exactly two different positive underlying game character IDs, resolves them through each honor's two `gamecharacterunits` associations, and matches the pair without order sensitivity; records with either unresolved unit association do not match. It combines with the existing filters using AND. `sort_by` accepts `id`, `seq`, `bondsGroupId`, `gameCharacterUnitId1`, `gameCharacterUnitId2`, `honorRarity`, or `name`; `sort_order` accepts `asc` or `desc`. Unknown or malformed query parameters return `400 INVALID_REQUEST`.
+
+MySekai fixture (furniture) lists read the `mysekaifixtures` list projection and keep stored order unless sorted. `name` is a case-insensitive substring of the name or its reading; `main_genre_id` and `sub_genre_id` keep fixtures in any listed genre; `tag_id` keeps fixtures that carry every listed tag, read from the fixture's `mysekaiFixtureTagGroup` slots (`tagIds`, in slot order). The filters endpoint returns the main genres, each with its sub-genres, and the `series`, `unit`, and `game_character` tags that at least one fixture uses; other tags (`none`) mostly repeat a fixture's own name and are not offered as filters. For `game_character` tags, `externalId` is the game character ID. The detail joins same-region `mysekaiFixtureMainGenres`, `mysekaiFixtureSubGenres`, and `mysekaiFixtureTags`; the blueprint whose `mysekaiCraftType` is `mysekai_fixture` and `craftTargetId` is the fixture, with its `mysekaiBlueprintMysekaiMaterialCosts` in `seq` order; `mysekaiFixtureOnlyDisassembleMaterials` as `disassembleMaterials`; and `mysekaiFixtureGameCharacterGroupPerformanceBonusId` resolved through `mysekaiFixtureGameCharacterGroupPerformanceBonuses` and `mysekaiFixtureGameCharacterGroups` (`groupId`) to `characterBonus`. Missing associations are omitted.
+
+MySekai material lists read the `mysekaimaterials` list projection in stored order; `material_type` is a comma-separated list of `mysekaiMaterialType` values. Each material carries the `mysekaiSites` named by `mysekaiSiteIds` and the game characters from `mysekaiMaterialGameCharacterRelations`. The detail adds `usedBy`: the fixtures whose blueprints cost the material and the quantity one craft costs, in fixture ID order; blueprints crafting tools or canvases are left out.
+
+MySekai music record lists join each `mysekaiMusicRecords` row to its song (`musics`, for `mysekaiMusicTrackType: music`) or sound track (`musicSoundTracks`, for `music_sound_track`) by `externalId`, through their list projections; records whose song or sound track is missing are omitted, and records of songs with a future `publishedAt` are hidden unless `spoiler=true`. `sound_track_category_id` keeps sound-track records in any listed `musicSoundTrackCategoryId`, and `name` matches the song or sound-track title. The filters endpoint returns the sound-track categories that at least one sound-track record uses.
 
 Costume3D endpoints normalize embedded costume/group fields and fill only missing fields from `costume3dgroups` in the same region; a missing group does not remove the costume. Responses expose only typed stable fields (`id`, `groupId`, `colorId`, `partType`, `seq`, `name`, `designer`, `characterId`, `rarity`, `type`, `assetbundleName`, and `publishedAt`, in epoch milliseconds). Costume3D lists accept `page_size` from 1 to 100 (default 20).
 
