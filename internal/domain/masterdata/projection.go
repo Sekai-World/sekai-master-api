@@ -38,6 +38,19 @@ var entityProjections = map[string][]string{
 	// The event window CurrentEvent compares; the events list does not use it yet.
 	"events": {"id", "startAt", "closedAt"},
 	"gachas": {"id", "gachaType", "name", "assetbundleName", "startAt", "endAt"},
+	// What MySekai music records show of their music and hide as spoilers.
+	"musics":           {"id", "title", "assetbundleName", "publishedAt"},
+	"musicsoundtracks": {"id", "seq", "title", "musicSoundTrackCategoryId", "assetbundleName", "assetbundleFileName"},
+	"mysekaifixtures": {
+		"id", "seq", "name", "pronunciation", "mysekaiFixtureType", "mysekaiFixtureMainGenreId",
+		"mysekaiFixtureSubGenreId", "mysekaiSettableLayoutType", "gridSize", "mysekaiFixtureTagGroup",
+		"assetbundleName",
+	},
+	"mysekaimaterials": {
+		"id", "seq", "name", "pronunciation", "description", "mysekaiMaterialType",
+		"mysekaiMaterialRarityType", "iconAssetbundleName", "mysekaiSiteIds",
+	},
+	"mysekaimusicrecords": {"id", "mysekaiMusicTrackType", "externalId"},
 }
 
 // ProjectionFields returns the fields entity's list projection keeps, or nil

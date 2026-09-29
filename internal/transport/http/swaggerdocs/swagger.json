@@ -4354,6 +4354,474 @@
                 }
             }
         },
+        "/mysekaiFixtures/{region}/filters": {
+            "get": {
+                "description": "Returns the main genres with their sub-genres, and the series, unit, and character tags, that at least one fixture of the region uses.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiFixtures"
+                ],
+                "summary": "List the MySekai fixture catalogue filters",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiFixtureFiltersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/mysekaiFixtures/{region}/list": {
+            "get": {
+                "description": "Lists fixtures (furniture) in stored order unless sorted. tag_id keeps fixtures that carry every listed tag; genre filters keep fixtures in any listed genre.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiFixtures"
+                ],
+                "summary": "List MySekai fixtures by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the name or its reading",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated main genre IDs",
+                        "name": "main_genre_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated sub-genre IDs",
+                        "name": "sub_genre_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated tag IDs, all required",
+                        "name": "tag_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id|seq|name)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc|desc)",
+                        "name": "sort_order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiFixtureListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/mysekaiFixtures/{region}/{id}": {
+            "get": {
+                "description": "Returns a fixture (furniture) with its genres, tags, crafting blueprint and material costs, character bonus, and the materials only disassembling it returns.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiFixtures"
+                ],
+                "summary": "Get a MySekai fixture by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Fixture ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiFixtureDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/mysekaiMaterials/{region}/list": {
+            "get": {
+                "description": "Lists materials in stored order with the sites they are gathered at and their related characters.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiMaterials"
+                ],
+                "summary": "List MySekai materials by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated material types, such as wood or mineral",
+                        "name": "material_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiMaterialListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/mysekaiMaterials/{region}/{id}": {
+            "get": {
+                "description": "Returns a material with the sites it is gathered at, its related characters, and the fixtures whose blueprints cost it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiMaterials"
+                ],
+                "summary": "Get a MySekai material by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Material ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiMaterialDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/mysekaiMusicRecords/{region}/filters": {
+            "get": {
+                "description": "Returns the sound-track categories that at least one sound-track record uses, by ID.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiMusicRecords"
+                ],
+                "summary": "List the MySekai music record filters",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiMusicRecordFiltersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/mysekaiMusicRecords/{region}/list": {
+            "get": {
+                "description": "Lists music records in stored order with the song or sound track each one plays. Records of unpublished songs are hidden unless spoiler=true; records whose song or sound track is missing are omitted.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiMusicRecords"
+                ],
+                "summary": "List MySekai music records by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Track type (music|music_sound_track)",
+                        "name": "track_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated sound-track category IDs; keeps sound-track records only",
+                        "name": "sound_track_category_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the song or sound-track title",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include records of unpublished songs",
+                        "name": "spoiler",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiMusicRecordListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/mysekaiPhotoDecorations/{region}/list": {
             "get": {
                 "produces": [
@@ -8047,6 +8515,24 @@
                 "title": {}
             }
         },
+        "shared.MusicSoundTrackCategoryResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.MusicVocalCharacterResponse": {
             "type": "object",
             "properties": {
@@ -8086,6 +8572,632 @@
                 }
             }
         },
+        "shared.MysekaiBlueprintResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "materialCosts"
+            ],
+            "properties": {
+                "craftCountLimit": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isAvailableWithoutPossession": {
+                    "type": "boolean"
+                },
+                "isEnableSketch": {
+                    "type": "boolean"
+                },
+                "isObtainedByConvert": {
+                    "type": "boolean"
+                },
+                "materialCosts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiMaterialQuantityResponse"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiFixtureCharacterBonusResponse": {
+            "type": "object",
+            "required": [
+                "gameCharacterIds"
+            ],
+            "properties": {
+                "bonusRate": {
+                    "type": "number"
+                },
+                "gameCharacterIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiFixtureColorResponse": {
+            "type": "object",
+            "properties": {
+                "colorCode": {
+                    "type": "string"
+                },
+                "textureId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MysekaiFixtureDetailResponse": {
+            "type": "object",
+            "required": [
+                "anotherColors",
+                "disassembleMaterials",
+                "id",
+                "name",
+                "tagIds",
+                "tags"
+            ],
+            "properties": {
+                "anotherColors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiFixtureColorResponse"
+                    }
+                },
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "blueprint": {
+                    "$ref": "#/definitions/shared.MysekaiBlueprintResponse"
+                },
+                "characterBonus": {
+                    "$ref": "#/definitions/shared.MysekaiFixtureCharacterBonusResponse"
+                },
+                "colorCode": {
+                    "type": "string"
+                },
+                "disassembleMaterials": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiMaterialQuantityResponse"
+                    }
+                },
+                "firstPutCost": {
+                    "type": "integer"
+                },
+                "flavorText": {
+                    "type": "string"
+                },
+                "gridSize": {
+                    "$ref": "#/definitions/shared.MysekaiFixtureGridSizeResponse"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isAssembled": {
+                    "type": "boolean"
+                },
+                "isDisassembled": {
+                    "type": "boolean"
+                },
+                "mainGenre": {
+                    "$ref": "#/definitions/shared.MysekaiFixtureGenreResponse"
+                },
+                "mysekaiFixtureMainGenreId": {
+                    "type": "integer"
+                },
+                "mysekaiFixtureSubGenreId": {
+                    "type": "integer"
+                },
+                "mysekaiFixtureType": {
+                    "type": "string"
+                },
+                "mysekaiSettableLayoutType": {
+                    "type": "string"
+                },
+                "mysekaiSettableSiteType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pronunciation": {
+                    "type": "string"
+                },
+                "secondPutCost": {
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "subGenre": {
+                    "$ref": "#/definitions/shared.MysekaiFixtureGenreResponse"
+                },
+                "tagIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiFixtureTagResponse"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiFixtureFiltersResponse": {
+            "type": "object",
+            "required": [
+                "mainGenres",
+                "tags"
+            ],
+            "properties": {
+                "mainGenres": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiFixtureMainGenreResponse"
+                    }
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiFixtureTagResponse"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiFixtureGenreResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MysekaiFixtureGridSizeResponse": {
+            "type": "object",
+            "required": [
+                "depth",
+                "height",
+                "width"
+            ],
+            "properties": {
+                "depth": {
+                    "type": "integer"
+                },
+                "height": {
+                    "type": "integer"
+                },
+                "width": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MysekaiFixtureListItemResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name",
+                "tagIds"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "gridSize": {
+                    "$ref": "#/definitions/shared.MysekaiFixtureGridSizeResponse"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mysekaiFixtureMainGenreId": {
+                    "type": "integer"
+                },
+                "mysekaiFixtureSubGenreId": {
+                    "type": "integer"
+                },
+                "mysekaiFixtureType": {
+                    "type": "string"
+                },
+                "mysekaiSettableLayoutType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pronunciation": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "tagIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiFixtureListResponse": {
+            "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiFixtureListItemResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MysekaiFixtureMainGenreResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "subGenres": {
+                    "description": "SubGenres are the sub-genres fixtures of this main genre use, by ID.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiFixtureGenreResponse"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiFixtureSummaryResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mysekaiFixtureType": {
+                    "type": "string"
+                },
+                "mysekaiSettableLayoutType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MysekaiFixtureTagResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "mysekaiFixtureTagType",
+                "name"
+            ],
+            "properties": {
+                "externalId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mysekaiFixtureTagType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pronunciation": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MysekaiMaterialDetailResponse": {
+            "type": "object",
+            "required": [
+                "gameCharacterIds",
+                "id",
+                "name",
+                "sites",
+                "usedBy"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "gameCharacterIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "iconAssetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mysekaiMaterialRarityType": {
+                    "type": "string"
+                },
+                "mysekaiMaterialType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pronunciation": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "sites": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiSiteResponse"
+                    }
+                },
+                "usedBy": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiMaterialUseResponse"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiMaterialListResponse": {
+            "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiMaterialResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MysekaiMaterialQuantityResponse": {
+            "type": "object",
+            "required": [
+                "material",
+                "quantity"
+            ],
+            "properties": {
+                "material": {
+                    "$ref": "#/definitions/shared.MysekaiMaterialSummaryResponse"
+                },
+                "quantity": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MysekaiMaterialResponse": {
+            "type": "object",
+            "required": [
+                "gameCharacterIds",
+                "id",
+                "name",
+                "sites"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "gameCharacterIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "iconAssetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mysekaiMaterialRarityType": {
+                    "type": "string"
+                },
+                "mysekaiMaterialType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pronunciation": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "sites": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiSiteResponse"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiMaterialSummaryResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
+            "properties": {
+                "iconAssetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mysekaiMaterialRarityType": {
+                    "type": "string"
+                },
+                "mysekaiMaterialType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MysekaiMaterialUseResponse": {
+            "type": "object",
+            "required": [
+                "fixture",
+                "quantity"
+            ],
+            "properties": {
+                "fixture": {
+                    "$ref": "#/definitions/shared.MysekaiFixtureSummaryResponse"
+                },
+                "quantity": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MysekaiMusicRecordFiltersResponse": {
+            "type": "object",
+            "required": [
+                "soundTrackCategories"
+            ],
+            "properties": {
+                "soundTrackCategories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicSoundTrackCategoryResponse"
+                    }
+                }
+            }
+        },
+        "shared.MysekaiMusicRecordListResponse": {
+            "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiMusicRecordResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MysekaiMusicRecordMusicResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "title"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MysekaiMusicRecordResponse": {
+            "type": "object",
+            "required": [
+                "externalId",
+                "id",
+                "mysekaiMusicTrackType"
+            ],
+            "properties": {
+                "externalId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "music": {
+                    "$ref": "#/definitions/shared.MysekaiMusicRecordMusicResponse"
+                },
+                "mysekaiMusicTrackType": {
+                    "type": "string"
+                },
+                "soundTrack": {
+                    "$ref": "#/definitions/shared.MysekaiMusicRecordSoundTrackResponse"
+                }
+            }
+        },
+        "shared.MysekaiMusicRecordSoundTrackResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "title"
+            ],
+            "properties": {
+                "assetbundleFileName": {
+                    "type": "string"
+                },
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "musicSoundTrackCategoryId": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.MysekaiPhotoDecorationListResponse": {
             "type": "object",
             "properties": {
@@ -8117,6 +9229,21 @@
                 },
                 "seq": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.MysekaiSiteResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },

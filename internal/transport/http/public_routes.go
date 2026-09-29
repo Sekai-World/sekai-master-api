@@ -27,6 +27,13 @@ var cachedRoutes = []string{
 	"/api/v1/actionSets/:region/list",
 	"/api/v1/honorGroups/:region/list",
 	"/api/v1/gachas/:region/list",
+	"/api/v1/mysekaiFixtures/:region/list",
+	"/api/v1/mysekaiFixtures/:region/filters",
+	"/api/v1/mysekaiFixtures/:region/:id",
+	"/api/v1/mysekaiMaterials/:region/list",
+	"/api/v1/mysekaiMaterials/:region/:id",
+	"/api/v1/mysekaiMusicRecords/:region/list",
+	"/api/v1/mysekaiMusicRecords/:region/filters",
 }
 
 func registerPublicRoutes(
@@ -76,6 +83,13 @@ func registerPublicRoutes(
 	v1.GET("/characterRanks/:region/list", lookupHandler.CharacterRanksList)
 	v1.GET("/mysekaiPhotoDecorations/:region/list", lookupHandler.MysekaiPhotoDecorationsList)
 	v1.GET("/mysekaiPhotoDecorations/:region/:id", lookupHandler.MysekaiPhotoDecorationsByID)
+	v1.GET("/mysekaiFixtures/:region/list", lookupHandler.MysekaiFixturesList)
+	v1.GET("/mysekaiFixtures/:region/filters", lookupHandler.MysekaiFixtureFilters)
+	v1.GET("/mysekaiFixtures/:region/:id", lookupHandler.MysekaiFixturesByID)
+	v1.GET("/mysekaiMaterials/:region/list", lookupHandler.MysekaiMaterialsList)
+	v1.GET("/mysekaiMaterials/:region/:id", lookupHandler.MysekaiMaterialsByID)
+	v1.GET("/mysekaiMusicRecords/:region/list", lookupHandler.MysekaiMusicRecordsList)
+	v1.GET("/mysekaiMusicRecords/:region/filters", lookupHandler.MysekaiMusicRecordFilters)
 	v1.GET("/honors/:region/list", lookupHandler.HonorsList)
 	v1.GET("/honors/:region/:id", lookupHandler.HonorsByID)
 	v1.GET("/honorGroups/:region/list", lookupHandler.HonorGroupsList)
