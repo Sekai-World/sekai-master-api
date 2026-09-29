@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/transport/http/cachehint"
 	"sekai-master-api/internal/transport/http/handlers/testutil"
 	"sekai-master-api/internal/usecase"
 )
@@ -323,7 +324,7 @@ func TestGachaListRejectsInvalidOngoing(t *testing.T) {
 
 func TestFilterOngoingGachasIncludesBothTimeBoundaries(t *testing.T) {
 	now := time.UnixMilli(1_700_000_000_000).UTC()
-	filtered := filterOngoingGachas([]map[string]any{
+	filtered := filterOngoingGachas(context.Background(), []map[string]any{
 		{"id": 1, "startAt": now.UnixMilli(), "endAt": now.Add(time.Hour).UnixMilli()},
 		{"id": 2, "startAt": now.Add(-time.Hour).UnixMilli(), "endAt": now.UnixMilli()},
 		{"id": 3, "startAt": now.Add(time.Millisecond).UnixMilli(), "endAt": now.Add(time.Hour).UnixMilli()},
@@ -334,6 +335,73 @@ func TestFilterOngoingGachasIncludesBothTimeBoundaries(t *testing.T) {
 
 	if len(filtered) != 2 || filtered[0]["id"] != 1 || filtered[1]["id"] != 2 {
 		t.Fatalf("expected boundary-inclusive ongoing ids [1 2], got %v", filtered)
+	}
+}
+
+func TestFilterOngoingGachasReportsTheNextChange(t *testing.T) {
+	now := time.UnixMilli(1_700_000_000_000).UTC()
+	records := []map[string]any{
+		{"id": 1, "startAt": now.Add(-time.Hour).UnixMilli(), "endAt": now.Add(3 * time.Hour).UnixMilli()},
+		{"id": 2, "startAt": now.Add(2 * time.Hour).UnixMilli(), "endAt": now.Add(5 * time.Hour).UnixMilli()},
+		{"id": 3, "startAt": now.Add(-5 * time.Hour).UnixMilli(), "endAt": now.Add(-time.Hour).UnixMilli()},
+	}
+	for _, tt := range []struct {
+		name string
+		drop int
+		want time.Time
+	}{
+		{name: "an upcoming gacha starts first", want: now.Add(2 * time.Hour)},
+		{name: "an ongoing gacha ends first", drop: 1, want: now.Add(3*time.Hour + time.Millisecond)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			input := append([]map[string]any(nil), records...)
+			if tt.drop > 0 {
+				input = append(input[:tt.drop], input[tt.drop+1:]...)
+			}
+			ctx, hint := cachehint.WithHint(context.Background())
+			filterOngoingGachas(ctx, input, now)
+			if until, ok := hint.Until(); !ok || !until.Equal(tt.want) {
+				t.Fatalf("reported %v %t, want %v", until, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestGachaListReportsWhenItsAnswerChanges(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	now := time.Now().UTC()
+	startAt := now.Add(2 * time.Hour).Truncate(time.Millisecond)
+	endAt := now.Add(time.Hour).Truncate(time.Millisecond)
+	cache := &fakeGachaHandlerCache{listByEntity: map[string]map[string][]map[string]any{"jp": {"gachas": {
+		{"id": 1, "gachaType": "ceil", "name": "ongoing", "assetbundleName": "a", "startAt": now.Add(-time.Hour).UnixMilli(), "endAt": endAt.UnixMilli()},
+		{"id": 2, "gachaType": "ceil", "name": "upcoming", "assetbundleName": "b", "startAt": startAt.UnixMilli(), "endAt": startAt.Add(time.Hour).UnixMilli()},
+	}}}, hasRecords: map[string]map[string]bool{"jp": {"gachas": true}}}
+	for _, tt := range []struct {
+		query string
+		want  time.Time
+	}{
+		// The upcoming gacha is a spoiler until it starts.
+		{query: "", want: startAt},
+		// With spoilers shown, only the ongoing filter bounds the answer.
+		{query: "?spoiler=true&ongoing=true", want: endAt.Add(time.Millisecond)},
+	} {
+		var hint *cachehint.Hint
+		router := gin.New()
+		router.GET("/api/v1/gachas/:region/list", func(c *gin.Context) {
+			ctx, captured := cachehint.WithHint(c.Request.Context())
+			c.Request = c.Request.WithContext(ctx)
+			hint = captured
+			c.Next()
+		}, newReadyGachaHandler(cache).List)
+
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/gachas/jp/list"+tt.query, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("%q: status %d: %s", tt.query, response.Code, response.Body.String())
+		}
+		if until, ok := hint.Until(); !ok || !until.Equal(tt.want) {
+			t.Fatalf("%q: reported %v %t, want %v", tt.query, until, ok, tt.want)
+		}
 	}
 }
 

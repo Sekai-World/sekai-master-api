@@ -113,8 +113,9 @@ the slowest computed read routes in Redis (`cachedRoutes` in
   failed), requests bypass the cache.
 - Only `200` responses up to `CACHE_MAX_ENTRY_BYTES` are stored, for
   `CACHE_TTL_SECONDS` or until the moment the handler reported through
-  `cachehint.ValidUntil` (the next spoiler reveal, or the next change of the
-  current event), whichever comes first.
+  `cachehint.ValidUntil` (the next spoiler reveal, the next change of the
+  current event, or the next gacha start or end under `ongoing=true`),
+  whichever comes first.
 - Redis errors and timeouts (`CACHE_REDIS_TIMEOUT_MS`) only bypass the cache;
   Redis is never a readiness input. Concurrent misses for one key share one
   handler run.

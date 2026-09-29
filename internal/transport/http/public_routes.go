@@ -26,6 +26,7 @@ var cachedRoutes = []string{
 	"/api/v1/cardEpisodes/:region/list",
 	"/api/v1/actionSets/:region/list",
 	"/api/v1/honorGroups/:region/list",
+	"/api/v1/gachas/:region/list",
 }
 
 func registerPublicRoutes(
