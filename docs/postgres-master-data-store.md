@@ -671,8 +671,9 @@ Each step is its own PR, with tests, lint and a dev-cluster check.
    [Caching](#caching). The existing master-data Redis instances are kept
    for it. Implemented as `internal/transport/http/responsecache` with the
    allowlist in `cachedRoutes`. It is off until `CACHE_REDIS_ADDR` is set.
-   The gacha list is not on the allowlist: its `ongoing` filter does not
-   report a boundary yet.
+   The gacha list joined the allowlist once its `ongoing` filter reported
+   when its answer changes: when an upcoming gacha starts or an ongoing one
+   ends.
    Enabled on the test cluster with `0.3.0` on 2026-09-28
    (sekai-k3s-infra#362). It uses `redis-sekai-master` for `serve` only.
    Server time for the 77 allowlisted `jp`/`en` URLs, timed inside the pod:

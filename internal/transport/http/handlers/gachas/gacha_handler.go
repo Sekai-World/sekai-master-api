@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"sekai-master-api/internal/transport/http/cachehint"
 	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/response"
 	"sekai-master-api/internal/usecase"
@@ -241,10 +242,10 @@ func (handler *GachaHandler) List(c *gin.Context) {
 
 		now := time.Now().UTC()
 		if !includeSpoilers {
-			records = shared.FilterSpoilerItems(records, now)
+			records = shared.FilterSpoilerItemsContext(c.Request.Context(), records, now)
 		}
 		if ongoing {
-			records = filterOngoingGachas(records, now)
+			records = filterOngoingGachas(c.Request.Context(), records, now)
 		}
 		if sortOptions.Enabled {
 			if !shared.ValidateSortField(c, sortOptions.Field, records, sortableGachaFields) {
@@ -318,8 +319,17 @@ func parseOngoingOption(c *gin.Context) (bool, bool) {
 	return ongoing, true
 }
 
-func filterOngoingGachas(records []map[string]any, now time.Time) []map[string]any {
+// filterOngoingGachas keeps the gachas whose startAt..endAt window contains
+// now, and tells the response cache when that set next changes: when an
+// upcoming gacha starts or an ongoing one ends.
+func filterOngoingGachas(ctx context.Context, records []map[string]any, now time.Time) []map[string]any {
 	nowMillis := now.UTC().UnixMilli()
+	nextChange := int64(0)
+	earlier := func(candidate int64) {
+		if nextChange == 0 || candidate < nextChange {
+			nextChange = candidate
+		}
+	}
 	filtered := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		startAt, startOK := shared.ParseTimestampMillis(record["startAt"])
@@ -327,10 +337,18 @@ func filterOngoingGachas(records []map[string]any, now time.Time) []map[string]a
 		if !startOK || !endOK {
 			continue
 		}
-		if startAt > nowMillis || endAt < nowMillis {
+		if startAt > nowMillis {
+			earlier(startAt)
 			continue
 		}
+		if endAt < nowMillis {
+			continue
+		}
+		earlier(endAt + 1)
 		filtered = append(filtered, record)
+	}
+	if nextChange > 0 {
+		cachehint.ValidUntil(ctx, time.UnixMilli(nextChange))
 	}
 
 	return filtered
