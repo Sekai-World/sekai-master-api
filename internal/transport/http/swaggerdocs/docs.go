@@ -5098,6 +5098,104 @@ const docTemplate = `{
                 }
             }
         },
+        "/stamps/{region}/list": {
+            "get": {
+                "description": "Lists stamps in stored order, each with its characters and a category derived from them. Stamps whose archivePublishedAt is in the future are hidden unless spoiler=true.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "stamps"
+                ],
+                "summary": "List stamps by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the stamp name",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated categories (character|bond|text|other)",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated game character IDs; the stamp must show all of them",
+                        "name": "character_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include stamps that are not published yet",
+                        "name": "spoiler",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id|seq)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort order (asc|desc)",
+                        "name": "sort_order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.StampListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/subGameCharacters/{region}/list": {
             "get": {
                 "produces": [
@@ -9641,6 +9739,66 @@ const docTemplate = `{
                 },
                 "skillFilterId": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.StampListItemResponse": {
+            "type": "object",
+            "required": [
+                "category",
+                "characterIds",
+                "id",
+                "name",
+                "stampType"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "characterIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "gameCharacterUnitId": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "stampType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.StampListResponse": {
+            "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.StampListItemResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
                 }
             }
         },
