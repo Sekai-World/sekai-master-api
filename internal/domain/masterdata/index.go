@@ -121,7 +121,7 @@ func IndexKeys(record map[string]any, index string) []string {
 
 // parseElementIndex splits an index written "path[a+b]" into the path of the
 // array and the fields of each of its elements.
-func parseElementIndex(index string) (path []string, fields []string, ok bool) {
+func parseElementIndex(index string) (path, fields []string, ok bool) {
 	open := strings.IndexByte(index, '[')
 	if open <= 0 || !strings.HasSuffix(index, "]") || strings.Contains(index, ",") {
 		return nil, nil, false
@@ -135,7 +135,7 @@ func parseElementIndex(index string) (path []string, fields []string, ok bool) {
 
 // elementIndexKeys returns the distinct keys of a record's array elements, one
 // per element that has every field, built like IndexLookupKey builds them.
-func elementIndexKeys(record map[string]any, path []string, fields []string) []string {
+func elementIndexKeys(record map[string]any, path, fields []string) []string {
 	keys := []string{}
 	for _, element := range valuesAtPath(record, path) {
 		for _, object := range objectsOf(element) {
