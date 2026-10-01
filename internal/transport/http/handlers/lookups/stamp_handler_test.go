@@ -23,7 +23,8 @@ func newStampTestCache(extra ...map[string]any) *missionTrackingCache {
 			"characterId1": 1, "characterId2": 2, "archivePublishedAt": published},
 		{"id": 3, "seq": 20, "stampType": "illustration", "name": "[スタンプ]咲希：やったー！", "assetbundleName": "stamp0003",
 			"characterId1": 2, "archivePublishedAt": published},
-		{"id": 4, "stampType": "text", "name": "[テキストスタンプ]一歌！", "assetbundleName": "stamp0333", "characterId1": 1,
+		// A character-name text stamp names a unit only; its character comes from the unit.
+		{"id": 4, "stampType": "text", "name": "[テキストスタンプ]一歌！", "assetbundleName": "stamp0333", "gameCharacterUnitId": 1,
 			"archivePublishedAt": published},
 		{"id": 5, "seq": 40, "stampType": "non_character_illustration", "name": "[スタンプ]Happy Halloween", "assetbundleName": "stamp0715",
 			"archivePublishedAt": published},
@@ -34,7 +35,14 @@ func newStampTestCache(extra ...map[string]any) *missionTrackingCache {
 	}
 	stamps = append(stamps, extra...)
 	cache := &missionTrackingCache{fakeLookupCache: &fakeLookupCache{
-		listByEntity: map[string]map[string][]map[string]any{"jp": {stampsEntity: stamps}},
+		listByEntity: map[string]map[string][]map[string]any{"jp": {
+			stampsEntity: stamps,
+			stampGameCharacterUnits: {
+				{"id": 1, "gameCharacterId": 1, "unit": "light_sound"},
+				{"id": 2, "gameCharacterId": 2, "unit": "light_sound"},
+				{"id": 27, "gameCharacterId": 21, "unit": "idol"},
+			},
+		}},
 	}}
 	indexFakeRecordsByID(cache.fakeLookupCache)
 	return cache
@@ -86,9 +94,9 @@ func TestStampsListProjectsCategoriesAndCharacters(t *testing.T) {
 	if !reflect.DeepEqual(list.Items[1].CharacterIDs, []int64{1, 2}) || len(list.Items[4].CharacterIDs) != 0 {
 		t.Fatalf("expected the bond stamp's characters in slot order and none for the other stamp: %+v", list.Items)
 	}
-	// The text stamp has one character slot but is a text stamp, so it never counts as a character stamp.
-	if list.Items[3].Category != "text" {
-		t.Fatalf("expected the text stamp to be text, got %+v", list.Items[3])
+	// The character-name text stamp gets its character from its unit, and stays a text stamp.
+	if list.Items[3].Category != "text" || !reflect.DeepEqual(list.Items[3].CharacterIDs, []int64{1}) {
+		t.Fatalf("expected the text stamp to be text of character 1, got %+v", list.Items[3])
 	}
 	if len(cache.listCalls) != 0 {
 		t.Fatalf("expected the list to read its projection only: %+v", cache.listCalls)

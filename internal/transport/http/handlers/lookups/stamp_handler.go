@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	stampsEntity = "stamps"
+	stampsEntity            = "stamps"
+	stampGameCharacterUnits = "gamecharacterunits"
 
 	stampCategoryCharacter = "character"
 	stampCategoryBond      = "bond"
@@ -155,8 +156,45 @@ func (handler *LookupHandler) loadStampItems(ctx context.Context, region string,
 		}
 		items = append(items, item)
 	}
+	if err := handler.attachStampUnitCharacters(ctx, region, items); err != nil {
+		return nil, err
+	}
 	cachehint.ValidUntil(ctx, firstReveal)
 	return items, nil
+}
+
+// attachStampUnitCharacters gives a stamp that fills no character slot the
+// character of its game character unit. The character-name text stamps are
+// like that: they name a unit only.
+func (handler *LookupHandler) attachStampUnitCharacters(ctx context.Context, region string, items []stampItem) error {
+	unitIDs := []string{}
+	for _, item := range items {
+		if len(item.response.CharacterIDs) == 0 && item.response.GameCharacterUnitID != nil {
+			unitIDs = append(unitIDs, formatID(*item.response.GameCharacterUnitID))
+		}
+	}
+	if len(unitIDs) == 0 {
+		return nil
+	}
+	units, err := shared.PrefetchRecords(ctx, handler.masterDataSync, region, map[string][]string{stampGameCharacterUnits: unitIDs})
+	if err != nil {
+		return err
+	}
+	for position := range items {
+		response := &items[position].response
+		if len(response.CharacterIDs) > 0 || response.GameCharacterUnitID == nil {
+			continue
+		}
+		unit, ok := units.Record(stampGameCharacterUnits, formatID(*response.GameCharacterUnitID))
+		if !ok {
+			continue
+		}
+		if characterID, ok := lookupInt64(unit["gameCharacterId"]); ok && characterID > 0 {
+			response.CharacterIDs = []int64{characterID}
+			response.Category = stampCategory(response.StampType, 1)
+		}
+	}
+	return nil
 }
 
 // stampRevealTime returns when an unpublished stamp is published.
