@@ -170,11 +170,12 @@ type MissionResourceBoxDetailResponse struct {
 	ResourceQuantity   *int64  `json:"resourceQuantity,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
 	// materials, skill practice tickets, boost items, titles (honors and
-	// Kizuna titles), and MySekai materials and tools.
+	// Kizuna titles), MySekai materials and tools, stamps, and virtual live
+	// archive items.
 	ResourceName *string `json:"resourceName,omitempty"`
 	// ResourceAssetbundleName is the asset bundle name the rewarded item's
-	// icon path depends on; only gacha tickets and MySekai materials and tools
-	// carry one.
+	// icon path depends on; only gacha tickets, MySekai materials and tools,
+	// stamps, and virtual live archive items carry one.
 	ResourceAssetbundleName *string `json:"resourceAssetbundleName,omitempty"`
 	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
 	// it picks the title reward icon.
@@ -886,11 +887,12 @@ type EventRewardResourceBoxDetail struct {
 	Honor              *EventRewardHonorResponse `json:"honor,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
 	// materials, skill practice tickets, boost items, titles (honors and
-	// Kizuna titles), and MySekai materials and tools.
+	// Kizuna titles), MySekai materials and tools, stamps, and virtual live
+	// archive items.
 	ResourceName string `json:"resourceName,omitempty"`
 	// ResourceAssetbundleName is the asset bundle name the rewarded item's
-	// icon path depends on; only gacha tickets and MySekai materials and tools
-	// carry one.
+	// icon path depends on; only gacha tickets, MySekai materials and tools,
+	// stamps, and virtual live archive items carry one.
 	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
 	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
 	// it picks the title reward icon.
@@ -1144,11 +1146,12 @@ type VirtualLiveRewardResourceBoxDetail struct {
 	Honor            *EventRewardHonorResponse `json:"honor,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
 	// materials, skill practice tickets, boost items, titles (honors and
-	// Kizuna titles), and MySekai materials and tools.
+	// Kizuna titles), MySekai materials and tools, stamps, and virtual live
+	// archive items.
 	ResourceName string `json:"resourceName,omitempty"`
 	// ResourceAssetbundleName is the asset bundle name the rewarded item's
-	// icon path depends on; only gacha tickets and MySekai materials and tools
-	// carry one.
+	// icon path depends on; only gacha tickets, MySekai materials and tools,
+	// stamps, and virtual live archive items carry one.
 	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
 	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
 	// it picks the title reward icon.

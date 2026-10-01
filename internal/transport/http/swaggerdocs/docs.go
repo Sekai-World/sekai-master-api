@@ -7448,7 +7448,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/shared.EventRewardHonorResponse"
                 },
                 "resourceAssetbundleName": {
-                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets and MySekai materials and tools\ncarry one.",
+                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets, MySekai materials and tools,\nstamps, and virtual live archive items carry one.",
                     "type": "string"
                 },
                 "resourceBoxId": {
@@ -7464,7 +7464,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), and MySekai materials and tools.",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), MySekai materials and tools, stamps, and virtual live\narchive items.",
                     "type": "string"
                 },
                 "resourceQuantity": {
@@ -8271,7 +8271,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "resourceAssetbundleName": {
-                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets and MySekai materials and tools\ncarry one.",
+                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets, MySekai materials and tools,\nstamps, and virtual live archive items carry one.",
                     "type": "string"
                 },
                 "resourceBoxId": {
@@ -8287,7 +8287,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), and MySekai materials and tools.",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), MySekai materials and tools, stamps, and virtual live\narchive items.",
                     "type": "string"
                 },
                 "resourceQuantity": {
@@ -10154,7 +10154,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/shared.EventRewardHonorResponse"
                 },
                 "resourceAssetbundleName": {
-                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets and MySekai materials and tools\ncarry one.",
+                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets, MySekai materials and tools,\nstamps, and virtual live archive items carry one.",
                     "type": "string"
                 },
                 "resourceId": {
@@ -10164,7 +10164,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), and MySekai materials and tools.",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), MySekai materials and tools, stamps, and virtual live\narchive items.",
                     "type": "string"
                 },
                 "resourceQuantity": {

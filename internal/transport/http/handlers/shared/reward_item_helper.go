@@ -17,6 +17,9 @@ var RewardItemEntities = map[string]string{
 	"bonds_honor":           "bondshonors",
 	"mysekai_material":      "mysekaimaterials",
 	"mysekai_tool":          "mysekaitools",
+	"stamp":                 "stamps",
+	// Virtual message lives give these archive (memorial record) items.
+	"virtual_live_transition_item": "virtuallivetransitionitems",
 }
 
 // rewardItemAssetbundleFields names, per reward type, the record field its
@@ -26,6 +29,9 @@ var rewardItemAssetbundleFields = map[string]string{
 	"gacha_ticket":     "assetbundleName",
 	"mysekai_material": "iconAssetbundleName",
 	"mysekai_tool":     "assetbundleName",
+	// Stamp bundles do not follow their IDs (JP stamp 33 is stamp0038).
+	"stamp":                        "assetbundleName",
+	"virtual_live_transition_item": "assetbundleName",
 }
 
 // RewardItemAssetbundleField returns the record field that holds a reward
@@ -68,9 +74,9 @@ func RewardTitleRarity(record map[string]any, level any) string {
 }
 
 // RewardItemFields returns the display fields of a reward detail's item:
-// `resourceName`, `resourceAssetbundleName` for gacha tickets and MySekai
-// materials and tools (their icon path uses it), and `resourceRarity` for
-// titles. It returns nil when the item type needs no lookup or its record is
+// `resourceName`, `resourceAssetbundleName` for gacha tickets, MySekai
+// materials and tools, stamps, and virtual live archive items (their icon path
+// uses it), and `resourceRarity` for titles. It returns nil when the item type needs no lookup or its record is
 // missing.
 func RewardItemFields(ctx context.Context, lookup RewardItemRecordLookup, region string, detail map[string]any) map[string]any {
 	resourceType := NormalizeComparableText(detail["resourceType"])

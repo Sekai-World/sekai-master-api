@@ -895,8 +895,8 @@ definitions:
       resourceAssetbundleName:
         description: |-
           ResourceAssetbundleName is the asset bundle name the rewarded item's
-          icon path depends on; only gacha tickets and MySekai materials and tools
-          carry one.
+          icon path depends on; only gacha tickets, MySekai materials and tools,
+          stamps, and virtual live archive items carry one.
         type: string
       resourceBoxId:
         type: integer
@@ -910,7 +910,8 @@ definitions:
         description: |-
           ResourceName is the rewarded item's localized name for gacha tickets,
           materials, skill practice tickets, boost items, titles (honors and
-          Kizuna titles), and MySekai materials and tools.
+          Kizuna titles), MySekai materials and tools, stamps, and virtual live
+          archive items.
         type: string
       resourceQuantity:
         type: integer
@@ -1466,8 +1467,8 @@ definitions:
       resourceAssetbundleName:
         description: |-
           ResourceAssetbundleName is the asset bundle name the rewarded item's
-          icon path depends on; only gacha tickets and MySekai materials and tools
-          carry one.
+          icon path depends on; only gacha tickets, MySekai materials and tools,
+          stamps, and virtual live archive items carry one.
         type: string
       resourceBoxId:
         type: integer
@@ -1481,7 +1482,8 @@ definitions:
         description: |-
           ResourceName is the rewarded item's localized name for gacha tickets,
           materials, skill practice tickets, boost items, titles (honors and
-          Kizuna titles), and MySekai materials and tools.
+          Kizuna titles), MySekai materials and tools, stamps, and virtual live
+          archive items.
         type: string
       resourceQuantity:
         type: integer
@@ -2762,8 +2764,8 @@ definitions:
       resourceAssetbundleName:
         description: |-
           ResourceAssetbundleName is the asset bundle name the rewarded item's
-          icon path depends on; only gacha tickets and MySekai materials and tools
-          carry one.
+          icon path depends on; only gacha tickets, MySekai materials and tools,
+          stamps, and virtual live archive items carry one.
         type: string
       resourceId:
         type: integer
@@ -2773,7 +2775,8 @@ definitions:
         description: |-
           ResourceName is the rewarded item's localized name for gacha tickets,
           materials, skill practice tickets, boost items, titles (honors and
-          Kizuna titles), and MySekai materials and tools.
+          Kizuna titles), MySekai materials and tools, stamps, and virtual live
+          archive items.
         type: string
       resourceQuantity:
         type: integer
