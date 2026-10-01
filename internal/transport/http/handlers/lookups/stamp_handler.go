@@ -283,7 +283,7 @@ func stampItemMatches(item stampItem, categories []string, characterIDs []float6
 // sortStampItems orders items by field, keeping items without a seq last and
 // breaking ties by ID.
 func sortStampItems(items []stampItem, field string, descending bool) {
-	sort.SliceStable(items, func(i int, j int) bool {
+	sort.SliceStable(items, func(i, j int) bool {
 		left, right := items[i].response, items[j].response
 		comparison := 0
 		if field == "seq" {
