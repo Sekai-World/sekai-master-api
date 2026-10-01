@@ -2400,6 +2400,47 @@ definitions:
       skillFilterId:
         type: integer
     type: object
+  shared.StampListItemResponse:
+    properties:
+      assetbundleName:
+        type: string
+      category:
+        type: string
+      characterIds:
+        items:
+          type: integer
+        type: array
+      description:
+        type: string
+      gameCharacterUnitId:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      seq:
+        type: integer
+      stampType:
+        type: string
+    required:
+    - category
+    - characterIds
+    - id
+    - name
+    - stampType
+    type: object
+  shared.StampListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.StampListItemResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    required:
+    - items
+    - pagination
+    type: object
   shared.UnitProfileListResponse:
     properties:
       items:
@@ -6375,6 +6416,75 @@ paths:
       summary: List special stories by page
       tags:
       - specialStories
+  /stamps/{region}/list:
+    get:
+      description: Lists stamps in stored order, each with its characters and a category
+        derived from them. Stamps whose archivePublishedAt is in the future are hidden
+        unless spoiler=true.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Case-insensitive substring of the stamp name
+        in: query
+        name: name
+        type: string
+      - description: Comma-separated categories (character|bond|text|other)
+        in: query
+        name: category
+        type: string
+      - description: Comma-separated game character IDs; the stamp must show all of
+          them
+        in: query
+        name: character_id
+        type: string
+      - description: Include stamps that are not published yet
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Sort field (id|seq)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.StampListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List stamps by page
+      tags:
+      - stamps
   /subGameCharacters/{region}/list:
     get:
       parameters:

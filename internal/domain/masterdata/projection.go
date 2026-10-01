@@ -51,6 +51,11 @@ var entityProjections = map[string][]string{
 		"mysekaiMaterialRarityType", "iconAssetbundleName", "mysekaiSiteIds",
 	},
 	"mysekaimusicrecords": {"id", "mysekaiMusicTrackType", "externalId"},
+	"stamps": {
+		"id", "seq", "stampType", "name", "assetbundleName", "characterId1", "characterId2",
+		"characterId3", "characterId4", "characterId5", "gameCharacterUnitId", "archivePublishedAt",
+		"description",
+	},
 	"mysekaishops": {
 		"id", "seq", "mysekaiShopType", "resourceBoxId", "mysekaiShopExchangeLimitType",
 		"mysekaiShopExchangeLimitValue",
