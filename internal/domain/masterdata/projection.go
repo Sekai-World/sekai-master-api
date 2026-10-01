@@ -51,6 +51,10 @@ var entityProjections = map[string][]string{
 		"mysekaiMaterialRarityType", "iconAssetbundleName", "mysekaiSiteIds",
 	},
 	"mysekaimusicrecords": {"id", "mysekaiMusicTrackType", "externalId"},
+	"mysekaishops": {
+		"id", "seq", "mysekaiShopType", "resourceBoxId", "mysekaiShopExchangeLimitType",
+		"mysekaiShopExchangeLimitValue",
+	},
 }
 
 // ProjectionFields returns the fields entity's list projection keeps, or nil

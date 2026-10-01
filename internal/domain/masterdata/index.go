@@ -41,6 +41,7 @@ var entityIndexes = map[string][]string{
 	"mysekaifixtureonlydisassemblematerials": {"mysekaiFixtureId"},
 	"mysekaifixturetags":                     {"mysekaiFixtureTagType"},
 	"mysekaimaterialgamecharacterrelations":  {"mysekaiMaterialId"},
+	"mysekaishopcosts":                       {"mysekaiShopId"},
 	"levels":                                 {"levelType"},
 	"resourceboxdetails":                     {"resourceBoxId,resourceBoxPurpose"},
 	"resourceboxes":                          {"id"},

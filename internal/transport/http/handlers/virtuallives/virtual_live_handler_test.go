@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -471,7 +472,7 @@ func TestVirtualLiveRewardDetailsNameTheirItems(t *testing.T) {
 	}
 	handler := newReadyVirtualLiveHandler(cache)
 
-	details := enrichVirtualLiveRewardResourceBoxDetails(context.Background(), handler, "jp", []any{
+	details := enrichVirtualLiveRewardResourceBoxDetails(context.Background(), handler.masterDataSync.GetByID, "jp", []any{
 		map[string]any{"resourceType": "gacha_ticket", "resourceId": 17, "resourceQuantity": 1, "seq": 1},
 		map[string]any{"resourceType": "skill_practice_ticket", "resourceId": 2, "resourceQuantity": 3, "seq": 2},
 		map[string]any{"resourceType": "gacha_ticket", "resourceId": 99, "resourceQuantity": 1, "seq": 3},
@@ -1567,18 +1568,7 @@ func TestVirtualLiveByIDReadsRewardBoxesByCompositeKey(t *testing.T) {
 			},
 		},
 	}
-	router := gin.New()
-	router.GET("/api/v1/virtualLives/:region/:id", newReadyVirtualLiveHandler(cache).ByID)
-
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil))
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
+	body := requestVirtualLiveByID(t, cache, "501")
 	for index, wantQuantity := range []float64{300, 50} {
 		reward := body["virtualLiveRewards"].([]any)[index].(map[string]any)
 		box, _ := reward["resourceBox"].(map[string]any)
@@ -1591,5 +1581,145 @@ func TestVirtualLiveByIDReadsRewardBoxesByCompositeKey(t *testing.T) {
 		if entity == "resourceboxes" {
 			t.Fatalf("expected no full resourceboxes read, got %v", cache.listAllCalls)
 		}
+	}
+}
+
+func TestVirtualLiveByIDExpandsSoloLiveCheerCoinRewards(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {
+				"virtuallives": {"491": {
+					"id":              491,
+					"virtualLiveType": "solo_virtual_live",
+					"virtualLiveTotalCheerPointRewards": []any{
+						map[string]any{"id": 1, "virtualLiveId": 491, "threshold": 300, "resourceBoxId": 101001},
+						map[string]any{"id": 4, "virtualLiveId": 491, "threshold": 3000, "resourceBoxId": 101004},
+					},
+					"virtualLiveTotalCheerPointSurplusReward": map[string]any{"id": 1, "virtualLiveId": 491, "basePoint": 10, "resourceBoxId": 1},
+					"virtualLiveVirtualItemOverrideCost": map[string]any{
+						"id": 1, "virtualLiveId": 491, "costResourceType": "material", "costResourceId": 282, "assetbundleName": "virtual_cheer_coin",
+					},
+				}},
+				"materials": {
+					"101": {"id": 101, "name": "一歌の想いのカケラ"},
+					"282": {"id": 282, "name": "バーチャルエールコイン"},
+				},
+				"mysekaimaterials": {"35": {"id": 35, "name": "スカイブルーメモリア", "iconAssetbundleName": "item_memoria_1"}},
+			},
+		},
+		listByEntity: map[string][]map[string]any{
+			"resourceboxes": {
+				{"id": 101001, "resourceBoxPurpose": "virtual_live_total_cheer_point_reward", "details": []any{
+					map[string]any{"resourceType": "material", "resourceId": 101, "resourceQuantity": 100, "seq": 1},
+				}},
+				{"id": 101004, "resourceBoxPurpose": "virtual_live_total_cheer_point_reward", "details": []any{
+					map[string]any{"resourceType": "mysekai_material", "resourceId": 35, "resourceQuantity": 5, "seq": 1},
+				}},
+				// Box 1 exists under several purposes; only the surplus one applies.
+				{"id": 1, "resourceBoxPurpose": "virtual_live_cheer_point_reward", "details": []any{
+					map[string]any{"resourceType": "jewel", "resourceQuantity": 999},
+				}},
+				{"id": 1, "resourceBoxPurpose": "virtual_live_total_cheer_point_surplus_reward", "details": []any{
+					map[string]any{"resourceType": "material", "resourceId": 101, "resourceQuantity": 1, "seq": 1},
+				}},
+			},
+		},
+	}
+	body := requestVirtualLiveByID(t, cache, "491")
+
+	rewards, _ := body["virtualLiveTotalCheerPointRewards"].([]any)
+	if len(rewards) != 2 {
+		t.Fatalf("expected 2 total cheer point rewards, got %v", body["virtualLiveTotalCheerPointRewards"])
+	}
+	first := rewards[0].(map[string]any)
+	assertVirtualLiveFields(t, "first threshold", first, map[string]any{"threshold": float64(300)})
+	assertVirtualLiveFields(t, "threshold reward", onlyRewardDetail(t, first), map[string]any{
+		"resourceName": "一歌の想いのカケラ", "resourceQuantity": float64(100),
+	})
+	assertVirtualLiveFields(t, "MySekai material reward", onlyRewardDetail(t, rewards[1].(map[string]any)), map[string]any{
+		"resourceName": "スカイブルーメモリア", "resourceAssetbundleName": "item_memoria_1",
+	})
+
+	surplus, _ := body["virtualLiveTotalCheerPointSurplusReward"].(map[string]any)
+	assertVirtualLiveFields(t, "surplus", surplus, map[string]any{"basePoint": float64(10)})
+	assertVirtualLiveFields(t, "surplus purpose box", onlyRewardDetail(t, surplus), map[string]any{
+		"resourceType": "material", "resourceQuantity": float64(1),
+	})
+
+	cost, _ := body["virtualLiveVirtualItemOverrideCost"].(map[string]any)
+	assertVirtualLiveFields(t, "cheer item cost", cost, map[string]any{
+		"costResourceName": "バーチャルエールコイン", "assetbundleName": "virtual_cheer_coin",
+	})
+	if slices.Contains(cache.listAllCalls, "resourceboxes") {
+		t.Fatalf("expected no full resourceboxes read, got %v", cache.listAllCalls)
+	}
+}
+
+// requestVirtualLiveByID serves GET /virtualLives/jp/{id} from cache and
+// returns the decoded 200 response.
+func requestVirtualLiveByID(t *testing.T, cache *fakeVirtualLiveHandlerCache, id string) map[string]any {
+	t.Helper()
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", newReadyVirtualLiveHandler(cache).ByID)
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/"+id, nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return body
+}
+
+// onlyRewardDetail returns the single detail of a reward's expanded box.
+func onlyRewardDetail(t *testing.T, reward map[string]any) map[string]any {
+	t.Helper()
+	box, _ := reward["resourceBox"].(map[string]any)
+	details, _ := box["details"].([]any)
+	if len(details) != 1 {
+		t.Fatalf("expected one reward detail, got %v", reward)
+	}
+	return details[0].(map[string]any)
+}
+
+// assertVirtualLiveFields checks that got holds each wanted field value.
+func assertVirtualLiveFields(t *testing.T, label string, got map[string]any, want map[string]any) {
+	t.Helper()
+	for key, value := range want {
+		if got[key] != value {
+			t.Fatalf("%s: expected %s=%v, got %v", label, key, value, got)
+		}
+	}
+}
+
+func TestVirtualLiveListItemsCarryTheirGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := &fakeVirtualLiveHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {"virtuallivegroups": {"2": {
+				"id": 2, "name": "6th Anniversary スペシャルソロライブ", "assetbundleName": "6th_anniversary_soro_live",
+				"virtualLiveGroupType": "solo_virtual_live", "startAt": 1000, "endAt": 2000,
+			}}},
+		},
+		listItems: []map[string]any{{
+			"id": 491, "name": "solo", "virtualLiveType": "solo_virtual_live", "assetbundleName": "vlentrance_00491",
+			"startAt": 1000, "endAt": 2000, "virtualLiveGroupId": 2,
+		}},
+		listTotal: 1,
+	}
+
+	item := requestVirtualLiveListItem(t, cache, "?virtual_live_type=solo_virtual_live")
+	want := map[string]any{
+		"id": float64(2), "name": "6th Anniversary スペシャルソロライブ",
+		"assetbundleName": "6th_anniversary_soro_live", "virtualLiveGroupType": "solo_virtual_live",
+	}
+	if !reflect.DeepEqual(item["virtualLiveGroup"], want) {
+		t.Fatalf("expected the list item's group %v, got %v", want, item["virtualLiveGroup"])
 	}
 }

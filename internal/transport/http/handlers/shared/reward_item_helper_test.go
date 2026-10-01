@@ -8,9 +8,13 @@ import (
 
 func TestRewardItemFieldsNamesTitlesWithTheirRarity(t *testing.T) {
 	records := map[string]map[string]map[string]any{
-		"honors":       {"3009": {"id": 3009, "name": "MASTER FULL COMBO", "honorRarity": "highest", "assetbundleName": "honor_0000"}},
-		"bondshonors":  {"1212603": {"id": 1212603, "name": "ミクとKAITO", "honorRarity": "high"}},
-		"gachatickets": {"17": {"id": 17, "name": "Ticket", "assetbundleName": "mission_gacha_ticket"}},
+		"honors":                     {"3009": {"id": 3009, "name": "MASTER FULL COMBO", "honorRarity": "highest", "assetbundleName": "honor_0000"}},
+		"bondshonors":                {"1212603": {"id": 1212603, "name": "ミクとKAITO", "honorRarity": "high"}},
+		"gachatickets":               {"17": {"id": 17, "name": "Ticket", "assetbundleName": "mission_gacha_ticket"}},
+		"mysekaimaterials":           {"35": {"id": 35, "name": "スカイブルーメモリア", "iconAssetbundleName": "item_memoria_1"}},
+		"mysekaitools":               {"10": {"id": 10, "name": "チェーンソー", "assetbundleName": "ax0005"}},
+		"stamps":                     {"33": {"id": 33, "name": "[スタンプ]リン：早く歌いたーい！", "assetbundleName": "stamp0038"}},
+		"virtuallivetransitionitems": {"1": {"id": 1, "name": "メモリアルレコード", "assetbundleName": "memory_peace_5th_01"}},
 	}
 	// Live Master titles leave honorRarity empty and set it per level.
 	records["honors"]["3009"+"0"] = map[string]any{
@@ -41,6 +45,24 @@ func TestRewardItemFieldsNamesTitlesWithTheirRarity(t *testing.T) {
 		"gacha ticket": {
 			detail: map[string]any{"resourceType": "gacha_ticket", "resourceId": 17},
 			want:   map[string]any{"resourceName": "Ticket", "resourceAssetbundleName": "mission_gacha_ticket"},
+		},
+		// A MySekai material's icon is named by its iconAssetbundleName.
+		"mysekai material": {
+			detail: map[string]any{"resourceType": "mysekai_material", "resourceId": 35},
+			want:   map[string]any{"resourceName": "スカイブルーメモリア", "resourceAssetbundleName": "item_memoria_1"},
+		},
+		"mysekai tool": {
+			detail: map[string]any{"resourceType": "mysekai_tool", "resourceId": 10},
+			want:   map[string]any{"resourceName": "チェーンソー", "resourceAssetbundleName": "ax0005"},
+		},
+		// Stamp bundles do not follow their IDs.
+		"stamp": {
+			detail: map[string]any{"resourceType": "stamp", "resourceId": 33},
+			want:   map[string]any{"resourceName": "[スタンプ]リン：早く歌いたーい！", "resourceAssetbundleName": "stamp0038"},
+		},
+		"virtual live archive item": {
+			detail: map[string]any{"resourceType": "virtual_live_transition_item", "resourceId": 1},
+			want:   map[string]any{"resourceName": "メモリアルレコード", "resourceAssetbundleName": "memory_peace_5th_01"},
 		},
 		"live master at its rewarded level": {
 			detail: map[string]any{"resourceType": "honor", "resourceId": 30090, "resourceLevel": 2},

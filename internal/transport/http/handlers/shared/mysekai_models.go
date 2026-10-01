@@ -217,3 +217,43 @@ type MusicSoundTrackCategoryResponse struct {
 type MysekaiMusicRecordFiltersResponse struct {
 	SoundTrackCategories []MusicSoundTrackCategoryResponse `json:"soundTrackCategories" binding:"required"`
 }
+
+// MysekaiShopCostResponse is one price of a secret shop item.
+type MysekaiShopCostResponse struct {
+	ResourceType string `json:"resourceType" binding:"required"`
+	ResourceID   *int64 `json:"resourceId,omitempty"`
+	Quantity     int64  `json:"quantity" binding:"required"`
+}
+
+// MysekaiShopResourceResponse is a resource a secret shop item sells: a
+// MySekai material or tool. AssetbundleName names its icon: a material's
+// iconAssetbundleName or a tool's assetbundleName.
+type MysekaiShopResourceResponse struct {
+	ResourceType              string  `json:"resourceType" binding:"required"`
+	ResourceID                *int64  `json:"resourceId,omitempty"`
+	ResourceQuantity          int64   `json:"resourceQuantity" binding:"required"`
+	Name                      *string `json:"name,omitempty"`
+	Description               *string `json:"description,omitempty"`
+	AssetbundleName           *string `json:"assetbundleName,omitempty"`
+	MysekaiMaterialType       *string `json:"mysekaiMaterialType,omitempty"`
+	MysekaiMaterialRarityType *string `json:"mysekaiMaterialRarityType,omitempty"`
+	MysekaiToolType           *string `json:"mysekaiToolType,omitempty"`
+}
+
+// MysekaiShopItemResponse is one secret shop item. A limit type of
+// limited_per_mysekai_colorful_pass caps purchases at the limit value per
+// World Pass period; none means unlimited.
+type MysekaiShopItemResponse struct {
+	ID                            int64                         `json:"id" binding:"required"`
+	Seq                           *int64                        `json:"seq,omitempty"`
+	MysekaiShopType               string                        `json:"mysekaiShopType" binding:"required"`
+	MysekaiShopExchangeLimitType  *string                       `json:"mysekaiShopExchangeLimitType,omitempty"`
+	MysekaiShopExchangeLimitValue *int64                        `json:"mysekaiShopExchangeLimitValue,omitempty"`
+	Costs                         []MysekaiShopCostResponse     `json:"costs" binding:"required"`
+	Resources                     []MysekaiShopResourceResponse `json:"resources" binding:"required"`
+}
+
+type MysekaiShopListResponse struct {
+	Items      []MysekaiShopItemResponse `json:"items" binding:"required"`
+	Pagination PaginationResponse        `json:"pagination" binding:"required"`
+}

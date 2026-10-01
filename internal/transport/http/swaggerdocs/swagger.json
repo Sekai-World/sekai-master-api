@@ -4943,6 +4943,74 @@
                 }
             }
         },
+        "/mysekaiShops/{region}/list": {
+            "get": {
+                "description": "Lists the secret shop's material and tool items in stored order, each with its costs, purchase limit, and the MySekai materials or tools it sells.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mysekaiShops"
+                ],
+                "summary": "List MySekai secret shop items by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated shop types, such as material or tool",
+                        "name": "shop_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.MysekaiShopListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/specialStories/{region}/list": {
             "get": {
                 "produces": [
@@ -7372,7 +7440,7 @@
                     "$ref": "#/definitions/shared.EventRewardHonorResponse"
                 },
                 "resourceAssetbundleName": {
-                    "description": "ResourceAssetbundleName is the rewarded item's asset bundle name; only\ngacha tickets carry one, and their icon path depends on it.",
+                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets, MySekai materials and tools,\nstamps, and virtual live archive items carry one.",
                     "type": "string"
                 },
                 "resourceBoxId": {
@@ -7388,7 +7456,7 @@
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, and titles (honors and\nKizuna titles).",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), MySekai materials and tools, stamps, and virtual live\narchive items.",
                     "type": "string"
                 },
                 "resourceQuantity": {
@@ -8195,7 +8263,7 @@
             "type": "object",
             "properties": {
                 "resourceAssetbundleName": {
-                    "description": "ResourceAssetbundleName is the rewarded item's asset bundle name; only\ngacha tickets carry one, and their icon path depends on it.",
+                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets, MySekai materials and tools,\nstamps, and virtual live archive items carry one.",
                     "type": "string"
                 },
                 "resourceBoxId": {
@@ -8211,7 +8279,7 @@
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, and titles (honors and\nKizuna titles).",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), MySekai materials and tools, stamps, and virtual live\narchive items.",
                     "type": "string"
                 },
                 "resourceQuantity": {
@@ -9232,6 +9300,116 @@
                 }
             }
         },
+        "shared.MysekaiShopCostResponse": {
+            "type": "object",
+            "required": [
+                "quantity",
+                "resourceType"
+            ],
+            "properties": {
+                "quantity": {
+                    "type": "integer"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MysekaiShopItemResponse": {
+            "type": "object",
+            "required": [
+                "costs",
+                "id",
+                "mysekaiShopType",
+                "resources"
+            ],
+            "properties": {
+                "costs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiShopCostResponse"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mysekaiShopExchangeLimitType": {
+                    "type": "string"
+                },
+                "mysekaiShopExchangeLimitValue": {
+                    "type": "integer"
+                },
+                "mysekaiShopType": {
+                    "type": "string"
+                },
+                "resources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiShopResourceResponse"
+                    }
+                },
+                "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.MysekaiShopListResponse": {
+            "type": "object",
+            "required": [
+                "items",
+                "pagination"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MysekaiShopItemResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.MysekaiShopResourceResponse": {
+            "type": "object",
+            "required": [
+                "resourceQuantity",
+                "resourceType"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "mysekaiMaterialRarityType": {
+                    "type": "string"
+                },
+                "mysekaiMaterialType": {
+                    "type": "string"
+                },
+                "mysekaiToolType": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "resourceId": {
+                    "type": "integer"
+                },
+                "resourceQuantity": {
+                    "type": "integer"
+                },
+                "resourceType": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.MysekaiSiteResponse": {
             "type": "object",
             "required": [
@@ -9605,6 +9783,27 @@
                 }
             }
         },
+        "shared.VirtualLiveGroupSummaryResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "name"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "virtualLiveGroupType": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.VirtualLiveInformation": {
             "type": "object",
             "properties": {
@@ -9720,6 +9919,14 @@
                 },
                 "startAt": {
                     "type": "integer"
+                },
+                "virtualLiveGroup": {
+                    "description": "VirtualLiveGroup is the group a grouped live (a virtual message or solo\nlive) belongs to. Such lives have no banner of their own; the group's\nassetbundleName names it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/shared.VirtualLiveGroupSummaryResponse"
+                        }
+                    ]
                 },
                 "virtualLiveType": {
                     "type": "string"
@@ -9853,8 +10060,33 @@
                         "$ref": "#/definitions/shared.VirtualLiveReward"
                     }
                 },
+                "virtualLiveTotalCheerPointRewards": {
+                    "description": "VirtualLiveTotalCheerPointRewards are a solo virtual live's rewards for\nthe Virtual Cheer Coins spent in total, by threshold. Other lives have\nnone.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.VirtualLiveTotalCheerPointReward"
+                    }
+                },
+                "virtualLiveTotalCheerPointSurplusReward": {
+                    "description": "VirtualLiveTotalCheerPointSurplusReward is a solo virtual live's reward\nfor every BasePoint coins spent that no threshold reward counts.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/shared.VirtualLiveTotalCheerPointSurplusReward"
+                        }
+                    ],
+                    "x-nullable": true
+                },
                 "virtualLiveType": {
                     "type": "string"
+                },
+                "virtualLiveVirtualItemOverrideCost": {
+                    "description": "VirtualLiveVirtualItemOverrideCost is the item a solo virtual live's\ncheer items cost in place of virtual coins and crystals.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/shared.VirtualLiveVirtualItemOverrideCost"
+                        }
+                    ],
+                    "x-nullable": true
                 },
                 "virtualLiveWaitingRoom": {
                     "$ref": "#/definitions/shared.VirtualLiveWaitingRoom"
@@ -9914,7 +10146,7 @@
                     "$ref": "#/definitions/shared.EventRewardHonorResponse"
                 },
                 "resourceAssetbundleName": {
-                    "description": "ResourceAssetbundleName is the rewarded item's asset bundle name; only\ngacha tickets carry one, and their icon path depends on it.",
+                    "description": "ResourceAssetbundleName is the asset bundle name the rewarded item's\nicon path depends on; only gacha tickets, MySekai materials and tools,\nstamps, and virtual live archive items carry one.",
                     "type": "string"
                 },
                 "resourceId": {
@@ -9924,7 +10156,7 @@
                     "type": "integer"
                 },
                 "resourceName": {
-                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, and titles (honors and\nKizuna titles).",
+                    "description": "ResourceName is the rewarded item's localized name for gacha tickets,\nmaterials, skill practice tickets, boost items, titles (honors and\nKizuna titles), MySekai materials and tools, stamps, and virtual live\narchive items.",
                     "type": "string"
                 },
                 "resourceQuantity": {
@@ -10053,6 +10285,92 @@
                     "items": {
                         "$ref": "#/definitions/shared.VirtualLiveSetlist"
                     }
+                }
+            }
+        },
+        "shared.VirtualLiveTotalCheerPointReward": {
+            "type": "object",
+            "required": [
+                "id",
+                "resourceBoxId",
+                "threshold",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBox": {
+                    "$ref": "#/definitions/shared.VirtualLiveRewardResourceBox"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "threshold": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.VirtualLiveTotalCheerPointSurplusReward": {
+            "type": "object",
+            "required": [
+                "basePoint",
+                "id",
+                "resourceBoxId",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "basePoint": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resourceBox": {
+                    "$ref": "#/definitions/shared.VirtualLiveRewardResourceBox"
+                },
+                "resourceBoxId": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.VirtualLiveVirtualItemOverrideCost": {
+            "type": "object",
+            "required": [
+                "costResourceId",
+                "costResourceType",
+                "id",
+                "virtualLiveId"
+            ],
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "costResourceAssetbundleName": {
+                    "description": "CostResourceAssetbundleName is the asset bundle name the cost item's\nicon path depends on, when it has one.",
+                    "type": "string"
+                },
+                "costResourceId": {
+                    "type": "integer"
+                },
+                "costResourceName": {
+                    "description": "CostResourceName is the cost item's localized name, for the item types\nreward details name.",
+                    "type": "string"
+                },
+                "costResourceType": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "virtualLiveId": {
+                    "type": "integer"
                 }
             }
         },

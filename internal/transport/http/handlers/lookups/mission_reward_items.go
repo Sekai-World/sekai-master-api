@@ -61,7 +61,7 @@ func (handler *LookupHandler) loadMissionRewardItems(ctx context.Context, region
 			return nil, err
 		}
 
-		withAssetbundleName := shared.RewardItemCarriesAssetbundleName(resourceType)
+		assetbundleField := shared.RewardItemAssetbundleField(resourceType)
 		items := make(map[int64]missionRewardItem, len(records))
 		for position, record := range records {
 			if record == nil {
@@ -71,8 +71,8 @@ func (handler *LookupHandler) loadMissionRewardItems(ctx context.Context, region
 			if _, isTitle := record["honorRarity"]; isTitle || record["levels"] != nil {
 				item.record = map[string]any{"honorRarity": record["honorRarity"], "levels": record["levels"]}
 			}
-			if withAssetbundleName {
-				item.assetbundleName = lookupOptionalString(record["assetbundleName"])
+			if assetbundleField != "" {
+				item.assetbundleName = lookupOptionalString(record[assetbundleField])
 			}
 			items[ids[position]] = item
 		}
