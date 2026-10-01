@@ -16,7 +16,10 @@ const indexLayoutVersion = "1"
 // An index maps the canonical value of its fields to the storage keys of the
 // records carrying that value, in stored order. Several fields are joined with
 // ","; a field path steps into objects with "." and indexes every element of
-// an array it reaches.
+// an array it reaches. An index written "path[a+b]" is the one form that keeps
+// fields together per array element: it keys each element of the array at path
+// by its own a and b, where "path.a,path.b" would pair every a of a record with
+// every b of it.
 var entityIndexes = map[string][]string{
 	"cardepisodes":                      {"cardId"},
 	"charactermissionv2parametergroups": {"id"},
@@ -43,8 +46,8 @@ var entityIndexes = map[string][]string{
 	"mysekaimaterialgamecharacterrelations":  {"mysekaiMaterialId"},
 	"mysekaishopcosts":                       {"mysekaiShopId"},
 	"levels":                                 {"levelType"},
-	"resourceboxdetails":                     {"resourceBoxId,resourceBoxPurpose"},
-	"resourceboxes":                          {"id"},
+	"resourceboxdetails":                     {"resourceBoxId,resourceBoxPurpose", "resourceType,resourceId"},
+	"resourceboxes":                          {"id", "details[resourceType+resourceId]"},
 	"virtuallivepamphlets":                   {"virtualLiveId"},
 	"virtuallivetickets":                     {"virtualLiveId"},
 }
@@ -88,6 +91,9 @@ func IndexNamesFromVersion(version string) []string {
 // IndexKeys returns the distinct index keys record contributes to index, in
 // the order they appear.
 func IndexKeys(record map[string]any, index string) []string {
+	if path, fields, ok := parseElementIndex(index); ok {
+		return elementIndexKeys(record, path, fields)
+	}
 	fields := strings.Split(index, ",")
 	keys := []string{""}
 	for _, field := range fields {
@@ -111,6 +117,67 @@ func IndexKeys(record map[string]any, index string) []string {
 	}
 
 	return distinct(keys)
+}
+
+// parseElementIndex splits an index written "path[a+b]" into the path of the
+// array and the fields of each of its elements.
+func parseElementIndex(index string) (path, fields []string, ok bool) {
+	open := strings.IndexByte(index, '[')
+	if open <= 0 || !strings.HasSuffix(index, "]") || strings.Contains(index, ",") {
+		return nil, nil, false
+	}
+	fields = strings.Split(index[open+1:len(index)-1], "+")
+	if len(fields) < 2 {
+		return nil, nil, false
+	}
+	return strings.Split(index[:open], "."), fields, true
+}
+
+// elementIndexKeys returns the distinct keys of a record's array elements, one
+// per element that has every field, built like IndexLookupKey builds them.
+func elementIndexKeys(record map[string]any, path, fields []string) []string {
+	keys := []string{}
+	for _, element := range valuesAtPath(record, path) {
+		for _, object := range objectsOf(element) {
+			if key, ok := elementIndexKey(object, fields); ok {
+				keys = append(keys, key)
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return distinct(keys)
+}
+
+// valuesAtPath follows path from record, fanning out over arrays on the way,
+// and returns every value found at its end.
+func valuesAtPath(record map[string]any, path []string) []any {
+	values := []any{record}
+	for _, segment := range path {
+		next := make([]any, 0, len(values))
+		for _, value := range values {
+			for _, object := range objectsOf(value) {
+				if child, ok := object[segment]; ok && child != nil {
+					next = append(next, child)
+				}
+			}
+		}
+		values = next
+	}
+	return values
+}
+
+func elementIndexKey(object map[string]any, fields []string) (string, bool) {
+	key := ""
+	for _, field := range fields {
+		part, ok := CanonicalKeyPart(object[field])
+		if !ok {
+			return "", false
+		}
+		key = appendIndexKeyPart(key, part, len(fields))
+	}
+	return key, true
 }
 
 // IndexLookupKey returns the index key for values given in the index's field

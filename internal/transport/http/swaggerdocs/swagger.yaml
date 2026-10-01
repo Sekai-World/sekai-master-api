@@ -6446,6 +6446,11 @@ paths:
         in: query
         name: category
         type: string
+      - description: Comma-separated sources by the resource box that rewards the
+          stamp (shop|exchange|live|rank|bond|crystal|other)
+        in: query
+        name: source
+        type: string
       - description: Comma-separated game character IDs; the stamp must show all of
           them
         in: query
