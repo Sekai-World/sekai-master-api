@@ -112,7 +112,35 @@ func (handler *LookupHandler) enrichMysekaiShopItems(ctx context.Context, region
 		return nil, err
 	}
 
-	details := make([][]map[string]any, len(sources))
+	details, idsByEntity := mysekaiShopBoxDetails(boxes)
+	resources, err := shared.PrefetchRecords(ctx, handler.masterDataSync, region, idsByEntity)
+	if err != nil {
+		return nil, err
+	}
+
+	for position, source := range sources {
+		id, _ := sourceID(source)
+		item := shared.MysekaiShopItemResponse{
+			ID:                            id,
+			Seq:                           sourceOptionalInt64(source, "seq"),
+			MysekaiShopType:               sourceString(source, "mysekaiShopType"),
+			MysekaiShopExchangeLimitType:  sourceOptionalString(source, "mysekaiShopExchangeLimitType"),
+			MysekaiShopExchangeLimitValue: sourceOptionalInt64(source, "mysekaiShopExchangeLimitValue"),
+			Costs:                         projectMysekaiShopCosts(costs[position]),
+			Resources:                     []shared.MysekaiShopResourceResponse{},
+		}
+		for _, detail := range details[position] {
+			item.Resources = append(item.Resources, projectMysekaiShopResource(detail, resources))
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+// mysekaiShopBoxDetails returns each box's details in seq order, and the IDs
+// of the materials and tools they name, by entity.
+func mysekaiShopBoxDetails(boxes []map[string]any) ([][]map[string]any, map[string][]string) {
+	details := make([][]map[string]any, len(boxes))
 	idsByEntity := map[string][]string{}
 	for position, box := range boxes {
 		rawDetails, _ := box["details"].([]any)
@@ -128,36 +156,21 @@ func (handler *LookupHandler) enrichMysekaiShopItems(ctx context.Context, region
 		}
 		sortRecordsBySeq(details[position])
 	}
-	resources, err := shared.PrefetchRecords(ctx, handler.masterDataSync, region, idsByEntity)
-	if err != nil {
-		return nil, err
-	}
+	return details, idsByEntity
+}
 
-	for position, source := range sources {
-		id, _ := sourceID(source)
-		item := shared.MysekaiShopItemResponse{
-			ID:                            id,
-			Seq:                           sourceOptionalInt64(source, "seq"),
-			MysekaiShopType:               sourceString(source, "mysekaiShopType"),
-			MysekaiShopExchangeLimitType:  sourceOptionalString(source, "mysekaiShopExchangeLimitType"),
-			MysekaiShopExchangeLimitValue: sourceOptionalInt64(source, "mysekaiShopExchangeLimitValue"),
-			Costs:                         []shared.MysekaiShopCostResponse{},
-			Resources:                     []shared.MysekaiShopResourceResponse{},
-		}
-		sortRecordsBySeq(costs[position])
-		for _, cost := range costs[position] {
-			item.Costs = append(item.Costs, shared.MysekaiShopCostResponse{
-				ResourceType: lookupString(cost["resourceType"]),
-				ResourceID:   lookupOptionalInt64(cost["resourceId"]),
-				Quantity:     lookupRequiredInt64(cost["quantity"]),
-			})
-		}
-		for _, detail := range details[position] {
-			item.Resources = append(item.Resources, projectMysekaiShopResource(detail, resources))
-		}
-		items = append(items, item)
+// projectMysekaiShopCosts returns a shop item's costs in seq order.
+func projectMysekaiShopCosts(records []map[string]any) []shared.MysekaiShopCostResponse {
+	sortRecordsBySeq(records)
+	costs := make([]shared.MysekaiShopCostResponse, 0, len(records))
+	for _, cost := range records {
+		costs = append(costs, shared.MysekaiShopCostResponse{
+			ResourceType: lookupString(cost["resourceType"]),
+			ResourceID:   lookupOptionalInt64(cost["resourceId"]),
+			Quantity:     lookupRequiredInt64(cost["quantity"]),
+		})
 	}
-	return items, nil
+	return costs
 }
 
 // mysekaiShopResourceEntities maps the resource types the shop sells to the

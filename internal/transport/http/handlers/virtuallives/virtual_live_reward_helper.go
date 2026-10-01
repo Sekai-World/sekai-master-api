@@ -40,6 +40,22 @@ func virtualLiveRewardRecords(record map[string]any) map[string][]map[string]any
 	return rewards
 }
 
+// details returns the details of every box.
+func (resourceBoxes virtualLiveResourceBoxes) details() []map[string]any {
+	details := []map[string]any{}
+	for _, boxes := range resourceBoxes {
+		for _, box := range boxes {
+			items, _ := box["details"].([]any)
+			for _, item := range items {
+				if detail, ok := item.(map[string]any); ok {
+					details = append(details, detail)
+				}
+			}
+		}
+	}
+	return details
+}
+
 // loadRewardResourceBoxes reads the boxes the rewards reference, by purpose
 // and ID, in one composite-key read. resourceboxes IDs are not unique across
 // resourceBoxPurpose, so a bare-ID lookup cannot select them.
@@ -84,17 +100,7 @@ func (handler *VirtualLiveHandler) loadRewardResourceBoxes(ctx context.Context, 
 // prefetchRewardDetailRecords reads the items and titles the boxes' details
 // name, then the titles' groups. A failed read leaves those lookups to GetByID.
 func (handler *VirtualLiveHandler) prefetchRewardDetailRecords(ctx context.Context, region string, resourceBoxes virtualLiveResourceBoxes) shared.RecordLookup {
-	details := []map[string]any{}
-	for _, boxes := range resourceBoxes {
-		for _, box := range boxes {
-			items, _ := box["details"].([]any)
-			for _, item := range items {
-				if detail, ok := item.(map[string]any); ok {
-					details = append(details, detail)
-				}
-			}
-		}
-	}
+	details := resourceBoxes.details()
 	idsByEntity := shared.RewardItemIDsByEntity(details)
 	for _, detail := range details {
 		if shared.NormalizeComparableText(detail["resourceType"]) == "honor" {

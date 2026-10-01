@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1650,46 +1651,51 @@ func TestVirtualLiveByIDExpandsSoloLiveCheerCoinRewards(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	firstDetail := func(reward map[string]any) map[string]any {
-		t.Helper()
-		box, _ := reward["resourceBox"].(map[string]any)
-		details, _ := box["details"].([]any)
-		if len(details) != 1 {
-			t.Fatalf("expected one reward detail, got %v", reward)
-		}
-		return details[0].(map[string]any)
-	}
-
 	rewards, _ := body["virtualLiveTotalCheerPointRewards"].([]any)
 	if len(rewards) != 2 {
 		t.Fatalf("expected 2 total cheer point rewards, got %v", body["virtualLiveTotalCheerPointRewards"])
 	}
 	first := rewards[0].(map[string]any)
-	if first["threshold"] != float64(300) {
-		t.Fatalf("expected the reward threshold to pass through, got %v", first)
-	}
-	if detail := firstDetail(first); detail["resourceName"] != "一歌の想いのカケラ" || detail["resourceQuantity"] != float64(100) {
-		t.Fatalf("expected the named threshold reward, got %v", detail)
-	}
-	if detail := firstDetail(rewards[1].(map[string]any)); detail["resourceName"] != "スカイブルーメモリア" || detail["resourceAssetbundleName"] != "item_memoria_1" {
-		t.Fatalf("expected the named MySekai material reward, got %v", detail)
-	}
+	assertVirtualLiveFields(t, "first threshold", first, map[string]any{"threshold": float64(300)})
+	assertVirtualLiveFields(t, "threshold reward", onlyRewardDetail(t, first), map[string]any{
+		"resourceName": "一歌の想いのカケラ", "resourceQuantity": float64(100),
+	})
+	assertVirtualLiveFields(t, "MySekai material reward", onlyRewardDetail(t, rewards[1].(map[string]any)), map[string]any{
+		"resourceName": "スカイブルーメモリア", "resourceAssetbundleName": "item_memoria_1",
+	})
 
 	surplus, _ := body["virtualLiveTotalCheerPointSurplusReward"].(map[string]any)
-	if surplus["basePoint"] != float64(10) {
-		t.Fatalf("expected the surplus base point to pass through, got %v", surplus)
-	}
-	if detail := firstDetail(surplus); detail["resourceType"] != "material" || detail["resourceQuantity"] != float64(1) {
-		t.Fatalf("expected the surplus purpose box, got %v", detail)
-	}
+	assertVirtualLiveFields(t, "surplus", surplus, map[string]any{"basePoint": float64(10)})
+	assertVirtualLiveFields(t, "surplus purpose box", onlyRewardDetail(t, surplus), map[string]any{
+		"resourceType": "material", "resourceQuantity": float64(1),
+	})
 
 	cost, _ := body["virtualLiveVirtualItemOverrideCost"].(map[string]any)
-	if cost["costResourceName"] != "バーチャルエールコイン" || cost["assetbundleName"] != "virtual_cheer_coin" {
-		t.Fatalf("expected the named cheer item cost, got %v", cost)
+	assertVirtualLiveFields(t, "cheer item cost", cost, map[string]any{
+		"costResourceName": "バーチャルエールコイン", "assetbundleName": "virtual_cheer_coin",
+	})
+	if slices.Contains(cache.listAllCalls, "resourceboxes") {
+		t.Fatalf("expected no full resourceboxes read, got %v", cache.listAllCalls)
 	}
-	for _, entity := range cache.listAllCalls {
-		if entity == "resourceboxes" {
-			t.Fatalf("expected no full resourceboxes read, got %v", cache.listAllCalls)
+}
+
+// onlyRewardDetail returns the single detail of a reward's expanded box.
+func onlyRewardDetail(t *testing.T, reward map[string]any) map[string]any {
+	t.Helper()
+	box, _ := reward["resourceBox"].(map[string]any)
+	details, _ := box["details"].([]any)
+	if len(details) != 1 {
+		t.Fatalf("expected one reward detail, got %v", reward)
+	}
+	return details[0].(map[string]any)
+}
+
+// assertVirtualLiveFields checks that got holds each wanted field value.
+func assertVirtualLiveFields(t *testing.T, label string, got map[string]any, want map[string]any) {
+	t.Helper()
+	for key, value := range want {
+		if got[key] != value {
+			t.Fatalf("%s: expected %s=%v, got %v", label, key, value, got)
 		}
 	}
 }
