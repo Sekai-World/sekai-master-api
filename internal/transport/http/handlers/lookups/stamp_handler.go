@@ -20,13 +20,33 @@ const (
 	stampsEntity            = "stamps"
 	stampGameCharacterUnits = "gamecharacterunits"
 
+	// The reverse indexes of the resource boxes that reward a (type, ID) item:
+	// embedded details (JP, EN) and separate detail rows (TW, KR, CN).
+	resourceBoxItemIndex       = "details[resourceType+resourceId]"
+	resourceBoxDetailItemIndex = "resourceType,resourceId"
+
 	stampCategoryCharacter = "character"
 	stampCategoryBond      = "bond"
 	stampCategoryText      = "text"
 	stampCategoryOther     = "other"
 )
 
+// The sources a stamp comes from, by the purpose of the resource box that rewards
+// it. A stamp with none of these purposes (gifts, login bonuses, episode rewards,
+// or no resource box) comes from "other".
+const stampSourceOther = "other"
+
+var stampPurposeSources = map[string]string{
+	"shop_item":             "shop",
+	"material_exchange":     "exchange",
+	"virtual_live_reward":   "live",
+	"character_rank_reward": "rank",
+	"bonds_reward":          "bond",
+	"billing_shop_item":     "crystal",
+}
+
 var (
+	stampSources        = []string{"shop", "exchange", "live", "rank", "bond", "crystal", stampSourceOther}
 	stampCategories     = []string{stampCategoryCharacter, stampCategoryBond, stampCategoryText, stampCategoryOther}
 	stampSortableFields = []string{"id", "seq"}
 	// stampCharacterFields are the character slots of a stamp; the game reads
@@ -50,6 +70,7 @@ type stampItem struct {
 // @Param page_size query int false "Page size" minimum(1) maximum(100)
 // @Param name query string false "Case-insensitive substring of the stamp name"
 // @Param category query string false "Comma-separated categories (character|bond|text|other)"
+// @Param source query string false "Comma-separated sources by the resource box that rewards the stamp (shop|exchange|live|rank|bond|crystal|other)"
 // @Param character_id query string false "Comma-separated game character IDs; the stamp must show all of them"
 // @Param spoiler query bool false "Include stamps that are not published yet"
 // @Param sort_by query string false "Sort field (id|seq)"
@@ -77,7 +98,11 @@ func (handler *LookupHandler) StampsList(c *gin.Context) {
 	if !ok || (sortOptions.Enabled && !shared.ValidateSortField(c, sortOptions.Field, nil, stampSortableFields)) {
 		return
 	}
-	categories, ok := parseStampCategories(c)
+	categories, ok := parseStampChoices(c, "category", stampCategories)
+	if !ok {
+		return
+	}
+	sources, ok := parseStampChoices(c, "source", stampSources)
 	if !ok {
 		return
 	}
@@ -100,6 +125,11 @@ func (handler *LookupHandler) StampsList(c *gin.Context) {
 		return
 	}
 	items = filterStampItems(items, categories, characterFilters["characterIds"], nameFilter)
+	items, err = handler.filterStampItemsBySource(c.Request.Context(), region, items, sources)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "STAMP_QUERY_ERROR", "failed to list stamps")
+		return
+	}
 	if sortOptions.Enabled {
 		sortStampItems(items, sortOptions.Field, sortOptions.Descending)
 	}
@@ -114,15 +144,17 @@ func (handler *LookupHandler) StampsList(c *gin.Context) {
 	})
 }
 
-func parseStampCategories(c *gin.Context) ([]string, bool) {
-	categories := parseCommaSeparatedValues(c.Query("category"))
-	for _, category := range categories {
-		if !slices.Contains(stampCategories, category) {
-			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "category must be a comma-separated list of character, bond, text, or other")
+// parseStampChoices reads a comma-separated query parameter whose values must
+// all be among allowed.
+func parseStampChoices(c *gin.Context, param string, allowed []string) ([]string, bool) {
+	values := parseCommaSeparatedValues(c.Query(param))
+	for _, value := range values {
+		if !slices.Contains(allowed, value) {
+			response.Error(c, http.StatusBadRequest, "INVALID_REQUEST", param+" must be a comma-separated list of "+strings.Join(allowed, ", "))
 			return nil, false
 		}
 	}
-	return categories, true
+	return values, true
 }
 
 // loadStampItems reads the stamp list projection and returns every stamp with
@@ -305,4 +337,66 @@ func sortStampItems(items []stampItem, field string, descending bool) {
 		}
 		return comparison < 0
 	})
+}
+
+// filterStampItemsBySource keeps the stamps that come from any of sources. It
+// reads the resource boxes that reward the remaining stamps through the reverse
+// indexes, so the filter's cost follows the stamps left, not the boxes.
+func (handler *LookupHandler) filterStampItemsBySource(ctx context.Context, region string, items []stampItem, sources []string) ([]stampItem, error) {
+	if len(sources) == 0 || len(items) == 0 {
+		return items, nil
+	}
+	purposes, err := handler.loadStampPurposes(ctx, region, items)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]stampItem, 0, len(items))
+	for position, item := range items {
+		if stampComesFrom(purposes[position], sources) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}
+
+// loadStampPurposes returns, for each stamp, the purposes of the resource boxes
+// that reward it. A region keeps its box details either inside the boxes or in
+// separate rows, so both are read; the one it lacks is empty.
+func (handler *LookupHandler) loadStampPurposes(ctx context.Context, region string, items []stampItem) ([][]string, error) {
+	lookups := make([][]any, len(items))
+	for position, item := range items {
+		lookups[position] = []any{"stamp", item.response.ID}
+	}
+	boxes, err := handler.masterDataSync.ListByIndex(ctx, region, resourceBoxesEntity, resourceBoxItemIndex, lookups)
+	if err != nil {
+		return nil, err
+	}
+	details, err := handler.masterDataSync.ListByIndex(ctx, region, resourceBoxDetailsEntity, resourceBoxDetailItemIndex, lookups)
+	if err != nil {
+		return nil, err
+	}
+	purposes := make([][]string, len(items))
+	for position := range items {
+		for _, record := range slices.Concat(boxes[position], details[position]) {
+			if purpose := lookupString(record["resourceBoxPurpose"]); purpose != "" {
+				purposes[position] = append(purposes[position], purpose)
+			}
+		}
+	}
+	return purposes, nil
+}
+
+// stampComesFrom reports whether a stamp rewarded through boxes of the given
+// purposes comes from any of sources.
+func stampComesFrom(purposes []string, sources []string) bool {
+	named := false
+	for _, purpose := range purposes {
+		if source, ok := stampPurposeSources[purpose]; ok {
+			named = true
+			if slices.Contains(sources, source) {
+				return true
+			}
+		}
+	}
+	return !named && slices.Contains(sources, stampSourceOther)
 }

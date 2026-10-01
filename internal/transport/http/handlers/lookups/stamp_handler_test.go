@@ -173,3 +173,115 @@ func TestStampsListHidesUnpublishedStampsAndTellsTheCache(t *testing.T) {
 		t.Fatal("expected no cache hint when nothing is hidden")
 	}
 }
+
+// newStampSourceTestCache rewards the test stamps through resource boxes the two
+// ways regions store them: JP keeps the details inside the box; TW keeps them in
+// separate rows.
+func newStampSourceTestCache() *missionTrackingCache {
+	cache := newStampTestCache()
+	detail := func(resourceType string, resourceID int) map[string]any {
+		return map[string]any{"resourceType": resourceType, "resourceId": resourceID, "resourceQuantity": 1}
+	}
+	box := func(id int, purpose string, details ...map[string]any) map[string]any {
+		items := make([]any, 0, len(details))
+		for _, item := range details {
+			items = append(items, item)
+		}
+		return map[string]any{"id": id, "resourceBoxPurpose": purpose, "details": items}
+	}
+	cache.listByEntity["jp"][resourceBoxesEntity] = []map[string]any{
+		box(1, "shop_item", detail("stamp", 1), detail("material", 7)),
+		box(2, "bonds_reward", detail("stamp", 2)),
+		box(3, "material_exchange", detail("stamp", 3), detail("stamp", 2)),
+		box(4, "character_rank_reward", detail("stamp", 3)),
+		box(5, "gift_detail", detail("stamp", 4)),
+		box(6, "login_bonus", detail("stamp", 6)),
+		// A material with a stamp's ID rewards nothing of the stamp's.
+		box(7, "virtual_live_reward", detail("material", 1)),
+		// A box of an unnamed purpose does not count as a named source.
+		box(8, "mission_reward", detail("stamp", 5)),
+	}
+	cache.listByEntity["tw"] = map[string][]map[string]any{
+		stampsEntity: cache.listByEntity["jp"][stampsEntity],
+		resourceBoxDetailsEntity: {
+			{"resourceBoxId": 1, "resourceBoxPurpose": "virtual_live_reward", "resourceType": "stamp", "resourceId": 1},
+			{"resourceBoxId": 1, "resourceBoxPurpose": "virtual_live_reward", "resourceType": "jewel", "resourceId": 2},
+			{"resourceBoxId": 2, "resourceBoxPurpose": "billing_shop_item", "resourceType": "stamp", "resourceId": 3},
+		},
+	}
+	return cache
+}
+
+func TestStampsListFiltersBySourceThroughTheReverseIndexes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := newStampSourceTestCache()
+	router := newStampTestRouter(newMissionTestHandler(cache), nil)
+
+	for path, want := range map[string][]int64{
+		"/api/v1/stamps/jp/list?source=shop":                    {1},
+		"/api/v1/stamps/jp/list?source=bond":                    {2},
+		"/api/v1/stamps/jp/list?source=exchange":                {2, 3},
+		"/api/v1/stamps/jp/list?source=rank":                    {3},
+		"/api/v1/stamps/jp/list?source=live":                    {},
+		"/api/v1/stamps/jp/list?source=crystal":                 {},
+		"/api/v1/stamps/jp/list?source=other":                   {4, 5, 6},
+		"/api/v1/stamps/jp/list?source=shop,rank":               {1, 3},
+		"/api/v1/stamps/jp/list?source=shop,other":              {1, 4, 5, 6},
+		"/api/v1/stamps/jp/list?source=other&category=text":     {4, 6},
+		"/api/v1/stamps/jp/list?source=exchange&character_id=2": {2, 3},
+		"/api/v1/stamps/tw/list?source=live":                    {1},
+		"/api/v1/stamps/tw/list?source=crystal":                 {3},
+		"/api/v1/stamps/tw/list?source=other":                   {2, 4, 5, 6},
+	} {
+		var list shared.StampListResponse
+		decodeMysekaiResponse(t, router, path, &list)
+		if !reflect.DeepEqual(stampIDs(list.Items), want) {
+			t.Fatalf("%s: expected %v, got %v", path, want, stampIDs(list.Items))
+		}
+	}
+
+	// The filter reads reverse indexes only, and not at all without a source.
+	if len(cache.listCalls) != 0 {
+		t.Fatalf("expected no full entity reads: %+v", cache.listCalls)
+	}
+	var usedBoxIndex, usedDetailIndex bool
+	for _, call := range cache.indexCalls {
+		usedBoxIndex = usedBoxIndex || (call.entity == resourceBoxesEntity && call.index == resourceBoxItemIndex)
+		usedDetailIndex = usedDetailIndex || (call.entity == resourceBoxDetailsEntity && call.index == resourceBoxDetailItemIndex)
+	}
+	if !usedBoxIndex || !usedDetailIndex {
+		t.Fatalf("expected both reverse indexes to be read, got %+v", cache.indexCalls)
+	}
+	cache.indexCalls = nil
+	var all shared.StampListResponse
+	decodeMysekaiResponse(t, router, "/api/v1/stamps/jp/list", &all)
+	if len(cache.indexCalls) != 0 {
+		t.Fatalf("expected no index reads without a source filter, got %+v", cache.indexCalls)
+	}
+
+	if resp := serveLookupRequest(t, router, http.MethodGet, "/api/v1/stamps/jp/list?source=gifts"); resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unknown source, got %d", resp.Code)
+	}
+}
+
+func TestStampComesFrom(t *testing.T) {
+	for name, test := range map[string]struct {
+		purposes []string
+		sources  []string
+		want     bool
+	}{
+		"a named purpose":                   {[]string{"shop_item"}, []string{"shop"}, true},
+		"another source":                    {[]string{"shop_item"}, []string{"live"}, false},
+		"one of several purposes":           {[]string{"material_exchange", "shop_item"}, []string{"shop"}, true},
+		"no box is other":                   {nil, []string{"other"}, true},
+		"an unnamed purpose is other":       {[]string{"gift_detail"}, []string{"other"}, true},
+		"a named purpose is not other":      {[]string{"bonds_reward"}, []string{"other"}, false},
+		"a named and an unnamed purpose":    {[]string{"gift_detail", "bonds_reward"}, []string{"other"}, false},
+		"no box is not any named source":    {nil, []string{"shop", "bond"}, false},
+		"other or the named source matches": {[]string{"bonds_reward"}, []string{"other", "bond"}, true},
+	} {
+		if got := stampComesFrom(test.purposes, test.sources); got != test.want {
+			t.Fatalf("%s: expected %v, got %v", name, test.want, got)
+		}
+	}
+}
