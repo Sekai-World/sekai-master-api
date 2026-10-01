@@ -136,21 +136,8 @@ func parseElementIndex(index string) (path []string, fields []string, ok bool) {
 // elementIndexKeys returns the distinct keys of a record's array elements, one
 // per element that has every field, built like IndexLookupKey builds them.
 func elementIndexKeys(record map[string]any, path []string, fields []string) []string {
-	elements := []any{record}
-	for _, segment := range path {
-		next := make([]any, 0, len(elements))
-		for _, value := range elements {
-			for _, object := range objectsOf(value) {
-				if child, ok := object[segment]; ok && child != nil {
-					next = append(next, child)
-				}
-			}
-		}
-		elements = next
-	}
-
 	keys := []string{}
-	for _, element := range elements {
+	for _, element := range valuesAtPath(record, path) {
 		for _, object := range objectsOf(element) {
 			if key, ok := elementIndexKey(object, fields); ok {
 				keys = append(keys, key)
@@ -161,6 +148,24 @@ func elementIndexKeys(record map[string]any, path []string, fields []string) []s
 		return nil
 	}
 	return distinct(keys)
+}
+
+// valuesAtPath follows path from record, fanning out over arrays on the way,
+// and returns every value found at its end.
+func valuesAtPath(record map[string]any, path []string) []any {
+	values := []any{record}
+	for _, segment := range path {
+		next := make([]any, 0, len(values))
+		for _, value := range values {
+			for _, object := range objectsOf(value) {
+				if child, ok := object[segment]; ok && child != nil {
+					next = append(next, child)
+				}
+			}
+		}
+		values = next
+	}
+	return values
 }
 
 func elementIndexKey(object map[string]any, fields []string) (string, bool) {

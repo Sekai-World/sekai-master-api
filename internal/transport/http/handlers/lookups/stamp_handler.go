@@ -388,7 +388,7 @@ func (handler *LookupHandler) loadStampPurposes(ctx context.Context, region stri
 
 // stampComesFrom reports whether a stamp rewarded through boxes of the given
 // purposes comes from any of sources.
-func stampComesFrom(purposes []string, sources []string) bool {
+func stampComesFrom(purposes, sources []string) bool {
 	named := false
 	for _, purpose := range purposes {
 		if source, ok := stampPurposeSources[purpose]; ok {
