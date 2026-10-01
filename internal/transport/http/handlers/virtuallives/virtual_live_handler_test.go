@@ -1568,18 +1568,7 @@ func TestVirtualLiveByIDReadsRewardBoxesByCompositeKey(t *testing.T) {
 			},
 		},
 	}
-	router := gin.New()
-	router.GET("/api/v1/virtualLives/:region/:id", newReadyVirtualLiveHandler(cache).ByID)
-
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/501", nil))
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
+	body := requestVirtualLiveByID(t, cache, "501")
 	for index, wantQuantity := range []float64{300, 50} {
 		reward := body["virtualLiveRewards"].([]any)[index].(map[string]any)
 		box, _ := reward["resourceBox"].(map[string]any)
@@ -1638,18 +1627,7 @@ func TestVirtualLiveByIDExpandsSoloLiveCheerCoinRewards(t *testing.T) {
 			},
 		},
 	}
-	router := gin.New()
-	router.GET("/api/v1/virtualLives/:region/:id", newReadyVirtualLiveHandler(cache).ByID)
-
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/491", nil))
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
-	}
-	var body map[string]any
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
+	body := requestVirtualLiveByID(t, cache, "491")
 
 	rewards, _ := body["virtualLiveTotalCheerPointRewards"].([]any)
 	if len(rewards) != 2 {
@@ -1677,6 +1655,25 @@ func TestVirtualLiveByIDExpandsSoloLiveCheerCoinRewards(t *testing.T) {
 	if slices.Contains(cache.listAllCalls, "resourceboxes") {
 		t.Fatalf("expected no full resourceboxes read, got %v", cache.listAllCalls)
 	}
+}
+
+// requestVirtualLiveByID serves GET /virtualLives/jp/{id} from cache and
+// returns the decoded 200 response.
+func requestVirtualLiveByID(t *testing.T, cache *fakeVirtualLiveHandlerCache, id string) map[string]any {
+	t.Helper()
+	router := gin.New()
+	router.GET("/api/v1/virtualLives/:region/:id", newReadyVirtualLiveHandler(cache).ByID)
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/virtualLives/jp/"+id, nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	return body
 }
 
 // onlyRewardDetail returns the single detail of a reward's expanded box.

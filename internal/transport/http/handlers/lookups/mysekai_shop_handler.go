@@ -3,7 +3,6 @@ package lookups
 import (
 	"context"
 	"net/http"
-	"slices"
 
 	"github.com/gin-gonic/gin"
 
@@ -57,23 +56,7 @@ func (handler *LookupHandler) MysekaiShopsList(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "MYSEKAI_SHOP_QUERY_ERROR", "failed to list MySekai shop items")
 		return
 	}
-	sources := make([]fieldSource, 0, projection.Len())
-	seen := make(map[int64]struct{}, projection.Len())
-	for row := range projection.Len() {
-		source := projectionRowSource{projection: projection, row: row}
-		id, ok := sourceID(source)
-		if !ok {
-			continue
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		if len(shopTypes) > 0 && !slices.Contains(shopTypes, sourceString(source, "mysekaiShopType")) {
-			continue
-		}
-		sources = append(sources, source)
-	}
+	sources := projectionSourcesByType(projection, "mysekaiShopType", shopTypes)
 
 	items, err := handler.enrichMysekaiShopItems(ctx, region, pageSlice(sources, page, pageSize))
 	if err != nil {

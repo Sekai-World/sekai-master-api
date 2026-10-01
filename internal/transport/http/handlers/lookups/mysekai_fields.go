@@ -123,6 +123,30 @@ func sortRecordsBySeq(records []map[string]any) {
 	})
 }
 
+// projectionSourcesByType returns the projection's rows in stored order, once
+// per positive ID, keeping only rows whose typeField is one of types when
+// types is not empty.
+func projectionSourcesByType(projection *masterdata.Projection, typeField string, types []string) []fieldSource {
+	sources := make([]fieldSource, 0, projection.Len())
+	seen := make(map[int64]struct{}, projection.Len())
+	for row := range projection.Len() {
+		source := projectionRowSource{projection: projection, row: row}
+		id, ok := sourceID(source)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		if len(types) > 0 && !slices.Contains(types, sourceString(source, typeField)) {
+			continue
+		}
+		sources = append(sources, source)
+	}
+	return sources
+}
+
 // parseCommaSeparatedValues splits a comma-separated query value into its
 // trimmed, non-empty parts.
 func parseCommaSeparatedValues(raw string) []string {

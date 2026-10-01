@@ -125,23 +125,7 @@ func (handler *LookupHandler) MysekaiMaterialsList(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "MYSEKAI_MATERIAL_QUERY_ERROR", "failed to list MySekai materials")
 		return
 	}
-	sources := make([]fieldSource, 0, projection.Len())
-	seen := make(map[int64]struct{}, projection.Len())
-	for row := range projection.Len() {
-		source := projectionRowSource{projection: projection, row: row}
-		id, ok := sourceID(source)
-		if !ok {
-			continue
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		if len(materialTypes) > 0 && !slices.Contains(materialTypes, sourceString(source, "mysekaiMaterialType")) {
-			continue
-		}
-		sources = append(sources, source)
-	}
+	sources := projectionSourcesByType(projection, "mysekaiMaterialType", materialTypes)
 
 	items, err := handler.enrichMysekaiMaterials(ctx, region, pageSlice(sources, page, pageSize))
 	if err != nil {
