@@ -28,6 +28,7 @@ func newMysekaiTestRouter(handler *LookupHandler) *gin.Engine {
 	router.GET("/api/v1/mysekaiMaterials/:region/:id", handler.MysekaiMaterialsByID)
 	router.GET("/api/v1/mysekaiMusicRecords/:region/list", handler.MysekaiMusicRecordsList)
 	router.GET("/api/v1/mysekaiMusicRecords/:region/filters", handler.MysekaiMusicRecordFilters)
+	router.GET("/api/v1/mysekaiShops/:region/list", handler.MysekaiShopsList)
 	return router
 }
 
@@ -108,6 +109,32 @@ func newMysekaiTestCache() *missionTrackingCache {
 				},
 				mysekaiMaterialCharacterRelationEntity: {
 					{"id": 1, "groupId": 1, "mysekaiMaterialId": 3, "gameCharacterId": 1},
+				},
+				mysekaiShopsEntity: {
+					{"id": 1, "mysekaiShopType": "material", "seq": 1, "resourceBoxId": 1,
+						"mysekaiShopExchangeLimitType": "limited_per_mysekai_colorful_pass", "mysekaiShopExchangeLimitValue": 3},
+					{"id": 2, "mysekaiShopType": "material", "seq": 2, "resourceBoxId": 2, "mysekaiShopExchangeLimitType": "none"},
+					{"id": 101, "mysekaiShopType": "tool", "seq": 1, "resourceBoxId": 101,
+						"mysekaiShopExchangeLimitType": "limited_per_mysekai_colorful_pass", "mysekaiShopExchangeLimitValue": 99},
+				},
+				mysekaiShopCostsEntity: {
+					{"id": 1, "mysekaiShopId": 1, "seq": 1, "resourceType": "jewel", "quantity": 500},
+					{"id": 2, "mysekaiShopId": 2, "seq": 1, "resourceType": "jewel", "quantity": 100},
+					{"id": 3, "mysekaiShopId": 101, "seq": 1, "resourceType": "jewel", "quantity": 100},
+				},
+				// Box IDs repeat across purposes; the shop reads only mysekai_shop boxes.
+				"resourceboxes": {
+					{"id": 1, "resourceBoxPurpose": "mission_reward", "details": []any{
+						map[string]any{"resourceType": "jewel", "resourceQuantity": 50}}},
+					{"id": 1, "resourceBoxPurpose": "mysekai_shop", "details": []any{
+						map[string]any{"resourceType": "mysekai_material", "resourceId": 2, "resourceQuantity": 1, "seq": 1}}},
+					{"id": 2, "resourceBoxPurpose": "mysekai_shop", "details": []any{
+						map[string]any{"resourceType": "mysekai_material", "resourceId": 1, "resourceQuantity": 15, "seq": 1}}},
+					{"id": 101, "resourceBoxPurpose": "mysekai_shop", "details": []any{
+						map[string]any{"resourceType": "mysekai_tool", "resourceId": 10, "resourceQuantity": 1, "seq": 1}}},
+				},
+				mysekaiToolsEntity: {
+					{"id": 10, "name": "Chainsaw", "mysekaiToolType": "axe", "assetbundleName": "ax0005", "description": "Cuts trees"},
 				},
 			},
 		},
@@ -415,5 +442,43 @@ func TestMysekaiMusicRecordsJoinTracksAndHideUnpublishedSongs(t *testing.T) {
 	}
 	if len(cache.listCalls) != 0 {
 		t.Fatalf("expected music records to read projections only: %+v", cache.listCalls)
+	}
+}
+
+func TestMysekaiShopsListJoinsCostsAndShopBoxResources(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := newMysekaiTestCache()
+	router := newMysekaiTestRouter(newMissionTestHandler(cache))
+
+	var list shared.MysekaiShopListResponse
+	decodeMysekaiResponse(t, router, "/api/v1/mysekaiShops/jp/list", &list)
+	if len(list.Items) != 3 || list.Pagination.Total != 3 {
+		t.Fatalf("expected three shop items, got %+v", list)
+	}
+	first := list.Items[0]
+	if *first.MysekaiShopExchangeLimitType != "limited_per_mysekai_colorful_pass" || *first.MysekaiShopExchangeLimitValue != 3 {
+		t.Fatalf("expected the first item's purchase limit, got %+v", first)
+	}
+	if !reflect.DeepEqual(first.Costs, []shared.MysekaiShopCostResponse{{ResourceType: "jewel", Quantity: 500}}) {
+		t.Fatalf("expected the first item's crystal cost, got %+v", first.Costs)
+	}
+	if len(first.Resources) != 1 || *first.Resources[0].Name != "Stone" || *first.Resources[0].AssetbundleName != "item_mineral_1" ||
+		*first.Resources[0].MysekaiMaterialType != "mineral" || first.Resources[0].ResourceQuantity != 1 {
+		t.Fatalf("expected the mysekai_shop box's material, not the mission box, got %+v", first.Resources)
+	}
+	if list.Items[1].MysekaiShopExchangeLimitValue != nil || list.Items[1].Resources[0].ResourceQuantity != 15 {
+		t.Fatalf("expected the unlimited wood bundle, got %+v", list.Items[1])
+	}
+
+	decodeMysekaiResponse(t, router, "/api/v1/mysekaiShops/jp/list?shop_type=tool", &list)
+	if len(list.Items) != 1 || list.Pagination.Total != 1 {
+		t.Fatalf("expected one tool item, got %+v", list)
+	}
+	tool := list.Items[0].Resources[0]
+	if tool.ResourceType != "mysekai_tool" || *tool.Name != "Chainsaw" || *tool.AssetbundleName != "ax0005" || *tool.MysekaiToolType != "axe" {
+		t.Fatalf("expected the chainsaw, got %+v", tool)
+	}
+	if len(cache.listCalls) != 0 {
+		t.Fatalf("expected the shop to read projections, IDs, and indexes only: %+v", cache.listCalls)
 	}
 }

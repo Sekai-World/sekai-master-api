@@ -15,13 +15,24 @@ var RewardItemEntities = map[string]string{
 	"boost_item":            "boostitems",
 	"honor":                 "honors",
 	"bonds_honor":           "bondshonors",
+	"mysekai_material":      "mysekaimaterials",
+	"mysekai_tool":          "mysekaitools",
 }
 
-// RewardItemCarriesAssetbundleName reports whether a reward type's icon path
-// depends on its record's assetbundleName. Titles have one too, but their
-// icon comes from their rarity.
-func RewardItemCarriesAssetbundleName(resourceType string) bool {
-	return resourceType == "gacha_ticket"
+// rewardItemAssetbundleFields names, per reward type, the record field its
+// icon path depends on. Titles have an assetbundleName too, but their icon
+// comes from their rarity.
+var rewardItemAssetbundleFields = map[string]string{
+	"gacha_ticket":     "assetbundleName",
+	"mysekai_material": "iconAssetbundleName",
+	"mysekai_tool":     "assetbundleName",
+}
+
+// RewardItemAssetbundleField returns the record field that holds a reward
+// type's icon asset bundle name, or "" when its icon path does not depend on
+// the record.
+func RewardItemAssetbundleField(resourceType string) string {
+	return rewardItemAssetbundleFields[resourceType]
 }
 
 // RewardItemRecordLookup reads one master-data record by ID.
@@ -57,9 +68,10 @@ func RewardTitleRarity(record map[string]any, level any) string {
 }
 
 // RewardItemFields returns the display fields of a reward detail's item:
-// `resourceName`, `resourceAssetbundleName` for gacha tickets (their icon path
-// uses it), and `resourceRarity` for titles. It returns nil when the item type
-// needs no lookup or its record is missing.
+// `resourceName`, `resourceAssetbundleName` for gacha tickets and MySekai
+// materials and tools (their icon path uses it), and `resourceRarity` for
+// titles. It returns nil when the item type needs no lookup or its record is
+// missing.
 func RewardItemFields(ctx context.Context, lookup RewardItemRecordLookup, region string, detail map[string]any) map[string]any {
 	resourceType := NormalizeComparableText(detail["resourceType"])
 	entity, ok := RewardItemEntities[resourceType]
@@ -79,8 +91,10 @@ func RewardItemFields(ctx context.Context, lookup RewardItemRecordLookup, region
 	if name, ok := record["name"].(string); ok && strings.TrimSpace(name) != "" {
 		fields["resourceName"] = name
 	}
-	if bundle, ok := record["assetbundleName"].(string); ok && strings.TrimSpace(bundle) != "" && RewardItemCarriesAssetbundleName(resourceType) {
-		fields["resourceAssetbundleName"] = bundle
+	if field := RewardItemAssetbundleField(resourceType); field != "" {
+		if bundle, ok := record[field].(string); ok && strings.TrimSpace(bundle) != "" {
+			fields["resourceAssetbundleName"] = bundle
+		}
 	}
 	if rarity := RewardTitleRarity(record, detail["resourceLevel"]); rarity != "" {
 		fields["resourceRarity"] = rarity

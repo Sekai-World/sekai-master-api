@@ -34,6 +34,7 @@ var cachedRoutes = []string{
 	"/api/v1/mysekaiMaterials/:region/:id",
 	"/api/v1/mysekaiMusicRecords/:region/list",
 	"/api/v1/mysekaiMusicRecords/:region/filters",
+	"/api/v1/mysekaiShops/:region/list",
 }
 
 func registerPublicRoutes(
@@ -90,6 +91,7 @@ func registerPublicRoutes(
 	v1.GET("/mysekaiMaterials/:region/:id", lookupHandler.MysekaiMaterialsByID)
 	v1.GET("/mysekaiMusicRecords/:region/list", lookupHandler.MysekaiMusicRecordsList)
 	v1.GET("/mysekaiMusicRecords/:region/filters", lookupHandler.MysekaiMusicRecordFilters)
+	v1.GET("/mysekaiShops/:region/list", lookupHandler.MysekaiShopsList)
 	v1.GET("/honors/:region/list", lookupHandler.HonorsList)
 	v1.GET("/honors/:region/:id", lookupHandler.HonorsByID)
 	v1.GET("/honorGroups/:region/list", lookupHandler.HonorGroupsList)

@@ -243,8 +243,13 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 			totalPages = (total + pageSize - 1) / pageSize
 		}
 
+		items, err := handler.buildVirtualLiveList(c.Request.Context(), region, records)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to list virtual live groups")
+			return
+		}
 		response.JSON(c, http.StatusOK, gin.H{
-			"items": buildVirtualLiveList(records),
+			"items": items,
 			"pagination": gin.H{
 				"page":        page,
 				"page_size":   pageSize,
@@ -276,8 +281,13 @@ func (handler *VirtualLiveHandler) List(c *gin.Context) {
 	}
 
 	pagedRecords, pagination := shared.PaginateItems(records, page, pageSize)
+	items, err := handler.buildVirtualLiveList(c.Request.Context(), region, pagedRecords)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "VIRTUAL_LIVE_QUERY_ERROR", "failed to list virtual live groups")
+		return
+	}
 	response.JSON(c, http.StatusOK, gin.H{
-		"items":      buildVirtualLiveList(pagedRecords),
+		"items":      items,
 		"pagination": pagination,
 	})
 }
@@ -396,13 +406,33 @@ func applyVirtualLiveListFilters(records []map[string]any, filters virtualLiveLi
 	return matched
 }
 
-func buildVirtualLiveList(records []map[string]any) []map[string]any {
-	items := make([]map[string]any, 0, len(records))
+// buildVirtualLiveList projects the page's lives to list items, with the
+// group each grouped live belongs to. Grouped lives (virtual messages, solo
+// lives) have no banner of their own; their banner is the group's.
+func (handler *VirtualLiveHandler) buildVirtualLiveList(ctx context.Context, region string, records []map[string]any) ([]map[string]any, error) {
+	groupIDs := make([]string, 0)
 	for _, record := range records {
-		items = append(items, buildVirtualLiveListItem(record))
+		if groupID := shared.NormalizeAnyID(record["virtualLiveGroupId"]); groupID != "" {
+			groupIDs = append(groupIDs, groupID)
+		}
+	}
+	groups, err := shared.PrefetchRecords(ctx, handler.masterDataSync, region, map[string][]string{"virtuallivegroups": groupIDs})
+	if err != nil {
+		return nil, err
 	}
 
-	return items
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		item := buildVirtualLiveListItem(record)
+		if group, ok := groups.Record("virtuallivegroups", shared.NormalizeAnyID(record["virtualLiveGroupId"])); ok {
+			item["virtualLiveGroup"] = pickVirtualLiveFields(group, []string{
+				"id", "name", "assetbundleName", "virtualLiveGroupType",
+			})
+		}
+		items = append(items, item)
+	}
+
+	return items, nil
 }
 
 func buildVirtualLiveListItem(record map[string]any) map[string]any {
@@ -444,9 +474,22 @@ func (handler *VirtualLiveHandler) buildVirtualLiveWithRelated(
 		result[key] = value
 	}
 
+	resourceBoxes := handler.loadRewardResourceBoxes(ctx, region, virtualLiveRewardRecords(record))
+	var lookup shared.RecordLookup
+	if handler != nil && handler.masterDataSync != nil {
+		lookup = handler.prefetchRewardDetailRecords(ctx, region, resourceBoxes)
+	}
 	if rawRewards, hasRewards := record["virtualLiveRewards"]; hasRewards {
-		resourceBoxes := handler.loadRewardResourceBoxes(ctx, region, rawRewards)
-		result["virtualLiveRewards"] = handler.buildVirtualLiveRewards(ctx, region, rawRewards, resourceBoxes)
+		result["virtualLiveRewards"] = buildVirtualLiveRewards(ctx, lookup, region, rawRewards, virtualLiveRewardPurpose, resourceBoxes)
+	}
+	if rawRewards, ok := record["virtualLiveTotalCheerPointRewards"].([]any); ok {
+		result["virtualLiveTotalCheerPointRewards"] = buildVirtualLiveRewards(ctx, lookup, region, rawRewards, virtualLiveTotalCheerPointRewardPurpose, resourceBoxes)
+	}
+	if surplus, ok := record["virtualLiveTotalCheerPointSurplusReward"].(map[string]any); ok {
+		result["virtualLiveTotalCheerPointSurplusReward"] = buildVirtualLiveReward(ctx, lookup, region, surplus, virtualLiveTotalCheerPointSurplusRewardPurpose, resourceBoxes)
+	}
+	if cost, ok := record["virtualLiveVirtualItemOverrideCost"].(map[string]any); ok {
+		result["virtualLiveVirtualItemOverrideCost"] = buildVirtualItemOverrideCost(ctx, lookup, region, cost)
 	}
 
 	if rawVirtualLiveGroupID, hasVirtualLiveGroupID := record["virtualLiveGroupId"]; hasVirtualLiveGroupID {
@@ -483,70 +526,6 @@ func (handler *VirtualLiveHandler) buildVirtualLiveWithRelated(
 	}
 
 	return result
-}
-
-func (handler *VirtualLiveHandler) buildVirtualLiveRewards(ctx context.Context, region string, rawRewards any, resourceBoxes map[string]map[string]any) []map[string]any {
-	items, ok := rawRewards.([]any)
-	if !ok {
-		return []map[string]any{}
-	}
-
-	rewards := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		rewardRecord, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		reward := make(map[string]any, len(rewardRecord)+1)
-		for key, value := range rewardRecord {
-			reward[key] = value
-		}
-		if resourceBox := handler.resolveVirtualLiveRewardResourceBox(ctx, region, rewardRecord, resourceBoxes); resourceBox != nil {
-			reward["resourceBox"] = resourceBox
-		}
-		rewards = append(rewards, reward)
-	}
-
-	return rewards
-}
-
-// loadRewardResourceBoxes reads the virtual_live_reward boxes the rewards
-// reference, by ID, in one composite-key read. resourceboxes IDs are not
-// unique across resourceBoxPurpose, so a bare-ID lookup cannot select them.
-func (handler *VirtualLiveHandler) loadRewardResourceBoxes(ctx context.Context, region string, rawRewards any) map[string]map[string]any {
-	if handler == nil || handler.masterDataSync == nil {
-		return nil
-	}
-
-	items, _ := rawRewards.([]any)
-	ids := make([]string, 0, len(items))
-	keys := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		reward, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if id := shared.NormalizeAnyID(reward["resourceBoxId"]); id != "" {
-			ids = append(ids, id)
-			keys = append(keys, map[string]any{"id": id, "resourceBoxPurpose": "virtual_live_reward"})
-		}
-	}
-	if len(keys) == 0 {
-		return nil
-	}
-
-	boxes, err := handler.masterDataSync.GetByCompositeKeys(ctx, region, "resourceboxes", keys)
-	if err != nil {
-		return nil
-	}
-	byID := make(map[string]map[string]any, len(boxes))
-	for index, box := range boxes {
-		if box != nil {
-			byID[ids[index]] = box
-		}
-	}
-	return byID
 }
 
 func (handler *VirtualLiveHandler) preloadVirtualLiveRelatedData(

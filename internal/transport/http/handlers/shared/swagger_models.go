@@ -169,11 +169,12 @@ type MissionResourceBoxDetailResponse struct {
 	ResourceLevel      *int64  `json:"resourceLevel,omitempty"`
 	ResourceQuantity   *int64  `json:"resourceQuantity,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
-	// materials, skill practice tickets, boost items, and titles (honors and
-	// Kizuna titles).
+	// materials, skill practice tickets, boost items, titles (honors and
+	// Kizuna titles), and MySekai materials and tools.
 	ResourceName *string `json:"resourceName,omitempty"`
-	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
-	// gacha tickets carry one, and their icon path depends on it.
+	// ResourceAssetbundleName is the asset bundle name the rewarded item's
+	// icon path depends on; only gacha tickets and MySekai materials and tools
+	// carry one.
 	ResourceAssetbundleName *string `json:"resourceAssetbundleName,omitempty"`
 	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
 	// it picks the title reward icon.
@@ -884,11 +885,12 @@ type EventRewardResourceBoxDetail struct {
 	ResourceQuantity   int                       `json:"resourceQuantity,omitempty"`
 	Honor              *EventRewardHonorResponse `json:"honor,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
-	// materials, skill practice tickets, boost items, and titles (honors and
-	// Kizuna titles).
+	// materials, skill practice tickets, boost items, titles (honors and
+	// Kizuna titles), and MySekai materials and tools.
 	ResourceName string `json:"resourceName,omitempty"`
-	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
-	// gacha tickets carry one, and their icon path depends on it.
+	// ResourceAssetbundleName is the asset bundle name the rewarded item's
+	// icon path depends on; only gacha tickets and MySekai materials and tools
+	// carry one.
 	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
 	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
 	// it picks the title reward icon.
@@ -1023,10 +1025,20 @@ type VirtualLiveObjectResponse struct {
 	VirtualLiveCharacters                []VirtualLiveCharacter        `json:"virtualLiveCharacters,omitempty"`
 	VirtualLiveRewards                   []VirtualLiveReward           `json:"virtualLiveRewards,omitempty"`
 	VirtualLiveReward                    *VirtualLiveReward            `json:"virtualLiveReward,omitempty"`
-	VirtualLiveGroup                     map[string]any                `json:"virtualLiveGroup,omitempty" extensions:"x-nullable"`
-	ScreenMvMusicVocal                   map[string]any                `json:"screenMvMusicVocal,omitempty" extensions:"x-nullable"`
-	Pamphlet                             map[string]any                `json:"pamphlet" binding:"required" extensions:"x-nullable"`
-	Ticket                               map[string]any                `json:"ticket" binding:"required" extensions:"x-nullable"`
+	// VirtualLiveTotalCheerPointRewards are a solo virtual live's rewards for
+	// the Virtual Cheer Coins spent in total, by threshold. Other lives have
+	// none.
+	VirtualLiveTotalCheerPointRewards []VirtualLiveTotalCheerPointReward `json:"virtualLiveTotalCheerPointRewards,omitempty"`
+	// VirtualLiveTotalCheerPointSurplusReward is a solo virtual live's reward
+	// for every BasePoint coins spent that no threshold reward counts.
+	VirtualLiveTotalCheerPointSurplusReward *VirtualLiveTotalCheerPointSurplusReward `json:"virtualLiveTotalCheerPointSurplusReward,omitempty" extensions:"x-nullable"`
+	// VirtualLiveVirtualItemOverrideCost is the item a solo virtual live's
+	// cheer items cost in place of virtual coins and crystals.
+	VirtualLiveVirtualItemOverrideCost *VirtualLiveVirtualItemOverrideCost `json:"virtualLiveVirtualItemOverrideCost,omitempty" extensions:"x-nullable"`
+	VirtualLiveGroup                   map[string]any                      `json:"virtualLiveGroup,omitempty" extensions:"x-nullable"`
+	ScreenMvMusicVocal                 map[string]any                      `json:"screenMvMusicVocal,omitempty" extensions:"x-nullable"`
+	Pamphlet                           map[string]any                      `json:"pamphlet" binding:"required" extensions:"x-nullable"`
+	Ticket                             map[string]any                      `json:"ticket" binding:"required" extensions:"x-nullable"`
 }
 
 type VirtualLiveListResponse struct {
@@ -1041,6 +1053,17 @@ type VirtualLiveListItemResponse struct {
 	AssetbundleName string `json:"assetbundleName" binding:"required"`
 	StartAt         int64  `json:"startAt" binding:"required"`
 	EndAt           int64  `json:"endAt" binding:"required"`
+	// VirtualLiveGroup is the group a grouped live (a virtual message or solo
+	// live) belongs to. Such lives have no banner of their own; the group's
+	// assetbundleName names it.
+	VirtualLiveGroup *VirtualLiveGroupSummaryResponse `json:"virtualLiveGroup,omitempty"`
+}
+
+type VirtualLiveGroupSummaryResponse struct {
+	ID                   int    `json:"id" binding:"required"`
+	Name                 string `json:"name" binding:"required"`
+	AssetbundleName      string `json:"assetbundleName,omitempty"`
+	VirtualLiveGroupType string `json:"virtualLiveGroupType,omitempty"`
 }
 
 type VirtualLiveInformation struct {
@@ -1075,6 +1098,36 @@ type VirtualLiveReward struct {
 	ResourceBox     *VirtualLiveRewardResourceBox `json:"resourceBox,omitempty"`
 }
 
+type VirtualLiveTotalCheerPointReward struct {
+	ID            int                           `json:"id" binding:"required"`
+	VirtualLiveID int                           `json:"virtualLiveId" binding:"required"`
+	Threshold     int64                         `json:"threshold" binding:"required"`
+	ResourceBoxID int                           `json:"resourceBoxId" binding:"required"`
+	ResourceBox   *VirtualLiveRewardResourceBox `json:"resourceBox,omitempty"`
+}
+
+type VirtualLiveTotalCheerPointSurplusReward struct {
+	ID            int                           `json:"id" binding:"required"`
+	VirtualLiveID int                           `json:"virtualLiveId" binding:"required"`
+	BasePoint     int64                         `json:"basePoint" binding:"required"`
+	ResourceBoxID int                           `json:"resourceBoxId" binding:"required"`
+	ResourceBox   *VirtualLiveRewardResourceBox `json:"resourceBox,omitempty"`
+}
+
+type VirtualLiveVirtualItemOverrideCost struct {
+	ID               int    `json:"id" binding:"required"`
+	VirtualLiveID    int    `json:"virtualLiveId" binding:"required"`
+	CostResourceType string `json:"costResourceType" binding:"required"`
+	CostResourceID   int    `json:"costResourceId" binding:"required"`
+	AssetbundleName  string `json:"assetbundleName,omitempty"`
+	// CostResourceName is the cost item's localized name, for the item types
+	// reward details name.
+	CostResourceName string `json:"costResourceName,omitempty"`
+	// CostResourceAssetbundleName is the asset bundle name the cost item's
+	// icon path depends on, when it has one.
+	CostResourceAssetbundleName string `json:"costResourceAssetbundleName,omitempty"`
+}
+
 type VirtualLiveRewardResourceBox struct {
 	ID                 int                                  `json:"id,omitempty"`
 	ResourceBoxPurpose string                               `json:"resourceBoxPurpose,omitempty"`
@@ -1090,11 +1143,12 @@ type VirtualLiveRewardResourceBoxDetail struct {
 	Seq              int                       `json:"seq,omitempty"`
 	Honor            *EventRewardHonorResponse `json:"honor,omitempty"`
 	// ResourceName is the rewarded item's localized name for gacha tickets,
-	// materials, skill practice tickets, boost items, and titles (honors and
-	// Kizuna titles).
+	// materials, skill practice tickets, boost items, titles (honors and
+	// Kizuna titles), and MySekai materials and tools.
 	ResourceName string `json:"resourceName,omitempty"`
-	// ResourceAssetbundleName is the rewarded item's asset bundle name; only
-	// gacha tickets carry one, and their icon path depends on it.
+	// ResourceAssetbundleName is the asset bundle name the rewarded item's
+	// icon path depends on; only gacha tickets and MySekai materials and tools
+	// carry one.
 	ResourceAssetbundleName string `json:"resourceAssetbundleName,omitempty"`
 	// ResourceRarity is a rewarded title's rarity (low, middle, high, highest);
 	// it picks the title reward icon.
