@@ -251,21 +251,7 @@ func (handler *LookupHandler) loadMysekaiMaterialUses(ctx context.Context, regio
 		return nil, err
 	}
 
-	quantityByFixture := map[int64]int64{}
-	fixtureIDs := []int64{}
-	for blueprintID, quantity := range quantityByBlueprint {
-		blueprint, ok := prefetched.Record(mysekaiBlueprintsEntity, blueprintID)
-		if !ok || lookupString(blueprint["mysekaiCraftType"]) != mysekaiFixtureCraftType {
-			continue
-		}
-		fixtureID, ok := lookupInt64(blueprint["craftTargetId"])
-		if !ok || fixtureID <= 0 {
-			continue
-		}
-		fixtureIDs = appendUniqueID(fixtureIDs, fixtureID)
-		quantityByFixture[fixtureID] += quantity
-	}
-	slices.Sort(fixtureIDs)
+	fixtureIDs, quantityByFixture := mysekaiFixtureQuantities(prefetched, quantityByBlueprint)
 	if err := prefetched.Add(ctx, map[string][]string{mysekaiFixturesEntity: formatIDs(fixtureIDs)}); err != nil {
 		return nil, err
 	}
@@ -287,4 +273,26 @@ func (handler *LookupHandler) loadMysekaiMaterialUses(ctx context.Context, regio
 		})
 	}
 	return uses, nil
+}
+
+// mysekaiFixtureQuantities returns, in ID order, the fixtures that the
+// prefetched blueprints craft, and the summed quantities their blueprints
+// cost. Blueprints crafting tools or canvases are left out.
+func mysekaiFixtureQuantities(prefetched *shared.PrefetchedRecords, quantityByBlueprint map[string]int64) ([]int64, map[int64]int64) {
+	quantityByFixture := map[int64]int64{}
+	fixtureIDs := []int64{}
+	for blueprintID, quantity := range quantityByBlueprint {
+		blueprint, ok := prefetched.Record(mysekaiBlueprintsEntity, blueprintID)
+		if !ok || lookupString(blueprint["mysekaiCraftType"]) != mysekaiFixtureCraftType {
+			continue
+		}
+		fixtureID, ok := lookupInt64(blueprint["craftTargetId"])
+		if !ok || fixtureID <= 0 {
+			continue
+		}
+		fixtureIDs = appendUniqueID(fixtureIDs, fixtureID)
+		quantityByFixture[fixtureID] += quantity
+	}
+	slices.Sort(fixtureIDs)
+	return fixtureIDs, quantityByFixture
 }
