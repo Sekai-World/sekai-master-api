@@ -378,14 +378,28 @@ ON CONFLICT (region, entity) DO UPDATE SET version = EXCLUDED.version, body = EX
 	return nil
 }
 
-// inFencedTx runs fn in one transaction that first checks the sync lease: a
-// write carrying a lease token (masterdata.WithFencingToken) is rejected with
-// masterdata.ErrFencedOut unless that token is still the lease's current one.
-// FOR SHARE holds the lease row, so no takeover commits while fn runs.
+// inFencedTx runs fn in one transaction that checks the sync lease before and
+// after fn: a write carrying a lease token (masterdata.WithFencingToken) is
+// rejected with masterdata.ErrFencedOut unless that token is still current.
+// The initial check is lock-free; after fn succeeds, FOR SHARE validates the
+// token at the commit boundary and orders a takeover after this transaction.
 // Writes without a token (unleased paths) pass.
 func (store *PostgresMasterDataStore) inFencedTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 	return pgx.BeginFunc(ctx, store.pool, func(tx pgx.Tx) error {
 		token := masterdata.FencingTokenFromContext(ctx)
+		if store.leaseName != "" && token > 0 {
+			var leaseToken int64
+			err := tx.QueryRow(ctx, `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1`, store.leaseName).Scan(&leaseToken)
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && leaseToken != token) {
+				return masterdata.ErrFencedOut
+			}
+			if err != nil {
+				return fmt.Errorf("read sync lease for fencing: %w", err)
+			}
+		}
+		if err := fn(tx); err != nil {
+			return err
+		}
 		if store.leaseName != "" && token > 0 {
 			var leaseToken int64
 			err := tx.QueryRow(ctx, `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR SHARE`, store.leaseName).Scan(&leaseToken)
@@ -396,7 +410,7 @@ func (store *PostgresMasterDataStore) inFencedTx(ctx context.Context, fn func(tx
 				return fmt.Errorf("read sync lease for fencing: %w", err)
 			}
 		}
-		return fn(tx)
+		return nil
 	})
 }
 
