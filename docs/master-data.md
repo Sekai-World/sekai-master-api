@@ -77,9 +77,12 @@ store was removed: the process does not connect to Redis, and
   keys when the revision changes, the postings and projection when the records
   or their definitions change, and then the entity row. An entity whose source
   digest, index version, and projection version all match is skipped without
-  parsing. A write that carries the sync lease's token (sync jobs do) first
-  locks the lease row `FOR SHARE` and fails with `ErrFencedOut` unless the
-  token is still current; writes without a token (lease disabled) pass.
+  parsing. A write that carries the sync lease's token (sync jobs do) checks
+  the token before writing, then validates it with a lease-row `FOR SHARE`
+  lock immediately before commit; a missing or changed token fails with
+  `ErrFencedOut` and rolls back the transaction. The initial check is unlocked
+  so lease heartbeats can proceed during long entity writes. Writes without a
+  token (lease disabled) pass.
   After a full region load, entities the source no longer has are deleted.
 - **Reads.** Every read that must see one version of an entity is one
   statement: `GetByID`, `GetByIDs`, and `GetByCompositeKeys` probe the block

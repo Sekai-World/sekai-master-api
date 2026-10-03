@@ -294,10 +294,14 @@ Per entity file, on `control` and `standalone`:
    longer hashes zstd-compressed bytes. Relation index postings and the
    projection are built exactly as today.
 3. **Write, in one transaction per entity** (read committed):
-   1. **Fence.**
-      `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR SHARE`.
-      Abort with `ErrFencedOut` unless the token matches the one this sync
-      holds. This closes the data-write gap in
+   1. **Fence.** Check the current token without a row lock before the write;
+      after the transaction callback succeeds, re-read it with
+      `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR SHARE`
+      immediately before commit. A missing or changed token aborts with
+      `ErrFencedOut` and rolls back all callback writes. The final shared lock
+      orders a takeover after this transaction commits, while the initial
+      unlocked check allows heartbeat renewal during a long entity write. This
+      closes the data-write gap in
       [distributed-sync-coordination](distributed-sync-coordination.md#fencing-model).
       Sync jobs carry their token in the context
       (`masterdata.WithFencingToken`). Writes without a token pass, as they

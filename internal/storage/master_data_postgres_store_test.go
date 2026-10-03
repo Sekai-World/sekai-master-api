@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sekai-master-api/internal/domain/masterdata"
 )
@@ -139,6 +140,344 @@ VALUES ('master-data-sync', 'holder-b', 5, now(), now() + interval '1 minute', n
 	}
 	if err := store.StoreRegion(masterdata.WithFencingToken(ctx, 5), "jp", payload("no lease")); !errors.Is(err, masterdata.ErrFencedOut) {
 		t.Fatalf("write without lease row error = %v, want ErrFencedOut", err)
+	}
+}
+
+func TestPostgresStoreLeaseRenewalDoesNotWaitForEntityTransaction(t *testing.T) {
+	store, db := newPostgresStoreForTest(t, "master-data-sync")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	seedFencingLease(t, ctx, db, "master-data-sync", "holder-a", 1)
+
+	write := startPausedFencedWrite(t, ctx, store, 1, "renewal-test", `{"write":"uncommitted"}`)
+	select {
+	case <-write.callbackStarted:
+	case <-ctx.Done():
+		t.Fatalf("callback did not reach its pause: %v", ctx.Err())
+	}
+
+	renewCtx, cancelRenew := context.WithTimeout(ctx, 3*time.Second)
+	defer cancelRenew()
+	renewDone := make(chan error, 1)
+	go func() {
+		now := time.Now().UTC()
+		tag, err := db.Pool.Exec(renewCtx,
+			`UPDATE master_data_sync_leases SET expires_at = $3, last_heartbeat_at = $4 WHERE name = $1 AND holder = $2`,
+			"master-data-sync", "holder-a", now.Add(time.Minute), now)
+		if err == nil && tag.RowsAffected() != 1 {
+			err = fmt.Errorf("renew updated %d rows, want 1", tag.RowsAffected())
+		}
+		renewDone <- err
+	}()
+	select {
+	case err := <-renewDone:
+		if err != nil {
+			t.Fatalf("renew while callback is paused: %v", err)
+		}
+	case <-renewCtx.Done():
+		t.Fatalf("renew did not complete while callback was paused: %v", renewCtx.Err())
+	}
+	select {
+	case err := <-write.writeErr:
+		t.Fatalf("transaction returned before callback was released: %v", err)
+	default:
+	}
+
+	write.releaseCallback()
+	select {
+	case err := <-write.writeErr:
+		if err != nil {
+			t.Fatalf("fenced transaction after renewal: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("fenced transaction did not finish: %v", ctx.Err())
+	}
+	assertMasterVersionCount(t, ctx, db, "renewal-test", 1)
+}
+
+func TestPostgresStoreRejectsTakeoverDuringCallbackAndRollsBack(t *testing.T) {
+	store, db := newPostgresStoreForTest(t, "master-data-sync")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	seedFencingLease(t, ctx, db, "master-data-sync", "holder-a", 1)
+	write := startPausedFencedWrite(t, ctx, store, 1, "takeover-test", `{"write":"must rollback"}`)
+	select {
+	case <-write.callbackStarted:
+	case <-ctx.Done():
+		t.Fatalf("callback did not reach its pause: %v", ctx.Err())
+	}
+	assertMasterVersionCount(t, ctx, db, "takeover-test", 0)
+
+	if tag, err := db.Pool.Exec(ctx, `UPDATE master_data_sync_leases SET expires_at = now() - interval '1 second' WHERE name = $1`, "master-data-sync"); err != nil {
+		t.Fatalf("expire lease for takeover: %v", err)
+	} else if tag.RowsAffected() != 1 {
+		t.Fatalf("expire lease updated %d rows, want 1", tag.RowsAffected())
+	}
+	if token, acquired, err := acquireSyncLeaseForTest(ctx, db.Pool.QueryRow, "master-data-sync", "holder-b", time.Minute); err != nil || !acquired || token != 2 {
+		t.Fatalf("takeover = token %d, acquired %t, error %v; want token 2", token, acquired, err)
+	}
+
+	write.releaseCallback()
+	select {
+	case err := <-write.writeErr:
+		if !errors.Is(err, masterdata.ErrFencedOut) {
+			t.Fatalf("stale callback transaction error = %v, want ErrFencedOut", err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("stale callback transaction did not finish: %v", ctx.Err())
+	}
+	assertMasterVersionCount(t, ctx, db, "takeover-test", 0)
+	assertFencingLease(t, ctx, db, "master-data-sync", "holder-b", 2)
+}
+
+type pausedFencedWrite struct {
+	callbackStarted chan struct{}
+	releaseCallback func()
+	writeErr        chan error
+}
+
+func startPausedFencedWrite(t *testing.T, ctx context.Context, store *PostgresMasterDataStore, token int64, region, payload string) pausedFencedWrite {
+	t.Helper()
+	callbackStarted := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	callbackReleased := false
+	release := func() {
+		if !callbackReleased {
+			close(releaseCallback)
+			callbackReleased = true
+		}
+	}
+	t.Cleanup(release)
+	writeErr := make(chan error, 1)
+	go func() {
+		writeErr <- store.inFencedTx(masterdata.WithFencingToken(ctx, token), func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `INSERT INTO master_versions (region, payload, updated_at) VALUES ($1, $2, $3)`, region, payload, time.Now().UTC()); err != nil {
+				return err
+			}
+			close(callbackStarted)
+			select {
+			case <-releaseCallback:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+	}()
+	return pausedFencedWrite{
+		callbackStarted: callbackStarted,
+		releaseCallback: release,
+		writeErr:        writeErr,
+	}
+}
+
+func TestPostgresStoreFinalFenceLockOrdersTakeoverAfterCommit(t *testing.T) {
+	store, db := newPostgresStoreForTest(t, "master-data-sync")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	const advisoryKey1, advisoryKey2 int32 = 7139, 90210
+	seedFencingLease(t, ctx, db, "master-data-sync", "holder-a", 1)
+	if _, err := db.Pool.Exec(ctx, `UPDATE master_data_sync_leases SET expires_at = now() - interval '1 second' WHERE name = $1`, "master-data-sync"); err != nil {
+		t.Fatalf("expire lease before commit-order test: %v", err)
+	}
+
+	if _, err := db.Pool.Exec(ctx, `
+CREATE FUNCTION test_hold_master_version_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	PERFORM pg_advisory_xact_lock(7139, 90210);
+	RETURN NULL;
+END;
+$$`); err != nil {
+		t.Fatalf("create deferred commit trigger function: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+CREATE CONSTRAINT TRIGGER test_hold_master_version_commit
+AFTER INSERT ON master_versions
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION test_hold_master_version_commit()`); err != nil {
+		t.Fatalf("create deferred commit trigger: %v", err)
+	}
+	lockConn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire advisory lock connection: %v", err)
+	}
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
+		defer cleanupCancel()
+		_, _ = lockConn.Exec(cleanupCtx, `SELECT pg_advisory_unlock($1, $2)`, advisoryKey1, advisoryKey2)
+		lockConn.Release()
+	}()
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_lock($1, $2)`, advisoryKey1, advisoryKey2); err != nil {
+		t.Fatalf("hold advisory lock for deferred trigger: %v", err)
+	}
+
+	backendPID := make(chan int32, 1)
+	writeErr := make(chan error, 1)
+	go func() {
+		writeErr <- store.inFencedTx(masterdata.WithFencingToken(ctx, 1), func(tx pgx.Tx) error {
+			var pid int32
+			if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+				return err
+			}
+			backendPID <- pid
+			_, err := tx.Exec(ctx, `INSERT INTO master_versions (region, payload, updated_at) VALUES ($1, $2, $3)`, "commit-order-test", `{"write":"committed before takeover"}`, time.Now().UTC())
+			return err
+		})
+	}()
+	var writerPID int32
+	select {
+	case writerPID = <-backendPID:
+	case <-ctx.Done():
+		t.Fatalf("fenced transaction did not start: %v", ctx.Err())
+	}
+	if err := waitForPostgresWaitEvent(ctx, db.Pool, writerPID, "Lock", "advisory"); err != nil {
+		t.Fatalf("transaction did not reach its deferred commit trigger after final fencing validation: %v", err)
+	}
+
+	acquireConn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire takeover connection: %v", err)
+	}
+	defer acquireConn.Release()
+	var acquirePID int32
+	if err := acquireConn.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&acquirePID); err != nil {
+		t.Fatalf("read takeover backend pid: %v", err)
+	}
+	type acquireResult struct {
+		token    int64
+		acquired bool
+		err      error
+	}
+	acquireDone := make(chan acquireResult, 1)
+	go func() {
+		token, acquired, err := acquireSyncLeaseForTest(ctx, acquireConn.QueryRow, "master-data-sync", "holder-b", time.Minute)
+		acquireDone <- acquireResult{token: token, acquired: acquired, err: err}
+	}()
+	if err := waitForPostgresBlockingPID(ctx, db.Pool, acquirePID, writerPID); err != nil {
+		t.Fatalf("takeover was not blocked by the final shared lease-row lock: %v", err)
+	}
+
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_unlock($1, $2)`, advisoryKey1, advisoryKey2); err != nil {
+		t.Fatalf("release advisory lock: %v", err)
+	}
+	select {
+	case err := <-writeErr:
+		if err != nil {
+			t.Fatalf("valid fenced transaction: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("valid fenced transaction did not commit: %v", ctx.Err())
+	}
+	select {
+	case result := <-acquireDone:
+		if result.err != nil || !result.acquired || result.token != 2 {
+			t.Fatalf("takeover after commit = token %d, acquired %t, error %v; want token 2", result.token, result.acquired, result.err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("takeover did not finish after commit: %v", ctx.Err())
+	}
+	assertMasterVersionCount(t, ctx, db, "commit-order-test", 1)
+	assertFencingLease(t, ctx, db, "master-data-sync", "holder-b", 2)
+}
+
+func seedFencingLease(t *testing.T, ctx context.Context, db *DB, name, holder string, token int64) {
+	t.Helper()
+	if _, err := db.Pool.Exec(ctx, `
+INSERT INTO master_data_sync_leases (name, holder, fencing_token, acquired_at, expires_at, last_heartbeat_at)
+VALUES ($1, $2, $3, now(), now() + interval '1 minute', now())`, name, holder, token); err != nil {
+		t.Fatalf("seed lease: %v", err)
+	}
+}
+
+func acquireSyncLeaseForTest(ctx context.Context, queryRow func(context.Context, string, ...any) pgx.Row, name, holder string, ttl time.Duration) (int64, bool, error) {
+	now := time.Now().UTC()
+	expiresAt := now.Add(ttl)
+	var token int64
+	var acquiredAt, storedExpiresAt, lastHeartbeatAt time.Time
+	err := queryRow(ctx, `
+INSERT INTO master_data_sync_leases (
+	name, holder, fencing_token, acquired_at, expires_at, last_heartbeat_at
+) VALUES ($1, $2, 1, $3, $4, $5)
+ON CONFLICT (name) DO UPDATE SET
+	holder = EXCLUDED.holder,
+	fencing_token = master_data_sync_leases.fencing_token + 1,
+	acquired_at = EXCLUDED.acquired_at,
+	expires_at = EXCLUDED.expires_at,
+	last_heartbeat_at = EXCLUDED.last_heartbeat_at
+WHERE master_data_sync_leases.expires_at <= EXCLUDED.last_heartbeat_at
+RETURNING fencing_token, acquired_at, expires_at, last_heartbeat_at`, name, holder, now, expiresAt, now).Scan(
+		&token, &acquiredAt, &storedExpiresAt, &lastHeartbeatAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	return token, err == nil, err
+}
+
+func assertMasterVersionCount(t *testing.T, ctx context.Context, db *DB, region string, want int) {
+	t.Helper()
+	var count int
+	if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM master_versions WHERE region = $1`, region).Scan(&count); err != nil {
+		t.Fatalf("count master version rows: %v", err)
+	}
+	if count != want {
+		t.Fatalf("master version rows for %s = %d, want %d", region, count, want)
+	}
+}
+
+func assertFencingLease(t *testing.T, ctx context.Context, db *DB, name, holder string, wantToken int64) {
+	t.Helper()
+	var gotHolder string
+	var gotToken int64
+	if err := db.Pool.QueryRow(ctx, `SELECT holder, fencing_token FROM master_data_sync_leases WHERE name = $1`, name).Scan(&gotHolder, &gotToken); err != nil {
+		t.Fatalf("read fencing lease: %v", err)
+	}
+	if gotHolder != holder || gotToken != wantToken {
+		t.Fatalf("lease holder/token = %s/%d, want %s/%d", gotHolder, gotToken, holder, wantToken)
+	}
+}
+
+func waitForPostgresWaitEvent(ctx context.Context, pool *pgxpool.Pool, pid int32, wantType, wantEvent string) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var waitType, waitEvent *string
+		err := pool.QueryRow(ctx, `SELECT wait_event_type, wait_event FROM pg_stat_activity WHERE pid = $1`, pid).Scan(&waitType, &waitEvent)
+		if err == nil && waitType != nil && waitEvent != nil && *waitType == wantType && *waitEvent == wantEvent {
+			return nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForPostgresBlockingPID(ctx context.Context, pool *pgxpool.Pool, pid, wantBlocker int32) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var blocked bool
+		err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+	SELECT 1 FROM unnest(pg_blocking_pids($1)) AS blocker(pid) WHERE pid = $2
+)`, pid, wantBlocker).Scan(&blocked)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 

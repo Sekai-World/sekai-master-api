@@ -131,10 +131,14 @@ durable stores, not just in the holder's memory:
    "last successful sync per region" — the input to skip decisions,
    readiness, and the dashboard — with an airtight storage-side check.
 2. **Master-data writes — strict fencing.** The PostgreSQL master-data store
-   writes each entity in one transaction that first reads
-   `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1 FOR SHARE`
-   and aborts with `ErrFencedOut` unless the token still matches the one the
-   sync holds. Sync jobs carry their token in the context
+   checks the current token without taking a row lock before running its
+   transaction callback. After the callback succeeds, it re-reads the token
+   with `SELECT fencing_token FROM master_data_sync_leases WHERE name = $1
+   FOR SHARE` immediately before commit. A missing or changed token aborts
+   with `ErrFencedOut`, rolling back the callback's writes; the final shared
+   lock orders a takeover after this transaction commits. The initial unlocked
+   check lets heartbeat renewal update the lease row while a long entity write
+   runs. Sync jobs carry their token in the context
    (`masterdata.WithFencingToken`), so records, derived data, version
    payloads, and entity pruning are all checked at the store. Writes without
    a token pass, as they do for status, when the lease is disabled.
