@@ -150,31 +150,9 @@ func TestPostgresStoreLeaseRenewalDoesNotWaitForEntityTransaction(t *testing.T) 
 
 	seedFencingLease(t, ctx, db, "master-data-sync", "holder-a", 1)
 
-	callbackStarted := make(chan struct{})
-	releaseCallback := make(chan struct{})
-	callbackReleased := false
-	defer func() {
-		if !callbackReleased {
-			close(releaseCallback)
-		}
-	}()
-	writeErr := make(chan error, 1)
-	go func() {
-		writeErr <- store.inFencedTx(masterdata.WithFencingToken(ctx, 1), func(tx pgx.Tx) error {
-			if _, err := tx.Exec(ctx, `INSERT INTO master_versions (region, payload, updated_at) VALUES ($1, $2, $3)`, "renewal-test", `{"write":"uncommitted"}`, time.Now().UTC()); err != nil {
-				return err
-			}
-			close(callbackStarted)
-			select {
-			case <-releaseCallback:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-	}()
+	write := startPausedFencedWrite(t, ctx, store, 1, "renewal-test", `{"write":"uncommitted"}`)
 	select {
-	case <-callbackStarted:
+	case <-write.callbackStarted:
 	case <-ctx.Done():
 		t.Fatalf("callback did not reach its pause: %v", ctx.Err())
 	}
@@ -201,15 +179,14 @@ func TestPostgresStoreLeaseRenewalDoesNotWaitForEntityTransaction(t *testing.T) 
 		t.Fatalf("renew did not complete while callback was paused: %v", renewCtx.Err())
 	}
 	select {
-	case err := <-writeErr:
+	case err := <-write.writeErr:
 		t.Fatalf("transaction returned before callback was released: %v", err)
 	default:
 	}
 
-	close(releaseCallback)
-	callbackReleased = true
+	write.releaseCallback()
 	select {
-	case err := <-writeErr:
+	case err := <-write.writeErr:
 		if err != nil {
 			t.Fatalf("fenced transaction after renewal: %v", err)
 		}
@@ -225,31 +202,9 @@ func TestPostgresStoreRejectsTakeoverDuringCallbackAndRollsBack(t *testing.T) {
 	defer cancel()
 
 	seedFencingLease(t, ctx, db, "master-data-sync", "holder-a", 1)
-	callbackStarted := make(chan struct{})
-	releaseCallback := make(chan struct{})
-	callbackReleased := false
-	defer func() {
-		if !callbackReleased {
-			close(releaseCallback)
-		}
-	}()
-	writeErr := make(chan error, 1)
-	go func() {
-		writeErr <- store.inFencedTx(masterdata.WithFencingToken(ctx, 1), func(tx pgx.Tx) error {
-			if _, err := tx.Exec(ctx, `INSERT INTO master_versions (region, payload, updated_at) VALUES ($1, $2, $3)`, "takeover-test", `{"write":"must rollback"}`, time.Now().UTC()); err != nil {
-				return err
-			}
-			close(callbackStarted)
-			select {
-			case <-releaseCallback:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-	}()
+	write := startPausedFencedWrite(t, ctx, store, 1, "takeover-test", `{"write":"must rollback"}`)
 	select {
-	case <-callbackStarted:
+	case <-write.callbackStarted:
 	case <-ctx.Done():
 		t.Fatalf("callback did not reach its pause: %v", ctx.Err())
 	}
@@ -264,10 +219,9 @@ func TestPostgresStoreRejectsTakeoverDuringCallbackAndRollsBack(t *testing.T) {
 		t.Fatalf("takeover = token %d, acquired %t, error %v; want token 2", token, acquired, err)
 	}
 
-	close(releaseCallback)
-	callbackReleased = true
+	write.releaseCallback()
 	select {
-	case err := <-writeErr:
+	case err := <-write.writeErr:
 		if !errors.Is(err, masterdata.ErrFencedOut) {
 			t.Fatalf("stale callback transaction error = %v, want ErrFencedOut", err)
 		}
@@ -276,6 +230,46 @@ func TestPostgresStoreRejectsTakeoverDuringCallbackAndRollsBack(t *testing.T) {
 	}
 	assertMasterVersionCount(t, ctx, db, "takeover-test", 0)
 	assertFencingLease(t, ctx, db, "master-data-sync", "holder-b", 2)
+}
+
+type pausedFencedWrite struct {
+	callbackStarted chan struct{}
+	releaseCallback func()
+	writeErr        chan error
+}
+
+func startPausedFencedWrite(t *testing.T, ctx context.Context, store *PostgresMasterDataStore, token int64, region, payload string) pausedFencedWrite {
+	t.Helper()
+	callbackStarted := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	callbackReleased := false
+	release := func() {
+		if !callbackReleased {
+			close(releaseCallback)
+			callbackReleased = true
+		}
+	}
+	t.Cleanup(release)
+	writeErr := make(chan error, 1)
+	go func() {
+		writeErr <- store.inFencedTx(masterdata.WithFencingToken(ctx, token), func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `INSERT INTO master_versions (region, payload, updated_at) VALUES ($1, $2, $3)`, region, payload, time.Now().UTC()); err != nil {
+				return err
+			}
+			close(callbackStarted)
+			select {
+			case <-releaseCallback:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+	}()
+	return pausedFencedWrite{
+		callbackStarted: callbackStarted,
+		releaseCallback: release,
+		writeErr:        writeErr,
+	}
 }
 
 func TestPostgresStoreFinalFenceLockOrdersTakeoverAfterCommit(t *testing.T) {
