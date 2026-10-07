@@ -924,8 +924,35 @@ func aggregateMusicCategoryRecords(categoryRecords []map[string]any) map[string]
 
 func (handler *MusicHandler) buildMusicVideos(ctx context.Context, region string, musicID string, musicRecord map[string]any, categoryRecords []map[string]any) ([]shared.MusicVideoResponse, error) {
 	targetMusicID := shared.NormalizeAnyID(musicID)
-	categoryRowsExist := false
+	categories := musicVideoCategoriesForMusic(targetMusicID, musicRecord, categoryRecords)
+	if len(categories) == 0 {
+		return []shared.MusicVideoResponse{}, nil
+	}
+
+	variantIDs := uniqueMusicVideoVariantIDs(categories)
+	variantsByID, vocalIDs, err := handler.loadMusicVideoAssetVariants(ctx, region, variantIDs)
+	if err != nil {
+		return nil, err
+	}
+	validVocalIDs, err := handler.loadValidMusicVideoVocalIDs(ctx, region, targetMusicID, vocalIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return assembleMusicVideoResponses(targetMusicID, categories, variantsByID, validVocalIDs), nil
+}
+
+func musicVideoCategoriesForMusic(targetMusicID string, musicRecord map[string]any, categoryRecords []map[string]any) []musicVideoCategory {
+	categories, categoryRowsExist := matchingMusicVideoCategoryRows(targetMusicID, categoryRecords)
+	if !categoryRowsExist {
+		return extractEmbeddedMusicVideoCategories(musicRecord)
+	}
+	return categories
+}
+
+func matchingMusicVideoCategoryRows(targetMusicID string, categoryRecords []map[string]any) ([]musicVideoCategory, bool) {
 	categories := make([]musicVideoCategory, 0, len(categoryRecords))
+	categoryRowsExist := false
 	for _, categoryRecord := range categoryRecords {
 		if shared.NormalizeAnyID(categoryRecord["musicId"]) != targetMusicID {
 			continue
@@ -943,14 +970,10 @@ func (handler *MusicHandler) buildMusicVideos(ctx context.Context, region string
 			hasExplicitVariant: hasVariantID,
 		})
 	}
+	return categories, categoryRowsExist
+}
 
-	if !categoryRowsExist {
-		categories = extractEmbeddedMusicVideoCategories(musicRecord)
-	}
-	if len(categories) == 0 {
-		return []shared.MusicVideoResponse{}, nil
-	}
-
+func uniqueMusicVideoVariantIDs(categories []musicVideoCategory) []string {
 	variantIDs := make([]string, 0, len(categories))
 	seenVariantIDs := make(map[string]struct{}, len(categories))
 	for _, category := range categories {
@@ -963,96 +986,124 @@ func (handler *MusicHandler) buildMusicVideos(ctx context.Context, region string
 		seenVariantIDs[category.variantID] = struct{}{}
 		variantIDs = append(variantIDs, category.variantID)
 	}
+	return variantIDs
+}
 
+func (handler *MusicHandler) loadMusicVideoAssetVariants(ctx context.Context, region string, variantIDs []string) (map[string]musicVideoAssetVariant, []string, error) {
 	variantsByID := make(map[string]musicVideoAssetVariant, len(variantIDs))
 	vocalIDs := make([]string, 0, len(variantIDs))
+	if len(variantIDs) == 0 {
+		return variantsByID, vocalIDs, nil
+	}
+
+	variantRecords, err := handler.masterDataSync.GetByIDs(ctx, region, "musicassetvariants", variantIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get musicassetvariants: %w", err)
+	}
+
 	seenVocalIDs := make(map[string]struct{}, len(variantIDs))
-	if len(variantIDs) > 0 {
-		variantRecords, err := handler.masterDataSync.GetByIDs(ctx, region, "musicassetvariants", variantIDs)
-		if err != nil {
-			return nil, fmt.Errorf("get musicassetvariants: %w", err)
+	for index, variantID := range variantIDs {
+		if index >= len(variantRecords) {
+			continue
 		}
-		for index, variantID := range variantIDs {
-			if index >= len(variantRecords) {
-				continue
-			}
-			variantRecord := variantRecords[index]
-			if variantRecord == nil || shared.NormalizeAnyID(variantRecord["id"]) != variantID {
-				continue
-			}
-			if shared.NormalizeComparableText(variantRecord["musicAssetType"]) != "mv" {
-				continue
-			}
-			assetbundleName, valid := safeMusicVideoAssetbundleName(variantRecord["assetbundleName"])
-			if !valid {
-				continue
-			}
-
-			musicVocalID := shared.NormalizeAnyID(variantRecord["musicVocalId"])
-			variantsByID[variantID] = musicVideoAssetVariant{
-				assetbundleName: assetbundleName,
-				musicVocalID:    musicVocalID,
-			}
-			if musicVocalID != "" {
-				if _, exists := seenVocalIDs[musicVocalID]; !exists {
-					seenVocalIDs[musicVocalID] = struct{}{}
-					vocalIDs = append(vocalIDs, musicVocalID)
-				}
-			}
+		variant, valid := parseMusicVideoAssetVariant(variantRecords[index], variantID)
+		if !valid {
+			continue
 		}
+		variantsByID[variantID] = variant
+		if variant.musicVocalID == "" {
+			continue
+		}
+		if _, exists := seenVocalIDs[variant.musicVocalID]; exists {
+			continue
+		}
+		seenVocalIDs[variant.musicVocalID] = struct{}{}
+		vocalIDs = append(vocalIDs, variant.musicVocalID)
 	}
+	return variantsByID, vocalIDs, nil
+}
 
+func parseMusicVideoAssetVariant(record map[string]any, variantID string) (musicVideoAssetVariant, bool) {
+	if record == nil || shared.NormalizeAnyID(record["id"]) != variantID {
+		return musicVideoAssetVariant{}, false
+	}
+	if shared.NormalizeComparableText(record["musicAssetType"]) != "mv" {
+		return musicVideoAssetVariant{}, false
+	}
+	assetbundleName, valid := safeMusicVideoAssetbundleName(record["assetbundleName"])
+	if !valid {
+		return musicVideoAssetVariant{}, false
+	}
+	return musicVideoAssetVariant{
+		assetbundleName: assetbundleName,
+		musicVocalID:    shared.NormalizeAnyID(record["musicVocalId"]),
+	}, true
+}
+
+func (handler *MusicHandler) loadValidMusicVideoVocalIDs(ctx context.Context, region string, targetMusicID string, vocalIDs []string) (map[string]struct{}, error) {
 	validVocalIDs := make(map[string]struct{}, len(vocalIDs))
-	if len(vocalIDs) > 0 {
-		vocalRecords, err := handler.masterDataSync.GetByIDs(ctx, region, "musicvocals", vocalIDs)
-		if err != nil {
-			return nil, fmt.Errorf("get musicvocals: %w", err)
-		}
-		for index, vocalID := range vocalIDs {
-			if index >= len(vocalRecords) {
-				continue
-			}
-			vocalRecord := vocalRecords[index]
-			if vocalRecord == nil || shared.NormalizeAnyID(vocalRecord["id"]) != vocalID {
-				continue
-			}
-			if shared.NormalizeAnyID(vocalRecord["musicId"]) != targetMusicID {
-				continue
-			}
-			validVocalIDs[vocalID] = struct{}{}
-		}
+	if len(vocalIDs) == 0 {
+		return validVocalIDs, nil
 	}
 
+	vocalRecords, err := handler.masterDataSync.GetByIDs(ctx, region, "musicvocals", vocalIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get musicvocals: %w", err)
+	}
+	for index, vocalID := range vocalIDs {
+		if index >= len(vocalRecords) {
+			continue
+		}
+		vocalRecord := vocalRecords[index]
+		if vocalRecord == nil || shared.NormalizeAnyID(vocalRecord["id"]) != vocalID {
+			continue
+		}
+		if shared.NormalizeAnyID(vocalRecord["musicId"]) != targetMusicID {
+			continue
+		}
+		validVocalIDs[vocalID] = struct{}{}
+	}
+	return validVocalIDs, nil
+}
+
+func assembleMusicVideoResponses(targetMusicID string, categories []musicVideoCategory, variantsByID map[string]musicVideoAssetVariant, validVocalIDs map[string]struct{}) []shared.MusicVideoResponse {
 	defaultAssetbundleName := musicVideoDefaultAssetbundleName(targetMusicID)
 	musicVideos := make([]shared.MusicVideoResponse, 0, len(categories))
 	for _, category := range categories {
-		assetbundleName := defaultAssetbundleName
-		musicVocalID := ""
-		if category.hasExplicitVariant {
-			if category.variantID == "" {
-				continue
-			}
-			variant, exists := variantsByID[category.variantID]
-			if !exists {
-				continue
-			}
-			assetbundleName = variant.assetbundleName
-			musicVocalID = variant.musicVocalID
-			if musicVocalID != "" {
-				if _, valid := validVocalIDs[musicVocalID]; !valid {
-					continue
-				}
+		video, valid := musicVideoResponseForCategory(defaultAssetbundleName, category, variantsByID, validVocalIDs)
+		if !valid {
+			continue
+		}
+		musicVideos = append(musicVideos, video)
+	}
+	return musicVideos
+}
+
+func musicVideoResponseForCategory(defaultAssetbundleName string, category musicVideoCategory, variantsByID map[string]musicVideoAssetVariant, validVocalIDs map[string]struct{}) (shared.MusicVideoResponse, bool) {
+	assetbundleName := defaultAssetbundleName
+	musicVocalID := ""
+	if category.hasExplicitVariant {
+		if category.variantID == "" {
+			return shared.MusicVideoResponse{}, false
+		}
+		variant, exists := variantsByID[category.variantID]
+		if !exists {
+			return shared.MusicVideoResponse{}, false
+		}
+		assetbundleName = variant.assetbundleName
+		musicVocalID = variant.musicVocalID
+		if musicVocalID != "" {
+			if _, valid := validVocalIDs[musicVocalID]; !valid {
+				return shared.MusicVideoResponse{}, false
 			}
 		}
-
-		musicVideos = append(musicVideos, shared.MusicVideoResponse{
-			Category:        category.name,
-			AssetbundleName: assetbundleName,
-			MusicVocalID:    musicVocalID,
-		})
 	}
 
-	return musicVideos, nil
+	return shared.MusicVideoResponse{
+		Category:        category.name,
+		AssetbundleName: assetbundleName,
+		MusicVocalID:    musicVocalID,
+	}, true
 }
 
 type musicVideoCategory struct {

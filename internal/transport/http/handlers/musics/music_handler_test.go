@@ -546,6 +546,17 @@ type expectedMusicVideo struct {
 	musicVocalID    string
 }
 
+type musicVideoDetailTestCase struct {
+	name                 string
+	musicRecord          map[string]any
+	categoryRecords      []map[string]any
+	assetVariantRecords  []map[string]any
+	vocalRecords         []map[string]any
+	wantVideos           []expectedMusicVideo
+	wantCategories       []string
+	wantBatchLookupCalls []fakeMusicGetByIDsCall
+}
+
 type musicVideoBatchCache struct {
 	*fakeMusicHandlerCache
 	getByIDsCalls []fakeMusicGetByIDsCall
@@ -742,19 +753,93 @@ func (cache *musicVideoBatchCache) GetByCompositeKeys(_ context.Context, _ strin
 	return make([]map[string]any, len(keys)), nil
 }
 
+func newMusicVideoBatchCache(t *testing.T, musicRecord map[string]any, categoryRecords []map[string]any, assetVariantRecords []map[string]any, vocalRecords []map[string]any) *musicVideoBatchCache {
+	t.Helper()
+
+	if musicRecord == nil {
+		musicRecord = map[string]any{"id": 42, "title": "MV Test"}
+	}
+
+	return &musicVideoBatchCache{fakeMusicHandlerCache: &fakeMusicHandlerCache{
+		byID: map[string]map[string]map[string]map[string]any{
+			"jp": {"musics": {"42": musicRecord}},
+		},
+		listByEntity: map[string][]map[string]any{
+			"musiccategories":    categoryRecords,
+			"musicassetvariants": assetVariantRecords,
+			"musicvocals":        vocalRecords,
+		},
+		hasRecords: map[string]map[string]bool{"jp": {"musics": true}},
+	}}
+}
+
+func requireMusicVideosArray(t *testing.T, responseBody map[string]any) []any {
+	t.Helper()
+
+	videosRaw, ok := responseBody["musicVideos"]
+	if !ok {
+		t.Fatal("expected musicVideos in detail response")
+	}
+	videos, ok := videosRaw.([]any)
+	if !ok {
+		t.Fatalf("expected musicVideos array, got %T", videosRaw)
+	}
+	return videos
+}
+
+func assertMusicVideoDescriptor(t *testing.T, rawVideo any, index int, expected expectedMusicVideo) {
+	t.Helper()
+
+	video, ok := rawVideo.(map[string]any)
+	if !ok {
+		t.Fatalf("expected musicVideos[%d] object, got %T", index, rawVideo)
+	}
+	if video["category"] != expected.category || video["assetbundleName"] != expected.assetbundleName {
+		t.Fatalf("unexpected musicVideos[%d]: %v", index, video)
+	}
+	if expected.musicVocalID == "" {
+		if _, exists := video["musicVocalId"]; exists {
+			t.Fatalf("expected musicVideos[%d] to omit musicVocalId, got %v", index, video["musicVocalId"])
+		}
+	} else if video["musicVocalId"] != expected.musicVocalID {
+		t.Fatalf("expected musicVideos[%d].musicVocalId=%q, got %v", index, expected.musicVocalID, video["musicVocalId"])
+	}
+}
+
+func assertMusicVideoBatchLookupCalls(t *testing.T, cache *musicVideoBatchCache, expected []fakeMusicGetByIDsCall) {
+	t.Helper()
+
+	if !reflect.DeepEqual(cache.getByIDsCalls, expected) {
+		t.Fatalf("expected batched lookups %v, got %v", expected, cache.getByIDsCalls)
+	}
+	for _, call := range cache.getByIDCalls {
+		if call.entity == "musicassetvariants" || call.entity == "musicvocals" {
+			t.Fatalf("expected batched lookup for %s, got per-ID read %s", call.entity, call.id)
+		}
+	}
+}
+
+func runMusicVideoDetailTestCase(t *testing.T, testCase musicVideoDetailTestCase) {
+	t.Helper()
+
+	cache := newMusicVideoBatchCache(t, testCase.musicRecord, testCase.categoryRecords, testCase.assetVariantRecords, testCase.vocalRecords)
+	responseBody := decodeMusicOK(t, doMusicGet(newMusicCategoryRouter(newReadyMusicHandler(cache)), "/api/v1/musics/jp/42/detail"))
+
+	videos := requireMusicVideosArray(t, responseBody)
+	if len(videos) != len(testCase.wantVideos) {
+		t.Fatalf("expected %d music videos, got %d (%v)", len(testCase.wantVideos), len(videos), responseBody["musicVideos"])
+	}
+	for index, expected := range testCase.wantVideos {
+		assertMusicVideoDescriptor(t, videos[index], index, expected)
+	}
+	assertMusicHasCategories(t, responseBody, testCase.wantCategories)
+	assertMusicVideoBatchLookupCalls(t, cache, testCase.wantBatchLookupCalls)
+}
+
 func TestMusicDetailMusicVideos(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	testCases := []struct {
-		name                 string
-		musicRecord          map[string]any
-		categoryRecords      []map[string]any
-		assetVariantRecords  []map[string]any
-		vocalRecords         []map[string]any
-		wantVideos           []expectedMusicVideo
-		wantCategories       []string
-		wantBatchLookupCalls []fakeMusicGetByIDsCall
-	}{
+	testCases := []musicVideoDetailTestCase{
 		{
 			name: "uses padded music id for categories without variants",
 			categoryRecords: []map[string]any{
@@ -914,61 +999,7 @@ func TestMusicDetailMusicVideos(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			musicRecord := testCase.musicRecord
-			if musicRecord == nil {
-				musicRecord = map[string]any{"id": 42, "title": "MV Test"}
-			}
-
-			cache := &musicVideoBatchCache{fakeMusicHandlerCache: &fakeMusicHandlerCache{
-				byID: map[string]map[string]map[string]map[string]any{
-					"jp": {"musics": {"42": musicRecord}},
-				},
-				listByEntity: map[string][]map[string]any{
-					"musiccategories":    testCase.categoryRecords,
-					"musicassetvariants": testCase.assetVariantRecords,
-					"musicvocals":        testCase.vocalRecords,
-				},
-				hasRecords: map[string]map[string]bool{"jp": {"musics": true}},
-			}}
-			responseBody := decodeMusicOK(t, doMusicGet(newMusicCategoryRouter(newReadyMusicHandler(cache)), "/api/v1/musics/jp/42/detail"))
-
-			videosRaw, ok := responseBody["musicVideos"]
-			if !ok {
-				t.Fatal("expected musicVideos in detail response")
-			}
-			videos, ok := videosRaw.([]any)
-			if !ok {
-				t.Fatalf("expected musicVideos array, got %T", videosRaw)
-			}
-			if len(videos) != len(testCase.wantVideos) {
-				t.Fatalf("expected %d music videos, got %d (%v)", len(testCase.wantVideos), len(videos), videosRaw)
-			}
-			for index, expected := range testCase.wantVideos {
-				video, ok := videos[index].(map[string]any)
-				if !ok {
-					t.Fatalf("expected musicVideos[%d] object, got %T", index, videos[index])
-				}
-				if video["category"] != expected.category || video["assetbundleName"] != expected.assetbundleName {
-					t.Fatalf("unexpected musicVideos[%d]: %v", index, video)
-				}
-				if expected.musicVocalID == "" {
-					if _, exists := video["musicVocalId"]; exists {
-						t.Fatalf("expected musicVideos[%d] to omit musicVocalId, got %v", index, video["musicVocalId"])
-					}
-				} else if video["musicVocalId"] != expected.musicVocalID {
-					t.Fatalf("expected musicVideos[%d].musicVocalId=%q, got %v", index, expected.musicVocalID, video["musicVocalId"])
-				}
-			}
-			assertMusicHasCategories(t, responseBody, testCase.wantCategories)
-
-			if !reflect.DeepEqual(cache.getByIDsCalls, testCase.wantBatchLookupCalls) {
-				t.Fatalf("expected batched lookups %v, got %v", testCase.wantBatchLookupCalls, cache.getByIDsCalls)
-			}
-			for _, call := range cache.getByIDCalls {
-				if call.entity == "musicassetvariants" || call.entity == "musicvocals" {
-					t.Fatalf("expected batched lookup for %s, got per-ID read %s", call.entity, call.id)
-				}
-			}
+			runMusicVideoDetailTestCase(t, testCase)
 		})
 	}
 }
