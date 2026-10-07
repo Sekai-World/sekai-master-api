@@ -3,6 +3,7 @@ package musics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sekai-master-api/internal/domain/masterdata"
+	"sekai-master-api/internal/transport/http/handlers/shared"
 	"sekai-master-api/internal/transport/http/handlers/testutil"
 	"sekai-master-api/internal/usecase"
 )
@@ -31,11 +33,17 @@ type fakeMusicGetByIDCall struct {
 	id     string
 }
 
+type fakeMusicGetByIDsCall struct {
+	region string
+	entity string
+	ids    []string
+}
+
 type fakeMusicHandlerStatusStore struct {
 	statuses []masterdata.SyncStatus
 }
 
-func newReadyMusicHandler(cache *fakeMusicHandlerCache) *MusicHandler {
+func newReadyMusicHandler(cache usecase.MasterDataCache) *MusicHandler {
 	statusStore := &fakeMusicHandlerStatusStore{
 		statuses: []masterdata.SyncStatus{
 			{Region: "jp", Status: "success"},
@@ -528,6 +536,501 @@ func TestMusicEndpointsReturnPersistedRecordsAfterRestart(t *testing.T) {
 				t.Fatalf("unmarshal response: %v", err)
 			}
 			testCase.assertResponse(t, body)
+		})
+	}
+}
+
+type expectedMusicVideo struct {
+	category        string
+	assetbundleName string
+	musicVocalID    string
+}
+
+type musicVideoBatchCache struct {
+	*fakeMusicHandlerCache
+	getByIDsCalls []fakeMusicGetByIDsCall
+	batchErrors   map[string]error
+}
+
+type fakeMusicIndexCall struct {
+	region  string
+	entity  string
+	index   string
+	lookups [][]any
+}
+
+type musicOriginalsIndexCache struct {
+	*fakeMusicHandlerCache
+	indexCalls  []fakeMusicIndexCall
+	indexErrors map[string]error
+}
+
+func (cache *musicOriginalsIndexCache) ListByIndex(ctx context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error) {
+	call := fakeMusicIndexCall{
+		region: region,
+		entity: entity,
+		index:  index,
+	}
+	for _, lookup := range lookups {
+		call.lookups = append(call.lookups, append([]any(nil), lookup...))
+	}
+	cache.indexCalls = append(cache.indexCalls, call)
+	if err := cache.indexErrors[entity]; err != nil {
+		return nil, err
+	}
+
+	records, err := cache.fakeMusicHandlerCache.ListAll(ctx, region, entity)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([][]map[string]any, len(lookups))
+	for lookupIndex, lookup := range lookups {
+		results[lookupIndex] = make([]map[string]any, 0)
+		lookupKey, ok := masterdata.IndexLookupKey(lookup...)
+		if !ok {
+			continue
+		}
+		for _, record := range records {
+			for _, indexKey := range masterdata.IndexKeys(record, index) {
+				if indexKey == lookupKey {
+					results[lookupIndex] = append(results[lookupIndex], record)
+					break
+				}
+			}
+		}
+	}
+	return results, nil
+}
+
+func newMusicOriginalsIndexCache(records []map[string]any, indexErrors map[string]error) *musicOriginalsIndexCache {
+	return &musicOriginalsIndexCache{
+		fakeMusicHandlerCache: &fakeMusicHandlerCache{
+			byID: map[string]map[string]map[string]map[string]any{
+				"jp": {"musics": {"42": {"id": 42, "title": "Original Test"}}},
+			},
+			listByEntity: map[string][]map[string]any{
+				"musiccategories": {
+					{"id": 1, "musicId": 42, "musicCategoryName": "original"},
+					{"id": 2, "musicId": 42, "musicCategoryName": "mv_2d"},
+				},
+				"musicoriginals": records,
+			},
+			hasRecords: map[string]map[string]bool{"jp": {"musics": true}},
+		},
+		indexErrors: indexErrors,
+	}
+}
+
+func TestMusicDetailMusicOriginals(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := newMusicOriginalsIndexCache([]map[string]any{
+		{"id": 801, "musicId": 42, "videoLink": "https://youtu.be/abc123"},
+		{"id": 802, "musicId": "42", "videoLink": "https://www.nicovideo.jp/watch/sm123456"},
+		{"id": 42, "musicId": 99, "videoLink": "https://youtu.be/not-this-music"},
+		{"id": 803, "musicId": 42, "videoLink": "  "},
+		{"id": map[string]any{"value": 804}, "musicId": 42, "videoLink": "https://youtu.be/malformed-id"},
+		{"id": 805, "musicId": true, "videoLink": "https://youtu.be/malformed-music-id"},
+		{"id": 806, "musicId": 42, "videoLink": 123},
+	}, nil)
+	responseBody := decodeMusicOK(t, doMusicGet(newMusicCategoryRouter(newReadyMusicHandler(cache)), "/api/v1/musics/jp/42/detail"))
+
+	originalsRaw, ok := responseBody["musicOriginals"]
+	if !ok {
+		t.Fatal("expected musicOriginals in detail response")
+	}
+	originals, ok := originalsRaw.([]any)
+	if !ok || len(originals) != 2 {
+		t.Fatalf("expected two valid music originals, got %T %v", originalsRaw, originalsRaw)
+	}
+	wantOriginals := []map[string]any{
+		{"id": "801", "musicId": "42", "videoLink": "https://youtu.be/abc123"},
+		{"id": "802", "musicId": "42", "videoLink": "https://www.nicovideo.jp/watch/sm123456"},
+	}
+	for index, want := range wantOriginals {
+		got, ok := originals[index].(map[string]any)
+		if !ok || !reflect.DeepEqual(got, want) {
+			t.Fatalf("expected musicOriginals[%d]=%v, got %v", index, want, originals[index])
+		}
+	}
+
+	musicVideos, ok := responseBody["musicVideos"].([]any)
+	if !ok || len(musicVideos) != 2 {
+		t.Fatalf("expected existing musicVideos to remain in detail, got %v", responseBody["musicVideos"])
+	}
+	for index, category := range []string{"original", "mv_2d"} {
+		video, ok := musicVideos[index].(map[string]any)
+		if !ok || video["category"] != category {
+			t.Fatalf("expected musicVideos[%d] category %q, got %v", index, category, musicVideos[index])
+		}
+	}
+
+	wantIndexCalls := []fakeMusicIndexCall{
+		{region: "jp", entity: "musiccategories", index: "musicId", lookups: [][]any{{"42"}}},
+		{region: "jp", entity: "musicdifficulties", index: "musicId", lookups: [][]any{{"42"}}},
+		{region: "jp", entity: "musicvocals", index: "musicId", lookups: [][]any{{"42"}}},
+		{region: "jp", entity: "musictags", index: "musicId", lookups: [][]any{{"42"}}},
+		{region: "jp", entity: "musicoriginals", index: "musicId", lookups: [][]any{{"42"}}},
+	}
+	if !reflect.DeepEqual(cache.indexCalls, wantIndexCalls) {
+		t.Fatalf("expected music-original relation index lookup %v, got %v", wantIndexCalls, cache.indexCalls)
+	}
+}
+
+func TestMusicDetailMusicOriginalsMissingDataReturnsEmptyArray(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := newMusicOriginalsIndexCache(nil, nil)
+	responseBody := decodeMusicOK(t, doMusicGet(newMusicCategoryRouter(newReadyMusicHandler(cache)), "/api/v1/musics/jp/42/detail"))
+	originals, ok := responseBody["musicOriginals"].([]any)
+	if !ok || len(originals) != 0 {
+		t.Fatalf("expected an empty musicOriginals array, got %T %v", responseBody["musicOriginals"], responseBody["musicOriginals"])
+	}
+}
+
+func TestMusicDetailMusicOriginalsReadError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cache := newMusicOriginalsIndexCache(nil, map[string]error{"musicoriginals": errors.New("index read failed")})
+	resp := doMusicGet(newMusicCategoryRouter(newReadyMusicHandler(cache)), "/api/v1/musics/jp/42/detail")
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal error response: %v", err)
+	}
+	if body.Error.Code != "MUSIC_QUERY_ERROR" {
+		t.Fatalf("expected MUSIC_QUERY_ERROR, got %q", body.Error.Code)
+	}
+}
+
+func (cache *musicVideoBatchCache) GetByIDs(_ context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	cache.getByIDsCalls = append(cache.getByIDsCalls, fakeMusicGetByIDsCall{
+		region: region,
+		entity: entity,
+		ids:    append([]string(nil), ids...),
+	})
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
+	if err := cache.batchErrors[entity]; err != nil {
+		return nil, err
+	}
+	records := make([]map[string]any, len(ids))
+	for index, id := range ids {
+		if record, ok := cache.byID[region][entity][id]; ok {
+			records[index] = record
+			continue
+		}
+		for _, candidate := range cache.listByEntity[entity] {
+			if shared.NormalizeAnyID(candidate["id"]) == id {
+				records[index] = candidate
+				break
+			}
+		}
+	}
+	return records, nil
+}
+
+func (cache *musicVideoBatchCache) GetByCompositeKeys(_ context.Context, _ string, _ string, keys []map[string]any) ([]map[string]any, error) {
+	return make([]map[string]any, len(keys)), nil
+}
+
+func TestMusicDetailMusicVideos(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name                 string
+		musicRecord          map[string]any
+		categoryRecords      []map[string]any
+		assetVariantRecords  []map[string]any
+		vocalRecords         []map[string]any
+		wantVideos           []expectedMusicVideo
+		wantCategories       []string
+		wantBatchLookupCalls []fakeMusicGetByIDsCall
+	}{
+		{
+			name: "uses padded music id for categories without variants",
+			categoryRecords: []map[string]any{
+				{"id": 1, "musicId": 42, "musicCategoryName": "original"},
+				{"id": 2, "musicId": 42, "musicCategoryName": "mv_2d"},
+				{"id": 3, "musicId": 42, "musicCategoryName": "mv"},
+			},
+			wantVideos: []expectedMusicVideo{
+				{category: "original", assetbundleName: "0042"},
+				{category: "mv_2d", assetbundleName: "0042"},
+			},
+			wantCategories: []string{"original", "mv_2d", "mv"},
+		},
+		{
+			name: "uses explicit mv variants and batches variant and vocal reads",
+			categoryRecords: []map[string]any{
+				{"id": 1, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 101},
+				{"id": 2, "musicId": 42, "musicCategoryName": "mv_2d", "musicAssetVariantId": 102},
+			},
+			assetVariantRecords: []map[string]any{
+				{"id": 101, "musicVocalId": 201, "musicAssetType": "mv", "assetbundleName": "mv_original_0042"},
+				{"id": 102, "musicVocalId": 202, "musicAssetType": "mv", "assetbundleName": "mv_2d_0042"},
+			},
+			vocalRecords: []map[string]any{
+				{"id": 201, "musicId": 42},
+				{"id": 202, "musicId": 42},
+			},
+			wantVideos: []expectedMusicVideo{
+				{category: "original", assetbundleName: "mv_original_0042", musicVocalID: "201"},
+				{category: "mv_2d", assetbundleName: "mv_2d_0042", musicVocalID: "202"},
+			},
+			wantCategories: []string{"original", "mv_2d"},
+			wantBatchLookupCalls: []fakeMusicGetByIDsCall{
+				{region: "jp", entity: "musicassetvariants", ids: []string{"101", "102"}},
+				{region: "jp", entity: "musicvocals", ids: []string{"201", "202"}},
+			},
+		},
+		{
+			name:        "omits missing and invalid explicit variants without falling back",
+			musicRecord: map[string]any{"id": 42, "title": "MV Test", "categories": []any{"original"}},
+			categoryRecords: []map[string]any{
+				{"id": 1, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 301},
+				{"id": 2, "musicId": 42, "musicCategoryName": "mv_2d", "musicAssetVariantId": 302},
+				{"id": 3, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 303},
+			},
+			assetVariantRecords: []map[string]any{
+				{"id": 302, "musicAssetType": "jacket", "assetbundleName": "not_an_mv"},
+				{"id": 303, "musicAssetType": "mv", "assetbundleName": "  "},
+			},
+			wantVideos:     []expectedMusicVideo{},
+			wantCategories: []string{"original", "mv_2d", "original"},
+			wantBatchLookupCalls: []fakeMusicGetByIDsCall{
+				{region: "jp", entity: "musicassetvariants", ids: []string{"301", "302", "303"}},
+			},
+		},
+		{
+			name: "returns an empty array when categories are not playable videos",
+			categoryRecords: []map[string]any{
+				{"id": 1, "musicId": 42, "musicCategoryName": "mv"},
+				{"id": 2, "musicId": 42, "musicCategoryName": "image"},
+			},
+			wantVideos:     []expectedMusicVideo{},
+			wantCategories: []string{"mv", "image"},
+		},
+		{
+			name: "omits malformed explicit variant ids instead of using defaults",
+			categoryRecords: []map[string]any{
+				{"id": 1, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": nil},
+				{"id": 2, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": "  "},
+				{"id": 3, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": map[string]any{"id": 1}},
+				{"id": 4, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": true},
+				{"id": 5, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 1.5},
+			},
+			wantVideos:     []expectedMusicVideo{},
+			wantCategories: []string{"original", "original", "original", "original", "original"},
+		},
+		{
+			name: "preserves embedded object variant ids while keeping categories as strings",
+			musicRecord: map[string]any{"id": 42, "title": "MV Test", "categories": []any{
+				map[string]any{"musicCategoryName": "original", "musicAssetVariantId": 701},
+				map[string]any{"musicCategoryName": "mv_2d", "musicAssetVariantId": 702},
+			}},
+			assetVariantRecords: []map[string]any{
+				{"id": 701, "musicAssetType": "mv", "assetbundleName": "mv_original_0042"},
+				{"id": 702, "musicAssetType": "mv", "assetbundleName": "mv_2d_0042"},
+			},
+			wantVideos: []expectedMusicVideo{
+				{category: "original", assetbundleName: "mv_original_0042"},
+				{category: "mv_2d", assetbundleName: "mv_2d_0042"},
+			},
+			wantCategories: []string{"original", "mv_2d"},
+			wantBatchLookupCalls: []fakeMusicGetByIDsCall{
+				{region: "jp", entity: "musicassetvariants", ids: []string{"701", "702"}},
+			},
+		},
+		{
+			name: "rejects unsafe or non-string asset bundle names",
+			categoryRecords: []map[string]any{
+				{"musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 601},
+				{"musicId": 42, "musicCategoryName": "mv_2d", "musicAssetVariantId": 602},
+				{"musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 603},
+				{"musicId": 42, "musicCategoryName": "mv_2d", "musicAssetVariantId": 604},
+				{"musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 605},
+				{"musicId": 42, "musicCategoryName": "mv_2d", "musicAssetVariantId": 606},
+			},
+			assetVariantRecords: []map[string]any{
+				{"id": 601, "musicAssetType": "mv", "assetbundleName": 42},
+				{"id": 602, "musicAssetType": "mv", "assetbundleName": map[string]any{"name": "bundle"}},
+				{"id": 603, "musicAssetType": "mv", "assetbundleName": "../bundle"},
+				{"id": 604, "musicAssetType": "mv", "assetbundleName": "bundle/path"},
+				{"id": 605, "musicAssetType": "mv", "assetbundleName": `bundle\\path`},
+				{"id": 606, "musicAssetType": "mv", "assetbundleName": "bundle\u0000name"},
+			},
+			wantVideos:     []expectedMusicVideo{},
+			wantCategories: []string{"original", "mv_2d", "original", "mv_2d", "original", "mv_2d"},
+			wantBatchLookupCalls: []fakeMusicGetByIDsCall{
+				{region: "jp", entity: "musicassetvariants", ids: []string{"601", "602", "603", "604", "605", "606"}},
+			},
+		},
+		{
+			name: "requires exact category spelling",
+			categoryRecords: []map[string]any{
+				{"musicId": 42, "musicCategoryName": "Original"},
+				{"musicId": 42, "musicCategoryName": "mv_2D"},
+			},
+			wantVideos:     []expectedMusicVideo{},
+			wantCategories: []string{"Original", "mv_2D"},
+		},
+		{
+			name: "rejects a variant whose vocal belongs to another music",
+			categoryRecords: []map[string]any{
+				{"id": 1, "musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 401},
+			},
+			assetVariantRecords: []map[string]any{
+				{"id": 401, "musicVocalId": 501, "musicAssetType": "mv", "assetbundleName": "mv_0042"},
+			},
+			vocalRecords: []map[string]any{
+				{"id": 501, "musicId": 99},
+			},
+			wantVideos:     []expectedMusicVideo{},
+			wantCategories: []string{"original"},
+			wantBatchLookupCalls: []fakeMusicGetByIDsCall{
+				{region: "jp", entity: "musicassetvariants", ids: []string{"401"}},
+				{region: "jp", entity: "musicvocals", ids: []string{"501"}},
+			},
+		},
+		{
+			name:        "falls back to embedded categories when category rows are absent",
+			musicRecord: map[string]any{"id": 42, "title": "MV Test", "categories": []any{"original", map[string]any{"musicCategoryName": "mv_2d"}}},
+			wantVideos: []expectedMusicVideo{
+				{category: "original", assetbundleName: "0042"},
+				{category: "mv_2d", assetbundleName: "0042"},
+			},
+			wantCategories: []string{"original", "mv_2d"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			musicRecord := testCase.musicRecord
+			if musicRecord == nil {
+				musicRecord = map[string]any{"id": 42, "title": "MV Test"}
+			}
+
+			cache := &musicVideoBatchCache{fakeMusicHandlerCache: &fakeMusicHandlerCache{
+				byID: map[string]map[string]map[string]map[string]any{
+					"jp": {"musics": {"42": musicRecord}},
+				},
+				listByEntity: map[string][]map[string]any{
+					"musiccategories":    testCase.categoryRecords,
+					"musicassetvariants": testCase.assetVariantRecords,
+					"musicvocals":        testCase.vocalRecords,
+				},
+				hasRecords: map[string]map[string]bool{"jp": {"musics": true}},
+			}}
+			responseBody := decodeMusicOK(t, doMusicGet(newMusicCategoryRouter(newReadyMusicHandler(cache)), "/api/v1/musics/jp/42/detail"))
+
+			videosRaw, ok := responseBody["musicVideos"]
+			if !ok {
+				t.Fatal("expected musicVideos in detail response")
+			}
+			videos, ok := videosRaw.([]any)
+			if !ok {
+				t.Fatalf("expected musicVideos array, got %T", videosRaw)
+			}
+			if len(videos) != len(testCase.wantVideos) {
+				t.Fatalf("expected %d music videos, got %d (%v)", len(testCase.wantVideos), len(videos), videosRaw)
+			}
+			for index, expected := range testCase.wantVideos {
+				video, ok := videos[index].(map[string]any)
+				if !ok {
+					t.Fatalf("expected musicVideos[%d] object, got %T", index, videos[index])
+				}
+				if video["category"] != expected.category || video["assetbundleName"] != expected.assetbundleName {
+					t.Fatalf("unexpected musicVideos[%d]: %v", index, video)
+				}
+				if expected.musicVocalID == "" {
+					if _, exists := video["musicVocalId"]; exists {
+						t.Fatalf("expected musicVideos[%d] to omit musicVocalId, got %v", index, video["musicVocalId"])
+					}
+				} else if video["musicVocalId"] != expected.musicVocalID {
+					t.Fatalf("expected musicVideos[%d].musicVocalId=%q, got %v", index, expected.musicVocalID, video["musicVocalId"])
+				}
+			}
+			assertMusicHasCategories(t, responseBody, testCase.wantCategories)
+
+			if !reflect.DeepEqual(cache.getByIDsCalls, testCase.wantBatchLookupCalls) {
+				t.Fatalf("expected batched lookups %v, got %v", testCase.wantBatchLookupCalls, cache.getByIDsCalls)
+			}
+			for _, call := range cache.getByIDCalls {
+				if call.entity == "musicassetvariants" || call.entity == "musicvocals" {
+					t.Fatalf("expected batched lookup for %s, got per-ID read %s", call.entity, call.id)
+				}
+			}
+		})
+	}
+}
+
+func TestMusicDetailMusicVideoBatchReadErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name                string
+		categoryRecords     []map[string]any
+		assetVariantRecords []map[string]any
+		failedEntity        string
+	}{
+		{
+			name: "asset variant lookup error",
+			categoryRecords: []map[string]any{
+				{"musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 801},
+			},
+			failedEntity: "musicassetvariants",
+		},
+		{
+			name: "vocal lookup error",
+			categoryRecords: []map[string]any{
+				{"musicId": 42, "musicCategoryName": "original", "musicAssetVariantId": 802},
+			},
+			assetVariantRecords: []map[string]any{
+				{"id": 802, "musicVocalId": 901, "musicAssetType": "mv", "assetbundleName": "mv_0042"},
+			},
+			failedEntity: "musicvocals",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cache := &musicVideoBatchCache{
+				fakeMusicHandlerCache: &fakeMusicHandlerCache{
+					byID: map[string]map[string]map[string]map[string]any{
+						"jp": {"musics": {"42": {"id": 42, "title": "MV Test"}}},
+					},
+					listByEntity: map[string][]map[string]any{
+						"musiccategories":    testCase.categoryRecords,
+						"musicassetvariants": testCase.assetVariantRecords,
+					},
+					hasRecords: map[string]map[string]bool{"jp": {"musics": true}},
+				},
+				batchErrors: map[string]error{testCase.failedEntity: errors.New("batch read failed")},
+			}
+			resp := doMusicGet(newMusicCategoryRouter(newReadyMusicHandler(cache)), "/api/v1/musics/jp/42/detail")
+			if resp.Code != http.StatusInternalServerError {
+				t.Fatalf("expected status 500, got %d: %s", resp.Code, resp.Body.String())
+			}
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal error response: %v", err)
+			}
+			if body.Error.Code != "MUSIC_QUERY_ERROR" {
+				t.Fatalf("expected MUSIC_QUERY_ERROR, got %q", body.Error.Code)
+			}
 		})
 	}
 }

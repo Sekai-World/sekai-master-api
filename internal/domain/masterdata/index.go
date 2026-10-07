@@ -36,6 +36,7 @@ var entityIndexes = map[string][]string{
 	"gachas":                                 {"gachaPickups.cardId"},
 	"musiccategories":                        {"musicId"},
 	"musicdifficulties":                      {"musicId"},
+	"musicoriginals":                         {"musicId"},
 	"musictags":                              {"musicId"},
 	"musicvocals":                            {"musicId"},
 	"mysekaiblueprintmysekaimaterialcosts":   {"mysekaiBlueprintId", "mysekaiMaterialId"},

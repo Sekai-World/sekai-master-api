@@ -42,6 +42,9 @@ func TestIndexVersionNamesItsIndexes(t *testing.T) {
 	if version == "" || !reflect.DeepEqual(IndexNamesFromVersion(version), []string{"resourceBoxId,resourceBoxPurpose", "resourceType,resourceId"}) {
 		t.Fatalf("expected the version to record the index names, got %q", version)
 	}
+	if version := IndexVersion("MusicOriginals"); version == "" || !reflect.DeepEqual(IndexNamesFromVersion(version), []string{"musicId"}) {
+		t.Fatalf("expected the music originals version to record its musicId index, got %q", version)
+	}
 	if IndexVersion("musics") != "" || IndexNamesFromVersion("") != nil {
 		t.Fatal("expected entities without indexes to have no version")
 	}

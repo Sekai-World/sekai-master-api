@@ -2,12 +2,15 @@ package musics
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 
@@ -899,6 +902,10 @@ func (handler *MusicHandler) loadMusicCategoryRecords(ctx context.Context, regio
 		return nil, fmt.Errorf("list musiccategories: %w", err)
 	}
 
+	return aggregateMusicCategoryRecords(categoryRecords), nil
+}
+
+func aggregateMusicCategoryRecords(categoryRecords []map[string]any) map[string][]string {
 	categories := make(map[string][]string, len(categoryRecords))
 	for _, categoryRecord := range categoryRecords {
 		musicID := shared.NormalizeAnyID(categoryRecord["musicId"])
@@ -912,7 +919,321 @@ func (handler *MusicHandler) loadMusicCategoryRecords(ctx context.Context, regio
 		categories[musicID] = append(categories[musicID], musicCategory)
 	}
 
-	return categories, nil
+	return categories
+}
+
+func (handler *MusicHandler) buildMusicVideos(ctx context.Context, region string, musicID string, musicRecord map[string]any, categoryRecords []map[string]any) ([]shared.MusicVideoResponse, error) {
+	targetMusicID := shared.NormalizeAnyID(musicID)
+	categoryRowsExist := false
+	categories := make([]musicVideoCategory, 0, len(categoryRecords))
+	for _, categoryRecord := range categoryRecords {
+		if shared.NormalizeAnyID(categoryRecord["musicId"]) != targetMusicID {
+			continue
+		}
+		categoryRowsExist = true
+
+		category := musicVideoCategoryName(categoryRecord)
+		if category == "" {
+			continue
+		}
+		variantID, hasVariantID := musicVideoVariantReference(categoryRecord)
+		categories = append(categories, musicVideoCategory{
+			name:               category,
+			variantID:          variantID,
+			hasExplicitVariant: hasVariantID,
+		})
+	}
+
+	if !categoryRowsExist {
+		categories = extractEmbeddedMusicVideoCategories(musicRecord)
+	}
+	if len(categories) == 0 {
+		return []shared.MusicVideoResponse{}, nil
+	}
+
+	variantIDs := make([]string, 0, len(categories))
+	seenVariantIDs := make(map[string]struct{}, len(categories))
+	for _, category := range categories {
+		if !category.hasExplicitVariant || category.variantID == "" {
+			continue
+		}
+		if _, exists := seenVariantIDs[category.variantID]; exists {
+			continue
+		}
+		seenVariantIDs[category.variantID] = struct{}{}
+		variantIDs = append(variantIDs, category.variantID)
+	}
+
+	variantsByID := make(map[string]musicVideoAssetVariant, len(variantIDs))
+	vocalIDs := make([]string, 0, len(variantIDs))
+	seenVocalIDs := make(map[string]struct{}, len(variantIDs))
+	if len(variantIDs) > 0 {
+		variantRecords, err := handler.masterDataSync.GetByIDs(ctx, region, "musicassetvariants", variantIDs)
+		if err != nil {
+			return nil, fmt.Errorf("get musicassetvariants: %w", err)
+		}
+		for index, variantID := range variantIDs {
+			if index >= len(variantRecords) {
+				continue
+			}
+			variantRecord := variantRecords[index]
+			if variantRecord == nil || shared.NormalizeAnyID(variantRecord["id"]) != variantID {
+				continue
+			}
+			if shared.NormalizeComparableText(variantRecord["musicAssetType"]) != "mv" {
+				continue
+			}
+			assetbundleName, valid := safeMusicVideoAssetbundleName(variantRecord["assetbundleName"])
+			if !valid {
+				continue
+			}
+
+			musicVocalID := shared.NormalizeAnyID(variantRecord["musicVocalId"])
+			variantsByID[variantID] = musicVideoAssetVariant{
+				assetbundleName: assetbundleName,
+				musicVocalID:    musicVocalID,
+			}
+			if musicVocalID != "" {
+				if _, exists := seenVocalIDs[musicVocalID]; !exists {
+					seenVocalIDs[musicVocalID] = struct{}{}
+					vocalIDs = append(vocalIDs, musicVocalID)
+				}
+			}
+		}
+	}
+
+	validVocalIDs := make(map[string]struct{}, len(vocalIDs))
+	if len(vocalIDs) > 0 {
+		vocalRecords, err := handler.masterDataSync.GetByIDs(ctx, region, "musicvocals", vocalIDs)
+		if err != nil {
+			return nil, fmt.Errorf("get musicvocals: %w", err)
+		}
+		for index, vocalID := range vocalIDs {
+			if index >= len(vocalRecords) {
+				continue
+			}
+			vocalRecord := vocalRecords[index]
+			if vocalRecord == nil || shared.NormalizeAnyID(vocalRecord["id"]) != vocalID {
+				continue
+			}
+			if shared.NormalizeAnyID(vocalRecord["musicId"]) != targetMusicID {
+				continue
+			}
+			validVocalIDs[vocalID] = struct{}{}
+		}
+	}
+
+	defaultAssetbundleName := musicVideoDefaultAssetbundleName(targetMusicID)
+	musicVideos := make([]shared.MusicVideoResponse, 0, len(categories))
+	for _, category := range categories {
+		assetbundleName := defaultAssetbundleName
+		musicVocalID := ""
+		if category.hasExplicitVariant {
+			if category.variantID == "" {
+				continue
+			}
+			variant, exists := variantsByID[category.variantID]
+			if !exists {
+				continue
+			}
+			assetbundleName = variant.assetbundleName
+			musicVocalID = variant.musicVocalID
+			if musicVocalID != "" {
+				if _, valid := validVocalIDs[musicVocalID]; !valid {
+					continue
+				}
+			}
+		}
+
+		musicVideos = append(musicVideos, shared.MusicVideoResponse{
+			Category:        category.name,
+			AssetbundleName: assetbundleName,
+			MusicVocalID:    musicVocalID,
+		})
+	}
+
+	return musicVideos, nil
+}
+
+type musicVideoCategory struct {
+	name               string
+	variantID          string
+	hasExplicitVariant bool
+}
+
+type musicVideoAssetVariant struct {
+	assetbundleName string
+	musicVocalID    string
+}
+
+func musicVideoCategoryName(record map[string]any) string {
+	category, ok := record["musicCategoryName"].(string)
+	if !ok || strings.TrimSpace(category) == "" {
+		category, ok = record["musicCategory"].(string)
+		if !ok {
+			return ""
+		}
+	}
+
+	switch strings.TrimSpace(category) {
+	case "original", "mv_2d":
+		return strings.TrimSpace(category)
+	default:
+		return ""
+	}
+}
+
+func musicVideoVariantReference(record map[string]any) (string, bool) {
+	value, present := record["musicAssetVariantId"]
+	if !present {
+		return "", false
+	}
+	variantID, valid := parseMusicAssetVariantID(value)
+	if !valid {
+		return "", true
+	}
+	return variantID, true
+}
+
+func parseMusicAssetVariantID(value any) (string, bool) {
+	switch value := value.(type) {
+	case string:
+		return canonicalMusicAssetVariantID(value)
+	case json.Number:
+		return canonicalMusicAssetVariantID(string(value))
+	case int:
+		if value < 0 {
+			return "", false
+		}
+		return strconv.FormatInt(int64(value), 10), true
+	case int8:
+		if value < 0 {
+			return "", false
+		}
+		return strconv.FormatInt(int64(value), 10), true
+	case int16:
+		if value < 0 {
+			return "", false
+		}
+		return strconv.FormatInt(int64(value), 10), true
+	case int32:
+		if value < 0 {
+			return "", false
+		}
+		return strconv.FormatInt(int64(value), 10), true
+	case int64:
+		if value < 0 {
+			return "", false
+		}
+		return strconv.FormatInt(value, 10), true
+	case uint:
+		return strconv.FormatUint(uint64(value), 10), true
+	case uint8:
+		return strconv.FormatUint(uint64(value), 10), true
+	case uint16:
+		return strconv.FormatUint(uint64(value), 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(value), 10), true
+	case uint64:
+		return strconv.FormatUint(value, 10), true
+	case float32:
+		return canonicalMusicAssetVariantFloat(float64(value))
+	case float64:
+		return canonicalMusicAssetVariantFloat(value)
+	default:
+		return "", false
+	}
+}
+
+func canonicalMusicAssetVariantID(value string) (string, bool) {
+	parsed, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+	if err != nil {
+		return "", false
+	}
+	return strconv.FormatUint(parsed, 10), true
+}
+
+func canonicalMusicAssetVariantFloat(value float64) (string, bool) {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || math.Trunc(value) != value {
+		return "", false
+	}
+	return canonicalMusicAssetVariantID(strconv.FormatFloat(value, 'f', 0, 64))
+}
+
+func extractEmbeddedMusicVideoCategories(record map[string]any) []musicVideoCategory {
+	categories := make([]musicVideoCategory, 0)
+	for _, key := range []string{"categories", "category", "musicCategory"} {
+		categories = append(categories, collectEmbeddedMusicVideoCategories(record[key])...)
+	}
+	return categories
+}
+
+func collectEmbeddedMusicVideoCategories(value any) []musicVideoCategory {
+	switch value := value.(type) {
+	case []any:
+		categories := make([]musicVideoCategory, 0, len(value))
+		for _, item := range value {
+			categories = append(categories, collectEmbeddedMusicVideoCategories(item)...)
+		}
+		return categories
+	case []string:
+		categories := make([]musicVideoCategory, 0, len(value))
+		for _, item := range value {
+			categories = append(categories, collectEmbeddedMusicVideoCategories(item)...)
+		}
+		return categories
+	case []map[string]any:
+		categories := make([]musicVideoCategory, 0, len(value))
+		for _, item := range value {
+			categories = append(categories, collectEmbeddedMusicVideoCategories(item)...)
+		}
+		return categories
+	case map[string]any:
+		category := musicVideoCategoryName(value)
+		if category == "" {
+			return nil
+		}
+		variantID, hasVariantID := musicVideoVariantReference(value)
+		return []musicVideoCategory{{
+			name:               category,
+			variantID:          variantID,
+			hasExplicitVariant: hasVariantID,
+		}}
+	case string:
+		category := musicVideoCategoryName(map[string]any{"musicCategoryName": value})
+		if category == "" {
+			return nil
+		}
+		return []musicVideoCategory{{name: category}}
+	default:
+		return nil
+	}
+}
+
+func safeMusicVideoAssetbundleName(value any) (string, bool) {
+	assetbundleName, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	for _, character := range assetbundleName {
+		if unicode.IsControl(character) {
+			return "", false
+		}
+	}
+
+	assetbundleName = strings.TrimSpace(assetbundleName)
+	if assetbundleName == "" || assetbundleName == "." || strings.Contains(assetbundleName, "..") || strings.ContainsAny(assetbundleName, `/\?#%`) {
+		return "", false
+	}
+	return assetbundleName, true
+}
+
+func musicVideoDefaultAssetbundleName(musicID string) string {
+	id, err := strconv.Atoi(musicID)
+	if err != nil {
+		return musicID
+	}
+	return fmt.Sprintf("%04d", id)
 }
 
 func normalizeMusicCategoryName(value any) string {
@@ -1180,7 +1501,7 @@ func (handler *MusicHandler) VocalsByID(c *gin.Context) {
 
 // DetailByID godoc
 // @Summary Get music detail composite by id
-// @Description Returns music base info, difficulties, vocals, and tags in a single response
+// @Description Returns music base info, difficulties, vocals, tags, playable music videos, and original video links in a single response
 // @Tags musics
 // @Produce json
 // @Param region path string true "Region"
@@ -1219,7 +1540,14 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	categories, err := handler.loadMusicCategoryRecords(ctx, region, []string{id})
+	categoryRecords, err := handler.musicRecordsByMusicID(ctx, region, "musiccategories", []string{id})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
+		return
+	}
+	categories := aggregateMusicCategoryRecords(categoryRecords)
+
+	musicVideos, err := handler.buildMusicVideos(ctx, region, id, record, categoryRecords)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", musicEnrichmentErrorMessage)
 		return
@@ -1249,15 +1577,84 @@ func (handler *MusicHandler) DetailByID(c *gin.Context) {
 		return
 	}
 
+	musicOriginals, err := handler.buildMusicOriginalsByMusicID(ctx, region, id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "MUSIC_QUERY_ERROR", "failed to query music originals")
+		return
+	}
+
 	musicCategories := resolveMusicCategories(record, categories, shared.NormalizeAnyID(record["id"]))
 
 	response.JSON(c, http.StatusOK, gin.H{
-		"music":        music,
-		"difficulties": difficulties,
-		"vocals":       vocals,
-		"tags":         tags,
-		"categories":   musicCategories,
+		"music":          music,
+		"difficulties":   difficulties,
+		"vocals":         vocals,
+		"tags":           tags,
+		"categories":     musicCategories,
+		"musicVideos":    musicVideos,
+		"musicOriginals": musicOriginals,
 	})
+}
+
+func (handler *MusicHandler) buildMusicOriginalsByMusicID(ctx context.Context, region string, musicID string) ([]shared.MusicOriginalResponse, error) {
+	originals := make([]shared.MusicOriginalResponse, 0)
+	if handler == nil || handler.masterDataSync == nil {
+		return originals, nil
+	}
+
+	targetMusicID, ok := normalizeMusicOriginalID(musicID)
+	if !ok {
+		return originals, nil
+	}
+
+	matches, err := handler.masterDataSync.ListByIndex(ctx, region, "musicoriginals", "musicId", [][]any{{musicID}})
+	if err != nil {
+		return nil, fmt.Errorf("list musicoriginals: %w", err)
+	}
+	if len(matches) == 0 {
+		return originals, nil
+	}
+
+	for _, record := range matches[0] {
+		if record == nil {
+			continue
+		}
+
+		id, idOK := normalizeMusicOriginalID(record["id"])
+		relatedMusicID, musicIDOK := normalizeMusicOriginalID(record["musicId"])
+		videoLink, videoLinkOK := record["videoLink"].(string)
+		videoLink = strings.TrimSpace(videoLink)
+		if !idOK || !musicIDOK || relatedMusicID != targetMusicID || !videoLinkOK || videoLink == "" {
+			continue
+		}
+
+		originals = append(originals, shared.MusicOriginalResponse{
+			ID:        id,
+			MusicID:   relatedMusicID,
+			VideoLink: videoLink,
+		})
+	}
+
+	return originals, nil
+}
+
+func normalizeMusicOriginalID(value any) (string, bool) {
+	switch typed := value.(type) {
+	case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, json.Number:
+	case float32:
+		if math.IsNaN(float64(typed)) || math.IsInf(float64(typed), 0) || math.Trunc(float64(typed)) != float64(typed) {
+			return "", false
+		}
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) || math.Trunc(typed) != typed {
+			return "", false
+		}
+	default:
+		return "", false
+	}
+
+	id := shared.NormalizeAnyID(value)
+	return id, id != ""
 }
 
 func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, region string, musicID string) ([]map[string]any, error) {
