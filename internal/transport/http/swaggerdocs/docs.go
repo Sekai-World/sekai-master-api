@@ -4185,7 +4185,7 @@ const docTemplate = `{
         },
         "/musics/{region}/{id}/detail": {
             "get": {
-                "description": "Returns music base info, difficulties, vocals, and tags in a single response",
+                "description": "Returns music base info, difficulties, vocals, tags, playable music videos, and original video links in a single response",
                 "produces": [
                     "application/json"
                 ],
@@ -8541,6 +8541,9 @@ const docTemplate = `{
         },
         "shared.MusicDetailResponse": {
             "type": "object",
+            "required": [
+                "musicOriginals"
+            ],
             "properties": {
                 "categories": {
                     "type": "array",
@@ -8556,6 +8559,18 @@ const docTemplate = `{
                 },
                 "music": {
                     "$ref": "#/definitions/shared.MusicObjectResponse"
+                },
+                "musicOriginals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicOriginalResponse"
+                    }
+                },
+                "musicVideos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicVideoResponse"
+                    }
                 },
                 "tags": {
                     "type": "array",
@@ -8695,6 +8710,25 @@ const docTemplate = `{
                 "title": {}
             }
         },
+        "shared.MusicOriginalResponse": {
+            "type": "object",
+            "required": [
+                "id",
+                "musicId",
+                "videoLink"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "musicId": {
+                    "type": "string"
+                },
+                "videoLink": {
+                    "type": "string"
+                }
+            }
+        },
         "shared.MusicSoundTrackCategoryResponse": {
             "type": "object",
             "required": [
@@ -8709,6 +8743,24 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.MusicVideoResponse": {
+            "type": "object",
+            "properties": {
+                "assetbundleName": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string",
+                    "enum": [
+                        "original",
+                        "mv_2d"
+                    ]
+                },
+                "musicVocalId": {
                     "type": "string"
                 }
             }

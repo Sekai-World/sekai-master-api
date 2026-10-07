@@ -636,11 +636,25 @@ type MusicVocalsResponse struct {
 }
 
 type MusicDetailResponse struct {
-	Music        MusicObjectResponse             `json:"music,omitempty"`
-	Difficulties []MusicDifficultyDetailResponse `json:"difficulties,omitempty"`
-	Vocals       []MusicVocalResponse            `json:"vocals,omitempty"`
-	Tags         []string                        `json:"tags,omitempty"`
-	Categories   []string                        `json:"categories,omitempty"`
+	Music          MusicObjectResponse             `json:"music,omitempty"`
+	Difficulties   []MusicDifficultyDetailResponse `json:"difficulties,omitempty"`
+	Vocals         []MusicVocalResponse            `json:"vocals,omitempty"`
+	Tags           []string                        `json:"tags,omitempty"`
+	Categories     []string                        `json:"categories,omitempty"`
+	MusicVideos    []MusicVideoResponse            `json:"musicVideos"`
+	MusicOriginals []MusicOriginalResponse         `json:"musicOriginals" binding:"required"`
+}
+
+type MusicVideoResponse struct {
+	Category        string `json:"category" enums:"original,mv_2d"`
+	AssetbundleName string `json:"assetbundleName"`
+	MusicVocalID    string `json:"musicVocalId,omitempty"`
+}
+
+type MusicOriginalResponse struct {
+	ID        string `json:"id" binding:"required"`
+	MusicID   string `json:"musicId" binding:"required"`
+	VideoLink string `json:"videoLink" binding:"required"`
 }
 
 type UnitProfileObjectResponse struct {

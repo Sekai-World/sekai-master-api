@@ -1595,6 +1595,14 @@ definitions:
         type: array
       music:
         $ref: '#/definitions/shared.MusicObjectResponse'
+      musicOriginals:
+        items:
+          $ref: '#/definitions/shared.MusicOriginalResponse'
+        type: array
+      musicVideos:
+        items:
+          $ref: '#/definitions/shared.MusicVideoResponse'
+        type: array
       tags:
         items:
           type: string
@@ -1603,6 +1611,8 @@ definitions:
         items:
           $ref: '#/definitions/shared.MusicVocalResponse'
         type: array
+    required:
+    - musicOriginals
     type: object
   shared.MusicDifficultiesResponse:
     properties:
@@ -1695,6 +1705,19 @@ definitions:
       seq: {}
       title: {}
     type: object
+  shared.MusicOriginalResponse:
+    properties:
+      id:
+        type: string
+      musicId:
+        type: string
+      videoLink:
+        type: string
+    required:
+    - id
+    - musicId
+    - videoLink
+    type: object
   shared.MusicSoundTrackCategoryResponse:
     properties:
       assetbundleName:
@@ -1706,6 +1729,18 @@ definitions:
     required:
     - id
     - name
+    type: object
+  shared.MusicVideoResponse:
+    properties:
+      assetbundleName:
+        type: string
+      category:
+        enum:
+        - original
+        - mv_2d
+        type: string
+      musicVocalId:
+        type: string
     type: object
   shared.MusicVocalCharacterResponse:
     properties:
@@ -5678,8 +5713,8 @@ paths:
       - musics
   /musics/{region}/{id}/detail:
     get:
-      description: Returns music base info, difficulties, vocals, and tags in a single
-        response
+      description: Returns music base info, difficulties, vocals, tags, playable music
+        videos, and original video links in a single response
       parameters:
       - description: Region
         in: path
