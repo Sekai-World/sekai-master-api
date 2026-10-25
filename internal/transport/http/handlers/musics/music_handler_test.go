@@ -576,6 +576,12 @@ type musicOriginalsIndexCache struct {
 	indexErrors map[string]error
 }
 
+type musicVocalBatchCache struct {
+	*musicOriginalsIndexCache
+	getByIDsCalls []fakeMusicGetByIDsCall
+	batchErrors   map[string]error
+}
+
 func (cache *musicOriginalsIndexCache) ListByIndex(ctx context.Context, region string, entity string, index string, lookups [][]any) ([][]map[string]any, error) {
 	call := fakeMusicIndexCall{
 		region: region,
@@ -614,6 +620,39 @@ func (cache *musicOriginalsIndexCache) ListByIndex(ctx context.Context, region s
 	return results, nil
 }
 
+func (cache *musicVocalBatchCache) GetByIDs(_ context.Context, region string, entity string, ids []string) ([]map[string]any, error) {
+	cache.getByIDsCalls = append(cache.getByIDsCalls, fakeMusicGetByIDsCall{
+		region: region,
+		entity: entity,
+		ids:    append([]string(nil), ids...),
+	})
+
+	region = strings.ToLower(strings.TrimSpace(region))
+	entity = strings.ToLower(strings.TrimSpace(entity))
+	if err := cache.batchErrors[entity]; err != nil {
+		return nil, err
+	}
+
+	records := make([]map[string]any, len(ids))
+	for index, id := range ids {
+		if record, ok := cache.fakeMusicHandlerCache.byID[region][entity][id]; ok {
+			records[index] = record
+			continue
+		}
+		for _, candidate := range cache.fakeMusicHandlerCache.listByEntity[entity] {
+			if shared.NormalizeAnyID(candidate["id"]) == id {
+				records[index] = candidate
+				break
+			}
+		}
+	}
+	return records, nil
+}
+
+func (cache *musicVocalBatchCache) GetByCompositeKeys(_ context.Context, _ string, _ string, keys []map[string]any) ([]map[string]any, error) {
+	return make([]map[string]any, len(keys)), nil
+}
+
 func newMusicOriginalsIndexCache(records []map[string]any, indexErrors map[string]error) *musicOriginalsIndexCache {
 	return &musicOriginalsIndexCache{
 		fakeMusicHandlerCache: &fakeMusicHandlerCache{
@@ -631,6 +670,121 @@ func newMusicOriginalsIndexCache(records []map[string]any, indexErrors map[strin
 		},
 		indexErrors: indexErrors,
 	}
+}
+
+func newMusicVocalBatchCache(vocals, gameCharacters, outsideCharacters []map[string]any) *musicVocalBatchCache {
+	return &musicVocalBatchCache{
+		musicOriginalsIndexCache: &musicOriginalsIndexCache{
+			fakeMusicHandlerCache: &fakeMusicHandlerCache{
+				byID: map[string]map[string]map[string]map[string]any{
+					"jp": {"musics": {"812": {"id": 812, "title": "Vocal Names Test"}}},
+				},
+				listByEntity: map[string][]map[string]any{
+					"musicvocals":       vocals,
+					"gamecharacters":    gameCharacters,
+					"outsidecharacters": outsideCharacters,
+				},
+				hasRecords: map[string]map[string]bool{"jp": {"musics": true}},
+			},
+		},
+	}
+}
+
+func musicVocalCharacterNameFixtures() (vocals, gameCharacters, outsideCharacters []map[string]any) {
+	vocals = []map[string]any{
+		{
+			"id":              1856,
+			"musicId":         812,
+			"musicVocalId":    "vocal-1856",
+			"vocalType":       "sekai",
+			"assetbundleName": "vocal-1856",
+			"seq":             1,
+			"publishedAt":     123,
+			"description":     map[string]any{"lines": []any{"preserve", "nested"}},
+			"characters": []any{
+				map[string]any{"characterId": 3, "characterType": "outside_character", "sortOrder": 1, "role": "outside"},
+				map[string]any{"characterId": 3, "characterType": "game_character", "sortOrder": 2, "extra": map[string]any{"flags": []any{"retain"}}},
+				map[string]any{"characterId": 404, "characterType": "game_character", "sortOrder": 3},
+				map[string]any{"characterId": 999, "characterType": "outside_character", "sortOrder": 4},
+				map[string]any{"characterId": 44, "characterType": "game_character", "sortOrder": 5},
+				map[string]any{"characterId": 4, "characterType": "outside_character", "sortOrder": 6},
+				map[string]any{"characterId": 3, "characterType": nil, "sortOrder": 7},
+				map[string]any{"characterId": 3, "characterType": "", "sortOrder": 8},
+				map[string]any{"characterId": 3, "characterType": "unknown", "sortOrder": 9},
+			},
+			"overrideCharas": []any{
+				map[string]any{"characterId": 25, "characterType": "game_character", "sortOrder": 10, "source": "override"},
+				map[string]any{"characterId": 3, "characterType": "outside_character", "sortOrder": 11},
+				map[string]any{"characterId": 3, "characterType": nil, "sortOrder": 12},
+				map[string]any{"characterId": 3, "characterType": "unknown", "sortOrder": 13},
+			},
+		},
+		{
+			"id":           2097,
+			"musicId":      812,
+			"musicVocalId": "vocal-2097",
+			"vocalType":    "virtual_singer",
+			"seq":          2,
+			"characters": []any{
+				map[string]any{"characterId": 3, "characterType": "game_character", "sortOrder": 1},
+				map[string]any{"characterId": 25, "sortOrder": 2},
+			},
+			"audio": map[string]any{"channels": []any{"left", "right"}},
+		},
+	}
+	gameCharacters = []map[string]any{
+		{"id": 3, "firstName": "望月", "givenName": "穂波"},
+		{"id": 25, "firstName": "MEIKO", "givenName": ""},
+		{"id": 44, "firstName": " ", "givenName": nil},
+	}
+	outsideCharacters = []map[string]any{
+		{"id": 3, "name": "flower"},
+		{"id": 4, "name": 42},
+	}
+	return vocals, gameCharacters, outsideCharacters
+}
+
+func cloneMusicVocalFixtures(t *testing.T, vocals []map[string]any) []map[string]any {
+	t.Helper()
+	body, err := json.Marshal(vocals)
+	if err != nil {
+		t.Fatalf("marshal vocal fixtures: %v", err)
+	}
+	var cloned []map[string]any
+	if err := json.Unmarshal(body, &cloned); err != nil {
+		t.Fatalf("clone vocal fixtures: %v", err)
+	}
+	return cloned
+}
+
+func setExpectedMusicVocalCharacterName(t *testing.T, vocal map[string]any, field string, index int, name any) {
+	t.Helper()
+	entries, ok := vocal[field].([]any)
+	if !ok || index >= len(entries) {
+		t.Fatalf("expected %s[%d] character entry, got %v", field, index, vocal[field])
+	}
+	character, ok := entries[index].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s[%d] object, got %T", field, index, entries[index])
+	}
+	character["name"] = name
+}
+
+func musicVocalResponseItems(t *testing.T, responseBody map[string]any, key string) []map[string]any {
+	t.Helper()
+	rawItems, ok := responseBody[key].([]any)
+	if !ok {
+		t.Fatalf("expected %q array, got %T", key, responseBody[key])
+	}
+	items := make([]map[string]any, 0, len(rawItems))
+	for index, rawItem := range rawItems {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			t.Fatalf("expected %s[%d] object, got %T", key, index, rawItem)
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func TestMusicDetailMusicOriginals(t *testing.T) {
@@ -697,6 +851,144 @@ func TestMusicDetailMusicOriginalsMissingDataReturnsEmptyArray(t *testing.T) {
 	originals, ok := responseBody["musicOriginals"].([]any)
 	if !ok || len(originals) != 0 {
 		t.Fatalf("expected an empty musicOriginals array, got %T %v", responseBody["musicOriginals"], responseBody["musicOriginals"])
+	}
+}
+
+func TestMusicVocalsEnrichCharacterNamesInBatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	vocals, gameCharacters, outsideCharacters := musicVocalCharacterNameFixtures()
+	originalVocals, err := json.Marshal(vocals)
+	if err != nil {
+		t.Fatalf("marshal original vocals: %v", err)
+	}
+	cache := newMusicVocalBatchCache(vocals, gameCharacters, outsideCharacters)
+	handler := newReadyMusicHandler(cache)
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id/vocals", handler.VocalsByID)
+
+	responseBody := decodeMusicOK(t, doMusicGet(router, "/api/v1/musics/jp/812/vocals"))
+	got := musicVocalResponseItems(t, responseBody, "items")
+	want := cloneMusicVocalFixtures(t, vocals)
+	for _, vocal := range want {
+		for _, field := range []string{"characters", "overrideCharas"} {
+			entries, ok := vocal[field].([]any)
+			if !ok {
+				continue
+			}
+			for _, entry := range entries {
+				if character, ok := entry.(map[string]any); ok {
+					character["name"] = nil
+				}
+			}
+		}
+	}
+	setExpectedMusicVocalCharacterName(t, want[0], "characters", 0, "flower")
+	setExpectedMusicVocalCharacterName(t, want[0], "characters", 1, "望月 穂波")
+	setExpectedMusicVocalCharacterName(t, want[0], "overrideCharas", 0, "MEIKO")
+	setExpectedMusicVocalCharacterName(t, want[0], "overrideCharas", 1, "flower")
+	setExpectedMusicVocalCharacterName(t, want[1], "characters", 0, "望月 穂波")
+	setExpectedMusicVocalCharacterName(t, want[1], "characters", 1, "MEIKO")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected enriched vocals preserving fields and order:\nwant: %#v\n got: %#v", want, got)
+	}
+
+	updatedVocals, err := json.Marshal(vocals)
+	if err != nil {
+		t.Fatalf("marshal vocals after response: %v", err)
+	}
+	if string(originalVocals) != string(updatedVocals) {
+		t.Fatalf("expected source vocal records to remain unchanged:\nbefore: %s\n after: %s", originalVocals, updatedVocals)
+	}
+
+	wantBatchCalls := []fakeMusicGetByIDsCall{
+		{region: "jp", entity: "gamecharacters", ids: []string{"25", "3", "404", "44"}},
+		{region: "jp", entity: "outsidecharacters", ids: []string{"3", "4", "999"}},
+	}
+	if !reflect.DeepEqual(cache.getByIDsCalls, wantBatchCalls) {
+		t.Fatalf("expected one de-duplicated batch per character namespace, want %v, got %v", wantBatchCalls, cache.getByIDsCalls)
+	}
+	for _, call := range cache.getByIDCalls {
+		if call.entity == "gamecharacters" || call.entity == "outsidecharacters" {
+			t.Fatalf("expected character names to use batched reads, got per-ID read %+v", call)
+		}
+	}
+	if _, exists := got[1]["overrideCharas"]; exists {
+		t.Fatalf("expected absent overrideCharas to remain absent, got %v", got[1]["overrideCharas"])
+	}
+}
+
+func TestCloneMusicVocalRecordHandlesNilCharacterMaps(t *testing.T) {
+	original := map[string]any{
+		"characters":     []map[string]any{nil, {"characterId": 3}},
+		"overrideCharas": []map[string]any(nil),
+	}
+	cloned := cloneMusicVocalRecord(original)
+	enrichMusicVocalCharacterNames(cloned, nil)
+
+	characters, ok := cloned["characters"].([]map[string]any)
+	if !ok || len(characters) != 2 || characters[0] != nil {
+		t.Fatalf("expected nil character map entry to be preserved, got %#v", cloned["characters"])
+	}
+	if name, exists := characters[1]["name"]; !exists || name != nil {
+		t.Fatalf("expected unresolved character name to be null, got %#v", characters[1])
+	}
+	if overrideCharas, ok := cloned["overrideCharas"].([]map[string]any); !ok || overrideCharas != nil {
+		t.Fatalf("expected nil overrideCharas slice to remain nil, got %#v", cloned["overrideCharas"])
+	}
+	if _, exists := original["characters"].([]map[string]any)[1]["name"]; exists {
+		t.Fatal("expected cloned character enrichment not to mutate the original map")
+	}
+}
+
+func TestMusicDetailIncludesMusicVocalCharacterNames(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	vocals, gameCharacters, outsideCharacters := musicVocalCharacterNameFixtures()
+	cache := newMusicVocalBatchCache(vocals, gameCharacters, outsideCharacters)
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id/detail", newReadyMusicHandler(cache).DetailByID)
+
+	responseBody := decodeMusicOK(t, doMusicGet(router, "/api/v1/musics/jp/812/detail"))
+	got := musicVocalResponseItems(t, responseBody, "vocals")
+	firstCharacters := got[0]["characters"].([]any)
+	firstOutside := firstCharacters[0].(map[string]any)
+	if firstOutside["name"] != "flower" {
+		t.Fatalf("expected outside character name flower, got %v", firstOutside["name"])
+	}
+	secondCharacters := got[1]["characters"].([]any)
+	secondGameCharacter := secondCharacters[0].(map[string]any)
+	if secondGameCharacter["name"] != "望月 穂波" {
+		t.Fatalf("expected game character name 望月 穂波, got %v", secondGameCharacter["name"])
+	}
+}
+
+func TestMusicVocalsCharacterBatchReadError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	vocals := []map[string]any{{
+		"id":      1856,
+		"musicId": 812,
+		"characters": []any{
+			map[string]any{"characterId": 3, "characterType": "game_character"},
+		},
+	}}
+	cache := newMusicVocalBatchCache(vocals, nil, nil)
+	cache.batchErrors = map[string]error{"gamecharacters": errors.New("batch read failed")}
+	router := gin.New()
+	router.GET("/api/v1/musics/:region/:id/vocals", newReadyMusicHandler(cache).VocalsByID)
+
+	resp := doMusicGet(router, "/api/v1/musics/jp/812/vocals")
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal error response: %v", err)
+	}
+	if body.Error.Code != "MUSIC_QUERY_ERROR" {
+		t.Fatalf("expected MUSIC_QUERY_ERROR, got %q", body.Error.Code)
 	}
 }
 

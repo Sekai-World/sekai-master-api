@@ -1745,7 +1745,15 @@ definitions:
   shared.MusicVocalCharacterResponse:
     properties:
       characterId: {}
+      characterType:
+        type: string
+        x-nullable: true
+      name:
+        type: string
+        x-nullable: true
       sortOrder: {}
+    required:
+    - name
     type: object
   shared.MusicVocalResponse:
     properties:
@@ -1757,6 +1765,10 @@ definitions:
       id: {}
       musicId: {}
       musicVocalId: {}
+      overrideCharas:
+        items:
+          $ref: '#/definitions/shared.MusicVocalCharacterResponse'
+        type: array
       publishedAt: {}
       releaseCondition:
         $ref: '#/definitions/shared.ReleaseConditionResponse'

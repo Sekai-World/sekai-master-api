@@ -8767,8 +8767,19 @@ const docTemplate = `{
         },
         "shared.MusicVocalCharacterResponse": {
             "type": "object",
+            "required": [
+                "name"
+            ],
             "properties": {
                 "characterId": {},
+                "characterType": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "name": {
+                    "type": "string",
+                    "x-nullable": true
+                },
                 "sortOrder": {}
             }
         },
@@ -8785,6 +8796,12 @@ const docTemplate = `{
                 "id": {},
                 "musicId": {},
                 "musicVocalId": {},
+                "overrideCharas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.MusicVocalCharacterResponse"
+                    }
+                },
                 "publishedAt": {},
                 "releaseCondition": {
                     "$ref": "#/definitions/shared.ReleaseConditionResponse"
