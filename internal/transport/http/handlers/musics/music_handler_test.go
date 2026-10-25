@@ -757,6 +757,28 @@ func cloneMusicVocalFixtures(t *testing.T, vocals []map[string]any) []map[string
 	return cloned
 }
 
+func musicVocalFixturesWithNullCharacterNames(t *testing.T, vocals []map[string]any) []map[string]any {
+	t.Helper()
+	want := cloneMusicVocalFixtures(t, vocals)
+	for _, vocal := range want {
+		setMusicVocalCharacterNamesNull(vocal, "characters")
+		setMusicVocalCharacterNamesNull(vocal, "overrideCharas")
+	}
+	return want
+}
+
+func setMusicVocalCharacterNamesNull(vocal map[string]any, field string) {
+	entries, ok := vocal[field].([]any)
+	if !ok {
+		return
+	}
+	for _, entry := range entries {
+		if character, ok := entry.(map[string]any); ok {
+			character["name"] = nil
+		}
+	}
+}
+
 func setExpectedMusicVocalCharacterName(t *testing.T, vocal map[string]any, field string, index int, name any) {
 	t.Helper()
 	entries, ok := vocal[field].([]any)
@@ -868,20 +890,7 @@ func TestMusicVocalsEnrichCharacterNamesInBatches(t *testing.T) {
 
 	responseBody := decodeMusicOK(t, doMusicGet(router, "/api/v1/musics/jp/812/vocals"))
 	got := musicVocalResponseItems(t, responseBody, "items")
-	want := cloneMusicVocalFixtures(t, vocals)
-	for _, vocal := range want {
-		for _, field := range []string{"characters", "overrideCharas"} {
-			entries, ok := vocal[field].([]any)
-			if !ok {
-				continue
-			}
-			for _, entry := range entries {
-				if character, ok := entry.(map[string]any); ok {
-					character["name"] = nil
-				}
-			}
-		}
-	}
+	want := musicVocalFixturesWithNullCharacterNames(t, vocals)
 	setExpectedMusicVocalCharacterName(t, want[0], "characters", 0, "flower")
 	setExpectedMusicVocalCharacterName(t, want[0], "characters", 1, "望月 穂波")
 	setExpectedMusicVocalCharacterName(t, want[0], "overrideCharas", 0, "MEIKO")

@@ -1795,28 +1795,11 @@ func musicVocalCharacterMaps(value any) []map[string]any {
 
 func enrichMusicVocalCharacterNames(vocal map[string]any, characters *shared.PrefetchedRecords) {
 	for _, field := range []string{"characters", "overrideCharas"} {
-		value, exists := vocal[field]
-		if !exists {
-			continue
-		}
-
-		switch entries := value.(type) {
-		case []any:
-			for index, entry := range entries {
-				character, ok := entry.(map[string]any)
-				if !ok || character == nil {
-					continue
-				}
-				character["name"] = musicVocalCharacterName(character, characters)
-				entries[index] = character
+		for _, character := range musicVocalCharacterMaps(vocal[field]) {
+			if character == nil {
+				continue
 			}
-		case []map[string]any:
-			for _, character := range entries {
-				if character == nil {
-					continue
-				}
-				character["name"] = musicVocalCharacterName(character, characters)
-			}
+			character["name"] = musicVocalCharacterName(character, characters)
 		}
 	}
 }
