@@ -48,6 +48,8 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/cards/:region/:id/episodes`
 - `GET /api/v1/musics/:region/list?page=1&page_size=20`
 - `GET /api/v1/musics/:region/:id/difficulties`
+- `GET /api/v1/musics/:region/:id/vocals`
+- `GET /api/v1/musics/:region/:id/detail`
 - `GET /api/v1/musics/:region/:id`
 - `GET /api/v1/gachas/:region/list?page=1&page_size=20&ongoing=true&sort_by=id|startAt&sort_order=asc|desc`
 - `GET /api/v1/events/:region/current`
@@ -63,6 +65,16 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/virtualLives/:region/:id/setlists`
 
 List endpoints hide spoiler content by default. Pass `spoiler=true` to include records with a future `releaseAt` or `startAt`.
+
+Music detail `vocals` and the vocals endpoint's `items` add a required, nullable
+`name` to each character object in `characters` and existing `overrideCharas`.
+The original fields and order are retained; absent `overrideCharas` stays absent.
+Character records are batch-read per entity from the same region, without
+mutating stored vocal records. Missing names do not fail the response; actual
+store read errors retain `MUSIC_QUERY_ERROR`. See the workspace
+[vocal character ID namespaces](../../docs/game-data-knowledge/music.md#vocal-角色-id-命名空间)
+for master-data relationships and the JP 812 example. This adds no public
+`outsideCharacters` endpoint or request-time upstream fetches.
 
 Generic master-data lookup lists and the `mysekaiPhotoDecorations`, MySekai fixture, material, music record, and shop, `honors`, and `bondsHonors` lists accept a positive `page` and a `page_size` from 1 to 100 (default 20). Requests with `page_size` greater than 100 return `400 INVALID_REQUEST`.
 

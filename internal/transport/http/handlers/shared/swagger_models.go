@@ -623,12 +623,15 @@ type MusicVocalResponse struct {
 	Seq              any                           `json:"seq,omitempty"`
 	PublishedAt      any                           `json:"publishedAt,omitempty"`
 	Characters       []MusicVocalCharacterResponse `json:"characters,omitempty"`
+	OverrideCharas   []MusicVocalCharacterResponse `json:"overrideCharas,omitempty"`
 	ReleaseCondition *ReleaseConditionResponse     `json:"releaseCondition,omitempty"`
 }
 
 type MusicVocalCharacterResponse struct {
-	CharacterID any `json:"characterId,omitempty"`
-	SortOrder   any `json:"sortOrder,omitempty"`
+	CharacterID   any     `json:"characterId,omitempty"`
+	CharacterType *string `json:"characterType,omitempty" extensions:"x-nullable"`
+	SortOrder     any     `json:"sortOrder,omitempty"`
+	Name          *string `json:"name" binding:"required" extensions:"x-nullable"`
 }
 
 type MusicVocalsResponse struct {

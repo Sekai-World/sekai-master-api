@@ -1719,15 +1719,171 @@ func (handler *MusicHandler) buildMusicVocalsByMusicID(ctx context.Context, regi
 	}
 
 	targetMusicID := shared.NormalizeAnyID(musicID)
-	items := make([]map[string]any, 0, len(records))
+	vocals := make([]map[string]any, 0, len(records))
+	characterIDsByEntity := make(map[string][]string)
 	for _, record := range records {
-		if shared.NormalizeAnyID(record["musicId"]) != targetMusicID {
+		if record == nil || shared.NormalizeAnyID(record["musicId"]) != targetMusicID {
 			continue
 		}
-		items = append(items, shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, record))
+		vocals = append(vocals, record)
+		collectMusicVocalCharacterIDs(characterIDsByEntity, record)
+	}
+
+	characters, err := shared.PrefetchRecords(ctx, handler.masterDataSync, region, characterIDsByEntity)
+	if err != nil {
+		return nil, fmt.Errorf("prefetch music vocal characters: %w", err)
+	}
+
+	items := make([]map[string]any, 0, len(vocals))
+	for _, vocal := range vocals {
+		item := shared.BuildRecordWithReleaseCondition(ctx, handler.masterDataSync, region, cloneMusicVocalRecord(vocal))
+		enrichMusicVocalCharacterNames(item, characters)
+		items = append(items, item)
 	}
 
 	return items, nil
+}
+
+func collectMusicVocalCharacterIDs(idsByEntity map[string][]string, vocal map[string]any) {
+	for _, field := range []string{"characters", "overrideCharas"} {
+		for _, character := range musicVocalCharacterMaps(vocal[field]) {
+			entity := musicVocalCharacterEntity(character)
+			id := shared.NormalizeAnyID(character["characterId"])
+			if entity != "" && id != "" {
+				idsByEntity[entity] = append(idsByEntity[entity], id)
+			}
+		}
+	}
+}
+
+func musicVocalCharacterEntity(character map[string]any) string {
+	characterType := "game_character"
+	if rawType, exists := character["characterType"]; exists {
+		var ok bool
+		characterType, ok = rawType.(string)
+		if !ok {
+			return ""
+		}
+	}
+
+	switch characterType {
+	case "game_character":
+		return "gamecharacters"
+	case "outside_character":
+		return "outsidecharacters"
+	default:
+		return ""
+	}
+}
+
+func musicVocalCharacterMaps(value any) []map[string]any {
+	switch entries := value.(type) {
+	case []any:
+		characters := make([]map[string]any, 0, len(entries))
+		for _, entry := range entries {
+			if character, ok := entry.(map[string]any); ok {
+				characters = append(characters, character)
+			}
+		}
+		return characters
+	case []map[string]any:
+		return entries
+	default:
+		return nil
+	}
+}
+
+func enrichMusicVocalCharacterNames(vocal map[string]any, characters *shared.PrefetchedRecords) {
+	for _, field := range []string{"characters", "overrideCharas"} {
+		for _, character := range musicVocalCharacterMaps(vocal[field]) {
+			if character == nil {
+				continue
+			}
+			character["name"] = musicVocalCharacterName(character, characters)
+		}
+	}
+}
+
+func musicVocalCharacterName(character map[string]any, prefetched *shared.PrefetchedRecords) any {
+	entity := musicVocalCharacterEntity(character)
+	id := shared.NormalizeAnyID(character["characterId"])
+	if entity == "" || id == "" {
+		return nil
+	}
+
+	record, found := prefetched.Record(entity, id)
+	if !found {
+		return nil
+	}
+
+	switch entity {
+	case "gamecharacters":
+		nameParts := make([]string, 0, 2)
+		for _, key := range []string{"firstName", "givenName"} {
+			if name := musicVocalNameString(record[key]); name != "" {
+				nameParts = append(nameParts, name)
+			}
+		}
+		if len(nameParts) == 0 {
+			return nil
+		}
+		return strings.Join(nameParts, " ")
+	case "outsidecharacters":
+		if name := musicVocalNameString(record["name"]); name != "" {
+			return name
+		}
+	}
+
+	return nil
+}
+
+func musicVocalNameString(value any) string {
+	name, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(name)
+}
+
+func cloneMusicVocalRecord(record map[string]any) map[string]any {
+	if record == nil {
+		return nil
+	}
+	return cloneMusicVocalValue(record).(map[string]any)
+}
+
+func cloneMusicVocalValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		if typed == nil {
+			return typed
+		}
+		cloned := make(map[string]any, len(typed))
+		for key, nested := range typed {
+			cloned[key] = cloneMusicVocalValue(nested)
+		}
+		return cloned
+	case []any:
+		if typed == nil {
+			return typed
+		}
+		cloned := make([]any, len(typed))
+		for index, nested := range typed {
+			cloned[index] = cloneMusicVocalValue(nested)
+		}
+		return cloned
+	case []map[string]any:
+		if typed == nil {
+			return typed
+		}
+		cloned := make([]map[string]any, len(typed))
+		for index, nested := range typed {
+			cloned[index] = cloneMusicVocalRecord(nested)
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 func (handler *MusicHandler) buildMusicTagsByMusicID(ctx context.Context, region string, musicID string) ([]string, error) {
