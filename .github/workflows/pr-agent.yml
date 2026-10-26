@@ -49,7 +49,7 @@ jobs:
         # keeps Renovate resolving the pinned reference instead of `latest`.
         # Re-pin only after re-verifying:
         #   gh attestation verify oci://index.docker.io/pragent/pr-agent@sha256:<digest> --repo The-PR-Agent/pr-agent
-        uses: docker://pragent/pr-agent:0.45.0-github_action@sha256:548b760b81ab4b3f729182428695ccc1194bbf87528c2b1e2b2b07e5223af7b6
+        uses: docker://pragent/pr-agent:0.49.0-github_action@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Create the GEMINI_API_KEY Actions secret to enable the provider.
