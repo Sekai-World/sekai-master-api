@@ -79,7 +79,7 @@ jobs:
           echo "Releasing ${IMAGE}:${VERSION} (chart appVersion ${APP_VERSION}, commit ${GITHUB_SHA}, built ${BUILD_DATE})"
 
       - name: Set up mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
 
       - name: Run lint
         run: mise run lint
