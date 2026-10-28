@@ -11,7 +11,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
-	github.com/klauspost/compress v1.19.2
+	github.com/klauspost/compress v1.20.3
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/swaggo/files v1.0.1
