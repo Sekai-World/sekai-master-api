@@ -30,6 +30,20 @@
       "matchManagers": ["gomod", "dockerfile", "docker-compose", "mise", "github-actions"],
       "matchUpdateTypes": ["major"],
       "automerge": false
+    },
+    {
+      "description": "The chart's default image is a placeholder; deployed images and tags are pinned in sekai-k3s-infra.",
+      "matchManagers": ["helm-values"],
+      "matchFileNames": ["deploy/helm/sekai-master-api/values.yaml"],
+      "matchPackageNames": ["sekai-master-api"],
+      "enabled": false
+    },
+    {
+      "description": "swaggo/files v2 only exports an fs.FS, while gin-swagger v1.6.1 still requires the v1 webdav handler.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/swaggo/files"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ]
 }
