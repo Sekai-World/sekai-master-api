@@ -20,6 +20,8 @@ import (
 // the build, and time reported through cachehint.ValidUntil.
 var cachedRoutes = []string{
 	"/api/v1/costume3ds/:region/list",
+	"/api/v1/costume3dOutfits/:region/list",
+	"/api/v1/costume3dOutfits/:region/:id",
 	"/api/v1/events/:region/list",
 	"/api/v1/events/:region/:id/detail",
 	"/api/v1/virtualLives/:region/list",
@@ -103,6 +105,8 @@ func registerPublicRoutes(
 	v1.GET("/bondsHonors/:region/:id", lookupHandler.BondsHonorsByID)
 	v1.GET("/costume3ds/:region/list", lookupHandler.Costume3DsList)
 	v1.GET("/costume3ds/:region/:id", lookupHandler.Costume3DsByID)
+	v1.GET("/costume3dOutfits/:region/list", lookupHandler.Costume3DOutfitsList)
+	v1.GET("/costume3dOutfits/:region/:id", lookupHandler.Costume3DOutfitsByID)
 	v1.GET("/cards/regions/:id/availability", cardHandler.AvailableRegionsByID)
 	v1.GET("/cards/:region/batch", cardHandler.Batch)
 	v1.GET("/cards/:region/list", cardHandler.List)
