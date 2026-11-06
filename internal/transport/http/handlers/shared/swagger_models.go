@@ -153,16 +153,16 @@ type Costume3DListResponse struct {
 // Costume3DOutfitResponse is one outfit: the costumes of one name across every
 // character who has it. ID is its lowest costume ID.
 type Costume3DOutfitResponse struct {
-	ID              int64    `json:"id"`
-	Name            *string  `json:"name,omitempty"`
-	Designer        *string  `json:"designer,omitempty"`
-	Rarity          *string  `json:"rarity,omitempty"`
-	Type            *string  `json:"type,omitempty"`
-	CharacterIDs    []int64  `json:"characterIds"`
-	ColorIDs        []int64  `json:"colorIds"`
-	PartTypes       []string `json:"partTypes"`
-	AssetbundleName *string  `json:"assetbundleName,omitempty"`
-	PublishedAt     *int64   `json:"publishedAt,omitempty"`
+	ID                       int64    `json:"id"`
+	Name                     *string  `json:"name,omitempty"`
+	Designer                 *string  `json:"designer,omitempty"`
+	Rarity                   *string  `json:"rarity,omitempty"`
+	Type                     *string  `json:"type,omitempty"`
+	CharacterIDs             []int64  `json:"characterIds"`
+	ColorIDs                 []int64  `json:"colorIds"`
+	PartTypes                []string `json:"partTypes"`
+	ThumbnailAssetbundleName *string  `json:"thumbnailAssetbundleName,omitempty"`
+	PublishedAt              *int64   `json:"publishedAt,omitempty"`
 }
 
 type Costume3DOutfitListResponse struct {
@@ -176,13 +176,13 @@ type Costume3DOutfitColorResponse struct {
 }
 
 type Costume3DOutfitCostumeResponse struct {
-	ID              int64   `json:"id"`
-	GroupID         *int64  `json:"groupId,omitempty"`
-	ColorID         *int64  `json:"colorId,omitempty"`
-	PartType        *string `json:"partType,omitempty"`
-	CharacterID     *int64  `json:"characterId,omitempty"`
-	AssetbundleName *string `json:"assetbundleName,omitempty"`
-	HowToObtain     *string `json:"howToObtain,omitempty"`
+	ID                       int64   `json:"id"`
+	GroupID                  *int64  `json:"groupId,omitempty"`
+	ColorID                  *int64  `json:"colorId,omitempty"`
+	PartType                 *string `json:"partType,omitempty"`
+	CharacterID              *int64  `json:"characterId,omitempty"`
+	ThumbnailAssetbundleName *string `json:"thumbnailAssetbundleName,omitempty"`
+	HowToObtain              *string `json:"howToObtain,omitempty"`
 }
 
 type Costume3DOutfitDetailResponse struct {

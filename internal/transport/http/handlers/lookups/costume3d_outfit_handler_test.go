@@ -98,8 +98,8 @@ func TestCostume3DOutfitsListGroupsCharactersOfOneNameIntoOneOutfit(t *testing.T
 	if !reflect.DeepEqual(star.CharacterIDs, []int64{1, 2}) || !reflect.DeepEqual(star.ColorIDs, []int64{1, 2}) || !reflect.DeepEqual(star.PartTypes, []string{"body", "head"}) {
 		t.Fatalf("unexpected outfit contents: %+v", star)
 	}
-	if star.AssetbundleName == nil || *star.AssetbundleName != "Star_body" {
-		t.Fatalf("expected the lowest-ID body as the thumbnail, got %v", star.AssetbundleName)
+	if star.ThumbnailAssetbundleName == nil || *star.ThumbnailAssetbundleName != "Star_body" {
+		t.Fatalf("expected the lowest-ID body as the thumbnail, got %v", star.ThumbnailAssetbundleName)
 	}
 	if star.PublishedAt == nil || *star.PublishedAt != 1011 {
 		t.Fatalf("expected the earliest archivePublishedAt, got %v", star.PublishedAt)
@@ -149,7 +149,7 @@ func TestCostume3DOutfitsListNormalizesEveryRegionSchema(t *testing.T) {
 		if !reflect.DeepEqual(outfit.CharacterIDs, []int64{1, 2}) || !reflect.DeepEqual(outfit.ColorIDs, []int64{1}) || !reflect.DeepEqual(outfit.PartTypes, []string{"body"}) {
 			t.Fatalf("%s: unexpected contents %+v", region, outfit)
 		}
-		if outfit.AssetbundleName == nil || *outfit.AssetbundleName != "star_body" || outfit.PublishedAt == nil || *outfit.PublishedAt != 600 {
+		if outfit.ThumbnailAssetbundleName == nil || *outfit.ThumbnailAssetbundleName != "star_body" || outfit.PublishedAt == nil || *outfit.PublishedAt != 600 {
 			t.Fatalf("%s: unexpected thumbnail or publish time %+v", region, outfit)
 		}
 	}
@@ -270,7 +270,7 @@ func TestCostume3DOutfitByIDReturnsItsColorsAndCostumes(t *testing.T) {
 	if second.HowToObtain == nil || *second.HowToObtain != "Shop" || second.GroupID == nil || *second.GroupID != 1 || second.CharacterID == nil || *second.CharacterID != 1 {
 		t.Fatalf("unexpected costume: %+v", second)
 	}
-	if second.PartType == nil || *second.PartType != "body" || second.ColorID == nil || *second.ColorID != 1 || second.AssetbundleName == nil || *second.AssetbundleName != "Star_body" {
+	if second.PartType == nil || *second.PartType != "body" || second.ColorID == nil || *second.ColorID != 1 || second.ThumbnailAssetbundleName == nil || *second.ThumbnailAssetbundleName != "Star_body" {
 		t.Fatalf("unexpected costume parts: %+v", second)
 	}
 }
@@ -338,5 +338,43 @@ func TestCostume3DOutfitKeyFallsBackToTheGroup(t *testing.T) {
 	}
 	if want := map[int64]int{1: 2, 3: 1, 5: 2}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected nameless costumes grouped by their group and others by trimmed name, got %v", got)
+	}
+}
+
+func TestCostume3DThumbnailNameCoversEveryRegionNaming(t *testing.T) {
+	cases := []struct {
+		name   string
+		id     int64
+		record map[string]any
+		want   string
+	}{
+		{"named", 25002, map[string]any{"assetbundleName": "cos0025_body", "partType": "body", "colorId": 1}, "cos0025_body"},
+		{"named variant", 29001, map[string]any{"assetbundleName": "cos0029_unique_head", "partType": "head", "colorId": 1}, "cos0029_unique_head"},
+		{"shared with JP", 468002, map[string]any{"partType": "body", "colorId": 1}, "cos0468_body"},
+		{"shared with JP, low ID", 25004, map[string]any{"partType": "body", "colorId": 2}, "cos0025_body_01"},
+		{"regional number", 30005002, map[string]any{"assetbundleName": "01092", "partType": "body", "colorId": 1}, "cos01092_body"},
+		{"regional number, other color", 18016004, map[string]any{"assetbundleName": "8016", "partType": "body", "colorId": 4}, "cos8016_body_03"},
+	}
+	for _, testCase := range cases {
+		row := costume3DRow{id: testCase.id, source: costume3DRecordSource(testCase.record)}
+		if got := row.thumbnailName(); got == nil || *got != testCase.want {
+			t.Fatalf("%s: expected %s, got %v", testCase.name, testCase.want, got)
+		}
+	}
+	if got := (costume3DRow{id: 1, source: costume3DRecordSource{}}).thumbnailName(); got != nil {
+		t.Fatalf("expected no thumbnail without a part, got %s", *got)
+	}
+}
+
+func TestCostume3DOutfitThumbnailFallsBackToAnotherPart(t *testing.T) {
+	outfit := costume3DOutfit{rows: []costume3DRow{
+		{id: 1, source: costume3DRecordSource{}},
+		{id: 2000, source: costume3DRecordSource{"partType": "head", "colorId": 1}},
+	}}
+	if got := outfit.thumbnail(); got == nil || *got != "cos0002_head" {
+		t.Fatalf("expected the first costume with a thumbnail, got %v", got)
+	}
+	if got := (&costume3DOutfit{rows: []costume3DRow{{id: 1, source: costume3DRecordSource{}}}}).thumbnail(); got != nil {
+		t.Fatalf("expected no thumbnail, got %s", *got)
 	}
 }

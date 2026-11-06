@@ -7246,9 +7246,6 @@ const docTemplate = `{
         "shared.Costume3DOutfitCostumeResponse": {
             "type": "object",
             "properties": {
-                "assetbundleName": {
-                    "type": "string"
-                },
                 "characterId": {
                     "type": "integer"
                 },
@@ -7266,15 +7263,15 @@ const docTemplate = `{
                 },
                 "partType": {
                     "type": "string"
+                },
+                "thumbnailAssetbundleName": {
+                    "type": "string"
                 }
             }
         },
         "shared.Costume3DOutfitDetailResponse": {
             "type": "object",
             "properties": {
-                "assetbundleName": {
-                    "type": "string"
-                },
                 "characterIds": {
                     "type": "array",
                     "items": {
@@ -7320,6 +7317,9 @@ const docTemplate = `{
                 "rarity": {
                     "type": "string"
                 },
+                "thumbnailAssetbundleName": {
+                    "type": "string"
+                },
                 "type": {
                     "type": "string"
                 }
@@ -7342,9 +7342,6 @@ const docTemplate = `{
         "shared.Costume3DOutfitResponse": {
             "type": "object",
             "properties": {
-                "assetbundleName": {
-                    "type": "string"
-                },
                 "characterIds": {
                     "type": "array",
                     "items": {
@@ -7376,6 +7373,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "rarity": {
+                    "type": "string"
+                },
+                "thumbnailAssetbundleName": {
                     "type": "string"
                 },
                 "type": {

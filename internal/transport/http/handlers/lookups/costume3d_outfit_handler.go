@@ -3,6 +3,7 @@ package lookups
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -319,18 +320,49 @@ func (outfit *costume3DOutfit) publishedAt() *int64 {
 	return earliest
 }
 
-// thumbnail is the asset of the outfit's lowest-ID body, which is the original
-// color: JP's outfits use one body asset for every character. An outfit without
-// a body falls back to its first costume with an asset.
+// thumbnail is the thumbnail of the outfit's lowest-ID body, which is the
+// original color: JP's outfits use one body asset for every character. An
+// outfit without a body falls back to its first costume with a thumbnail.
 func (outfit *costume3DOutfit) thumbnail() *string {
 	for _, row := range outfit.rows {
 		if row.fieldValue("partType") == any(costume3DPartBody) {
-			if name := lookupOptionalString(row.fieldValue("assetbundleName")); name != nil {
+			if name := row.thumbnailName(); name != nil {
 				return name
 			}
 		}
 	}
-	return lookupOptionalString(outfit.firstValue("assetbundleName"))
+	for _, row := range outfit.rows {
+		if name := row.thumbnailName(); name != nil {
+			return name
+		}
+	}
+	return nil
+}
+
+// thumbnailName is a costume's file under thumbnail/costume. JP and EN name it
+// in assetbundleName. TW, KR, and CN leave costumes shared with JP without an
+// assetbundleName, and give their own costumes only the number: both are
+// cos{number}_{part}, plus _{01,02,03} for the other colors, and a shared
+// costume's number is its ID's thousands.
+func (row costume3DRow) thumbnailName() *string {
+	bundle, _ := row.fieldValue("assetbundleName").(string)
+	bundle = strings.TrimSpace(bundle)
+	if bundle != "" && strings.Trim(bundle, "0123456789") != "" {
+		return &bundle
+	}
+	part, ok := row.fieldValue("partType").(string)
+	if !ok {
+		return nil
+	}
+	number := bundle
+	if number == "" {
+		number = fmt.Sprintf("%04d", row.id/1000)
+	}
+	name := "cos" + number + "_" + part
+	if colorID, ok := row.fieldValue("colorId").(int64); ok && colorID > 1 {
+		name += fmt.Sprintf("_%02d", colorID-1)
+	}
+	return &name
 }
 
 func (outfit *costume3DOutfit) response() shared.Costume3DOutfitResponse {
@@ -351,16 +383,16 @@ func (outfit *costume3DOutfit) response() shared.Costume3DOutfitResponse {
 	slices.Sort(colorIDs)
 	slices.Sort(partTypes)
 	return shared.Costume3DOutfitResponse{
-		ID:              outfit.id,
-		Name:            lookupOptionalString(outfit.firstValue("name")),
-		Designer:        lookupOptionalString(outfit.firstValue("designer")),
-		Rarity:          lookupOptionalString(outfit.firstValue("rarity")),
-		Type:            lookupOptionalString(outfit.firstValue("type")),
-		CharacterIDs:    characterIDs,
-		ColorIDs:        colorIDs,
-		PartTypes:       partTypes,
-		AssetbundleName: outfit.thumbnail(),
-		PublishedAt:     outfit.publishedAt(),
+		ID:                       outfit.id,
+		Name:                     lookupOptionalString(outfit.firstValue("name")),
+		Designer:                 lookupOptionalString(outfit.firstValue("designer")),
+		Rarity:                   lookupOptionalString(outfit.firstValue("rarity")),
+		Type:                     lookupOptionalString(outfit.firstValue("type")),
+		CharacterIDs:             characterIDs,
+		ColorIDs:                 colorIDs,
+		PartTypes:                partTypes,
+		ThumbnailAssetbundleName: outfit.thumbnail(),
+		PublishedAt:              outfit.publishedAt(),
 	}
 }
 
@@ -399,13 +431,13 @@ func (handler *LookupHandler) costume3DOutfitDetail(ctx context.Context, region 
 			}
 		}
 		costumes = append(costumes, shared.Costume3DOutfitCostumeResponse{
-			ID:              row.id,
-			GroupID:         lookupOptionalInt64(row.fieldValue("groupId")),
-			ColorID:         lookupOptionalInt64(row.fieldValue("colorId")),
-			PartType:        lookupOptionalString(row.fieldValue("partType")),
-			CharacterID:     lookupOptionalInt64(row.fieldValue("characterId")),
-			AssetbundleName: lookupOptionalString(row.fieldValue("assetbundleName")),
-			HowToObtain:     howToObtain,
+			ID:                       row.id,
+			GroupID:                  lookupOptionalInt64(row.fieldValue("groupId")),
+			ColorID:                  lookupOptionalInt64(row.fieldValue("colorId")),
+			PartType:                 lookupOptionalString(row.fieldValue("partType")),
+			CharacterID:              lookupOptionalInt64(row.fieldValue("characterId")),
+			ThumbnailAssetbundleName: row.thumbnailName(),
+			HowToObtain:              howToObtain,
 		})
 	}
 

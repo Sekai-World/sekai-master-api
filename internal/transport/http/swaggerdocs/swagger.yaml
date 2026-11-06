@@ -495,8 +495,6 @@ definitions:
     type: object
   shared.Costume3DOutfitCostumeResponse:
     properties:
-      assetbundleName:
-        type: string
       characterId:
         type: integer
       colorId:
@@ -509,11 +507,11 @@ definitions:
         type: integer
       partType:
         type: string
+      thumbnailAssetbundleName:
+        type: string
     type: object
   shared.Costume3DOutfitDetailResponse:
     properties:
-      assetbundleName:
-        type: string
       characterIds:
         items:
           type: integer
@@ -544,6 +542,8 @@ definitions:
         type: integer
       rarity:
         type: string
+      thumbnailAssetbundleName:
+        type: string
       type:
         type: string
     type: object
@@ -558,8 +558,6 @@ definitions:
     type: object
   shared.Costume3DOutfitResponse:
     properties:
-      assetbundleName:
-        type: string
       characterIds:
         items:
           type: integer
@@ -581,6 +579,8 @@ definitions:
       publishedAt:
         type: integer
       rarity:
+        type: string
+      thumbnailAssetbundleName:
         type: string
       type:
         type: string
