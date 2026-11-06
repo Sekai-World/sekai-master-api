@@ -56,6 +56,8 @@ var entityProjections = map[string][]string{
 		"characterId3", "characterId4", "characterId5", "gameCharacterUnitId", "archivePublishedAt",
 		"description",
 	},
+	// Comics are the tips with an assetbundleName.
+	"tips": {"id", "title", "assetbundleName", "fromUserRank", "toUserRank"},
 	"mysekaishops": {
 		"id", "seq", "mysekaiShopType", "resourceBoxId", "mysekaiShopExchangeLimitType",
 		"mysekaiShopExchangeLimitValue",

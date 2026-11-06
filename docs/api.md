@@ -22,6 +22,8 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/gameCharacters/regions/:id/availability`
 - `GET /api/v1/gameCharacters/:region/list?page=1&page_size=20`
 - `GET /api/v1/gameCharacters/:region/:id`
+- `GET /api/v1/comics/:region/list?page=1&page_size=20`
+- `GET /api/v1/comics/:region/:id`
 - `GET /api/v1/mysekaiPhotoDecorations/:region/list?page=1&page_size=20`
 - `GET /api/v1/mysekaiPhotoDecorations/:region/:id`
 - `GET /api/v1/mysekaiFixtures/:region/list?page=1&page_size=20&name=<kw>&main_genre_id=<ids>&sub_genre_id=<ids>&tag_id=<ids>&sort_by=id|seq|name&sort_order=asc|desc`
@@ -76,7 +78,9 @@ store read errors retain `MUSIC_QUERY_ERROR`. See the workspace
 for master-data relationships and the JP 812 example. This adds no public
 `outsideCharacters` endpoint or request-time upstream fetches.
 
-Generic master-data lookup lists and the `mysekaiPhotoDecorations`, MySekai fixture, material, music record, and shop, `honors`, and `bondsHonors` lists accept a positive `page` and a `page_size` from 1 to 100 (default 20). Requests with `page_size` greater than 100 return `400 INVALID_REQUEST`.
+Generic master-data lookup lists and the `comics`, `mysekaiPhotoDecorations`, MySekai fixture, material, music record, and shop, `honors`, and `bondsHonors` lists accept a positive `page` and a `page_size` from 1 to 100 (default 20). Requests with `page_size` greater than 100 return `400 INVALID_REQUEST`.
+
+Comics are the `tips` records that carry an `assetbundleName`; text tips are left out of the list, and their IDs return `404 COMIC_NOT_FOUND`. Lists read the `tips` projection and are sorted by `id`. Responses expose only `id`, `title`, `assetbundleName`, and, when present, `fromUserRank` and `toUserRank`.
 
 MySekai photo decoration responses expose only `id`, `seq`, `name`, `description`, and `assetbundleName`. Honor responses expose the stable honor fields, normalized `levels`, and an optional same-region `group` looked up from `honorgroups`; missing groups are omitted, and no cross-region fallback is used. Honor list group lookups are deduplicated within the current page. Unknown upstream fields are not returned.
 

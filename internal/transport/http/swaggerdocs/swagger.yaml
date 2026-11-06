@@ -428,6 +428,28 @@ definitions:
       unit:
         type: string
     type: object
+  shared.ComicListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.ComicResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.ComicResponse:
+    properties:
+      assetbundleName:
+        type: string
+      fromUserRank:
+        type: integer
+      id:
+        type: integer
+      title:
+        type: string
+      toUserRank:
+        type: integer
+    type: object
   shared.Costume3DListResponse:
     properties:
       items:
@@ -4222,6 +4244,91 @@ paths:
       summary: List Character Rank references for a character
       tags:
       - characterRanks
+  /comics/{region}/{id}:
+    get:
+      description: Returns one four-panel comic. A tip without an image is not a comic
+        and returns 404.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Comic ID
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.ComicResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a comic by id
+      tags:
+      - comics
+  /comics/{region}/list:
+    get:
+      description: Lists the four-panel comics in ID order. Tips without an image
+        are left out.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.ComicListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List comics by page
+      tags:
+      - comics
   /costume3ds/{region}/{id}:
     get:
       parameters:
