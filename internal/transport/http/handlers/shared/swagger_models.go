@@ -67,6 +67,19 @@ type MysekaiPhotoDecorationListResponse struct {
 	Pagination PaginationResponse               `json:"pagination"`
 }
 
+type ComicResponse struct {
+	ID              int64  `json:"id"`
+	Title           string `json:"title"`
+	AssetbundleName string `json:"assetbundleName"`
+	FromUserRank    *int64 `json:"fromUserRank,omitempty"`
+	ToUserRank      *int64 `json:"toUserRank,omitempty"`
+}
+
+type ComicListResponse struct {
+	Items      []ComicResponse    `json:"items"`
+	Pagination PaginationResponse `json:"pagination"`
+}
+
 type HonorLevelResponse struct {
 	HonorID         *int64   `json:"honorId,omitempty"`
 	Level           *int64   `json:"level,omitempty"`
