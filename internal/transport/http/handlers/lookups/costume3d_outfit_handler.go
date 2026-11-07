@@ -29,6 +29,10 @@ const (
 
 var costume3DOutfitSortableFields = []string{"id", "name", "publishedAt"}
 
+// costume3DGameLaunchMillis is when the game launched. Costumes dated earlier
+// carry a placeholder rather than a release date: 2009-01-30 in JP, EN, KR, and CN.
+var costume3DGameLaunchMillis = time.Date(2020, time.September, 30, 0, 0, 0, 0, time.UTC).UnixMilli()
+
 // costume3DOutfit is one outfit: the costumes sharing a name, across every
 // character who has it. A costume3dGroupId is only one character's version, so
 // listing groups would repeat each outfit once per character. Its ID is its
@@ -309,11 +313,12 @@ func (outfit *costume3DOutfit) firstValue(field string) any {
 	return nil
 }
 
-// publishedAt is when the outfit first appeared.
+// publishedAt is when the outfit first appeared, or nil when no costume in it has
+// a real date.
 func (outfit *costume3DOutfit) publishedAt() *int64 {
 	var earliest *int64
 	for _, row := range outfit.rows {
-		if millis, ok := row.publishedAtMillis(); ok && (earliest == nil || millis < *earliest) {
+		if millis, ok := row.publishedAtMillis(); ok && millis >= costume3DGameLaunchMillis && (earliest == nil || millis < *earliest) {
 			earliest = &millis
 		}
 	}

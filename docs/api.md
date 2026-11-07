@@ -42,7 +42,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/costume3ds/:region/list?page=1&page_size=20`
 - `GET /api/v1/costume3ds/:region/:id`
 - `GET /api/v1/costume3dOutfits/:region/list?page=1&page_size=20&name=<kw>&character_id=<ids>&rarity=<values>&spoiler=true&sort_by=id|name|publishedAt&sort_order=asc|desc`
-- `GET /api/v1/costume3dOutfits/:region/:id?spoiler=true`
+- `GET /api/v1/costume3dOutfits/:region/:id?spoiler=true` (`publishedAt` is omitted when the only dates are from before the game launched, which are placeholders)
 - `GET /api/v1/missions/:region/list?family=storyMissions|characterMissionV2s|normalMissions&page=1&page_size=20`
 - `GET /api/v1/missions/:region/:family/:id`
 - `GET /api/v1/cards/:region/list?page=1&page_size=20`

@@ -48,13 +48,16 @@ func costume3DOutfitIDs(items []shared.Costume3DOutfitResponse) []int64 {
 	return ids
 }
 
+// costume3DTestPublishTime is a date after the game launched.
+const costume3DTestPublishTime = 1_700_000_000_000
+
 // jpCostume is a costume row the way JP and EN embed display fields.
 func jpCostume(id int, group int, name string, character int, color int, part string) map[string]any {
 	return map[string]any{
 		"id": id, "costume3dGroupId": group, "name": name, "designer": "Designer of " + name,
 		"characterId": character, "colorId": color, "colorName": "Color", "partType": part,
 		"costume3dRarity": "rare", "costume3dType": "normal", "assetbundleName": name + "_" + part,
-		"archivePublishedAt": 1000 + id,
+		"archivePublishedAt": costume3DTestPublishTime + id,
 	}
 }
 
@@ -101,15 +104,15 @@ func TestCostume3DOutfitsListGroupsCharactersOfOneNameIntoOneOutfit(t *testing.T
 	if star.ThumbnailAssetbundleName == nil || *star.ThumbnailAssetbundleName != "Star_body" {
 		t.Fatalf("expected the lowest-ID body as the thumbnail, got %v", star.ThumbnailAssetbundleName)
 	}
-	if star.PublishedAt == nil || *star.PublishedAt != 1011 {
+	if star.PublishedAt == nil || *star.PublishedAt != costume3DTestPublishTime+11 {
 		t.Fatalf("expected the earliest archivePublishedAt, got %v", star.PublishedAt)
 	}
 }
 
 func TestCostume3DOutfitsListNormalizesEveryRegionSchema(t *testing.T) {
 	groups := []map[string]any{
-		{"groupId": 1, "name": "Star", "characterId": 1, "rarity": "rare", "designer": "D", "publishedAt": 500, "archivePublishedAt": 600, "archiveDisplayType": "normal"},
-		{"groupId": 2, "name": "Star", "characterId": 2, "rarity": "rare", "designer": "D", "publishedAt": 500, "archivePublishedAt": 600, "archiveDisplayType": "normal"},
+		{"groupId": 1, "name": "Star", "characterId": 1, "rarity": "rare", "designer": "D", "publishedAt": costume3DTestPublishTime + 500, "archivePublishedAt": costume3DTestPublishTime + 600, "archiveDisplayType": "normal"},
+		{"groupId": 2, "name": "Star", "characterId": 2, "rarity": "rare", "designer": "D", "publishedAt": costume3DTestPublishTime + 500, "archivePublishedAt": costume3DTestPublishTime + 600, "archiveDisplayType": "normal"},
 		{"groupId": 3, "name": "Hidden", "characterId": 3, "archiveDisplayType": "none"},
 	}
 	grouped := []map[string]any{
@@ -125,7 +128,7 @@ func TestCostume3DOutfitsListNormalizesEveryRegionSchema(t *testing.T) {
 	}
 	embedded := []map[string]any{jpCostume(11, 1, "Star", 1, 1, "body"), jpCostume(21, 2, "Star", 2, 1, "body")}
 	for _, row := range embedded {
-		row["archivePublishedAt"], row["assetbundleName"] = 600, "star_body"
+		row["archivePublishedAt"], row["assetbundleName"] = costume3DTestPublishTime+600, "star_body"
 	}
 	cache := newCostume3DOutfitTestCache(map[string]map[string][]map[string]any{
 		"jp": {costume3dsEntity: embedded},
@@ -149,7 +152,7 @@ func TestCostume3DOutfitsListNormalizesEveryRegionSchema(t *testing.T) {
 		if !reflect.DeepEqual(outfit.CharacterIDs, []int64{1, 2}) || !reflect.DeepEqual(outfit.ColorIDs, []int64{1}) || !reflect.DeepEqual(outfit.PartTypes, []string{"body"}) {
 			t.Fatalf("%s: unexpected contents %+v", region, outfit)
 		}
-		if outfit.ThumbnailAssetbundleName == nil || *outfit.ThumbnailAssetbundleName != "star_body" || outfit.PublishedAt == nil || *outfit.PublishedAt != 600 {
+		if outfit.ThumbnailAssetbundleName == nil || *outfit.ThumbnailAssetbundleName != "star_body" || outfit.PublishedAt == nil || *outfit.PublishedAt != costume3DTestPublishTime+600 {
 			t.Fatalf("%s: unexpected thumbnail or publish time %+v", region, outfit)
 		}
 	}
@@ -194,6 +197,48 @@ func TestCostume3DOutfitsListFiltersSortsAndPages(t *testing.T) {
 		if resp := serveLookupRequest(t, router, http.MethodGet, "/api/v1/costume3dOutfits/jp/list?"+query); resp.Code != http.StatusBadRequest {
 			t.Fatalf("%s: expected 400, got %d", query, resp.Code)
 		}
+	}
+}
+
+func TestCostume3DOutfitsOmitPublishDatesBeforeTheGameLaunched(t *testing.T) {
+	placeholder := time.Date(2009, time.January, 30, 3, 0, 0, 0, time.UTC).UnixMilli()
+	withPublishTime := func(row map[string]any, at int64) map[string]any {
+		row["archivePublishedAt"] = at
+		return row
+	}
+	cache := newCostume3DOutfitTestCache(map[string]map[string][]map[string]any{"jp": {costume3dsEntity: {
+		withPublishTime(jpCostume(11, 1, "School", 1, 1, "body"), placeholder),
+		withPublishTime(jpCostume(21, 2, "Mixed", 1, 1, "body"), placeholder),
+		withPublishTime(jpCostume(22, 2, "Mixed", 2, 1, "body"), costume3DTestPublishTime),
+		withPublishTime(jpCostume(31, 3, "New", 1, 1, "body"), costume3DTestPublishTime+1),
+		withPublishTime(jpCostume(41, 4, "Launch", 1, 1, "body"), costume3DGameLaunchMillis),
+	}}})
+	router := newCostume3DOutfitTestRouter(newMissionTestHandler(cache), nil)
+
+	var list shared.Costume3DOutfitListResponse
+	decodeMysekaiResponse(t, router, "/api/v1/costume3dOutfits/jp/list", &list)
+	if want := []int64{11, 21, 31, 41}; !reflect.DeepEqual(costume3DOutfitIDs(list.Items), want) {
+		t.Fatalf("expected placeholder dates to keep outfits listed, got %v", costume3DOutfitIDs(list.Items))
+	}
+	if list.Items[0].PublishedAt != nil {
+		t.Fatalf("expected no date for a placeholder, got %d", *list.Items[0].PublishedAt)
+	}
+	if got := list.Items[1].PublishedAt; got == nil || *got != costume3DTestPublishTime {
+		t.Fatalf("expected the real date over an earlier placeholder, got %v", got)
+	}
+	if got := list.Items[3].PublishedAt; got == nil || *got != costume3DGameLaunchMillis {
+		t.Fatalf("expected the launch date itself to be kept, got %v", got)
+	}
+
+	decodeMysekaiResponse(t, router, "/api/v1/costume3dOutfits/jp/list?sort_by=publishedAt&sort_order=desc", &list)
+	if want := []int64{31, 21, 41, 11}; !reflect.DeepEqual(costume3DOutfitIDs(list.Items), want) {
+		t.Fatalf("expected undated outfits to sort last, got %v", costume3DOutfitIDs(list.Items))
+	}
+
+	var detail shared.Costume3DOutfitDetailResponse
+	decodeMysekaiResponse(t, router, "/api/v1/costume3dOutfits/jp/11", &detail)
+	if detail.PublishedAt != nil {
+		t.Fatalf("expected no date on the detail, got %d", *detail.PublishedAt)
 	}
 }
 
