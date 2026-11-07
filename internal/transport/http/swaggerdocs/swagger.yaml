@@ -486,6 +486,105 @@ definitions:
       type:
         type: string
     type: object
+  shared.Costume3DOutfitColorResponse:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  shared.Costume3DOutfitCostumeResponse:
+    properties:
+      characterId:
+        type: integer
+      colorId:
+        type: integer
+      groupId:
+        type: integer
+      howToObtain:
+        type: string
+      id:
+        type: integer
+      partType:
+        type: string
+      thumbnailAssetbundleName:
+        type: string
+    type: object
+  shared.Costume3DOutfitDetailResponse:
+    properties:
+      characterIds:
+        items:
+          type: integer
+        type: array
+      colorIds:
+        items:
+          type: integer
+        type: array
+      colors:
+        items:
+          $ref: '#/definitions/shared.Costume3DOutfitColorResponse'
+        type: array
+      costumes:
+        items:
+          $ref: '#/definitions/shared.Costume3DOutfitCostumeResponse'
+        type: array
+      designer:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      partTypes:
+        items:
+          type: string
+        type: array
+      publishedAt:
+        type: integer
+      rarity:
+        type: string
+      thumbnailAssetbundleName:
+        type: string
+      type:
+        type: string
+    type: object
+  shared.Costume3DOutfitListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.Costume3DOutfitResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.Costume3DOutfitResponse:
+    properties:
+      characterIds:
+        items:
+          type: integer
+        type: array
+      colorIds:
+        items:
+          type: integer
+        type: array
+      designer:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      partTypes:
+        items:
+          type: string
+        type: array
+      publishedAt:
+        type: integer
+      rarity:
+        type: string
+      thumbnailAssetbundleName:
+        type: string
+      type:
+        type: string
+    type: object
   shared.CurrentEventResponse:
     properties:
       aggregateAt: {}
@@ -4329,6 +4428,122 @@ paths:
       summary: List comics by page
       tags:
       - comics
+  /costume3dOutfits/{region}/{id}:
+    get:
+      description: Returns the outfit with its colors and every costume in it. Costumes
+        whose publish time is in the future are hidden unless spoiler=true.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: 'Outfit ID: its lowest costume ID'
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      - description: Include costumes that are not published yet
+        in: query
+        name: spoiler
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.Costume3DOutfitDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: Get a 3D costume outfit by id
+      tags:
+      - costume3dOutfits
+  /costume3dOutfits/{region}/list:
+    get:
+      description: Lists outfits, each the costumes of one name across every character
+        who has it, in ID order. Costumes whose publish time is in the future are
+        hidden unless spoiler=true, and placeholder costumes (archiveDisplayType none)
+        are never listed.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Case-insensitive substring of the outfit name
+        in: query
+        name: name
+        type: string
+      - description: Comma-separated character IDs; the outfit must have at least
+          one of them
+        in: query
+        name: character_id
+        type: string
+      - description: Comma-separated rarities
+        in: query
+        name: rarity
+        type: string
+      - description: Include costumes that are not published yet
+        in: query
+        name: spoiler
+        type: boolean
+      - description: Sort field (id|name|publishedAt)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort order (asc|desc)
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.Costume3DOutfitListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List 3D costume outfits by page
+      tags:
+      - costume3dOutfits
   /costume3ds/{region}/{id}:
     get:
       parameters:
