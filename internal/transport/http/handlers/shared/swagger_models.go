@@ -150,6 +150,47 @@ type Costume3DListResponse struct {
 	Pagination PaginationResponse        `json:"pagination"`
 }
 
+// Costume3DOutfitResponse is one outfit: the costumes of one name across every
+// character who has it. ID is its lowest costume ID.
+type Costume3DOutfitResponse struct {
+	ID                       int64    `json:"id"`
+	Name                     *string  `json:"name,omitempty"`
+	Designer                 *string  `json:"designer,omitempty"`
+	Rarity                   *string  `json:"rarity,omitempty"`
+	Type                     *string  `json:"type,omitempty"`
+	CharacterIDs             []int64  `json:"characterIds"`
+	ColorIDs                 []int64  `json:"colorIds"`
+	PartTypes                []string `json:"partTypes"`
+	ThumbnailAssetbundleName *string  `json:"thumbnailAssetbundleName,omitempty"`
+	PublishedAt              *int64   `json:"publishedAt,omitempty"`
+}
+
+type Costume3DOutfitListResponse struct {
+	Items      []Costume3DOutfitResponse `json:"items"`
+	Pagination PaginationResponse        `json:"pagination"`
+}
+
+type Costume3DOutfitColorResponse struct {
+	ID   int64   `json:"id"`
+	Name *string `json:"name,omitempty"`
+}
+
+type Costume3DOutfitCostumeResponse struct {
+	ID                       int64   `json:"id"`
+	GroupID                  *int64  `json:"groupId,omitempty"`
+	ColorID                  *int64  `json:"colorId,omitempty"`
+	PartType                 *string `json:"partType,omitempty"`
+	CharacterID              *int64  `json:"characterId,omitempty"`
+	ThumbnailAssetbundleName *string `json:"thumbnailAssetbundleName,omitempty"`
+	HowToObtain              *string `json:"howToObtain,omitempty"`
+}
+
+type Costume3DOutfitDetailResponse struct {
+	Costume3DOutfitResponse
+	Colors   []Costume3DOutfitColorResponse   `json:"colors"`
+	Costumes []Costume3DOutfitCostumeResponse `json:"costumes"`
+}
+
 type MissionRewardResponse struct {
 	ID                 *int64                      `json:"id,omitempty"`
 	MissionType        *string                     `json:"missionType,omitempty"`

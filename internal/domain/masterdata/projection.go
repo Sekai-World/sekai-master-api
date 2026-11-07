@@ -28,12 +28,13 @@ var entityProjections = map[string][]string{
 	"costume3dgroups": {
 		"groupId", "colorId", "costume3dColorId", "partType", "costume3dPartType", "seq",
 		"name", "designer", "characterId", "rarity", "costume3dRarity", "type",
-		"costume3dType", "assetbundleName", "publishedAt",
+		"costume3dType", "assetbundleName", "publishedAt", "archivePublishedAt", "archiveDisplayType",
 	},
 	"costume3ds": {
 		"id", "groupId", "costume3dGroupId", "colorId", "costume3dColorId", "partType",
 		"costume3dPartType", "seq", "name", "designer", "characterId", "rarity",
 		"costume3dRarity", "type", "costume3dType", "assetbundleName", "publishedAt",
+		"archivePublishedAt", "archiveDisplayType",
 	},
 	// The event window CurrentEvent compares; the events list does not use it yet.
 	"events": {"id", "startAt", "closedAt"},

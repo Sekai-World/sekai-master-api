@@ -221,6 +221,9 @@ var costume3DFields = []costume3DField{
 	{name: "type", kind: costume3DString, primaryKeys: []string{"type", "costume3dType"}, groupKeys: []string{"type", "costume3dType"}},
 	{name: "assetbundleName", kind: costume3DString, primaryKeys: []string{"assetbundleName"}, groupKeys: []string{"assetbundleName"}},
 	{name: "publishedAt", kind: costume3DTimestamp, primaryKeys: []string{"publishedAt"}, groupKeys: []string{"publishedAt"}},
+	// Read by outfit lists, not returned by costume responses.
+	{name: "archivePublishedAt", kind: costume3DTimestamp, primaryKeys: []string{"archivePublishedAt"}, groupKeys: []string{"archivePublishedAt"}},
+	{name: "archiveDisplayType", kind: costume3DString, primaryKeys: []string{"archiveDisplayType"}, groupKeys: []string{"archiveDisplayType"}},
 }
 
 var costume3DFieldsByName = func() map[string]costume3DField {
@@ -340,21 +343,7 @@ func sortCostume3DRows(rows []costume3DRow, field string, descending bool) {
 		order[index] = index
 	}
 	sort.SliceStable(order, func(i int, j int) bool {
-		left, right := &keys[order[i]], &keys[order[j]]
-		if (left.value == nil) != (right.value == nil) {
-			return left.value != nil
-		}
-		comparison := 0
-		if left.value != nil {
-			comparison = left.compare(right)
-		}
-		if comparison == 0 {
-			return left.id < right.id
-		}
-		if descending {
-			return comparison > 0
-		}
-		return comparison < 0
+		return keys[order[i]].before(&keys[order[j]], descending)
 	})
 
 	sorted := make([]costume3DRow, len(rows))
@@ -384,6 +373,25 @@ func newCostume3DSortKey(value any, id int64) costume3DSortKey {
 		key.text = shared.NormalizeComparableText(value)
 	}
 	return key
+}
+
+// before reports whether key sorts ahead of other: missing values last, ties
+// by ID.
+func (key *costume3DSortKey) before(other *costume3DSortKey, descending bool) bool {
+	if (key.value == nil) != (other.value == nil) {
+		return key.value != nil
+	}
+	comparison := 0
+	if key.value != nil {
+		comparison = key.compare(other)
+	}
+	if comparison == 0 {
+		return key.id < other.id
+	}
+	if descending {
+		return comparison > 0
+	}
+	return comparison < 0
 }
 
 func (key *costume3DSortKey) compare(other *costume3DSortKey) int {
