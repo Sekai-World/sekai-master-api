@@ -12,7 +12,8 @@ import (
 )
 
 // RegionReadyForEntity reports whether region's data is ready for an entity:
-// the region's latest sync status is success, and the store holds records of
+// the region's sync status is success (while a sync is running, its previous
+// status counts), and the store holds records of
 // the entity or, for an entity the region's source does not have, any records
 // of the region. A region whose store is empty stays not ready, so reads never
 // answer from a store that sync has not filled yet.

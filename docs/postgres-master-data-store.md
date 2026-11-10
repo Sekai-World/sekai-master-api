@@ -474,10 +474,12 @@ A response cache in the public read routes of `serve` and `standalone`:
   - the route pattern, the path, and the query with keys sorted and values
     kept in order.
 - **Read path.** Handlers already read every region's latest status for
-  readiness (`HasSuccessfulSync`, one query). The cache uses that read.
+  readiness (`HasSuccessfulSync`, one query, or two while the region's
+  sync is running). The cache uses that read.
   - If the latest status is not `success`, the cache is bypassed. A running
-    sync never writes entries, so half-written regions are never cached. A
-    failed sync still answers `503` from the handler.
+    sync never writes entries, so half-written regions are never cached; the
+    handler still answers from the store when the region's previous sync
+    succeeded. A failed sync still answers `503` from the handler.
   - A hit returns the stored status, `Content-Type` and body with
     `X-Cache: hit` and skips the handler, including its per-entity readiness
     check. That is safe, because an entry is written only for a `200` built
