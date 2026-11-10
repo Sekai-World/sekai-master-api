@@ -678,6 +678,84 @@ func TestSuccessfulSyncRegionsNormalizesDeduplicatesAndSorts(t *testing.T) {
 	}
 }
 
+func TestRunningSyncKeepsServingRegionsWhosePreviousSyncSucceeded(t *testing.T) {
+	ctx := context.Background()
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{
+		{Region: "jp", Status: "success", SourceCommit: "commit-1"},
+		{Region: "en", Status: "failed"},
+		{Region: "tw", Status: "success", SourceCommit: "commit-1"},
+	})
+	// jp and en start a new sync; kr starts its first one.
+	for _, region := range []string{"jp", "en", "kr"} {
+		if err := statusStore.Save(ctx, masterdata.SyncStatus{Region: region, Status: "running", SourceCommit: "commit-2"}); err != nil {
+			t.Fatalf("save running status: %v", err)
+		}
+	}
+
+	usecase := NewMasterDataSyncUsecase(nil, nil, nil, statusStore, nil, 1)
+
+	for region, want := range map[string]bool{"jp": true, "en": false, "kr": false, "tw": true} {
+		got, err := usecase.HasSuccessfulSync(ctx, region)
+		if err != nil {
+			t.Fatalf("has successful sync %s: %v", region, err)
+		}
+		if got != want {
+			t.Fatalf("HasSuccessfulSync(%s) = %v, want %v", region, got, want)
+		}
+	}
+
+	regions, err := usecase.SuccessfulSyncRegions(ctx)
+	if err != nil {
+		t.Fatalf("successful sync regions: %v", err)
+	}
+	if len(regions) != 2 || regions[0] != "jp" || regions[1] != "tw" {
+		t.Fatalf("SuccessfulSyncRegions = %v, want [jp tw]", regions)
+	}
+
+	// The response cache stays off for a region whose sync is running.
+	if _, ok, err := usecase.RegionCacheRevision(ctx, "jp"); err != nil || ok {
+		t.Fatalf("RegionCacheRevision(jp) = %v, %v; want no revision while running", ok, err)
+	}
+}
+
+// latestOnlySyncStatusStore is a status store without ListLatestStable.
+type latestOnlySyncStatusStore struct {
+	statuses []masterdata.SyncStatus
+}
+
+func (store latestOnlySyncStatusStore) Save(context.Context, masterdata.SyncStatus) error {
+	return nil
+}
+
+func (store latestOnlySyncStatusStore) List(context.Context) ([]masterdata.SyncStatus, error) {
+	return store.statuses, nil
+}
+
+func TestRunningSyncStaysUnavailableWithoutAStableStatusStore(t *testing.T) {
+	usecase := NewMasterDataSyncUsecase(nil, nil, nil, latestOnlySyncStatusStore{
+		statuses: []masterdata.SyncStatus{{Region: "jp", Status: "running"}},
+	}, nil, 1)
+
+	ready, err := usecase.HasSuccessfulSync(context.Background(), "jp")
+	if err != nil || ready {
+		t.Fatalf("HasSuccessfulSync(jp) = %v, %v; want false without a stable status", ready, err)
+	}
+}
+
+func TestRunningSyncWithAPendingPreviousStatusStaysUnavailable(t *testing.T) {
+	ctx := context.Background()
+	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{{Region: "jp", Status: "pending"}})
+	if err := statusStore.Save(ctx, masterdata.SyncStatus{Region: "jp", Status: "running"}); err != nil {
+		t.Fatalf("save running status: %v", err)
+	}
+	usecase := NewMasterDataSyncUsecase(nil, nil, nil, statusStore, nil, 1)
+
+	ready, err := usecase.HasSuccessfulSync(ctx, "jp")
+	if err != nil || ready {
+		t.Fatalf("HasSuccessfulSync(jp) = %v, %v; want false after a pending status", ready, err)
+	}
+}
+
 func TestInterruptedRegionsReturnsConfiguredRunningAndPendingRegions(t *testing.T) {
 	now := time.Now().UTC()
 	statusStore := newFakeSyncStatusStore([]masterdata.SyncStatus{

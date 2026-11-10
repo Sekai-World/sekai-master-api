@@ -1510,7 +1510,7 @@ func (usecase *MasterDataSyncUsecase) SuccessfulSyncRegions(ctx context.Context)
 		return nil, nil
 	}
 
-	statuses, err := usecase.statusStore.List(ctx)
+	statuses, err := usecase.servingStatuses(ctx, "")
 	if err != nil {
 		return nil, err
 	}
@@ -1585,7 +1585,7 @@ func (usecase *MasterDataSyncUsecase) HasSuccessfulSync(ctx context.Context, reg
 		return false, nil
 	}
 
-	statuses, err := usecase.statusStore.List(ctx)
+	statuses, err := usecase.servingStatuses(ctx, region)
 	if err != nil {
 		return false, fmt.Errorf("list master data sync statuses: %w", err)
 	}
@@ -1598,6 +1598,60 @@ func (usecase *MasterDataSyncUsecase) HasSuccessfulSync(ctx context.Context, reg
 	}
 
 	return false, nil
+}
+
+// servingStatuses lists the status that decides whether each region's stored
+// data may be served: the latest status, or, while that is running, the
+// region's latest status that is not running. A sync replaces each entity in
+// its own transaction, so a region whose previous sync succeeded keeps
+// answering from the store while the next sync runs. A region whose previous
+// sync failed, or that has none, stays unavailable until the running sync
+// succeeds.
+//
+// A non-empty region limits the second read to the case where that region is
+// the one running, so requests for other regions keep to one status query.
+//
+// An interrupted sync leaves the region running with a store that can hold
+// entities of two commits; the region serves that until a later sync
+// finishes, which the startup sync or interrupted-sync recovery starts.
+func (usecase *MasterDataSyncUsecase) servingStatuses(ctx context.Context, region string) ([]masterdata.SyncStatus, error) {
+	statuses, err := usecase.statusStore.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	hasRunningStatus := false
+	for _, status := range statuses {
+		if strings.EqualFold(strings.TrimSpace(status.Status), "running") &&
+			(region == "" || strings.EqualFold(strings.TrimSpace(status.Region), region)) {
+			hasRunningStatus = true
+			break
+		}
+	}
+	stableStore, ok := usecase.statusStore.(MasterDataSyncLatestStableStore)
+	if !hasRunningStatus || !ok {
+		return statuses, nil
+	}
+
+	stableStatuses, err := stableStore.ListLatestStable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stableByRegion := make(map[string]masterdata.SyncStatus, len(stableStatuses))
+	for _, status := range stableStatuses {
+		stableByRegion[strings.ToLower(strings.TrimSpace(status.Region))] = status
+	}
+
+	serving := make([]masterdata.SyncStatus, 0, len(statuses))
+	for _, status := range statuses {
+		if strings.EqualFold(strings.TrimSpace(status.Status), "running") {
+			if stableStatus, found := stableByRegion[strings.ToLower(strings.TrimSpace(status.Region))]; found {
+				status = stableStatus
+			}
+		}
+		serving = append(serving, status)
+	}
+	return serving, nil
 }
 
 // RegionCacheRevision identifies the stored data of a region for the response
