@@ -450,6 +450,32 @@ definitions:
       toUserRank:
         type: integer
     type: object
+  shared.Costume2DListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.Costume2DResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.Costume2DResponse:
+    properties:
+      character2dId:
+        type: integer
+      costume2dGroupId:
+        type: integer
+      fromMmddhh:
+        type: string
+      id:
+        type: integer
+      live2dAssetbundleName:
+        type: string
+      spineAssetbundleName:
+        type: string
+      toMmddhh:
+        type: string
+    type: object
   shared.Costume3DListResponse:
     properties:
       items:
@@ -4428,6 +4454,54 @@ paths:
       summary: List comics by page
       tags:
       - comics
+  /costume2ds/{region}/list:
+    get:
+      description: Lists the 2D costumes in ID order. A costume names its Live2D model,
+        its Spine (chibi) model, both, or neither; several costumes can share one
+        Spine model.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      - description: Keep only costumes with a Spine model
+        in: query
+        name: has_spine
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.Costume2DListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List 2D costumes by page
+      tags:
+      - costume2ds
   /costume3dOutfits/{region}/{id}:
     get:
       description: Returns the outfit with its colors and every costume in it. Costumes

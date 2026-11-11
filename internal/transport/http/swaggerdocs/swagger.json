@@ -1871,6 +1871,74 @@
                 }
             }
         },
+        "/costume2ds/{region}/list": {
+            "get": {
+                "description": "Lists the 2D costumes in ID order. A costume names its Live2D model, its Spine (chibi) model, both, or neither; several costumes can share one Spine model.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "costume2ds"
+                ],
+                "summary": "List 2D costumes by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Keep only costumes with a Spine model",
+                        "name": "has_spine",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.Costume2DListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/costume3dOutfits/{region}/list": {
             "get": {
                 "description": "Lists outfits, each the costumes of one name across every character who has it, in ID order. Costumes whose publish time is in the future are hidden unless spoiler=true, and placeholder costumes (archiveDisplayType none) are never listed.",
@@ -7166,6 +7234,46 @@
                 },
                 "toUserRank": {
                     "type": "integer"
+                }
+            }
+        },
+        "shared.Costume2DListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.Costume2DResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.Costume2DResponse": {
+            "type": "object",
+            "properties": {
+                "character2dId": {
+                    "type": "integer"
+                },
+                "costume2dGroupId": {
+                    "type": "integer"
+                },
+                "fromMmddhh": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "live2dAssetbundleName": {
+                    "type": "string"
+                },
+                "spineAssetbundleName": {
+                    "type": "string"
+                },
+                "toMmddhh": {
+                    "type": "string"
                 }
             }
         },
