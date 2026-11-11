@@ -30,6 +30,10 @@ var entityProjections = map[string][]string{
 		"name", "designer", "characterId", "rarity", "costume3dRarity", "type",
 		"costume3dType", "assetbundleName", "publishedAt", "archivePublishedAt", "archiveDisplayType",
 	},
+	"costume2ds": {
+		"id", "character2dId", "costume2dGroupId", "live2dAssetbundleName", "spineAssetbundleName",
+		"fromMmddhh", "toMmddhh",
+	},
 	"costume3ds": {
 		"id", "groupId", "costume3dGroupId", "colorId", "costume3dColorId", "partType",
 		"costume3dPartType", "seq", "name", "designer", "characterId", "rarity",

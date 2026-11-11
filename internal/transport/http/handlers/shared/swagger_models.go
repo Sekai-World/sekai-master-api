@@ -80,6 +80,21 @@ type ComicListResponse struct {
 	Pagination PaginationResponse `json:"pagination"`
 }
 
+type Costume2DResponse struct {
+	ID                    int64   `json:"id"`
+	Character2DID         *int64  `json:"character2dId,omitempty"`
+	Costume2DGroupID      *int64  `json:"costume2dGroupId,omitempty"`
+	Live2DAssetbundleName *string `json:"live2dAssetbundleName,omitempty"`
+	SpineAssetbundleName  *string `json:"spineAssetbundleName,omitempty"`
+	FromMmddhh            string  `json:"fromMmddhh"`
+	ToMmddhh              string  `json:"toMmddhh"`
+}
+
+type Costume2DListResponse struct {
+	Items      []Costume2DResponse `json:"items"`
+	Pagination PaginationResponse  `json:"pagination"`
+}
+
 type HonorLevelResponse struct {
 	HonorID         *int64   `json:"honorId,omitempty"`
 	Level           *int64   `json:"level,omitempty"`
