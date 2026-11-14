@@ -27,9 +27,10 @@ func newBoostsRouterWithCache() (*gin.Engine, *fakeLookupCache) {
 					"id": 1, "costBoost": 0, "isEventOnly": false, "expRate": 1, "rewardRate": 1,
 					"livePointRate": 1, "eventPointRate": 1, "bondsExpRate": 1,
 				},
+				// Numbers as decoded JSON stores them.
 				{
-					"id": 2, "costBoost": 1, "isEventOnly": false, "expRate": 5, "rewardRate": 5,
-					"livePointRate": 5, "eventPointRate": 5, "bondsExpRate": 5,
+					"id": 2.0, "costBoost": 1.0, "isEventOnly": false, "expRate": 5.0, "rewardRate": 5.0,
+					"livePointRate": 5.0, "eventPointRate": 5.0, "bondsExpRate": 5.0,
 				},
 				{"id": 90, "eventPointRate": 5},
 				{"id": 91, "costBoost": 3},
@@ -100,6 +101,23 @@ func TestBoostsListExposesOnlyTheBoostFields(t *testing.T) {
 		if last[field] != value {
 			t.Fatalf("expected %s to be %v, got %#v", field, value, last)
 		}
+	}
+}
+
+func TestBoostsListReadsNumbersDecodedFromJSON(t *testing.T) {
+	items, _ := listBoostItems(t, "/api/v1/boosts/jp/list")
+	second := items[1]
+	for _, field := range []string{"costBoost", "expRate", "rewardRate", "livePointRate", "eventPointRate", "bondsExpRate"} {
+		expected := float64(5)
+		if field == "costBoost" {
+			expected = 1
+		}
+		if second[field] != expected {
+			t.Fatalf("expected %s to be %v, got %#v", field, expected, second)
+		}
+	}
+	if second["id"] != float64(2) {
+		t.Fatalf("expected id 2, got %#v", second)
 	}
 }
 
