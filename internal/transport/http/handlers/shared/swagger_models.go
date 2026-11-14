@@ -80,6 +80,22 @@ type ComicListResponse struct {
 	Pagination PaginationResponse `json:"pagination"`
 }
 
+type BoostResponse struct {
+	ID             *int64 `json:"id,omitempty"`
+	CostBoost      int64  `json:"costBoost"`
+	EventPointRate int64  `json:"eventPointRate"`
+	IsEventOnly    *bool  `json:"isEventOnly,omitempty"`
+	ExpRate        *int64 `json:"expRate,omitempty"`
+	RewardRate     *int64 `json:"rewardRate,omitempty"`
+	LivePointRate  *int64 `json:"livePointRate,omitempty"`
+	BondsExpRate   *int64 `json:"bondsExpRate,omitempty"`
+}
+
+type BoostListResponse struct {
+	Items      []BoostResponse    `json:"items"`
+	Pagination PaginationResponse `json:"pagination"`
+}
+
 type Costume2DResponse struct {
 	ID                    int64   `json:"id"`
 	Character2DID         *int64  `json:"character2dId,omitempty"`
