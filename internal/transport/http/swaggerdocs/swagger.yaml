@@ -134,6 +134,34 @@ definitions:
       seq:
         type: integer
     type: object
+  shared.BoostListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/shared.BoostResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/shared.PaginationResponse'
+    type: object
+  shared.BoostResponse:
+    properties:
+      bondsExpRate:
+        type: integer
+      costBoost:
+        type: integer
+      eventPointRate:
+        type: integer
+      expRate:
+        type: integer
+      id:
+        type: integer
+      isEventOnly:
+        type: boolean
+      livePointRate:
+        type: integer
+      rewardRate:
+        type: integer
+    type: object
   shared.CardBatchItemResponse:
     properties:
       assetbundleName: {}
@@ -3636,6 +3664,51 @@ paths:
       summary: List bonds honors by page
       tags:
       - bondsHonors
+  /boosts/{region}/list:
+    get:
+      description: Lists the boosts in costBoost order. A boost is the number of live
+        bonus one live consumes (costBoost) and the rates it multiplies the live's
+        rewards by; eventPointRate multiplies event points. TW, KR and CN rows carry
+        no id, isEventOnly or livePointRate.
+      parameters:
+      - description: Region
+        in: path
+        name: region
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/shared.BoostListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/shared.ErrorResponse'
+      summary: List live bonus boosts by page
+      tags:
+      - boosts
   /build-info:
     get:
       produces:
