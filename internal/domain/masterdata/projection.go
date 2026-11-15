@@ -19,6 +19,10 @@ const projectionLayoutVersion = "1"
 // lists everything they return. Sync builds the projection from the records it
 // stores, so a list request decodes one compact value instead of the entity.
 var entityProjections = map[string][]string{
+	"boosts": {
+		"id", "costBoost", "isEventOnly", "expRate", "rewardRate", "livePointRate",
+		"eventPointRate", "bondsExpRate",
+	},
 	"cards": {
 		"id", "seq", "characterId", "cardRarityType", "attr", "supportUnit", "skillId",
 		"cardSkillName", "cardSupplyId", "prefix", "assetbundleName", "gachaPhrase",

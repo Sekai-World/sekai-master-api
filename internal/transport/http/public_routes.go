@@ -103,6 +103,7 @@ func registerPublicRoutes(
 	v1.GET("/honorGroups/:region/list", lookupHandler.HonorGroupsList)
 	v1.GET("/bondsHonors/:region/list", lookupHandler.BondsHonorsList)
 	v1.GET("/bondsHonors/:region/:id", lookupHandler.BondsHonorsByID)
+	v1.GET("/boosts/:region/list", lookupHandler.BoostsList)
 	v1.GET("/costume2ds/:region/list", lookupHandler.Costume2DsList)
 	v1.GET("/costume3ds/:region/list", lookupHandler.Costume3DsList)
 	v1.GET("/costume3ds/:region/:id", lookupHandler.Costume3DsByID)

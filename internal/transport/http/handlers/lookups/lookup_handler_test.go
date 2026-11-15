@@ -27,6 +27,8 @@ type fakeLookupCache struct {
 	byIDCalls    []lookupCacheGetByIDCall
 	indexCalls   []lookupCacheIndexCall
 	projections  []string
+	// projectionErr, when set, fails every LoadProjection.
+	projectionErr error
 }
 
 type lookupCacheGetByIDCall struct {
@@ -137,6 +139,9 @@ func (cache *fakeLookupCache) LoadProjection(_ context.Context, region string, e
 	normalizedRegion := strings.ToLower(strings.TrimSpace(region))
 	normalizedEntity := strings.ToLower(strings.TrimSpace(entity))
 	cache.projections = append(cache.projections, normalizedRegion+"/"+normalizedEntity)
+	if cache.projectionErr != nil {
+		return nil, cache.projectionErr
+	}
 	records := cache.listByEntity[normalizedRegion][normalizedEntity]
 	keys := make([]string, len(records))
 	for position, record := range records {

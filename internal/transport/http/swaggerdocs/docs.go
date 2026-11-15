@@ -659,6 +659,68 @@ const docTemplate = `{
                 }
             }
         },
+        "/boosts/{region}/list": {
+            "get": {
+                "description": "Lists the boosts in costBoost order. A boost is the number of live bonus one live consumes (costBoost) and the rates it multiplies the live's rewards by; eventPointRate multiplies event points. TW, KR and CN rows carry no id, isEventOnly or livePointRate.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "boosts"
+                ],
+                "summary": "List live bonus boosts by page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region",
+                        "name": "region",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/shared.BoostListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/shared.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/build-info": {
             "get": {
                 "produces": [
@@ -6777,6 +6839,49 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "seq": {
+                    "type": "integer"
+                }
+            }
+        },
+        "shared.BoostListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/shared.BoostResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/shared.PaginationResponse"
+                }
+            }
+        },
+        "shared.BoostResponse": {
+            "type": "object",
+            "properties": {
+                "bondsExpRate": {
+                    "type": "integer"
+                },
+                "costBoost": {
+                    "type": "integer"
+                },
+                "eventPointRate": {
+                    "type": "integer"
+                },
+                "expRate": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "isEventOnly": {
+                    "type": "boolean"
+                },
+                "livePointRate": {
+                    "type": "integer"
+                },
+                "rewardRate": {
                     "type": "integer"
                 }
             }

@@ -2,6 +2,7 @@ package lookups
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"testing"
@@ -163,5 +164,69 @@ func TestCostume2DsListReturnsAnEmptyArrayPastTheEnd(t *testing.T) {
 	}
 	if string(raw["items"]) != "[]" {
 		t.Fatalf("expected an empty items array past the end, got %s", raw["items"])
+	}
+}
+
+func serveCostume2DsList(t *testing.T, handler *LookupHandler, region string) (int, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/costume2ds/:region/list", handler.Costume2DsList)
+	resp := serveLookupRequest(t, router, http.MethodGet, "/api/v1/costume2ds/"+region+"/list")
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal error response: %v", err)
+	}
+	return resp.Code, body.Error.Code
+}
+
+func TestCostume2DsListIsUnavailableWithoutMasterData(t *testing.T) {
+	status, code := serveCostume2DsList(t, NewLookupHandler(nil), "jp")
+	if status != http.StatusServiceUnavailable || code != "MASTER_DATA_DISABLED" {
+		t.Fatalf("expected 503 MASTER_DATA_DISABLED, got %d %q", status, code)
+	}
+}
+
+func TestCostume2DsListIsUnavailableForARegionThatHasNotSynced(t *testing.T) {
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"kr": {costume2dsEntity: {{"id": 1}}},
+		},
+	}
+	// The status store reports only jp and en as synced.
+	status, _ := serveCostume2DsList(t, newConfiguredLookupHandler(cache, "jp", "kr"), "kr")
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for a region without a successful sync, got %d", status)
+	}
+	if len(cache.projections) != 0 {
+		t.Fatalf("expected no projection read for a region that is not ready, got %v", cache.projections)
+	}
+}
+
+func TestCostume2DsListReportsAProjectionReadFailure(t *testing.T) {
+	cache := &fakeLookupCache{
+		listByEntity: map[string]map[string][]map[string]any{
+			"jp": {costume2dsEntity: {{"id": 1}}},
+		},
+		projectionErr: errors.New("store unavailable"),
+	}
+	status, code := serveCostume2DsList(t, newConfiguredLookupHandler(cache, "jp"), "jp")
+	if status != http.StatusInternalServerError || code != "COSTUME_2D_QUERY_ERROR" {
+		t.Fatalf("expected 500 COSTUME_2D_QUERY_ERROR, got %d %q", status, code)
+	}
+}
+
+func TestProjectCostume2DRejectsARecordWithoutAPositiveID(t *testing.T) {
+	for _, record := range []map[string]any{
+		{"spineAssetbundleName": "sd_01ichika_normal"},
+		{"id": 0, "spineAssetbundleName": "sd_01ichika_normal"},
+	} {
+		if costume, ok := projectCostume2D(recordSource(record)); ok {
+			t.Fatalf("expected %#v to be rejected, got %#v", record, costume)
+		}
 	}
 }

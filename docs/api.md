@@ -39,6 +39,7 @@ Swagger UI is available only in `development` and `test`:
 - `GET /api/v1/honors/:region/:id`
 - `GET /api/v1/bondsHonors/:region/list?page=1&page_size=20&game_character_ids=1,2`
 - `GET /api/v1/bondsHonors/:region/:id`
+- `GET /api/v1/boosts/:region/list?page=1&page_size=20`
 - `GET /api/v1/costume2ds/:region/list?page=1&page_size=20&has_spine=true`
 - `GET /api/v1/costume3ds/:region/list?page=1&page_size=20`
 - `GET /api/v1/costume3ds/:region/:id`
@@ -81,7 +82,7 @@ store read errors retain `MUSIC_QUERY_ERROR`. See the workspace
 for master-data relationships and the JP 812 example. This adds no public
 `outsideCharacters` endpoint or request-time upstream fetches.
 
-Generic master-data lookup lists and the `comics`, `costume2ds`, `mysekaiPhotoDecorations`, MySekai fixture, material, music record, and shop, `honors`, and `bondsHonors` lists accept a positive `page` and a `page_size` from 1 to 100 (default 20). Requests with `page_size` greater than 100 return `400 INVALID_REQUEST`.
+Generic master-data lookup lists and the `boosts`, `comics`, `costume2ds`, `mysekaiPhotoDecorations`, MySekai fixture, material, music record, and shop, `honors`, and `bondsHonors` lists accept a positive `page` and a `page_size` from 1 to 100 (default 20). Requests with `page_size` greater than 100 return `400 INVALID_REQUEST`.
 
 Comics are the `tips` records that carry an `assetbundleName`; text tips are left out of the list, and their IDs return `404 COMIC_NOT_FOUND`. Lists read the `tips` projection and are sorted by `id`. Responses expose only `id`, `title`, `assetbundleName`, and, when present, `fromUserRank` and `toUserRank`.
 
@@ -98,6 +99,8 @@ Stamp lists read the `stamps` list projection in stored order. Each stamp carrie
 MySekai shop lists read the secret shop (`mysekaiShops`, JP 7.0.0 and later) through its `mysekaishops` list projection in stored order; `shop_type` is a comma-separated list of `mysekaiShopType` values (`material`, `tool`). Each item carries its `mysekaiShopCosts` (by the `mysekaiShopId` relation index, in `seq` order) and, as `resources`, the details of its `resourceBoxId` box read with purpose `mysekai_shop`, since box IDs repeat across purposes. Each resource is joined to `mysekaiMaterials` or `mysekaiTools` by `resourceId` for its name, description, type, and icon `assetbundleName` (a material's `iconAssetbundleName`, a tool's `assetbundleName`). `mysekaiShopExchangeLimitType` is `none` or `limited_per_mysekai_colorful_pass`, which caps purchases at `mysekaiShopExchangeLimitValue` per World Pass period. A region without the table returns an empty list.
 
 MySekai music record lists join each `mysekaiMusicRecords` row to its song (`musics`, for `mysekaiMusicTrackType: music`) or sound track (`musicSoundTracks`, for `music_sound_track`) by `externalId`, through their list projections; records whose song or sound track is missing are omitted, and records of songs with a future `publishedAt` are hidden unless `spoiler=true`. `sound_track_category_id` keeps sound-track records in any listed `musicSoundTrackCategoryId`, and `name` matches the song or sound-track title. The filters endpoint returns the sound-track categories that at least one sound-track record uses.
+
+The `boosts` list returns the live bonus boosts in `costBoost` order, read from the `boosts` list projection. `costBoost` is the number of live bonus one live consumes and `eventPointRate` is the multiplier of its event points. Items always carry `costBoost` and `eventPointRate`; `id`, `isEventOnly`, `expRate`, `rewardRate`, `livePointRate`, and `bondsExpRate` appear only when the region's record has them (TW, KR, and CN records have no `id`, `isEventOnly`, or `livePointRate`). Every rate is an integer; a record without a non-negative integer `costBoost` or without an integer `eventPointRate` is omitted, and another rate that is not an integer is left out of its item. The list does not filter on `isEventOnly`.
 
 The `costume2ds` list returns the 2D costumes in `id` order, read from the `costume2ds` list projection. Items expose only `id`, `fromMmddhh`, `toMmddhh`, and, when present, `character2dId`, `costume2dGroupId`, `live2dAssetbundleName`, and `spineAssetbundleName` (the Spine chibi model). `has_spine=true` keeps only the costumes with a `spineAssetbundleName`, before paging; several costumes can share one Spine model, and the list does not deduplicate them.
 
